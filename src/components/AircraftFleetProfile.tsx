@@ -2,7 +2,7 @@ import { Search, Filter, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, Printer
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Spinner } from '../components/ui/spinner';
-import { useAircrafts, useAircraftPaged } from '../hooks/useAircrafts';
+import { useAircrafts } from '../hooks/useAircrafts';
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
