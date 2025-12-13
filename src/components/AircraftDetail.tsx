@@ -38,8 +38,6 @@ export function AircraftDetail() {
           status: data.status,
           manufacturer: data.manufacturer,
           reportDescription: data.report_description,
-          regNo: data.reg_no,
-
           airframeModel: data.airframe_model,
           airframeServiceManual: data.airframe_service_manual,
           airframeSerialNumber: data.engine_serial_number,
@@ -47,11 +45,10 @@ export function AircraftDetail() {
 
           engineModel: data.engine_model,
           engineSerialNumber: data.engine_serial_number,
-          engineArc: data.engine_arc,
-
+          engineArc: data?.engine_arc?.replace("uploads/", ""),
           propellerModel: data.propeller_model,
           propellerSerialNumber: data.propeller_serial_number,
-          propellerArc: data.propeller_arc,
+          propellerArc: data?.propeller_arc?.replace("uploads/", ""),
         };
 
         setAircraft(mappedAircraft);
@@ -77,7 +74,6 @@ export function AircraftDetail() {
       type: editAircraft?.type,
       model: editAircraft?.model,
       msn: editAircraft?.msn,
-      reg_no: editAircraft?.regNo,
       base: editAircraft?.base,
       ownership: editAircraft?.ownership,
       status: editAircraft?.status,
@@ -184,27 +180,6 @@ export function AircraftDetail() {
               </span>
             </div>
           </div>
-
-          {/* <div className="flex flex-wrap items-center gap-2">
-            <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-              <Printer className="w-4 h-4" />
-              <span className="hidden sm:inline">Print</span>
-            </button>
-            <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
-
-            <button className="px-3 sm:px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm">
-              <Pencil className="w-4 h-4" />
-              <span className="hidden sm:inline" onClick={handleEditClick}>Edit Aircraft</span>
-            </button>
-
-            <button className="px-3 sm:px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm">
-              <Pencil className="w-4 h-4" />
-              <span className="hidden sm:inline" onClick={handleEditClick}>Edit Aircraft</span>
-            </button>
-          </div> */}
           <div className="flex flex-wrap items-center gap-2">
             {!isEditMode ? (
               <>
@@ -342,9 +317,9 @@ export function AircraftDetail() {
                   <p className="text-xs text-gray-500 mb-1.5">Ownership Type</p>
                   {isEditMode ? (
                     <select
-                      value={editAircraft?.type ?? "Owned"}
+                      value={editAircraft?.ownership ?? ""}
                       onChange={(e) =>
-                        handleInputChange("type", e.target.value)
+                        handleInputChange("ownership", e.target.value)
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
@@ -353,7 +328,7 @@ export function AircraftDetail() {
                     </select>
                   ) : (
                     <p className="text-gray-900">
-                      {aircraft.ownership ? aircraft.ownership : "N/A"}
+                      {aircraft.ownership || "N/A"}
                     </p>
                   )}
                 </div>
@@ -372,9 +347,7 @@ export function AircraftDetail() {
                       <option value="Maintenance">Maintenance</option>
                     </select>
                   ) : (
-                    <p className="text-gray-900">
-                      {aircraft.ownership ? aircraft.ownership : "N/A"}
-                    </p>
+                    <p className="text-gray-900">{aircraft.status || "N/A"}</p>
                   )}
                 </div>
               </div>
@@ -475,8 +448,7 @@ export function AircraftDetail() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Engine ARC</p>
-                  {editAircraft?.engineArc &&
-                  editAircraft?.engineArc !== "N/A" ? (
+                  {aircraft.engineArc ? (
                     <a
                       href="#"
                       className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"
@@ -549,8 +521,7 @@ export function AircraftDetail() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Propeller ARC</p>
-                  {editAircraft?.propellerArc &&
-                  editAircraft?.propellerArc !== "N/A" ? (
+                  {aircraft.propellerArc ? (
                     <a
                       href="#"
                       className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"

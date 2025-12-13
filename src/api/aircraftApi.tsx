@@ -45,6 +45,15 @@ export const updateAircraft = async (id: number, data: any) => {
 };
 
 export const getAircraftById = (id: number) => apiClient.get(`/aircraft/${id}`);
-export const createAircraft = (data: any) => apiClient.post("/aircrafts", data);
+// export const createAircraft = (data: any) => apiClient.post("/aircrafts", data);
 export const deleteAircraft = (id: number) =>
   apiClient.delete(`/aircrafts/${id}`);
+
+export const createAircraft = async (formData: FormData) => {
+  try {
+    const response = await apiClient.post("/aircraft/", formData);
+    return toCamel(response.data);
+  } catch (error) {
+    throw error;
+  }
+};
