@@ -208,6 +208,7 @@ export function AircraftFleetProfile() {
     const file = e.target.files?.[0] || null;
     setPropellerARCFile(file);
   };
+
   const newErrors: { [key: string]: string } = {};
 
   // validate form
@@ -292,6 +293,7 @@ export function AircraftFleetProfile() {
       }
     }
   };
+
   const handleGenerateExcel = async () => {
     // setLoading(true);
     try {
@@ -519,12 +521,6 @@ export function AircraftFleetProfile() {
                               <option value="maintenance">Maintenance</option>
                               <option value="operation">Operation</option>
                             </select>
-                            <button
-                              className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
                             <button
                               className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                               title="Delete"
@@ -960,6 +956,7 @@ export function AircraftFleetProfile() {
                         <Upload className="w-4 h-4 text-gray-400" />
                       </label>
                     </div>
+
                     {propellerARCFile && (
                       <button
                         onClick={() => setPropellerARCFile(null)}

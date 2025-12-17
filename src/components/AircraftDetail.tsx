@@ -6,13 +6,15 @@ import {
   FileText,
   Save,
   X,
+  Upload,
 } from "lucide-react";
-import { type } from "os";
+import Swal from "sweetalert2";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getAircraftById, updateAircraft } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
+import { snakeAllKeys } from "../utility/utils";
 
 export function AircraftDetail() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +23,24 @@ export function AircraftDetail() {
   const [editAircraft, setEditedAircraft] = useState<Aircraft | null>(null);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [engineARCFile, setEngineARCFile] = useState<File | null>(null);
+  const [propellerARCFile, setPropellerARCFile] = useState<File | null>(null);
+
+  const [engineARCFileName, setEngineARCFileName] = useState<string>("");
+  const [propellerARCFileName, setPropellerARCFileName] = useState<string>("");
+
+  const handleEngineARCFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    setEngineARCFile(file);
+    setEngineARCFileName(String(file?.name));
+  };
+
+  const handlePropellerARCFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    setPropellerARCFile(file);
+    setPropellerARCFileName(String(file?.name));
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -50,7 +70,8 @@ export function AircraftDetail() {
           propellerSerialNumber: data.propeller_serial_number,
           propellerArc: data?.propeller_arc?.replace("uploads/", ""),
         };
-
+        setEngineARCFileName(data?.engine_arc?.replace("uploads/", ""));
+        setPropellerARCFileName(data?.propeller_arc?.replace("uploads/", ""));
         setAircraft(mappedAircraft);
       })
       .finally(() =>
@@ -85,20 +106,37 @@ export function AircraftDetail() {
 
       engine_model: editAircraft?.engineModel,
       engine_serial_number: editAircraft?.engineSerialNumber,
-      engine_arc: editAircraft?.engineArc,
+      // engine_arc: editAircraft?.engineArc,
 
       propeller_model: editAircraft?.propellerModel,
       propeller_serial_number: editAircraft?.propellerSerialNumber,
-      propeller_arc: editAircraft?.propellerArc,
+      // propeller_arc: editAircraft?.propellerArc,
     };
+
+    const formData = new FormData();
+
+    // Append JSON data as string
+    formData.append("json_data", JSON.stringify(snakeAllKeys(updatedData)));
+    // Append files if they exist
+
+    formData.append("engine_arc_file", engineARCFile || "");
+    formData.append("propeller_arc_file", propellerARCFile || "");
+
     try {
-      const response = await updateAircraft(Number(id), updatedData);
+      const response = await updateAircraft(Number(id), formData);
       const updatedAircraft: Aircraft = response;
 
       setEditedAircraft(updatedAircraft);
       setAircraft(updatedAircraft);
-      console.log(updatedAircraft, "updatedAircraft");
-      // setIsEditMode(false);
+      setIsEditMode(false);
+
+      Swal.fire({
+        icon: "success",
+        title: "Aircraft Updated!",
+        text: "The aircraft details have been successfully updated.",
+        showConfirmButton: false,
+        timer: 1500,
+      });
     } catch (err) {
       console.error(err);
       alert("Failed to save changes.");
@@ -121,6 +159,16 @@ export function AircraftDetail() {
 
   const handleBack = () => {
     navigate("/profile");
+  };
+
+  const handleEngineCancel = () => {
+    setEngineARCFile(null);
+    setEngineARCFileName("");
+  };
+
+  const handlePropellerCancel = () => {
+    setPropellerARCFile(null);
+    setPropellerARCFileName("");
   };
 
   if (!aircraft) {
@@ -183,14 +231,6 @@ export function AircraftDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {!isEditMode ? (
               <>
-                <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-                  <Printer className="w-4 h-4" />
-                  <span className="hidden sm:inline">Print</span>
-                </button>
-                <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">Export</span>
-                </button>
                 <button
                   onClick={handleEditClick}
                   className="px-3 sm:px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm"
@@ -448,23 +488,42 @@ export function AircraftDetail() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Engine ARC</p>
-                  {aircraft.engineArc ? (
-                    <a
-                      href="#"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        // In a real app, this would trigger the file download
-                        alert("File download would start here");
-                      }}
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span className="text-sm">{aircraft.engineArc}</span>
-                      <Download className="w-3.5 h-3.5" />
-                    </a>
-                  ) : (
-                    <p className="text-gray-900">N/A</p>
-                  )}
+                  <div>
+                    <div className="relative">
+                      <input
+                        type="file"
+                        id="engine-arc-file"
+                        onChange={handleEngineARCFile}
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                        disabled={!isEditMode}
+                      />
+                      <label
+                        htmlFor="engine-arc-file"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                      >
+                        <span
+                          className={
+                            engineARCFile ? "text-gray-900" : "text-gray-400"
+                          }
+                        >
+                          {engineARCFileName
+                            ? engineARCFileName
+                            : "Choose file or N/A"}
+                        </span>
+                        <Upload className="w-4 h-4 text-gray-400" />
+                      </label>
+                    </div>
+
+                    {isEditMode && engineARCFileName && (
+                      <button
+                        onClick={handleEngineCancel}
+                        className="text-xs text-red-600 hover:text-red-700 mt-1"
+                      >
+                        Remove file
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -521,7 +580,42 @@ export function AircraftDetail() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Propeller ARC</p>
-                  {aircraft.propellerArc ? (
+                  <div>
+                    <div className="relative">
+                      <input
+                        type="file"
+                        id="propeller-arc-file"
+                        onChange={handlePropellerARCFile}
+                        className="hidden"
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                        disabled={!isEditMode}
+                      />
+                      <label
+                        htmlFor="propeller-arc-file"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                      >
+                        <span
+                          className={
+                            propellerARCFile ? "text-gray-900" : "text-gray-400"
+                          }
+                        >
+                          {propellerARCFileName
+                            ? propellerARCFileName
+                            : "Choose file or N/A"}
+                        </span>
+                        <Upload className="w-4 h-4 text-gray-400" />
+                      </label>
+                    </div>
+                    {isEditMode && propellerARCFileName && (
+                      <button
+                        onClick={handlePropellerCancel}
+                        className="text-xs text-red-600 hover:text-red-700 mt-1"
+                      >
+                        Remove file
+                      </button>
+                    )}
+                  </div>
+                  {/* {aircraft.propellerArc ? (
                     <a
                       href="#"
                       className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"
@@ -537,7 +631,7 @@ export function AircraftDetail() {
                     </a>
                   ) : (
                     <p className="text-gray-900">N/A</p>
-                  )}
+                  )} */}
                 </div>
               </div>
             </div>

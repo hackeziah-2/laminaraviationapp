@@ -32,9 +32,19 @@ export const getAircrafts = (
 export const getAircraftAll = (page = 1, limit = 10, search = "") =>
   apiClient.get(`aircraft/paged?limit=${limit}&page=${page}&search=${search}`);
 
-export const updateAircraft = async (id: number, data: any) => {
+// export const updateAircraft = async (id: number, data: any) => {
+//   try {
+//     const response = await apiClient.put<Aircraft>(`/aircraft/${id}`, data);
+//     return toCamel(response.data);
+//   } catch (error) {
+//     // rethrow to be handled by caller
+//     throw error;
+//   }
+// };
+
+export const updateAircraft = async (id: number, formData: FormData) => {
   try {
-    const response = await apiClient.put<Aircraft>(`/aircraft/${id}`, data);
+    const response = await apiClient.put<Aircraft>(`/aircraft/${id}`, formData);
     return toCamel(response.data);
   } catch (error) {
     // rethrow to be handled by caller
