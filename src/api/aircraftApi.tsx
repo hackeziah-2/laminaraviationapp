@@ -1,22 +1,16 @@
 import apiClient from "./index";
 import { Aircraft } from "../types/Aircraft";
-
-function toCamel<T extends Record<string, any>>(obj: T): any {
-  const result: any = {};
-  for (const key in obj) {
-    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-    result[camel] = obj[key];
-  }
-  return result;
-}
+import { toCamel } from "../utility/utils";
 
 export const getAircrafts = (
   page = 1,
   limit = 10,
   search = "",
-  status = ""
+  status = "",
+  sortParam = ""
 ) => {
   const params = new URLSearchParams();
+
   params.append("page", page.toString());
   params.append("limit", limit.toString());
 
@@ -24,8 +18,12 @@ export const getAircrafts = (
     params.append("search", search);
   }
 
-  if (status) {
+  if (status && status !== "all") {
     params.append("status", status);
+  }
+
+  if (sortParam) {
+    params.append("sort", sortParam);
   }
 
   return apiClient.get(`aircraft/paged?${params.toString()}`);
@@ -54,6 +52,34 @@ export const createAircraft = async (formData: FormData) => {
     const response = await apiClient.post("/aircraft/", formData);
     return toCamel(response.data);
   } catch (error) {
+    throw error;
+  }
+};
+
+export const createReportAircraft = async (data: any): Promise<Blob> => {
+  try {
+    const response = await apiClient.post("aircraft/reports/excel", data, {
+      responseType: "blob", // <- important
+    });
+    return response.data; // Axios returns the blob here
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const createReportPDFAircraft = async (
+  data: any, // request payload
+  headers: Record<string, string> = {} // optional headers
+): Promise<Blob> => {
+  try {
+    const response = await apiClient.post("aircraft/reports/pdf", data, {
+      headers, // headers go inside the third argument
+      responseType: "blob", // important to get PDF as Blob
+    });
+
+    return response.data; // Blob of the PDF
+  } catch (error) {
+    console.error("Error generating PDF:", error);
     throw error;
   }
 };

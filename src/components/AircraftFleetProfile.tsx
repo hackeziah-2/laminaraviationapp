@@ -12,6 +12,7 @@ import {
   Download,
   Plus,
   X,
+  ChevronUp,
   ChevronDown,
   Upload,
 } from "lucide-react";
@@ -21,8 +22,12 @@ import { useNavigate } from "react-router-dom";
 import { Spinner } from "../components/ui/spinner";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { AircraftForm } from "../types/Aircraft";
-import { createAircraft } from "../api/aircraftApi";
-import { snakeAllKeys } from "../utility/utils";
+import {
+  createAircraft,
+  createReportAircraft,
+  createReportPDFAircraft,
+} from "../api/aircraftApi";
+import { dateToday, snakeAllKeys } from "../utility/utils";
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
@@ -35,8 +40,81 @@ export function AircraftFleetProfile() {
   const [engineARCFile, setEngineARCFile] = useState<File | null>(null);
   const [propellerARCFile, setPropellerARCFile] = useState<File | null>(null);
 
+  type SortItem = {
+    field: string;
+    direction: "asc" | "desc";
+  };
+
+  const [sorts, setSorts] = useState<SortItem[]>([
+    { field: "created_at", direction: "desc" },
+  ]);
+
+  const toggleSort = (field: string, multi = false) => {
+    setCurrentPage(1);
+
+    setSorts((prev) => {
+      const existingIndex = prev.findIndex((s) => s.field === field);
+
+      // Not sorted yet
+      if (existingIndex === -1) {
+        return multi
+          ? [...prev, { field, direction: "asc" }]
+          : [{ field, direction: "asc" }];
+      }
+
+      const existing = prev[existingIndex];
+
+      // ASC → DESC
+      if (existing.direction === "asc") {
+        return prev.map((s, i) =>
+          i === existingIndex ? { ...s, direction: "desc" } : s
+        );
+      }
+
+      // DESC → remove
+      const next = prev.filter((s) => s.field !== field);
+
+      // if (next.length === 0 && !multi) {
+      //   return [{ field: "created_at", direction: "desc" }];
+      // }
+
+      return next;
+    });
+  };
+
+  const sortParam =
+    sorts.length > 0
+      ? sorts
+          .map((s) => (s.direction === "desc" ? `-${s.field}` : s.field))
+          .join(",")
+      : "";
+
+  const renderSortIcon = (field: string) => {
+    const index = sorts.findIndex((s) => s.field === field);
+    if (index === -1) return null;
+
+    const item = sorts[index];
+
+    return (
+      <span className="flex items-center gap-0.5">
+        {item.direction === "asc" ? (
+          <ChevronUp className="w-4 h-4" />
+        ) : (
+          <ChevronDown className="w-4 h-4" />
+        )}
+        <span className="text-[10px] text-gray-400">{index + 1}</span>
+      </span>
+    );
+  };
+
   const { aircrafts, loading, error, totalItems, page, totalPage } =
-    useAircrafts(currentPage, itemsPerPage, searchTerm, filterStatus);
+    useAircrafts(
+      currentPage,
+      itemsPerPage,
+      searchTerm,
+      filterStatus,
+      sortParam
+    );
 
   const handleViewAircraft = (aircraftId: number, view: string = "detail") => {
     switch (view) {
@@ -214,6 +292,46 @@ export function AircraftFleetProfile() {
       }
     }
   };
+  const handleGenerateExcel = async () => {
+    // setLoading(true);
+    try {
+      // Call backend to generate report
+      const blob = await createReportAircraft(aircrafts);
+
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `aircraft_report_${dateToday}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Failed to generate report:", err);
+      alert(err.message || "Error generating report");
+    } finally {
+      // setLoading(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      const pdfBlob = await createReportPDFAircraft(aircrafts);
+
+      // Create download link
+      const url = window.URL.createObjectURL(pdfBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `aircraft_report_${dateToday}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
@@ -228,13 +346,19 @@ export function AircraftFleetProfile() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+          <button
+            onClick={handleDownloadPDF}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
             <Printer className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Print</span>
+            <span className="text-gray-700 hidden sm:inline">Print PDF</span>
           </button>
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+          <button
+            onClick={handleGenerateExcel}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+          >
             <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
+            <span className="text-gray-700 hidden sm:inline">Export EXCEL</span>
           </button>
           <button
             onClick={() => setShowAddAircraftModal(true)}
@@ -264,7 +388,7 @@ export function AircraftFleetProfile() {
             </label>
             <input
               type="text"
-              placeholder="Search by registration, type, model, or location..."
+              placeholder="Search by registration, model, or location"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
@@ -304,9 +428,18 @@ export function AircraftFleetProfile() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      AC REG
+                    {/* <th className=""></th> */}
+
+                    <th
+                      onClick={(e) => toggleSort("registration", e.shiftKey)}
+                      className="cursor-pointer select-none px-6 py-3"
+                    >
+                      <div className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                        <b>AC REG</b>
+                        {renderSortIcon("registration")}
+                      </div>
                     </th>
+
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                       Aircraft Type
                     </th>
@@ -321,6 +454,15 @@ export function AircraftFleetProfile() {
                     </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                       Status
+                    </th>
+                    <th
+                      onClick={(e) => toggleSort("created_at", e.shiftKey)}
+                      className="cursor-pointer select-none px-6 py-3"
+                    >
+                      <div className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                        <b>CREATED AT</b>
+                        {renderSortIcon("created_at")}
+                      </div>
                     </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                       Actions
@@ -343,6 +485,7 @@ export function AircraftFleetProfile() {
                         </td>
                         <td className="px-6 py-3.5 text-gray-600">{ac.msn}</td>
                         <td className="px-6 py-3.5 text-gray-900">{ac.base}</td>
+
                         <td className="px-6 py-3.5">
                           <span
                             className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getStatusColor(
@@ -351,6 +494,9 @@ export function AircraftFleetProfile() {
                           >
                             {ac.status}
                           </span>
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {ac.created_at.split("T")[0]}
                         </td>
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-2">

@@ -20,3 +20,14 @@ export function snakeAllKeys<T>(data: T): any {
 
   return data;
 }
+
+export function toCamel<T extends Record<string, any>>(obj: T): any {
+  const result: any = {};
+  for (const key in obj) {
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    result[camel] = obj[key];
+  }
+  return result;
+}
+
+export const dateToday = new Date().toISOString().split("T")[0];
