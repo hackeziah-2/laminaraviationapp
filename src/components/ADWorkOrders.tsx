@@ -244,7 +244,7 @@ export function ADWorkOrders({ adNumber, onBack }: ADWorkOrdersProps) {
                 </tr>
                 <tr className="bg-green-50 border-b border-gray-200">
                   <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-l border-gray-200">
-                    ACFT
+                    AFTT
                   </th>
                   <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
                     TACH
@@ -253,7 +253,7 @@ export function ADWorkOrders({ adNumber, onBack }: ADWorkOrdersProps) {
                     DATE
                   </th>
                   <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                    ACFT
+                    AFTT
                   </th>
                   <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">
                     TACH

@@ -4,313 +4,348 @@ import {
   Pencil,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Printer,
   Download,
   Plus,
   FileText,
-  Plane,
-  Wrench,
   Clock,
+  Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import Swal from "sweetalert2";
+import { Spinner } from "../components/ui/spinner";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
+import {
+  getAircraftTechnicalLogs,
+  getAircraftTechnicalLogById,
+  createAircraftTechnicalLog,
+  updateAircraftTechnicalLog,
+  deleteAircraftTechnicalLog,
+  AircraftTechnicalLog,
+} from "../api/aircraftTechnicalLogApi";
 
 interface LogbookEntry {
   id: number;
-  line: number;
-  reqNo: string;
+  // line: number;
+  seqNo: string;
   date: string;
   acReg: string;
   route: string;
+  origin: string;
+  destination: string;
   fltTime: string;
   pilot: string;
-  status: "Serviceable" | "Under Maintenance";
+  // status: "Serviceable" | "Under Maintenance";
 }
 
 export function AircraftTechnicalLogbook() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<LogbookEntry | null>(null);
+  const [selectedFullEntry, setSelectedFullEntry] =
+    useState<AircraftTechnicalLog | null>(null);
+  const [entries, setEntries] = useState<LogbookEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalEntries, setTotalEntries] = useState(0);
 
-  const entries: LogbookEntry[] = [
-    {
-      id: 1,
-      line: 1,
-      reqNo: "2024-001",
-      date: "10/15/2024",
-      acReg: "RP-C1234",
-      route: "MNL → CEB",
-      fltTime: "1.75h",
-      pilot: "Juan Dela Cruz",
-      status: "Serviceable",
-    },
-    {
-      id: 2,
-      line: 2,
-      reqNo: "2024-002",
-      date: "10/16/2024",
-      acReg: "RP-C1234",
-      route: "CEB → DVO",
-      fltTime: "1.50h",
-      pilot: "Jose Garcia",
-      status: "Serviceable",
-    },
-    {
-      id: 3,
-      line: 3,
-      reqNo: "2024-003",
-      date: "10/17/2024",
-      acReg: "RP-C4678",
-      route: "MNL → MNL",
-      fltTime: "1.00h",
-      pilot: "Ana Reyes",
-      status: "Under Maintenance",
-    },
-    {
-      id: 4,
-      line: 4,
-      reqNo: "2024-004",
-      date: "10/18/2024",
-      acReg: "RP-C9012",
-      route: "MNL → ILO",
-      fltTime: "1.25h",
-      pilot: "Miguel Torres",
-      status: "Serviceable",
-    },
-    {
-      id: 5,
-      line: 5,
-      reqNo: "2024-005",
-      date: "10/19/2024",
-      acReg: "RP-C1234",
-      route: "DVO → GES",
-      fltTime: "0.75h",
-      pilot: "Sofia Martinez",
-      status: "Serviceable",
-    },
-    {
-      id: 6,
-      line: 6,
-      reqNo: "2024-006",
-      date: "10/20/2024",
-      acReg: "RP-C4678",
-      route: "MNL → BCD",
-      fltTime: "2.00h",
-      pilot: "Ricardo Santos",
-      status: "Serviceable",
-    },
-    {
-      id: 7,
-      line: 7,
-      reqNo: "2024-007",
-      date: "10/21/2024",
-      acReg: "RP-C9012",
-      route: "ILO → TAC",
-      fltTime: "1.10h",
-      pilot: "Carmen Lopez",
-      status: "Serviceable",
-    },
-    {
-      id: 8,
-      line: 8,
-      reqNo: "2024-008",
-      date: "10/22/2024",
-      acReg: "RP-C1234",
-      route: "GES → MNL",
-      fltTime: "0.80h",
-      pilot: "Antonio Cruz",
-      status: "Serviceable",
-    },
-    {
-      id: 9,
-      line: 9,
-      reqNo: "2024-009",
-      date: "10/23/2024",
-      acReg: "RP-C4678",
-      route: "BCD → CEB",
-      fltTime: "1.40h",
-      pilot: "Patricia Ramos",
-      status: "Serviceable",
-    },
-    {
-      id: 10,
-      line: 10,
-      reqNo: "2024-010",
-      date: "10/24/2024",
-      acReg: "RP-C9012",
-      route: "TAC → DVO",
-      fltTime: "1.65h",
-      pilot: "Fernando Diaz",
-      status: "Serviceable",
-    },
-    {
-      id: 11,
-      line: 11,
-      reqNo: "2024-011",
-      date: "10/25/2024",
-      acReg: "RP-C1234",
-      route: "MNL → CEB",
-      fltTime: "1.70h",
-      pilot: "Maria Santos",
-      status: "Serviceable",
-    },
-    {
-      id: 12,
-      line: 12,
-      reqNo: "2024-012",
-      date: "10/26/2024",
-      acReg: "RP-C4678",
-      route: "CEB → MNL",
-      fltTime: "1.75h",
-      pilot: "Pedro Reyes",
-      status: "Under Maintenance",
-    },
-    {
-      id: 13,
-      line: 13,
-      reqNo: "2024-013",
-      date: "10/27/2024",
-      acReg: "RP-C9012",
-      route: "DVO → MNL",
-      fltTime: "2.10h",
-      pilot: "Isabel Cruz",
-      status: "Serviceable",
-    },
-    {
-      id: 14,
-      line: 14,
-      reqNo: "2024-014",
-      date: "10/28/2024",
-      acReg: "RP-C1234",
-      route: "MNL → ILO",
-      fltTime: "1.30h",
-      pilot: "Roberto Garcia",
-      status: "Serviceable",
-    },
-    {
-      id: 15,
-      line: 15,
-      reqNo: "2024-015",
-      date: "10/29/2024",
-      acReg: "RP-C4678",
-      route: "ILO → MNL",
-      fltTime: "1.25h",
-      pilot: "Elena Torres",
-      status: "Serviceable",
-    },
-    {
-      id: 16,
-      line: 16,
-      reqNo: "2024-016",
-      date: "10/30/2024",
-      acReg: "RP-C9012",
-      route: "MNL → BCD",
-      fltTime: "1.95h",
-      pilot: "Carlos Martinez",
-      status: "Serviceable",
-    },
-    {
-      id: 17,
-      line: 17,
-      reqNo: "2024-017",
-      date: "10/31/2024",
-      acReg: "RP-C1234",
-      route: "BCD → MNL",
-      fltTime: "2.00h",
-      pilot: "Rosa Lopez",
-      status: "Serviceable",
-    },
-    {
-      id: 18,
-      line: 18,
-      reqNo: "2024-018",
-      date: "11/01/2024",
-      acReg: "RP-C4678",
-      route: "MNL → TAC",
-      fltTime: "1.80h",
-      pilot: "Luis Santos",
-      status: "Serviceable",
-    },
-    {
-      id: 19,
-      line: 19,
-      reqNo: "2024-019",
-      date: "11/02/2024",
-      acReg: "RP-C9012",
-      route: "TAC → MNL",
-      fltTime: "1.85h",
-      pilot: "Angela Reyes",
-      status: "Serviceable",
-    },
-    {
-      id: 20,
-      line: 20,
-      reqNo: "2024-020",
-      date: "11/03/2024",
-      acReg: "RP-C1234",
-      route: "MNL → GES",
-      fltTime: "0.90h",
-      pilot: "Francisco Cruz",
-      status: "Serviceable",
-    },
-  ];
+  // Map backend data to frontend format
+  const mapToLogbookEntry = (
+    apiEntry: AircraftTechnicalLog,
+    index: number
+  ): LogbookEntry => {
+    // Format date from YYYY-MM-DD to MM/DD/YYYY
+    const formatDate = (dateStr: string) => {
+      if (!dateStr) return "";
+      const date = new Date(dateStr);
+      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
+        .getDate()
+        .toString()
+        .padStart(2, "0")}/${date.getFullYear()}`;
+    };
 
-  // Calculate statistics
-  const totalEntries = entries.length;
-  const serviceable = entries.filter((e) => e.status === "Serviceable").length;
-  const underMaintenance = entries.filter(
-    (e) => e.status === "Under Maintenance"
-  ).length;
+    // Format route from stations
+    const route = `${apiEntry.originStation || ""} → ${
+      apiEntry.destinationStation || ""
+    }`;
+
+    // Format flight time from hobbs meter total or tachometer total
+    const fltTime = `${(
+      apiEntry.hobbsMeterTotal ||
+      apiEntry.tachometerTotal ||
+      0
+    ).toFixed(2)}h`;
+
+    // Determine status based on actions taken or remarks
+    // If there are actions taken or remarks indicating maintenance, mark as "Under Maintenance"
+    // const status: "Serviceable" | "Under Maintenance" =
+    //   (apiEntry.actionsTaken && apiEntry.actionsTaken.trim() !== "") ||
+    //   (apiEntry.remarks && apiEntry.remarks.trim() !== "" &&
+    //    apiEntry.remarks.toLowerCase().includes("maintenance"))
+    //     ? "Under Maintenance"
+    //     : "Serviceable";
+
+    // Extract pilot info from remarks or use "N/A"
+    const pilotName = apiEntry.remarks
+      ? apiEntry.remarks.split("\n")[0].substring(0, 30)
+      : "N/A";
+
+    return {
+      id: apiEntry.id,
+      seqNo: apiEntry.sequenceNo || "",
+      date: formatDate(apiEntry.originDate || apiEntry.destinationDate || ""),
+      acReg: apiEntry.aircraft?.registration || "",
+      route: route,
+      origin: apiEntry?.originStation || "",
+      destination: apiEntry?.destinationStation || "",
+      fltTime: fltTime,
+      pilot: pilotName,
+      // status: status,
+    };
+  };
+
+  // Fetch entries from API
+  const fetchEntries = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await getAircraftTechnicalLogs(
+        currentPage,
+        itemsPerPage,
+        debouncedSearchTerm, // Use debounced search term
+        undefined, // aircraftFk - optional, can filter by aircraft ID
+        sortBy // Sort parameter
+      );
+
+      const mappedEntries = response.items.map((entry, index) =>
+        mapToLogbookEntry(entry, index)
+      );
+
+      setEntries(mappedEntries);
+      setTotalPages(response.pages);
+      setTotalEntries(response.total);
+    } catch (err: any) {
+      // Check for network errors (backend not running)
+      if (
+        err.code === "ERR_NETWORK" ||
+        err.message === "Network Error" ||
+        err.message?.includes("CONNECTION_REFUSED")
+      ) {
+        setError(
+          "Unable to connect to the backend server. Please ensure the backend is running at http://localhost:8000"
+        );
+      } else {
+        setError(
+          err.response?.data?.detail || err.message || "Failed to fetch entries"
+        );
+      }
+      setEntries([]);
+      setTotalPages(0);
+      setTotalEntries(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Debounce search term
+  useEffect(() => {
+    // Clear existing timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Set new timeout
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setCurrentPage(1); // Reset to page 1 when search changes
+    }, 500); // 500ms delay
+
+    // Cleanup function
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchTerm]);
+
+  useEffect(() => {
+    fetchEntries();
+  }, [currentPage, itemsPerPage, debouncedSearchTerm, sortBy]);
+
+  // Reset to page 1 when sort changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [sortBy]);
+
+  // Calculate statistics from current page entries
   const totalFlightHours = entries
-    .reduce((sum, e) => sum + parseFloat(e.fltTime), 0)
+    .reduce((sum, e) => {
+      const hours = parseFloat(e.fltTime.replace("h", "")) || 0;
+      return sum + hours;
+    }, 0)
     .toFixed(1);
 
-  const filteredEntries = entries.filter((entry) => {
-    const matchesSearch =
-      entry.reqNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.acReg.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.route.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.pilot.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter =
-      filterStatus === "all" ||
-      entry.status.toLowerCase().replace(" ", "-") ===
-        filterStatus.toLowerCase();
-
-    return matchesSearch && matchesFilter;
-  });
-
-  const totalPages = Math.ceil(filteredEntries.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedEntries = filteredEntries.slice(
-    startIndex,
-    startIndex + itemsPerPage
-  );
+  const paginatedEntries = entries;
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    setCurrentPage(1);
+    // Don't reset page here - let debounce handle it
   };
 
-  const handleFilterChange = (value: string) => {
-    setFilterStatus(value);
-    setCurrentPage(1);
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Serviceable":
-        return "bg-emerald-500/10 text-emerald-700 border border-emerald-200";
-      case "Under Maintenance":
-        return "bg-amber-500/10 text-amber-700 border border-amber-200";
-      default:
-        return "bg-gray-500/10 text-gray-700 border border-gray-200";
+  // Handle column sorting
+  const handleSort = (column: string) => {
+    // If already sorting by this column, toggle direction
+    if (sortBy === column) {
+      setSortBy(`-${column}`);
+    } else if (sortBy === `-${column}`) {
+      setSortBy(column);
+    } else {
+      // New column, default to descending
+      setSortBy(`-${column}`);
     }
+    setCurrentPage(1);
+  };
+
+  // Get sort indicator for a column
+  const getSortIndicator = (column: string) => {
+    const activeColumn = sortBy.replace("-", "");
+    const isActive = activeColumn === column;
+    const isDescending = sortBy.startsWith("-");
+
+    if (!isActive) {
+      return null;
+    }
+
+    return (
+      <span className="flex items-center gap-0.5">
+        {isDescending ? (
+          <ChevronDown className="w-4 h-4 text-gray-400" />
+        ) : (
+          <ChevronUp className="w-4 h-4 text-gray-400" />
+        )}
+        <span className="text-[10px] text-gray-400">1</span>
+      </span>
+    );
+  };
+
+  // Handle view entry - fetch full details
+  const handleViewEntry = async (entry: LogbookEntry) => {
+    try {
+      const fullEntry = await getAircraftTechnicalLogById(entry.id);
+      setSelectedFullEntry(fullEntry);
+      setSelectedEntry(entry);
+      setIsViewModalOpen(true);
+    } catch (err: any) {
+      setError(
+        err.response?.data?.detail ||
+          err.message ||
+          "Failed to fetch entry details"
+      );
+    }
+  };
+
+  // Handle edit entry - fetch full details
+  const handleEditEntry = async (entry: LogbookEntry) => {
+    try {
+      const fullEntry = await getAircraftTechnicalLogById(entry.id);
+      setSelectedFullEntry(fullEntry);
+      setSelectedEntry(entry);
+      setIsEditModalOpen(true);
+    } catch (err: any) {
+      setError(
+        err.response?.data?.detail ||
+          err.message ||
+          "Failed to fetch entry details"
+      );
+    }
+  };
+
+  // Handle delete entry
+  const handleDeleteEntry = async (entry: LogbookEntry) => {
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: `Are you sure you want to delete entry with Sequence No ${entry.seqNo}? This action cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete it!",
+      cancelButtonText: "Cancel",
+    });
+
+    if (!result.isConfirmed) {
+      return;
+    }
+
+    try {
+      await deleteAircraftTechnicalLog(entry.id);
+      // Refresh the list
+      await fetchEntries();
+      // If we're on a page that becomes empty, go to previous page
+      if (entries.length === 1 && currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+      }
+      // Show success message
+      Swal.fire({
+        title: "Deleted!",
+        text: "Entry has been deleted successfully.",
+        icon: "success",
+        confirmButtonColor: "#1f2937",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err: any) {
+      Swal.fire({
+        title: "Error!",
+        text:
+          err.response?.data?.detail || err.message || "Failed to delete entry",
+        icon: "error",
+        confirmButtonColor: "#dc2626",
+      });
+    }
+  };
+
+  // Handle create entry success
+  const handleCreateSuccess = () => {
+    setIsModalOpen(false);
+    fetchEntries();
+    setCurrentPage(1);
+    Swal.fire({
+      title: "Success!",
+      text: "Entry has been created successfully.",
+      icon: "success",
+      confirmButtonColor: "#1f2937",
+      timer: 2000,
+      showConfirmButton: false,
+    });
+  };
+
+  // Handle update entry success
+  const handleUpdateSuccess = () => {
+    setIsEditModalOpen(false);
+    setSelectedEntry(null);
+    setSelectedFullEntry(null);
+    fetchEntries();
+    Swal.fire({
+      title: "Updated!",
+      text: "Entry has been updated successfully.",
+      icon: "success",
+      confirmButtonColor: "#1f2937",
+      timer: 2000,
+      showConfirmButton: false,
+    });
   };
 
   return (
@@ -345,7 +380,7 @@ export function AircraftTechnicalLogbook() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl p-5 border border-blue-200">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-600 text-sm">Total Entries</span>
@@ -353,28 +388,8 @@ export function AircraftTechnicalLogbook() {
               <FileText className="w-5 h-5 text-blue-600" />
             </div>
           </div>
-          <p className="text-gray-900 text-2xl sm:text-3xl">{totalEntries}</p>
-        </div>
-
-        <div className="bg-gradient-to-br from-green-50 to-green-100/50 rounded-xl p-5 border border-green-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600 text-sm">Serviceable</span>
-            <div className="w-10 h-10 bg-green-500/10 rounded-lg flex items-center justify-center">
-              <Plane className="w-5 h-5 text-green-600" />
-            </div>
-          </div>
-          <p className="text-gray-900 text-2xl sm:text-3xl">{serviceable}</p>
-        </div>
-
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 rounded-xl p-5 border border-amber-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600 text-sm">Under Maintenance</span>
-            <div className="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center">
-              <Wrench className="w-5 h-5 text-amber-600" />
-            </div>
-          </div>
           <p className="text-gray-900 text-2xl sm:text-3xl">
-            {underMaintenance}
+            {totalEntries || 0}
           </p>
         </div>
 
@@ -398,7 +413,7 @@ export function AircraftTechnicalLogbook() {
         </span>
       </div>
 
-      {/* Search and Filter */}
+      {/* Search */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
@@ -407,199 +422,242 @@ export function AircraftTechnicalLogbook() {
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Search by request number, aircraft, route, or station..."
+                placeholder="Search by sequence number, A/C REG, route, or station..."
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
               />
             </div>
           </div>
-          <div className="w-full md:w-56">
-            <label className="block text-gray-700 mb-2">Filter by Status</label>
-            <select
-              value={filterStatus}
-              onChange={(e) => handleFilterChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-            >
-              <option value="all">All Status</option>
-              <option value="serviceable">Serviceable</option>
-              <option value="under-maintenance">Under Maintenance</option>
-            </select>
-          </div>
         </div>
       </div>
 
-      {/* Table Info */}
-      <div className="text-gray-600 text-sm">
-        Showing {filteredEntries.length > 0 ? startIndex + 1 : 0} to{" "}
-        {Math.min(startIndex + itemsPerPage, filteredEntries.length)} of{" "}
-        {filteredEntries.length} entries
-      </div>
+      {loading ? (
+        <Spinner />
+      ) : (
+        <>
+          {/* Table Info */}
+          <div className="text-gray-600 text-sm">
+            {error ? (
+              <span className="text-red-600">Error: {error}</span>
+            ) : (
+              <>
+                Showing {entries.length > 0 ? startIndex + 1 : 0} to{" "}
+                {Math.min(startIndex + itemsPerPage, entries.length)} of{" "}
+                {entries.length} entries
+              </>
+            )}
+          </div>
 
-      {/* Entries Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  LINE
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  REQ. NO.
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  DATE
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  A/C REG
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  ROUTE
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  FLT TIME
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  STATUS
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  ACTIONS
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {paginatedEntries.length > 0 ? (
-                paginatedEntries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-6 py-3.5 text-gray-900">{entry.line}</td>
-                    <td className="px-6 py-3.5 text-gray-900">{entry.reqNo}</td>
-                    <td className="px-6 py-3.5 text-gray-600">{entry.date}</td>
-                    <td className="px-6 py-3.5 text-gray-900">{entry.acReg}</td>
-                    <td className="px-6 py-3.5 text-gray-900">{entry.route}</td>
-                    <td className="px-6 py-3.5 text-gray-900">
-                      {entry.fltTime}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <span
-                        className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getStatusColor(
-                          entry.status
-                        )}`}
-                      >
-                        {entry.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedEntry(entry);
-                            setIsViewModalOpen(true);
-                          }}
-                          className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          title="View"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+          {/* Entries Table */}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th
+                      className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("sequence_no")}
+                    >
+                      <b>SEQUENCE NO</b>
+                      {getSortIndicator("sequence_no")}
+                    </th>
+                    <th
+                      className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("aircraft_registration")}
+                    >
+                      <b>A/C REG</b>
+                      {getSortIndicator("aircraft_registration")}
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                      ORIGIN
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                      DESTINATION
+                    </th>
+
+                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                      FLT TIME
+                    </th>
+                    <th
+                      className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("created_at")}
+                    >
+                      <b>CREATED AT</b>
+                      {getSortIndicator("created_at")}
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                      ACTIONS
+                    </th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="px-6 py-12 text-center text-gray-500"
-                  >
-                    No entries found matching your search criteria
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {error ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-6 py-12 text-center text-red-600"
+                      >
+                        Error loading entries: {error}
+                      </td>
+                    </tr>
+                  ) : paginatedEntries.length > 0 ? (
+                    paginatedEntries.map((entry) => (
+                      <tr
+                        key={entry.id}
+                        className="hover:bg-gray-50 transition-colors"
+                      >
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {entry.seqNo}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {entry.acReg}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {entry.origin}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {entry.destination}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {entry.fltTime}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-600">
+                          {entry.date}
+                        </td>
+                        <td className="px-6 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleViewEntry(entry)}
+                              className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="View"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleEditEntry(entry)}
+                              className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEntry(entry)}
+                              className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-6 py-12 text-center text-gray-500"
+                      >
+                        No entries found matching your search criteria
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-        {/* Pagination */}
-        <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-700 text-sm">Items per page:</span>
-            <select
-              value={itemsPerPage}
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6 text-sm"
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={30}>30</option>
-              <option value={50}>50</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setCurrentPage(1)}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
-            >
-              Previous
-            </button>
-
-            {/* Page numbers */}
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              let pageNum;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
-
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors text-sm ${
-                    currentPage === pageNum
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
+            {/* Pagination */}
+            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-700 text-sm">Items per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  disabled={loading}
+                  className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6 text-sm"
                 >
-                  {pageNum}
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1 || loading}
+                  className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
+                >
+                  Previous
                 </button>
-              );
-            })}
 
-            <button
-              onClick={() =>
-                setCurrentPage(Math.min(totalPages, currentPage + 1))
-              }
-              disabled={currentPage === totalPages || totalPages === 0}
-              className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1 text-sm"
-            >
-              <span>Next</span>
-            </button>
+                {/* Page numbers */}
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    ROUTE;
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      disabled={loading}
+                      className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
+                        currentPage === pageNum
+                          ? "bg-blue-600 text-white"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() =>
+                    setCurrentPage(Math.min(totalPages, currentPage + 1))
+                  }
+                  disabled={
+                    currentPage === totalPages || totalPages === 0 || loading
+                  }
+                  className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1 text-sm"
+                >
+                  <span>Next</span>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Add Entry Modal */}
       <AddTechnicalLogbookEntryModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        onSuccess={handleCreateSuccess}
+      />
+
+      {/* Edit Entry Modal */}
+      <AddTechnicalLogbookEntryModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setSelectedEntry(null);
+          setSelectedFullEntry(null);
+        }}
+        onSuccess={handleUpdateSuccess}
+        editEntry={selectedFullEntry}
       />
 
       {/* View Entry Modal */}
@@ -608,8 +666,10 @@ export function AircraftTechnicalLogbook() {
         onClose={() => {
           setIsViewModalOpen(false);
           setSelectedEntry(null);
+          setSelectedFullEntry(null);
         }}
         entry={selectedEntry}
+        fullEntry={selectedFullEntry}
       />
     </div>
   );

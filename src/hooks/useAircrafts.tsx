@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getAircraftAll, getAircrafts } from "../api/aircraftApi";
 
 interface Aircraft {
@@ -22,6 +22,40 @@ interface Aircraft {
   created_at: string;
 }
 
+// export const useAircrafts = (
+//   page: number,
+//   limit: number,
+//   search: string,
+//   status: string,
+//   sortParam: any
+// ) => {
+//   const [aircrafts, setAircrafts] = useState<Aircraft[]>([]);
+//   const [loading, setLoading] = useState(true);
+//   const [error, setError] = useState<string | null>(null);
+//   const [totalPage, setTotalPages] = useState(0);
+//   const [totalItems, setTotalItems] = useState(0);
+//   const [refreshKey, setRefreshKey] = useState(0);
+
+//   useEffect(() => {
+//     setLoading(true);
+//     setError(null);
+//     getAircrafts(page, limit, search, status, sortParam)
+//       .then((res) => {
+//         setAircrafts(res.data.items);
+//         setTotalPages(res.data.pages);
+//         setTotalItems(res.data.total);
+//       })
+//       .catch((err) => setError(err.message))
+//       .finally(() =>
+//         setTimeout(() => {
+//           setLoading(false);
+//         }, 360)
+//       );
+//   }, [page, limit, search, status, sortParam]);
+
+//   return { aircrafts, loading, error, totalItems, page, totalPage };
+// };
+
 export const useAircrafts = (
   page: number,
   limit: number,
@@ -35,9 +69,16 @@ export const useAircrafts = (
   const [totalPage, setTotalPages] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
 
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const refresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     setError(null);
+
     getAircrafts(page, limit, search, status, sortParam)
       .then((res) => {
         setAircrafts(res.data.items);
@@ -45,14 +86,20 @@ export const useAircrafts = (
         setTotalItems(res.data.total);
       })
       .catch((err) => setError(err.message))
-      .finally(() =>
-        setTimeout(() => {
-          setLoading(false);
-        }, 360)
-      );
-  }, [page, limit, search, status, sortParam]);
+      .finally(() => {
+        setTimeout(() => setLoading(false), 360);
+      });
+  }, [page, limit, search, status, sortParam, refreshKey]);
 
-  return { aircrafts, loading, error, totalItems, page, totalPage };
+  return {
+    aircrafts,
+    loading,
+    error,
+    totalItems,
+    page,
+    totalPage,
+    refresh,
+  };
 };
 
 export const useAircraftPaged = (

@@ -107,7 +107,7 @@ export function AircraftFleetProfile() {
     );
   };
 
-  const { aircrafts, loading, error, totalItems, page, totalPage } =
+  const { aircrafts, loading, error, totalItems, page, totalPage, refresh } =
     useAircrafts(
       currentPage,
       itemsPerPage,
@@ -192,7 +192,6 @@ export function AircraftFleetProfile() {
   });
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  // const [loading, setLoading] = useState(false);
 
   // handle text input change
   const handleChange = (key: string, value: string) => {
@@ -247,7 +246,7 @@ export function AircraftFleetProfile() {
         title: "Aircraft Created!",
         text: "The aircraft has been successfully added to your fleet.",
         showConfirmButton: false,
-        timer: 2000,
+        timer: 550,
       });
 
       setForm({
@@ -276,6 +275,11 @@ export function AircraftFleetProfile() {
       setPropellerARCFile(null);
       setShowAddAircraftModal(false);
       setErrors({});
+
+      setTimeout(() => {
+        setLoading(false);
+        refresh();
+      }, 500);
     } catch (err: any) {
       // console.log();
       if (err.status == 400) {
@@ -291,6 +295,7 @@ export function AircraftFleetProfile() {
           text: "System error. Please contact the admin.",
         });
       }
+    } finally {
     }
   };
 
@@ -415,11 +420,6 @@ export function AircraftFleetProfile() {
         </div>
       </div>
 
-      {/* Table Header Info
-      <div className="text-gray-600">
-        Showing {filteredAircraft.length > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + itemsPerPage, filteredAircraft.length)} of {totalItems} aircraft
-      </div> */}
-
       {loading ? (
         <Spinner />
       ) : (
@@ -466,9 +466,7 @@ export function AircraftFleetProfile() {
                         {renderSortIcon("created_at")}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      Actions
-                    </th>
+                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -515,18 +513,19 @@ export function AircraftFleetProfile() {
                               <option value="detail">
                                 General Information
                               </option>
+                              <option value="maintenance">Maintenance</option>
+                              <option value="operation">Realibily</option>
                               <option value="logbook">
                                 Maintenance Logbook
                               </option>
-                              <option value="maintenance">Maintenance</option>
-                              <option value="operation">Operation</option>
+                              <option value="">Documents On Board</option>
                             </select>
-                            <button
+                            {/* <button
                               className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
-                            </button>
+                            </button> */}
                           </div>
                         </td>
                       </tr>

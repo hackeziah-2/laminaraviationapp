@@ -1,76 +1,83 @@
-import { Plane, Wrench, MapPin, Activity, TrendingUp, AlertTriangle } from 'lucide-react';
+import {
+  Plane,
+  Wrench,
+  MapPin,
+  Activity,
+  TrendingUp,
+  AlertTriangle,
+} from "lucide-react";
 
 export function Dashboard() {
   const stats = [
     {
-      label: 'Total Aircraft',
-      value: '30',
+      label: "Total Aircraft",
+      value: "30",
       icon: Plane,
-      color: 'bg-blue-50 text-blue-600',
-      bgColor: 'bg-blue-500',
+      color: "bg-blue-50 text-blue-600",
+      bgColor: "bg-blue-500",
     },
     {
-      label: 'Active',
-      value: '18',
+      label: "Operational",
+      value: "18",
       icon: Activity,
-      color: 'bg-green-50 text-green-600',
-      bgColor: 'bg-green-500',
+      color: "bg-green-50 text-green-600",
+      bgColor: "bg-green-500",
     },
     {
-      label: 'In Maintenance',
-      value: '8',
+      label: "In Maintenance",
+      value: "8",
       icon: Wrench,
-      color: 'bg-yellow-50 text-yellow-600',
-      bgColor: 'bg-yellow-500',
+      color: "bg-yellow-50 text-yellow-600",
+      bgColor: "bg-yellow-500",
     },
     {
-      label: 'Base Locations',
-      value: '14',
+      label: "Base Locations",
+      value: "14",
       icon: MapPin,
-      color: 'bg-purple-50 text-purple-600',
-      bgColor: 'bg-purple-500',
+      color: "bg-purple-50 text-purple-600",
+      bgColor: "bg-purple-500",
     },
   ];
 
   const recentActivities = [
     {
-      aircraft: 'Boeing 737-800',
-      registration: 'N12345',
-      status: 'Departed',
-      location: 'JFK → LAX',
-      time: '2 hours ago',
+      aircraft: "Boeing 737-800",
+      registration: "N12345",
+      status: "Departed",
+      location: "JFK → LAX",
+      time: "2 hours ago",
     },
     {
-      aircraft: 'Airbus A320',
-      registration: 'N67890',
-      status: 'Maintenance',
-      location: 'Hangar B',
-      time: '5 hours ago',
+      aircraft: "Airbus A320",
+      registration: "N67890",
+      status: "Maintenance",
+      location: "Hangar B",
+      time: "5 hours ago",
     },
     {
-      aircraft: 'Boeing 787-9',
-      registration: 'N24680',
-      status: 'Arrived',
-      location: 'SFO',
-      time: '8 hours ago',
+      aircraft: "Boeing 787-9",
+      registration: "N24680",
+      status: "Arrived",
+      location: "SFO",
+      time: "8 hours ago",
     },
   ];
 
   const maintenanceAlerts = [
     {
-      aircraft: 'N98765 - Airbus A321',
-      issue: 'Scheduled maintenance due in 3 days',
-      priority: 'medium',
+      aircraft: "N98765 - Airbus A321",
+      issue: "Scheduled maintenance due in 3 days",
+      priority: "medium",
     },
     {
-      aircraft: 'N13579 - Boeing 777-300',
-      issue: 'Engine inspection required',
-      priority: 'high',
+      aircraft: "N13579 - Boeing 777-300",
+      issue: "Engine inspection required",
+      priority: "high",
     },
     {
-      aircraft: 'N86420 - Airbus A330',
-      issue: 'Tire replacement scheduled',
-      priority: 'low',
+      aircraft: "N86420 - Airbus A330",
+      issue: "Tire replacement scheduled",
+      priority: "low",
     },
   ];
 
@@ -79,7 +86,9 @@ export function Dashboard() {
       {/* Header */}
       <div>
         <h2 className="text-2xl text-gray-900">Dashboard Overview</h2>
-        <p className="text-gray-600 mt-1">Real-time overview of your fleet operations</p>
+        <p className="text-gray-600 mt-1">
+          Real-time overview of your fleet operations
+        </p>
       </div>
 
       {/* Stats Grid */}
@@ -111,7 +120,9 @@ export function Dashboard() {
         <div className="bg-white rounded-xl p-5 border border-gray-200">
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-lg text-gray-900">Recent Activities</h3>
-            <button className="text-blue-600 text-sm hover:underline">View All</button>
+            <button className="text-blue-600 text-sm hover:underline">
+              View All
+            </button>
           </div>
           <div className="space-y-4">
             {recentActivities.map((activity, index) => (
@@ -126,21 +137,25 @@ export function Dashboard() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-medium">{activity.aircraft}</p>
-                      <p className="text-sm text-gray-600">{activity.registration}</p>
+                      <p className="text-sm text-gray-600">
+                        {activity.registration}
+                      </p>
                     </div>
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
-                        activity.status === 'Departed'
-                          ? 'bg-blue-100 text-blue-700'
-                          : activity.status === 'Maintenance'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-green-100 text-green-700'
+                        activity.status === "Departed"
+                          ? "bg-blue-100 text-blue-700"
+                          : activity.status === "Maintenance"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-green-100 text-green-700"
                       }`}
                     >
                       {activity.status}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-1">{activity.location}</p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {activity.location}
+                  </p>
                   <p className="text-xs text-gray-400 mt-1">{activity.time}</p>
                 </div>
               </div>
@@ -161,11 +176,11 @@ export function Dashboard() {
                 className="p-4 border-l-4 bg-gray-50 rounded-r-lg"
                 style={{
                   borderLeftColor:
-                    alert.priority === 'high'
-                      ? '#ef4444'
-                      : alert.priority === 'medium'
-                      ? '#f59e0b'
-                      : '#10b981',
+                    alert.priority === "high"
+                      ? "#ef4444"
+                      : alert.priority === "medium"
+                      ? "#f59e0b"
+                      : "#10b981",
                 }}
               >
                 <div className="flex items-start justify-between">
@@ -175,11 +190,11 @@ export function Dashboard() {
                   </div>
                   <span
                     className={`text-xs px-2 py-1 rounded-full ${
-                      alert.priority === 'high'
-                        ? 'bg-red-100 text-red-700'
-                        : alert.priority === 'medium'
-                        ? 'bg-orange-100 text-orange-700'
-                        : 'bg-green-100 text-green-700'
+                      alert.priority === "high"
+                        ? "bg-red-100 text-red-700"
+                        : alert.priority === "medium"
+                        ? "bg-orange-100 text-orange-700"
+                        : "bg-green-100 text-green-700"
                     }`}
                   >
                     {alert.priority.toUpperCase()}
@@ -193,7 +208,9 @@ export function Dashboard() {
 
       {/* Fleet Performance Chart */}
       <div className="bg-white rounded-xl p-5 border border-gray-200">
-        <h3 className="text-lg text-gray-900 mb-5">Fleet Performance Overview</h3>
+        <h3 className="text-lg text-gray-900 mb-5">
+          Fleet Performance Overview
+        </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg">
             <div className="flex items-center gap-2 mb-2">
