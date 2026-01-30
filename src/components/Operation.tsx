@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -9,7 +9,21 @@ import {
   X,
   Upload,
   FileText,
+  Search,
+  Pencil,
 } from "lucide-react";
+import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
+import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
+import {
+  getAircraftTechnicalLogs,
+  AircraftTechnicalLog,
+} from "../api/aircraftTechnicalLogApi";
+import { getAircraftById } from "../api/aircraftApi";
+import apiClient from "../api/index";
+import { Spinner } from "./ui/spinner";
+import { Aircraft } from "../types/Aircraft";
+import { toCamel, formatTimeZulu } from "../utility/utils";
+import { getAllAccounts, Account } from "../api/accountApi";
 
 interface FleetTimeRecord {
   id: number;
@@ -38,6 +52,8 @@ interface FleetTimeRecord {
   };
   whiteAtl: string | null;
   dfp: string | null;
+  pilotAcceptDate?: string | null;
+  pilotAcceptTime?: string | null;
   reliability?: {
     dispatchReliability: number;
     mtbf: number;
@@ -59,60 +75,123 @@ export function Operation() {
     navigate(`/profile/${id}/operation/reliability/${recordId}`);
   };
 
+  /** Download file via GET /api/v1/{folder}/download/{filename} */
+  const handleDownloadFile = async (
+    folder: string,
+    filename: string,
+    displayName?: string
+  ) => {
+    if (!filename || !filename.trim()) return;
+    let filePath = filename.trim().replace(/^\/+/, "");
+    filePath = filePath.replace(/^api\/v1\//, "");
+    const endpoint = `${folder}/download/${filePath}`;
+    try {
+      const response = await apiClient.get(endpoint, {
+        responseType: "blob",
+        headers: { Accept: "application/octet-stream" },
+      });
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = displayName || filePath.split("/").pop() || "download";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Download error:", err);
+      alert(err?.response?.data?.detail || err?.message || "Failed to download file.");
+    }
+  };
+
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedEntry, setSelectedEntry] =
+    useState<AircraftTechnicalLog | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [whiteAtlFile, setWhiteAtlFile] = useState<File | null>(null);
-  const [dfpFile, setDfpFile] = useState<File | null>(null);
-
-  // Mock data for fleet time records
-  const fleetTimeRecords: FleetTimeRecord[] = Array.from(
-    { length: 11 },
-    (_, i) => ({
-      id: 24756 + i,
-      seqNo: `${24756 + i}`,
-      natureOfFlight: i % 3 === 0 ? "EOR" : i % 3 === 1 ? "ME" : "VE",
-      date: "18-Sep-25",
-      tachStart: 7890.4,
-      tachEnd: 7890.5,
-      airframe: {
-        hrsTime: 0.1,
-        aptt: 7891.1,
-        hrsTimeEnd: 0.1,
-      },
-      engine: {
-        hrsTime: 0,
-        tsn: 1544.9,
-        tso: 455.1,
-        tbo: 0,
-        hrsTimeEnd: 0.1,
-      },
-      propeller: {
-        hrsTime: 0,
-        tsn: 4807.4,
-        tso: 1544.9,
-        tbo: 455.1,
-      },
-      whiteAtl: i % 3 === 0 ? "WHITE_ATL_2024_001.pdf" : null,
-      dfp: i % 3 === 1 ? "DFP_2024_001.pdf" : null,
-      // Some records have reliability data, some don't
-      reliability:
-        i % 2 === 0
-          ? {
-              dispatchReliability: 98.5 - i * 0.3,
-              mtbf: 450 + i * 10,
-              unscheduledMaintenance: 3.2 + i * 0.2,
-              aogEvents: Math.floor(i / 2),
-            }
-          : undefined,
-    })
+  const [searchQuery, setSearchQuery] = useState("");
+  const [fleetTimeRecords, setFleetTimeRecords] = useState<
+    AircraftTechnicalLog[]
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [aircraft, setAircraft] = useState<Aircraft | null>(null);
+  const [accountsMap, setAccountsMap] = useState<Map<number, Account>>(
+    new Map()
   );
 
-  const totalPages = Math.ceil(fleetTimeRecords.length / itemsPerPage);
-  const paginatedRecords = fleetTimeRecords.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  // Fetch aircraft information
+  useEffect(() => {
+    const fetchAircraft = async () => {
+      if (!aircraftId) return;
+      try {
+        const response = await getAircraftById(aircraftId);
+        setAircraft(toCamel(response.data));
+      } catch (err) {
+        console.error("Error fetching aircraft:", err);
+      }
+    };
+    fetchAircraft();
+  }, [aircraftId]);
+
+  // Fetch all accounts for lookup
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const accountsList = await getAllAccounts();
+        // Create a map for quick lookup
+        const map = new Map<number, Account>();
+        accountsList.forEach((account) => {
+          map.set(account.id, account);
+        });
+        setAccountsMap(map);
+      } catch (err) {
+        console.error("Error fetching accounts:", err);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
+  // Fetch ATL records from API
+  useEffect(() => {
+    const fetchRecords = async () => {
+      if (!aircraftId) return;
+
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await getAircraftTechnicalLogs(
+          currentPage,
+          itemsPerPage,
+          searchQuery,
+          aircraftId
+        );
+        setFleetTimeRecords(response.items);
+        setTotalRecords(response.total);
+        setTotalPages(response.pages);
+      } catch (err: any) {
+        console.error("Error fetching ATL records:", err);
+        setError("Failed to load fleet time records");
+        setFleetTimeRecords([]);
+      } finally {
+        setTimeout(() => setLoading(false), 360);
+      }
+    };
+
+    fetchRecords();
+  }, [aircraftId, currentPage, itemsPerPage, searchQuery]);
+
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  const paginatedRecords = fleetTimeRecords;
 
   const handleAddToReliability = (record: FleetTimeRecord) => {
     // This would typically send data to backend to create reliability record
@@ -139,9 +218,6 @@ export function Operation() {
             <h2 className="text-gray-900 text-lg sm:text-xl">
               Operation Management
             </h2>
-            <p className="text-gray-500 mt-1 text-sm">
-              Aircraft ID: {aircraftId}
-            </p>
           </div>
         </div>
       </div>
@@ -153,10 +229,14 @@ export function Operation() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
             <div>
               <h3 className="text-gray-900 text-base sm:text-lg">
-                RP-C12 - Fleet Time Monitoring
+                Fleet Time Monitoring:{" "}
+                <b>{aircraft?.registration || "Loading..."}</b>
               </h3>
               <p className="text-gray-500 text-sm mt-1">
-                Cessna 172S | S/N: 172S-8958
+                Model:{" "}
+                {aircraft
+                  ? `${aircraft.model || ""}`
+                  : "Loading aircraft details..."}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -182,278 +262,786 @@ export function Operation() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
             <div className="bg-white rounded-lg border border-gray-200 p-5">
               <p className="text-gray-500 text-sm mb-2">Current Tach</p>
-              <p className="text-gray-900 text-2xl">7343.3 Hrs</p>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-5">
-              <p className="text-gray-500 text-sm mb-2">Total Flight Records</p>
               <p className="text-gray-900 text-2xl">
-                {fleetTimeRecords.length} records
+                {fleetTimeRecords.length > 0 &&
+                fleetTimeRecords[0].tachometerEnd
+                  ? `${fleetTimeRecords[0].tachometerEnd.toFixed(1)} Hrs`
+                  : "-"}
               </p>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 p-5">
+              <p className="text-gray-500 text-sm mb-2">Total Flight Records</p>
+              <p className="text-gray-900 text-2xl">{totalRecords} records</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-5">
               <p className="text-gray-500 text-sm mb-2">Last Updated</p>
-              <p className="text-gray-900 text-sm">Nov 14, 2024</p>
+              <p className="text-gray-900 text-sm">
+                {fleetTimeRecords.length > 0 && fleetTimeRecords[0].updatedAt
+                  ? new Date(fleetTimeRecords[0].updatedAt).toLocaleDateString(
+                      "en-US",
+                      { month: "short", day: "numeric", year: "numeric" }
+                    )
+                  : "-"}
+              </p>
             </div>
           </div>
 
-          {/* Flight Time Records Header */}
+          {/* Fleet Time Records Section Title */}
+          <div className="bg-blue-600 rounded px-5 py-3">
+            <h4 className="text-white text-sm font-medium">
+              Fleet Time Records
+            </h4>
+          </div>
+
+          {/* Search Section */}
           <div>
-            <h4 className="text-gray-900 mb-4">Flight Time Records</h4>
+            <h5 className="text-gray-700 text-sm font-medium mb-3">
+              Search Entries
+            </h5>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search by sequence number, tach time..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Fleet Time Table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-gray-300 bg-gray-50"
-                    >
-                      SEQ NO.
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-gray-300 bg-gray-50"
-                    >
-                      NATURE OF
-                      <br />
-                      FLIGHT
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-gray-300 bg-gray-50"
-                    >
-                      DATE
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-gray-300 bg-gray-50"
-                    >
-                      TACH
-                      <br />
-                      START
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-amber-300 bg-gray-50"
-                    >
-                      TACH
-                      <br />
-                      END
-                    </th>
-                    <th
-                      colSpan={3}
-                      className="px-3 py-2 text-center text-xs text-gray-900 border-r border-blue-300 bg-amber-100"
-                    >
-                      AIRFRAME
-                    </th>
-                    <th
-                      colSpan={5}
-                      className="px-3 py-2 text-center text-xs text-gray-900 border-r border-cyan-300 bg-blue-400 text-white"
-                    >
-                      ENGINE
-                    </th>
-                    <th
-                      colSpan={4}
-                      className="px-3 py-2 text-center text-xs text-gray-900 border-r border-gray-300 bg-cyan-400"
-                    >
-                      PROPELLER
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-gray-300 bg-gray-50"
-                    >
-                      WHITE ATL.
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 border-r border-gray-300 bg-gray-50"
-                    >
-                      DFP
-                    </th>
-                    <th
-                      rowSpan={2}
-                      className="px-3 py-3 text-left text-xs text-gray-900 bg-gray-50"
-                    >
-                      RELIABILITY
-                    </th>
-                  </tr>
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-amber-300 bg-amber-100">
-                      MIN
-                      <br />
-                      RUN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-amber-300 bg-amber-100">
-                      AFTT
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-blue-300 bg-amber-100">
-                      MIN
-                      <br />
-                      RUN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-blue-300 bg-blue-400 text-white">
-                      MIN
-                      <br />
-                      RUN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-blue-300 bg-blue-400 text-white">
-                      TSN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-blue-300 bg-blue-400 text-white">
-                      TSO
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-blue-300 bg-blue-400 text-white">
-                      TBO
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-cyan-300 bg-blue-400 text-white">
-                      MIN
-                      <br />
-                      RUN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-cyan-300 bg-cyan-400">
-                      MIN
-                      <br />
-                      RUN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-cyan-300 bg-cyan-400">
-                      TSN
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-cyan-300 bg-cyan-400">
-                      TSO
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs text-gray-900 border-r border-gray-300 bg-cyan-400">
-                      TBO
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {paginatedRecords.map((record) => (
-                    <tr
-                      key={record.id}
-                      className="hover:bg-gray-50/50 transition-colors"
-                    >
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200">
-                        {record.seqNo}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200">
-                        {record.natureOfFlight}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200">
-                        {record.date}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200">
-                        {record.tachStart}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200">
-                        {record.tachEnd}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-amber-50">
-                        {record.airframe.hrsTime}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-amber-50">
-                        {record.airframe.aptt}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-amber-50">
-                        {record.airframe.hrsTimeEnd}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-blue-50">
-                        {record.engine.hrsTime}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-blue-50">
-                        {record.engine.tsn}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-blue-50">
-                        {record.engine.tso}
-                      </td>
-                      <td className="px-3 py-3 text-red-600 text-sm border-r border-gray-200 bg-blue-50">
-                        {record.engine.tbo}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-blue-50">
-                        {record.engine.hrsTimeEnd}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-cyan-50">
-                        {record.propeller.hrsTime}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-cyan-50">
-                        {record.propeller.tsn}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-cyan-50">
-                        {record.propeller.tso}
-                      </td>
-                      <td className="px-3 py-3 text-red-600 text-sm border-r border-gray-200 bg-cyan-50">
-                        {record.propeller.tbo}
-                      </td>
-                      <td className="px-3 py-3 text-sm">
-                        {record.whiteAtl ? (
-                          <a
-                            href="#"
-                            className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              alert("File download would start here");
-                            }}
+            {loading ? (
+              <div className="flex items-center justify-center p-12">
+                <Spinner />
+              </div>
+            ) : error ? (
+              <div className="flex items-center justify-center p-12">
+                <div className="text-center">
+                  <p className="text-sm text-red-600 mb-4">{error}</p>
+                  <button
+                    onClick={() => {
+                      setCurrentPage(1);
+                      // Trigger refetch
+                      const fetchRecords = async () => {
+                        if (!aircraftId) return;
+                        setLoading(true);
+                        setError(null);
+                        try {
+                          const response = await getAircraftTechnicalLogs(
+                            currentPage,
+                            itemsPerPage,
+                            searchQuery,
+                            aircraftId
+                          );
+                          setFleetTimeRecords(response.items);
+                          setTotalRecords(response.total);
+                          setTotalPages(response.pages);
+                        } catch (err: any) {
+                          console.error("Error fetching ATL records:", err);
+                          setError("Failed to load fleet time records");
+                          setFleetTimeRecords([]);
+                        } finally {
+                          setTimeout(() => setLoading(false), 360);
+                        }
+                      };
+                      fetchRecords();
+                    }}
+                    className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <div className="inline-block min-w-full align-middle">
+                  <table className="min-w-full border-collapse table-fixed">
+                    <thead>
+                      <tr>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]"
+                        >
+                          <b>SEQUENCE NO</b>
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          NATURE OF
+                          <br />
+                          FLIGHT
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          NEXT INSP.
+                          <br />
+                          DATE
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          TACH TIME
+                        </th>
+                        <th
+                          colSpan={2}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          OFF BLOCKS/ORIGIN
+                        </th>
+                        <th
+                          colSpan={2}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          ON BLOCKS/DESTINATION
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          TOTAL
+                          <br />
+                          BLOCK
+                          <br />
+                          TIME
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          NO. OF
+                          <br />
+                          LAND-
+                          <br />
+                          INGS
+                        </th>
+                        <th
+                          colSpan={3}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          HOBBS METER
+                        </th>
+                        <th
+                          colSpan={2}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          TACHOMETER
+                        </th>
+                        <th
+                          colSpan={3}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          AIRFRAME
+                        </th>
+                        <th
+                          colSpan={4}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          ENGINE
+                        </th>
+                        <th
+                          colSpan={3}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          PROPELLER
+                        </th>
+                        <th
+                          colSpan={6}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          FUEL
+                        </th>
+                        <th
+                          colSpan={3}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          OIL
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          REMARKS
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          REMARK PERSON
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          ACTION/S
+                          <br />
+                          TAKEN
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          ACTION TAKEN
+                          <br />
+                          PERSON
+                        </th>
+                        <th
+                          colSpan={2}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          PARTS REMOVED
+                        </th>
+                        <th
+                          colSpan={2}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          PARTS INSTALLED
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          NOMENCLATURE
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          ATA
+                          <br />
+                          CHAPTER
+                        </th>
+                        <th
+                          colSpan={3}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          RETURN TO SERVICE
+                        </th>
+                        <th
+                          colSpan={3}
+                          className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                        >
+                          PILOT'S ACCEPTANCE
+                        </th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"></th>
+                        <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 bg-gray-200 whitespace-nowrap"></th>
+                      </tr>
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          DATE
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TIME (ZULU)
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          DATE
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TIME (ZULU)
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          START
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          END
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TOTAL
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TACH START
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TACH END
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          HRS
+                          <br />
+                          RUN
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          AFTT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          HRS
+                          <br />
+                          RUN
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TSN
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TSO
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TBO
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          HRS
+                          <br />
+                          RUN
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TSN
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TSO
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TBO
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          UPLIFT QTY
+                          <br />
+                          LEFT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          RIGHT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          PRIOR DEP.
+                          <br />
+                          LEFT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          RIGHT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          AFTER ON-BLKS
+                          <br />
+                          LEFT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          RIGHT
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          UPLIFT
+                          <br />
+                          QTY
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          PRIOR DEP.
+                          <br />
+                          QRE
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          AFTER
+                          <br />
+                          ON-BLKS
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          P/N
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          S/N
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          P/N
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          S/N
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          NAME
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          DATE
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TIME (ZULU)
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          NAME
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          DATE
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          TIME (ZULU)
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          WHITE ATL
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          DFP
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {paginatedRecords.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={50}
+                            className="px-6 py-12 text-center text-gray-500"
                           >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span className="text-xs">View</span>
-                          </a>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-sm">
-                        {record.dfp ? (
-                          <a
-                            href="#"
-                            className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              alert("File download would start here");
-                            }}
+                            {searchQuery
+                              ? `No records found matching "${searchQuery}"`
+                              : "No records available"}
+                          </td>
+                        </tr>
+                      ) : (
+                        paginatedRecords.map((record) => (
+                          <tr
+                            key={record.id}
+                            className="hover:bg-gray-50/50 transition-colors"
                           >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span className="text-xs">View</span>
-                          </a>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        {record.reliability ? (
-                          <button
-                            onClick={() => handleSeeReliability(record)}
-                            className="px-3 py-1.5 bg-green-600 text-white rounded hover:bg-green-700 text-xs transition-colors"
-                          >
-                            See Reliability
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleAddToReliability(record)}
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs transition-colors"
-                          >
-                            Add to Reliability
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium">
+                              <div className="flex flex-col">
+                                <span className="font-medium">
+                                  {record.sequenceNo || "-"}
+                                </span>
+                                <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedEntry(record);
+                                      setShowViewModal(true);
+                                    }}
+                                    className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                    title="View"
+                                  >
+                                    View
+                                  </button>
+                                  <span className="text-gray-400">|</span>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedEntry(record);
+                                      setShowEditModal(true);
+                                    }}
+                                    className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                    title="Edit"
+                                  >
+                                    Edit
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.natureOfFlight}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.nextInspectionDue || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.tachTimeDue
+                                ? record.tachTimeDue.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.originDate
+                                ? new Date(record.originDate)
+                                    .toLocaleDateString("en-GB", {
+                                      day: "2-digit",
+                                      month: "short",
+                                      year: "numeric",
+                                    })
+                                    .replace(/ /g, "-")
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {formatTimeZulu(record.originTime)}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.destinationDate
+                                ? new Date(record.destinationDate)
+                                    .toLocaleDateString("en-GB", {
+                                      day: "2-digit",
+                                      month: "short",
+                                      year: "numeric",
+                                    })
+                                    .replace(/ /g, "-")
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {formatTimeZulu(record.destinationTime)}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.hobbsMeterTotal
+                                ? `${record.hobbsMeterTotal.toFixed(1)} hr`
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.numberOfLandings || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.hobbsMeterStart
+                                ? record.hobbsMeterStart.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.hobbsMeterEnd
+                                ? record.hobbsMeterEnd.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.hobbsMeterTotal
+                                ? record.hobbsMeterTotal.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.tachometerStart
+                                ? record.tachometerStart.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.tachometerEnd
+                                ? record.tachometerEnd.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.tachometerTotal
+                                ? record.tachometerTotal.toFixed(1)
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              -
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.fuelQtyLeftUpliftQty || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.fuelQtyRightUpliftQty || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.fuelQtyLeftPriorDeparture || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.fuelQtyRightPriorDeparture || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.fuelQtyLeftAfterOnBlks || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.fuelQtyRightAfterOnBlks || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.oilQtyUpliftQty || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.oilQtyPriorDeparture || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.oilQtyAfterOnBlks || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.remarks || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.maintenanceFk &&
+                              accountsMap.has(record.maintenanceFk)
+                                ? `${
+                                    accountsMap.get(record.maintenanceFk)!
+                                      .fullName
+                                  }-${
+                                    accountsMap.get(record.maintenanceFk)!
+                                      .licenseNo
+                                  }`
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.actionsTaken || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.maintenanceFk &&
+                              accountsMap.has(record.maintenanceFk)
+                                ? `${
+                                    accountsMap.get(record.maintenanceFk)!
+                                      .fullName
+                                  }-${
+                                    accountsMap.get(record.maintenanceFk)!
+                                      .licenseNo
+                                  }`
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.componentParts &&
+                              record.componentParts.length > 0
+                                ? (record.componentParts[0] as any)
+                                    .removedPartNo || "-"
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.componentParts &&
+                              record.componentParts.length > 0
+                                ? (record.componentParts[0] as any)
+                                    .removedSerialNo || "-"
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.componentParts &&
+                              record.componentParts.length > 0
+                                ? (record.componentParts[0] as any)
+                                    .installedPartNo || "-"
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.componentParts &&
+                              record.componentParts.length > 0
+                                ? (record.componentParts[0] as any)
+                                    .installedSerialNo || "-"
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.componentParts &&
+                              record.componentParts.length > 0
+                                ? record.componentParts[0].nomenclature || "-"
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.componentParts &&
+                              record.componentParts.length > 0
+                                ? record.componentParts[0].ataChapter ||
+                                  (record.componentParts[0] as any)
+                                    .ata_chapter ||
+                                  "-"
+                                : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.rtsSignedBy &&
+                              accountsMap.has(record.rtsSignedBy) ? (
+                                <>
+                                  {
+                                    accountsMap.get(record.rtsSignedBy)!
+                                      .fullName
+                                  }
+                                  <br />
+                                  {
+                                    accountsMap.get(record.rtsSignedBy)!
+                                      .licenseNo
+                                  }
+                                </>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                              {record.rtsDate || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                              {formatTimeZulu(record.rtsTime)}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                              {record.pilotAcceptedBy &&
+                              accountsMap.has(record.pilotAcceptedBy) ? (
+                                <>
+                                  {
+                                    accountsMap.get(record.pilotAcceptedBy)!
+                                      .fullName
+                                  }
+                                  <br />
+                                  {
+                                    accountsMap.get(record.pilotAcceptedBy)!
+                                      .licenseNo
+                                  }
+                                </>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                              {record.pilotAcceptDate || "-"}
+                            </td>
+                            <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                              {formatTimeZulu(record.pilotAcceptTime)}
+                            </td>
+                            <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                              {record.whiteAtl &&
+                              record.whiteAtl.trim() !== "" ? (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline"
+                                  onClick={() =>
+                                    handleDownloadFile(
+                                      "white_atl",
+                                      record.whiteAtl!,
+                                      record.whiteAtl!.split("/").pop() || "white_atl"
+                                    )
+                                  }
+                                >
+                                  <Download className="w-4 h-4" />
+                                  <span className="text-xs">Download</span>
+                                </button>
+                              ) : (
+                                <span className="text-gray-900">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-sm bg-white">
+                              {record.dfp && record.dfp.trim() !== "" ? (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline"
+                                  onClick={() =>
+                                    handleDownloadFile(
+                                      "dfp",
+                                      record.dfp!,
+                                      record.dfp!.split("/").pop() || "dfp"
+                                    )
+                                  }
+                                >
+                                  <Download className="w-4 h-4" />
+                                  <span className="text-xs">Download</span>
+                                </button>
+                              ) : (
+                                <span className="text-gray-900">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Pagination */}
             <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
               <div className="text-sm text-gray-600">
-                Showing 1-{Math.min(itemsPerPage, fleetTimeRecords.length)} of{" "}
-                {fleetTimeRecords.length} records
+                Showing{" "}
+                {totalRecords === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}-
+                {Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
+                {totalRecords} records
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
@@ -462,10 +1050,10 @@ export function Operation() {
                     <button
                       key={page}
                       onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1 border rounded text-sm ${
+                      className={`px-3 py-1.5 rounded text-sm transition-colors ${
                         currentPage === page
-                          ? "bg-gray-900 text-white border-gray-900"
-                          : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                          ? "bg-blue-600 text-white"
+                          : "text-gray-700 hover:bg-gray-100"
                       }`}
                     >
                       {page}
@@ -477,7 +1065,7 @@ export function Operation() {
                     setCurrentPage(Math.min(totalPages, currentPage + 1))
                   }
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>
@@ -488,407 +1076,107 @@ export function Operation() {
       </div>
 
       {/* Add Record Modal */}
-      {showAddRecordModal && (
-        <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4 animate-modal-overlay">
-          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl animate-modal-content">
-            {/* Modal Header */}
-            <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-              <div>
-                <h3 className="text-gray-900 text-base sm:text-lg">
-                  Add Flight Time Record
-                </h3>
-                <p className="text-gray-400 text-sm mt-1">
-                  Enter flight time and component hours
-                </p>
-              </div>
-              <button
-                onClick={() => setShowAddRecordModal(false)}
-                className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-400" />
-              </button>
-            </div>
+      <AddTechnicalLogbookEntryModal
+        isOpen={showAddRecordModal}
+        onClose={() => setShowAddRecordModal(false)}
+        aircraftId={aircraftId}
+        onSuccess={() => {
+          setShowAddRecordModal(false);
+          // Refresh the records list
+          const fetchRecords = async () => {
+            if (!aircraftId) return;
+            setLoading(true);
+            setError(null);
+            try {
+              const response = await getAircraftTechnicalLogs(
+                currentPage,
+                itemsPerPage,
+                searchQuery,
+                aircraftId
+              );
+              setFleetTimeRecords(response.items);
+              setTotalRecords(response.total);
+              setTotalPages(response.pages);
+            } catch (err: any) {
+              console.error("Error fetching ATL records:", err);
+              setError("Failed to load fleet time records");
+              setFleetTimeRecords([]);
+            } finally {
+              setTimeout(() => setLoading(false), 360);
+            }
+          };
+          fetchRecords();
+        }}
+      />
 
-            {/* Modal Content - Scrollable */}
-            <div className="overflow-y-auto flex-1 px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6 space-y-4 sm:space-y-5 lg:space-y-6 bg-gray-50">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <h4 className="text-gray-900 text-sm sm:text-base">
-                  Basic Information
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Sequence Number <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 24756"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div className="relative">
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Nature of Flight <span className="text-red-500">*</span>
-                    </label>
-                    <select className="w-full px-3.5 py-2.5 pr-10 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 appearance-none cursor-pointer shadow-sm">
-                      <option value="">Select nature of flight</option>
-                      <option value="EOR">EOR</option>
-                      <option value="ME">ME</option>
-                      <option value="VE">VE</option>
-                      <option value="Training">Training</option>
-                      <option value="Commercial">Commercial</option>
-                      <option value="Charter">Charter</option>
-                      <option value="Ferry">Ferry</option>
-                      <option value="Test">Test Flight</option>
-                    </select>
-                    <ChevronDown className="absolute right-3 top-[2.6rem] w-4 h-4 text-gray-400 pointer-events-none" />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Date <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Tach Information */}
-              <div className="space-y-4">
-                <h4 className="text-gray-900 text-sm sm:text-base">
-                  Tachometer Reading
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Tach Start
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="e.g., 7890.4"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Tach End
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="e.g., 7890.5"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Flight Hours
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="Auto-calculated"
-                      disabled
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Airframe Information */}
-              <div className="border-l-[3px] border-yellow-400 bg-white rounded-lg px-4 sm:px-5 lg:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5">
-                <h4 className="text-gray-900 text-sm sm:text-base">
-                  Airframe Information
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Hours Time
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      APTT
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Airframe Potential Total Time)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Hours Time End
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Engine Information */}
-              <div className="border-l-[3px] border-blue-400 bg-white rounded-lg px-4 sm:px-5 lg:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5">
-                <h4 className="text-gray-900 text-sm sm:text-base">
-                  Engine Information
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Hours Time
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      TSN
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Time Since New)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      TSO
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Time Since Overhaul)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      TBO
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Time Between Overhaul)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Hours Time End
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Propeller Information */}
-              <div className="border-l-[3px] border-green-400 bg-white rounded-lg px-4 sm:px-5 lg:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5">
-                <h4 className="text-gray-900 text-sm sm:text-base">
-                  Propeller Information
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      Hours Time
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      TSN
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Time Since New)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      TSO
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Time Since Overhaul)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      TBO
-                      <span className="text-gray-400 text-xs ml-1.5">
-                        (Time Between Overhaul)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0.0"
-                      className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Additional Documents */}
-              <div className="bg-white rounded-lg px-4 sm:px-5 lg:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5 shadow-sm">
-                <h4 className="text-gray-900 text-sm sm:text-base">
-                  Additional Documents
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      WHITE ATL (Attachment)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="file"
-                        id="white-atl-file"
-                        onChange={(e) =>
-                          setWhiteAtlFile(e.target.files?.[0] || null)
-                        }
-                        className="hidden"
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                      />
-                      <label
-                        htmlFor="white-atl-file"
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
-                      >
-                        <span
-                          className={
-                            whiteAtlFile ? "text-gray-900" : "text-gray-400"
-                          }
-                        >
-                          {whiteAtlFile
-                            ? whiteAtlFile.name
-                            : "Choose file (optional)"}
-                        </span>
-                        <Upload className="w-4 h-4 text-gray-400" />
-                      </label>
-                    </div>
-                    {whiteAtlFile && (
-                      <button
-                        onClick={() => setWhiteAtlFile(null)}
-                        className="text-xs text-red-600 hover:text-red-700 mt-1"
-                      >
-                        Remove file
-                      </button>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-2">
-                      DFP (Attachment)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="file"
-                        id="dfp-file"
-                        onChange={(e) =>
-                          setDfpFile(e.target.files?.[0] || null)
-                        }
-                        className="hidden"
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                      />
-                      <label
-                        htmlFor="dfp-file"
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
-                      >
-                        <span
-                          className={
-                            dfpFile ? "text-gray-900" : "text-gray-400"
-                          }
-                        >
-                          {dfpFile ? dfpFile.name : "Choose file (optional)"}
-                        </span>
-                        <Upload className="w-4 h-4 text-gray-400" />
-                      </label>
-                    </div>
-                    {dfpFile && (
-                      <button
-                        onClick={() => setDfpFile(null)}
-                        className="text-xs text-red-600 hover:text-red-700 mt-1"
-                      >
-                        Remove file
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-5 border-t border-gray-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 flex-shrink-0 bg-white">
-              <p className="text-gray-400 text-sm">
-                <span className="text-red-500">*</span> Required fields
-              </p>
-              <div className="flex items-center gap-2 sm:gap-3">
-                <button
-                  onClick={() => setShowAddRecordModal(false)}
-                  className="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600 text-sm"
-                >
-                  Cancel
-                </button>
-                <button className="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm text-sm">
-                  Save Record
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* View Entry Modal */}
+      {selectedEntry && (
+        <ViewTechnicalLogbookEntryModal
+          isOpen={showViewModal}
+          onClose={() => {
+            setShowViewModal(false);
+            setSelectedEntry(null);
+          }}
+          entry={{
+            id: selectedEntry.id,
+            line: 0,
+            seqNo: selectedEntry.sequenceNo || "",
+            date:
+              selectedEntry.originDate || selectedEntry.destinationDate || "",
+            acReg: selectedEntry.aircraft?.registration || "",
+            route: `${selectedEntry.originStation || ""} → ${
+              selectedEntry.destinationStation || ""
+            }`,
+            fltTime: `${(
+              selectedEntry.hobbsMeterTotal ||
+              selectedEntry.tachometerTotal ||
+              0
+            ).toFixed(2)}h`,
+            pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
+            status: "Serviceable",
+          }}
+          fullEntry={selectedEntry}
+        />
       )}
+
+      {/* Edit Entry Modal */}
+      <AddTechnicalLogbookEntryModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setSelectedEntry(null);
+        }}
+        editEntry={selectedEntry}
+        aircraftId={aircraftId}
+        onSuccess={() => {
+          setShowEditModal(false);
+          setSelectedEntry(null);
+          // Refresh the records list
+          const fetchRecords = async () => {
+            if (!aircraftId) return;
+            setLoading(true);
+            setError(null);
+            try {
+              const response = await getAircraftTechnicalLogs(
+                currentPage,
+                itemsPerPage,
+                searchQuery,
+                aircraftId
+              );
+              setFleetTimeRecords(response.items);
+              setTotalRecords(response.total);
+              setTotalPages(response.pages);
+            } catch (err: any) {
+              console.error("Error fetching ATL records:", err);
+              setError("Failed to load fleet time records");
+              setFleetTimeRecords([]);
+            } finally {
+              setTimeout(() => setLoading(false), 360);
+            }
+          };
+          fetchRecords();
+        }}
+      />
     </div>
   );
 }

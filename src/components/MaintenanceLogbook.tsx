@@ -1,7 +1,64 @@
-import { ArrowLeft, Search, Download, Printer, Plus, X, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import exampleImage from 'figma:asset/e2526f8d54383927d73ad6c3ae519a40d151d8ad.png';
+import {
+  ArrowLeft,
+  Search,
+  Download,
+  Printer,
+  Plus,
+  X,
+  Upload,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Trash2,
+  Eye,
+  ChevronDown,
+  Check,
+  Loader,
+} from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import Swal from "sweetalert2";
+import {
+  getAccountsByDesignation,
+  getAllAccounts,
+  Account,
+} from "../api/accountApi";
+import { getAircraftById } from "../api/aircraftApi";
+import { Aircraft } from "../types/Aircraft";
+import { toCamel } from "../utility/utils";
+import {
+  getEngineLogbooks,
+  getAirframeLogbooks,
+  getAvionicsLogbooks,
+  getPropellerLogbooks,
+  getEngineLogbookById,
+  getAirframeLogbookById,
+  getAvionicsLogbookById,
+  getPropellerLogbookById,
+  createEngineLogbook,
+  createAirframeLogbook,
+  createAvionicsLogbook,
+  createPropellerLogbook,
+  updateEngineLogbook,
+  updateAirframeLogbook,
+  updateAvionicsLogbook,
+  updatePropellerLogbook,
+  deleteEngineLogbook,
+  deleteAirframeLogbook,
+  deleteAvionicsLogbook,
+  deletePropellerLogbook,
+  EngineLogbook,
+  AirframeLogbook,
+  AvionicsLogbook,
+  PropellerLogbook,
+  EngineLogbookCreate,
+  AirframeLogbookCreate,
+  AvionicsLogbookCreate,
+  PropellerLogbookCreate,
+} from "../api/logbooksApi";
+import { Spinner } from "./ui/spinner";
+import { snakeAllKeys } from "../utility/utils";
+import apiClient from "../api/index";
 
 interface LogEntry {
   id: number;
@@ -11,15 +68,15 @@ interface LogEntry {
   maintenanceType: string;
   technician: string;
   hours: number;
-  status: 'Completed' | 'In Progress' | 'Pending';
-  category: 'AIRFRAME' | 'AVIONICS' | 'ENGINE' | 'PROPELLER';
+  status: "Completed" | "In Progress" | "Pending";
+  category: "AIRFRAME" | "AVIONICS" | "ENGINE" | "PROPELLER";
 }
 
 interface AirframeLogEntry {
   id: number;
   date: string;
   tachTime: number;
-  seqNo: string;
+  sequenceNo: string;
   airframeTime: number;
   description: string;
   mechanicName: string;
@@ -30,7 +87,7 @@ interface AirframeLogEntry {
 interface AvionicsLogEntry {
   id: number;
   date: string;
-  seqNo: string;
+  sequenceNo: string;
   description: string;
   mechanicName: string;
   licenseNumber: string;
@@ -41,7 +98,7 @@ interface EngineLogEntry {
   id: number;
   date: string;
   tachTime: number;
-  seqNo: string;
+  sequenceNo: string;
   engineTime: number;
   description: string;
   mechanicName: string;
@@ -52,7 +109,7 @@ interface EngineLogEntry {
 interface PropellerLogEntry {
   id: number;
   date: string;
-  seqNo: string;
+  sequenceNo: string;
   propellerTime: number;
   description: string;
   mechanicName: string;
@@ -60,496 +117,1103 @@ interface PropellerLogEntry {
   signature: string;
 }
 
-type Category = 'AIRFRAME' | 'AVIONICS' | 'ENGINE' | 'PROPELLER';
+type Category = "AIRFRAME" | "AVIONICS" | "ENGINE" | "PROPELLER";
 
 export function MaintenanceLogbook() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const aircraftId = parseInt(id || '1');
+  const aircraftId = parseInt(id || "1");
 
   const handleBack = () => {
-    navigate('/profile');
+    navigate("/profile");
   };
 
-  const [activeCategory, setActiveCategory] = useState<Category>('AIRFRAME');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [selectedAirframeEntry, setSelectedAirframeEntry] = useState<AirframeLogEntry | null>(null);
-  const [selectedAvionicsEntry, setSelectedAvionicsEntry] = useState<AvionicsLogEntry | null>(null);
-  const [selectedEngineEntry, setSelectedEngineEntry] = useState<EngineLogEntry | null>(null);
-  const [selectedPropellerEntry, setSelectedPropellerEntry] = useState<PropellerLogEntry | null>(null);
+  const [activeCategory, setActiveCategory] = useState<Category>("AIRFRAME");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  // State for logbook entries
+  const [airframeLogEntries, setAirframeLogEntries] = useState<
+    AirframeLogbook[]
+  >([]);
+  const [avionicsLogEntries, setAvionicsLogEntries] = useState<
+    AvionicsLogbook[]
+  >([]);
+  const [engineLogEntries, setEngineLogEntries] = useState<EngineLogbook[]>([]);
+  const [propellerLogEntries, setPropellerLogEntries] = useState<
+    PropellerLogbook[]
+  >([]);
+
+  // State for totals and pagination
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
+  // Loading and error states
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Accounts map for mechanic lookup
+  const [accountsMap, setAccountsMap] = useState<Map<number, Account>>(
+    new Map()
+  );
+
+  // Aircraft state
+  const [aircraft, setAircraft] = useState<Aircraft | null>(null);
+
+  // Selected entries for view modal
+  const [selectedAirframeEntry, setSelectedAirframeEntry] =
+    useState<AirframeLogbook | null>(null);
+  const [selectedAvionicsEntry, setSelectedAvionicsEntry] =
+    useState<AvionicsLogbook | null>(null);
+  const [selectedEngineEntry, setSelectedEngineEntry] =
+    useState<EngineLogbook | null>(null);
+  const [selectedPropellerEntry, setSelectedPropellerEntry] =
+    useState<PropellerLogbook | null>(null);
+
+  // File view modal state
+  const [showImageViewModal, setShowImageViewModal] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [viewingFilePath, setViewingFilePath] = useState<string | null>(null);
+
+  // Modal states
   const [showAddEntryModal, setShowAddEntryModal] = useState(false);
+  const [showEditEntryModal, setShowEditEntryModal] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<
+    EngineLogbook | AirframeLogbook | AvionicsLogbook | PropellerLogbook | null
+  >(null);
 
-  // Airframe logbook entries
-  const airframeLogEntries: AirframeLogEntry[] = [
-    {
-      id: 1,
-      date: '23/MAR/2024',
-      tachTime: 6573.5,
-      seqNo: 'AFM-A-12-001',
-      airframeTime: 6244.1,
-      description: 'PERFORMED 60 HRS INSPECTION I.A.W W/O NO. 17218-A-000699.',
-      mechanicName: 'RWEN AMIGEL',
-      licenseNumber: 'OFCP FAL / 152E89 AMD',
-      signature: 'LAI 003'
-    },
-    {
-      id: 2,
-      date: '10/NOV/2024',
-      tachTime: 6650.0,
-      seqNo: 'AFM-A-12-002',
-      airframeTime: 6320.6,
-      description: 'PERFORMED 100-HOUR INSPECTION I.A.W W/O NO. 17218-A-000725.',
-      mechanicName: 'JOHN SMITH',
-      licenseNumber: 'A&P / 198745 AMT',
-      signature: 'JS 442'
-    },
-    {
-      id: 3,
-      date: '28/OCT/2024',
-      tachTime: 6625.5,
-      seqNo: 'AFM-A-11-089',
-      airframeTime: 6296.1,
-      description: 'LANDING GEAR INSPECTION AND SERVICING. REPLACED NOSE GEAR STRUT SEAL I.A.W W/O NO. 17218-A-000698.',
-      mechanicName: 'ROBERT CHEN',
-      licenseNumber: 'A&P / 203561 AMT',
-      signature: 'RC 771'
-    },
-    {
-      id: 4,
-      date: '12/NOV/2024',
-      tachTime: 6665.0,
-      seqNo: 'AFM-A-12-003',
-      airframeTime: 6335.6,
-      description: 'WING FLAP ACTUATOR REPLACEMENT. PERFORMED OPERATIONAL CHECK I.A.W W/O NO. 17218-A-000732.',
-      mechanicName: 'MARIA GARCIA',
-      licenseNumber: 'A&P / 176432 AMT',
-      signature: 'MG 558'
-    },
-    {
-      id: 5,
-      date: '14/NOV/2024',
-      tachTime: 6670.5,
-      seqNo: 'AFM-A-12-004',
-      airframeTime: 6341.1,
-      description: 'FUSELAGE SKIN CORROSION TREATMENT. APPLIED PROTECTIVE COATING I.A.W W/O NO. 17218-A-000745.',
-      mechanicName: 'ROBERT CHEN',
-      licenseNumber: 'A&P / 203561 AMT',
-      signature: 'RC 771'
+  // Fetch aircraft information
+  useEffect(() => {
+    const fetchAircraft = async () => {
+      if (!aircraftId) return;
+      try {
+        const response = await getAircraftById(aircraftId);
+        setAircraft(toCamel(response.data));
+      } catch (err) {
+        console.error("Error fetching aircraft:", err);
+      }
+    };
+    fetchAircraft();
+  }, [aircraftId]);
+
+  // Fetch all accounts for mechanic lookup
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const accountsList = await getAllAccounts();
+        // Create a map for quick lookup
+        const map = new Map<number, Account>();
+        accountsList.forEach((account) => {
+          map.set(account.id, account);
+        });
+        setAccountsMap(map);
+      } catch (err) {
+        console.error("Error fetching accounts:", err);
+      }
+    };
+    fetchAccounts();
+  }, []);
+
+  // Fetch logbook entries from API using useCallback
+  const fetchLogbooks = useCallback(async () => {
+    if (!aircraftId) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      switch (activeCategory) {
+        case "AIRFRAME":
+          const airframeResponse = await getAirframeLogbooks(
+            currentPage,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          setAirframeLogEntries(airframeResponse.items);
+          setTotalRecords(airframeResponse.total);
+          setTotalPages(airframeResponse.pages);
+          break;
+        case "AVIONICS":
+          const avionicsResponse = await getAvionicsLogbooks(
+            currentPage,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          setAvionicsLogEntries(avionicsResponse.items);
+          setTotalRecords(avionicsResponse.total);
+          setTotalPages(avionicsResponse.pages);
+          break;
+        case "ENGINE":
+          const engineResponse = await getEngineLogbooks(
+            currentPage,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          setEngineLogEntries(engineResponse.items);
+          setTotalRecords(engineResponse.total);
+          setTotalPages(engineResponse.pages);
+          break;
+        case "PROPELLER":
+          const propellerResponse = await getPropellerLogbooks(
+            currentPage,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          setPropellerLogEntries(propellerResponse.items);
+          setTotalRecords(propellerResponse.total);
+          setTotalPages(propellerResponse.pages);
+          break;
+      }
+    } catch (err: any) {
+      console.error("Error fetching logbooks:", err);
+      setError("Failed to load logbook entries");
+      setAirframeLogEntries([]);
+      setAvionicsLogEntries([]);
+      setEngineLogEntries([]);
+      setPropellerLogEntries([]);
+    } finally {
+      setTimeout(() => setLoading(false), 360);
     }
-  ];
+  }, [activeCategory, currentPage, searchQuery, aircraftId, itemsPerPage]);
 
-  // Avionics logbook entries
-  const avionicsLogEntries: AvionicsLogEntry[] = [
-    {
-      id: 1,
-      date: '14/NOV/2024',
-      seqNo: 'AVI-A-12-001',
-      description: 'AVIONICS SOFTWARE UPDATE FOR GARMIN G1000 SYSTEM I.A.W W/O NO. 17218-AV-000189.',
-      mechanicName: 'SARAH JOHNSON',
-      licenseNumber: 'FCC GROL / AV-98762',
-      signature: 'SJ 234'
-    },
-    {
-      id: 2,
-      date: '08/NOV/2024',
-      seqNo: 'AVI-A-11-078',
-      description: 'GPS NAVIGATION SYSTEM CALIBRATION AND DATABASE UPDATE I.A.W W/O NO. 17218-AV-000161.',
-      mechanicName: 'DAVID LEE',
-      licenseNumber: 'FCC GROL / AV-87654',
-      signature: 'DL 665'
-    },
-    {
-      id: 3,
-      date: '25/OCT/2024',
-      seqNo: 'AVI-A-10-112',
-      description: 'COMMUNICATION RADIO REPLACEMENT. INSTALLED NEW KING KY-196A TRANSCEIVER I.A.W W/O NO. 17218-AV-000085.',
-      mechanicName: 'SARAH JOHNSON',
-      licenseNumber: 'FCC GROL / AV-98762',
-      signature: 'SJ 234'
-    },
-    {
-      id: 4,
-      date: '15/OCT/2024',
-      seqNo: 'AVI-A-10-089',
-      description: 'TRANSPONDER SYSTEM CHECK. MODE C ALTITUDE ENCODING VERIFICATION I.A.W W/O NO. 17218-AV-000042.',
-      mechanicName: 'DAVID LEE',
-      licenseNumber: 'FCC GROL / AV-87654',
-      signature: 'DL 665'
-    }
-  ];
+  // Reset to page 1 when itemsPerPage changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [itemsPerPage]);
 
-  // Engine logbook entries
-  const engineLogEntries: EngineLogEntry[] = [
-    {
-      id: 1,
-      date: '05/NOV/2024',
-      tachTime: 6640.0,
-      seqNo: 'ENG-A-12-001',
-      engineTime: 1245.5,
-      description: 'ENGINE OIL CHANGE AND FILTER REPLACEMENT. USED AEROSHELL W100 PLUS I.A.W W/O NO. 17218-E-000142.',
-      mechanicName: 'MARIA GARCIA',
-      licenseNumber: 'A&P / 176432 AMT',
-      signature: 'MG 558'
-    },
-    {
-      id: 2,
-      date: '30/OCT/2024',
-      tachTime: 6628.5,
-      seqNo: 'ENG-A-11-098',
-      engineTime: 1234.0,
-      description: 'ENGINE COMPRESSION TEST. ALL CYLINDERS WITHIN LIMITS I.A.W W/O NO. 17218-E-000105.',
-      mechanicName: 'JOHN SMITH',
-      licenseNumber: 'A&P / 198745 AMT',
-      signature: 'JS 442'
-    },
-    {
-      id: 3,
-      date: '18/OCT/2024',
-      tachTime: 6610.0,
-      seqNo: 'ENG-A-10-076',
-      engineTime: 1215.5,
-      description: 'FUEL INJECTION SYSTEM CLEANING AND FLOW CHECK I.A.W W/O NO. 17218-E-000055.',
-      mechanicName: 'MARIA GARCIA',
-      licenseNumber: 'A&P / 176432 AMT',
-      signature: 'MG 558'
-    },
-    {
-      id: 4,
-      date: '13/NOV/2024',
-      tachTime: 6660.5,
-      seqNo: 'ENG-A-12-002',
-      engineTime: 1266.0,
-      description: 'ENGINE MOUNT INSPECTION. REPLACED FORWARD UPPER MOUNT BUSHINGS I.A.W W/O NO. 17218-E-000180.',
-      mechanicName: 'ROBERT CHEN',
-      licenseNumber: 'A&P / 203561 AMT',
-      signature: 'RC 771'
-    },
-    {
-      id: 5,
-      date: '10/OCT/2024',
-      tachTime: 6595.0,
-      seqNo: 'ENG-A-10-045',
-      engineTime: 1200.5,
-      description: 'TURBOCHARGER OVERHAUL. REPLACED WASTEGATE ACTUATOR AND SEALS I.A.W W/O NO. 17218-E-000028.',
-      mechanicName: 'JOHN SMITH',
-      licenseNumber: 'A&P / 198745 AMT',
-      signature: 'JS 442'
-    }
-  ];
+  // Fetch logbooks when dependencies change
+  useEffect(() => {
+    fetchLogbooks();
+  }, [fetchLogbooks]);
 
-  // Propeller logbook entries
-  const propellerLogEntries: PropellerLogEntry[] = [
-    {
-      id: 1,
-      date: '09/NOV/2024',
-      seqNo: 'PROP-A-12-001',
-      propellerTime: 1250.0,
-      description: 'PROPELLER BALANCE CHECK. DYNAMIC BALANCING PERFORMED I.A.W W/O NO. 17218-P-000165.',
-      mechanicName: 'DAVID LEE',
-      licenseNumber: 'A&P / 187654 AMT',
-      signature: 'DL 665'
-    },
-    {
-      id: 2,
-      date: '27/OCT/2024',
-      seqNo: 'PROP-A-11-087',
-      propellerTime: 1237.0,
-      description: 'PROPELLER BLADE INSPECTION. CHECKED FOR NICKS, CRACKS, AND EROSION I.A.W W/O NO. 17218-P-000092.',
-      mechanicName: 'MARIA GARCIA',
-      licenseNumber: 'A&P / 176432 AMT',
-      signature: 'MG 558'
-    },
-    {
-      id: 3,
-      date: '12/OCT/2024',
-      seqNo: 'PROP-A-10-054',
-      propellerTime: 1222.0,
-      description: 'PROPELLER GOVERNOR ADJUSTMENT. ADJUSTED RPM SETTINGS TO SPECIFICATIONS I.A.W W/O NO. 17218-P-000035.',
-      mechanicName: 'DAVID LEE',
-      licenseNumber: 'A&P / 187654 AMT',
-      signature: 'DL 665'
-    },
-    {
-      id: 4,
-      date: '11/NOV/2024',
-      seqNo: 'PROP-A-12-002',
-      propellerTime: 1252.5,
-      description: 'PROPELLER DE-ICING SYSTEM TEST. VERIFIED PROPER OPERATION OF FLUID SYSTEM I.A.W W/O NO. 17218-P-000170.',
-      mechanicName: 'ROBERT CHEN',
-      licenseNumber: 'A&P / 203561 AMT',
-      signature: 'RC 771'
-    }
-  ];
+  // Reset to page 1 when search query or category changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeCategory]);
 
-  // Mock data - in real app, this would be fetched based on aircraftId
-  const allLogEntries: LogEntry[] = [
-    // AIRFRAME entries
-    {
-      id: 1,
-      date: '2024-11-10',
-      workOrder: 'WO-2024-1150',
-      description: '100-hour inspection completed',
-      maintenanceType: 'Scheduled',
-      technician: 'John Smith',
-      hours: 8.5,
-      status: 'Completed',
-      category: 'AIRFRAME'
-    },
-    {
-      id: 2,
-      date: '2024-10-28',
-      workOrder: 'WO-2024-1098',
-      description: 'Landing gear inspection',
-      maintenanceType: 'Scheduled',
-      technician: 'Robert Chen',
-      hours: 5.5,
-      status: 'Completed',
-      category: 'AIRFRAME'
-    },
-    {
-      id: 3,
-      date: '2024-10-20',
-      workOrder: 'WO-2024-1067',
-      description: 'Hydraulic system leak repair',
-      maintenanceType: 'Unscheduled',
-      technician: 'John Smith',
-      hours: 12.0,
-      status: 'Completed',
-      category: 'AIRFRAME'
-    },
-    {
-      id: 4,
-      date: '2024-11-12',
-      workOrder: 'WO-2024-1172',
-      description: 'Wing flap actuator replacement',
-      maintenanceType: 'Unscheduled',
-      technician: 'Maria Garcia',
-      hours: 6.5,
-      status: 'Completed',
-      category: 'AIRFRAME'
-    },
-    {
-      id: 5,
-      date: '2024-11-14',
-      workOrder: 'WO-2024-1195',
-      description: 'Fuselage skin corrosion treatment',
-      maintenanceType: 'Scheduled',
-      technician: 'Robert Chen',
-      hours: 10.0,
-      status: 'In Progress',
-      category: 'AIRFRAME'
-    },
-    // AVIONICS entries
-    {
-      id: 6,
-      date: '2024-11-14',
-      workOrder: 'WO-2024-1189',
-      description: 'Avionics software update',
-      maintenanceType: 'Scheduled',
-      technician: 'Sarah Johnson',
-      hours: 4.0,
-      status: 'In Progress',
-      category: 'AVIONICS'
-    },
-    {
-      id: 7,
-      date: '2024-11-08',
-      workOrder: 'WO-2024-1161',
-      description: 'GPS navigation system calibration',
-      maintenanceType: 'Scheduled',
-      technician: 'David Lee',
-      hours: 2.5,
-      status: 'Completed',
-      category: 'AVIONICS'
-    },
-    {
-      id: 8,
-      date: '2024-10-25',
-      workOrder: 'WO-2024-1085',
-      description: 'Communication radio replacement',
-      maintenanceType: 'Unscheduled',
-      technician: 'Sarah Johnson',
-      hours: 5.0,
-      status: 'Completed',
-      category: 'AVIONICS'
-    },
-    {
-      id: 9,
-      date: '2024-10-15',
-      workOrder: 'WO-2024-1042',
-      description: 'Transponder system check',
-      maintenanceType: 'Scheduled',
-      technician: 'David Lee',
-      hours: 1.5,
-      status: 'Completed',
-      category: 'AVIONICS'
-    },
-    // ENGINE entries
-    {
-      id: 10,
-      date: '2024-11-05',
-      workOrder: 'WO-2024-1142',
-      description: 'Engine oil change and filter replacement',
-      maintenanceType: 'Scheduled',
-      technician: 'Maria Garcia',
-      hours: 3.0,
-      status: 'Completed',
-      category: 'ENGINE'
-    },
-    {
-      id: 11,
-      date: '2024-10-30',
-      workOrder: 'WO-2024-1105',
-      description: 'Engine compression test',
-      maintenanceType: 'Scheduled',
-      technician: 'John Smith',
-      hours: 4.5,
-      status: 'Completed',
-      category: 'ENGINE'
-    },
-    {
-      id: 12,
-      date: '2024-10-18',
-      workOrder: 'WO-2024-1055',
-      description: 'Fuel injection system cleaning',
-      maintenanceType: 'Scheduled',
-      technician: 'Maria Garcia',
-      hours: 6.0,
-      status: 'Completed',
-      category: 'ENGINE'
-    },
-    {
-      id: 13,
-      date: '2024-11-13',
-      workOrder: 'WO-2024-1180',
-      description: 'Engine mount inspection',
-      maintenanceType: 'Scheduled',
-      technician: 'Robert Chen',
-      hours: 3.5,
-      status: 'In Progress',
-      category: 'ENGINE'
-    },
-    {
-      id: 14,
-      date: '2024-10-10',
-      workOrder: 'WO-2024-1028',
-      description: 'Turbocharger overhaul',
-      maintenanceType: 'Scheduled',
-      technician: 'John Smith',
-      hours: 16.0,
-      status: 'Completed',
-      category: 'ENGINE'
-    },
-    // PROPELLER entries
-    {
-      id: 15,
-      date: '2024-11-09',
-      workOrder: 'WO-2024-1165',
-      description: 'Propeller balance check',
-      maintenanceType: 'Scheduled',
-      technician: 'David Lee',
-      hours: 2.0,
-      status: 'Completed',
-      category: 'PROPELLER'
-    },
-    {
-      id: 16,
-      date: '2024-10-27',
-      workOrder: 'WO-2024-1092',
-      description: 'Propeller blade inspection',
-      maintenanceType: 'Scheduled',
-      technician: 'Maria Garcia',
-      hours: 3.0,
-      status: 'Completed',
-      category: 'PROPELLER'
-    },
-    {
-      id: 17,
-      date: '2024-10-12',
-      workOrder: 'WO-2024-1035',
-      description: 'Propeller governor adjustment',
-      maintenanceType: 'Unscheduled',
-      technician: 'David Lee',
-      hours: 4.0,
-      status: 'Completed',
-      category: 'PROPELLER'
-    },
-    {
-      id: 18,
-      date: '2024-11-11',
-      workOrder: 'WO-2024-1170',
-      description: 'Propeller de-icing system test',
-      maintenanceType: 'Scheduled',
-      technician: 'Robert Chen',
-      hours: 2.5,
-      status: 'Pending',
-      category: 'PROPELLER'
-    },
-  ];
-
-  // Get filtered entries based on active category and search
-  const getFilteredEntries = () => {
-    let entries: any[] = [];
-    
+  // Get current entries based on active category
+  const getCurrentEntries = () => {
     switch (activeCategory) {
-      case 'AIRFRAME':
-        entries = airframeLogEntries;
-        break;
-      case 'AVIONICS':
-        entries = avionicsLogEntries;
-        break;
-      case 'ENGINE':
-        entries = engineLogEntries;
-        break;
-      case 'PROPELLER':
-        entries = propellerLogEntries;
-        break;
+      case "AIRFRAME":
+        return airframeLogEntries;
+      case "AVIONICS":
+        return avionicsLogEntries;
+      case "ENGINE":
+        return engineLogEntries;
+      case "PROPELLER":
+        return propellerLogEntries;
+      default:
+        return [];
     }
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      entries = entries.filter(entry =>
-        entry.description.toLowerCase().includes(query) ||
-        entry.mechanicName.toLowerCase().includes(query) ||
-        entry.date.toLowerCase().includes(query)
-      );
-    }
-
-    return entries;
   };
 
-  const filteredEntries = getFilteredEntries();
+  const currentEntries = getCurrentEntries();
+
+  // Format date from YYYY-MM-DD to DD/MMM/YYYY
+  const formatDate = (dateStr: string | undefined): string => {
+    if (!dateStr) return "-";
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      const months = [
+        "JAN",
+        "FEB",
+        "MAR",
+        "APR",
+        "MAY",
+        "JUN",
+        "JUL",
+        "AUG",
+        "SEP",
+        "OCT",
+        "NOV",
+        "DEC",
+      ];
+      const day = date.getDate().toString().padStart(2, "0");
+      const month = months[date.getMonth()];
+      const year = date.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // Handle delete entry
+  const handleDelete = async (entryId: number) => {
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: "You won't be able to revert this!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete it!",
+    });
+
+    if (result.isConfirmed) {
+      try {
+        switch (activeCategory) {
+          case "AIRFRAME":
+            await deleteAirframeLogbook(entryId);
+            break;
+          case "AVIONICS":
+            await deleteAvionicsLogbook(entryId);
+            break;
+          case "ENGINE":
+            await deleteEngineLogbook(entryId);
+            break;
+          case "PROPELLER":
+            await deletePropellerLogbook(entryId);
+            break;
+        }
+
+        Swal.fire("Deleted!", "The entry has been deleted.", "success");
+
+        // Set loading to true immediately to show spinner during refresh
+        setLoading(true);
+
+        // Refresh the list using fetchLogbooks callback
+        await fetchLogbooks();
+      } catch (err: any) {
+        console.error("Error deleting entry:", err);
+        Swal.fire("Error!", "Failed to delete the entry.", "error");
+      }
+    }
+  };
+
+  // Handle edit entry
+  const handleEdit = async (entryId: number) => {
+    try {
+      let entry:
+        | EngineLogbook
+        | AirframeLogbook
+        | AvionicsLogbook
+        | PropellerLogbook
+        | null = null;
+
+      switch (activeCategory) {
+        case "AIRFRAME":
+          entry = await getAirframeLogbookById(entryId);
+          break;
+        case "AVIONICS":
+          entry = await getAvionicsLogbookById(entryId);
+          break;
+        case "ENGINE":
+          entry = await getEngineLogbookById(entryId);
+          break;
+        case "PROPELLER":
+          entry = await getPropellerLogbookById(entryId);
+          break;
+      }
+
+      if (entry) {
+        setEditingEntry(entry);
+        setShowEditEntryModal(true);
+      }
+    } catch (err: any) {
+      console.error("Error fetching entry:", err);
+      Swal.fire("Error!", "Failed to load entry details.", "error");
+    }
+  };
+
+  // Handle view entry
+  const handleView = async (entryId: number) => {
+    try {
+      switch (activeCategory) {
+        case "AIRFRAME":
+          const airframeEntry = await getAirframeLogbookById(entryId);
+          setSelectedAirframeEntry(airframeEntry);
+          break;
+        case "AVIONICS":
+          const avionicsEntry = await getAvionicsLogbookById(entryId);
+          setSelectedAvionicsEntry(avionicsEntry);
+          break;
+        case "ENGINE":
+          const engineEntry = await getEngineLogbookById(entryId);
+          setSelectedEngineEntry(engineEntry);
+          break;
+        case "PROPELLER":
+          const propellerEntry = await getPropellerLogbookById(entryId);
+          setSelectedPropellerEntry(propellerEntry);
+          break;
+      }
+    } catch (err: any) {
+      console.error("Error fetching entry:", err);
+      Swal.fire("Error!", "Failed to load entry details.", "error");
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Completed':
-        return 'bg-green-100 text-green-800 border border-green-300';
-      case 'In Progress':
-        return 'bg-blue-100 text-blue-800 border border-blue-300';
-      case 'Pending':
-        return 'bg-orange-100 text-orange-800 border border-orange-300';
+      case "Completed":
+        return "bg-green-100 text-green-800 border border-green-300";
+      case "In Progress":
+        return "bg-blue-100 text-blue-800 border border-blue-300";
+      case "Pending":
+        return "bg-orange-100 text-orange-800 border border-orange-300";
       default:
-        return 'bg-gray-50 text-gray-700 border border-gray-200';
+        return "bg-gray-50 text-gray-700 border border-gray-200";
     }
   };
 
-  const categories: Category[] = ['AIRFRAME', 'AVIONICS', 'ENGINE', 'PROPELLER'];
+  const categories: Category[] = [
+    "AIRFRAME",
+    "AVIONICS",
+    "ENGINE",
+    "PROPELLER",
+  ];
 
-  // Get count for each category
+  // Get count for each category (use totalRecords for active category, fetch others if needed)
   const getCategoryCount = (category: Category) => {
-    switch (category) {
-      case 'AIRFRAME':
-        return airframeLogEntries.length;
-      case 'AVIONICS':
-        return avionicsLogEntries.length;
-      case 'ENGINE':
-        return engineLogEntries.length;
-      case 'PROPELLER':
-        return propellerLogEntries.length;
-      default:
-        return 0;
+    if (category === activeCategory) {
+      return totalRecords;
+    }
+    // For inactive categories, return 0 or fetch count separately if needed
+    return 0;
+  };
+
+  // Form state for Add/Edit modal
+  const [formData, setFormData] = useState({
+    date: "",
+    sequenceNo: "ATL-",
+    tachTime: "",
+    airframeTime: "",
+    engineTime: "",
+    propellerTime: "",
+    // Engine fields
+    engineTsn: "",
+    engineTso: "",
+    engineTbo: "",
+    // Propeller fields
+    propellerTsn: "",
+    propellerTso: "",
+    propellerTbo: "",
+    // Avionics fields
+    airframeTsn: "",
+    component: "",
+    partNo: "",
+    serialNo: "",
+    description: "",
+    mechanicFk: "",
+    mechanicName: "",
+    licenseNumber: "",
+    signature: "",
+  });
+
+  // Mechanic accounts dropdown state
+  const [mechanicAccounts, setMechanicAccounts] = useState<Account[]>([]);
+  const [mechanicSearchTerm, setMechanicSearchTerm] = useState("");
+  const [isMechanicDropdownOpen, setIsMechanicDropdownOpen] = useState(false);
+  const [loadingMechanicAccounts, setLoadingMechanicAccounts] = useState(false);
+  const [debouncedMechanicSearch, setDebouncedMechanicSearch] = useState("");
+  const mechanicDropdownRef = useRef<HTMLDivElement>(null);
+
+  // File upload state
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFileName, setUploadFileName] = useState("");
+  const [existingUploadFile, setExistingUploadFile] = useState<string | null>(
+    null
+  );
+
+  // Debounce mechanic search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedMechanicSearch(mechanicSearchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [mechanicSearchTerm]);
+
+  // Fetch mechanic accounts when dropdown opens or search changes
+  useEffect(() => {
+    if (isMechanicDropdownOpen) {
+      fetchMechanicAccounts(debouncedMechanicSearch);
+    }
+  }, [debouncedMechanicSearch, isMechanicDropdownOpen]);
+
+  // Fetch mechanic accounts
+  const fetchMechanicAccounts = async (search: string = "") => {
+    setLoadingMechanicAccounts(true);
+    try {
+      const accounts = await getAccountsByDesignation(
+        ["Maintenance Engineer", "Mechanic"],
+        search
+      );
+      console.log("Fetched mechanic accounts:", accounts);
+      setMechanicAccounts(accounts);
+    } catch (err) {
+      console.error("Error fetching mechanic accounts:", err);
+      setMechanicAccounts([]);
+    } finally {
+      setTimeout(() => setLoadingMechanicAccounts(false), 360);
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        mechanicDropdownRef.current &&
+        !mechanicDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsMechanicDropdownOpen(false);
+      }
+    };
+
+    if (isMechanicDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isMechanicDropdownOpen]);
+
+  // Get selected mechanic display text (matching ATL pattern)
+  const getSelectedMechanic = () => {
+    if (!formData.mechanicFk) return "";
+    const selectedAccount = mechanicAccounts.find(
+      (account) => account.id.toString() === formData.mechanicFk
+    );
+    if (selectedAccount) {
+      return `${selectedAccount.fullName}-${selectedAccount.licenseNo}`;
+    }
+    // Fallback to formData values if account not found in list yet
+    if (formData.mechanicName || formData.licenseNumber) {
+      return `${formData.mechanicName || ""}${
+        formData.mechanicName && formData.licenseNumber ? "-" : ""
+      }${formData.licenseNumber || ""}`;
+    }
+    return "";
+  };
+
+  // Helper function to construct file URL
+  const getFileUrl = (filePath: string | undefined | null): string | null => {
+    if (!filePath) return null;
+    const baseUrl =
+      (import.meta as any).env?.VITE_API_URL || "http://localhost:8000/api/v1";
+    if (filePath.startsWith("http")) {
+      return filePath;
+    }
+    // If it's a relative path, construct full URL
+    if (filePath.startsWith("/")) {
+      return `${baseUrl}${filePath}`;
+    } else if (filePath.startsWith("uploads/")) {
+      return `${baseUrl}/${filePath}`;
+    } else {
+      return `${baseUrl}/uploads/${filePath}`;
+    }
+  };
+
+  // Helper function to get file type from extension
+  const getFileType = (filePath: string | undefined | null): string => {
+    if (!filePath) return "unknown";
+    const extension = filePath.split(".").pop()?.toLowerCase() || "";
+    if (["jpg", "jpeg", "png", "gif", "webp"].includes(extension)) {
+      return "image";
+    } else if (extension === "pdf") {
+      return "pdf";
+    } else if (["doc", "docx"].includes(extension)) {
+      return "document";
+    }
+    return "unknown";
+  };
+
+  // Helper function to extract filename from file path
+  const extractFilenameFromPath = (filePath: string): string => {
+    // Remove leading slashes and base URL if present
+    let cleanPath = filePath;
+
+    // If it's a full URL, extract just the path
+    if (filePath.includes("/")) {
+      // Get the last part after the last slash
+      cleanPath = filePath.split("/").pop() || filePath;
+    }
+
+    // Remove query parameters if any
+    cleanPath = cleanPath.split("?")[0];
+
+    return cleanPath;
+  };
+
+  // Helper function to handle file download
+  const handleFileDownload = async (
+    filePath: string | undefined | null,
+    fileName?: string
+  ) => {
+    if (!filePath) {
+      Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: "File path is not available.",
+      });
+      return;
+    }
+
+    try {
+      // Extract filename from path
+      const downloadFileName =
+        fileName || extractFilenameFromPath(filePath) || "download";
+
+      // Extract the file path for the download endpoint
+      // Remove base URL, leading slashes, and "uploads/" prefix if present
+      let filePathForEndpoint = filePath;
+
+      // If it's a full URL, extract the path part
+      if (filePath.startsWith("http")) {
+        const url = new URL(filePath);
+        filePathForEndpoint = url.pathname;
+      }
+
+      // Remove leading slash and base path prefixes
+      filePathForEndpoint = filePathForEndpoint.replace(/^\/+/, "");
+      filePathForEndpoint = filePathForEndpoint.replace(/^api\/v1\//, "");
+      filePathForEndpoint = filePathForEndpoint.replace(/^uploads\//, "");
+
+      // Construct download endpoint: /api/v1/logbooks/download/{filename:path}
+      const downloadEndpoint = `logbooks/download/${filePathForEndpoint}`;
+
+      // Use apiClient to download the file (handles authentication automatically)
+      const response = await apiClient.get(downloadEndpoint, {
+        responseType: "blob",
+        headers: {
+          Accept: "application/octet-stream",
+        },
+      });
+
+      // Create a blob URL and trigger download
+      const blob = new Blob([response.data]);
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = downloadFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the blob URL
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error: any) {
+      console.error("Error downloading file:", error);
+
+      // Show error message
+      let errorMessage = "Failed to download file.";
+      if (error.response?.data) {
+        if (typeof error.response.data === "string") {
+          errorMessage = error.response.data;
+        } else if (error.response.data.detail) {
+          errorMessage = Array.isArray(error.response.data.detail)
+            ? error.response.data.detail.map((d: any) => d.msg || d).join(", ")
+            : error.response.data.detail;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: errorMessage,
+      });
+    }
+  };
+
+  // Reset form when modal opens/closes
+  useEffect(() => {
+    if (showAddEntryModal || showEditEntryModal) {
+      // Always fetch mechanic accounts when modal opens
+      fetchMechanicAccounts("");
+
+      if (editingEntry) {
+        // Populate form with editing entry data
+        setFormData({
+          date: editingEntry.date || "",
+          sequenceNo: editingEntry.sequenceNo || "",
+          tachTime: (editingEntry as any).tachTime?.toString() || "",
+          airframeTime:
+            (editingEntry as AirframeLogbook).airframeTime?.toString() || "",
+          engineTime: (editingEntry as any).engineTime?.toString() || "",
+          propellerTime: (editingEntry as any).propellerTime?.toString() || "",
+          // Engine fields
+          engineTsn: (editingEntry as any).engineTsn?.toString() || "",
+          engineTso: (editingEntry as any).engineTso?.toString() || "",
+          engineTbo: (editingEntry as any).engineTbo?.toString() || "",
+          // Propeller fields
+          propellerTsn: (editingEntry as any).propellerTsn?.toString() || "",
+          propellerTso: (editingEntry as any).propellerTso?.toString() || "",
+          propellerTbo: (editingEntry as any).propellerTbo?.toString() || "",
+          // Avionics fields
+          airframeTsn: (editingEntry as any).airframeTsn?.toString() || "",
+          component: (editingEntry as any).component || "",
+          partNo: (editingEntry as any).partNo || "",
+          serialNo: (editingEntry as any).serialNo || "",
+          description: editingEntry.description || "",
+          mechanicFk: editingEntry.mechanicFk?.toString() || "",
+          mechanicName: editingEntry.mechanicName || "",
+          licenseNumber: editingEntry.licenseNumber || "",
+          signature: editingEntry.signature || "",
+        });
+        // Set existing file info for editing
+        const existingFile = (editingEntry as any).uploadFile;
+        setExistingUploadFile(existingFile || null);
+        if (existingFile) {
+          // Extract filename from path if it's a URL
+          const fileName = existingFile.includes("/")
+            ? existingFile.split("/").pop() || "Existing file"
+            : existingFile;
+          setUploadFileName(fileName);
+        } else {
+          setUploadFileName("");
+        }
+        setUploadFile(null); // No new file selected yet
+      } else {
+        // Reset form for new entry
+        setFormData({
+          date: "",
+          sequenceNo: "ATL-",
+          tachTime: "",
+          airframeTime: "",
+          engineTime: "",
+          propellerTime: "",
+          // Engine fields
+          engineTsn: "",
+          engineTso: "",
+          engineTbo: "",
+          // Propeller fields
+          propellerTsn: "",
+          propellerTso: "",
+          propellerTbo: "",
+          // Avionics fields
+          airframeTsn: "",
+          component: "",
+          partNo: "",
+          serialNo: "",
+          description: "",
+          mechanicFk: "",
+          mechanicName: "",
+          licenseNumber: "",
+          signature: "",
+        });
+        setMechanicSearchTerm("");
+        setIsMechanicDropdownOpen(false);
+        setUploadFile(null);
+        setUploadFileName("");
+        setExistingUploadFile(null);
+      }
+    } else {
+      // Reset when modal closes
+      setMechanicAccounts([]);
+      setMechanicSearchTerm("");
+      setIsMechanicDropdownOpen(false);
+      setUploadFile(null);
+      setUploadFileName("");
+      setExistingUploadFile(null);
+    }
+  }, [showAddEntryModal, showEditEntryModal, editingEntry]);
+
+  // Handle save entry
+  const handleSaveEntry = async () => {
+    setIsSaving(true);
+    try {
+      // Validate file if uploaded
+      if (uploadFile) {
+        // Check file size (10MB = 10 * 1024 * 1024 bytes)
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        if (uploadFile.size > maxSize) {
+          Swal.fire({
+            icon: "error",
+            title: "File Too Large",
+            text: "File size must be less than 10MB. Please choose a smaller file.",
+          });
+          return;
+        }
+
+        // Check file type
+        const allowedTypes = [
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "image/jpeg",
+          "image/jpg",
+          "image/png",
+        ];
+        const allowedExtensions = [
+          ".pdf",
+          ".doc",
+          ".docx",
+          ".jpg",
+          ".jpeg",
+          ".png",
+        ];
+        const fileExtension =
+          "." + uploadFile.name.split(".").pop()?.toLowerCase();
+
+        if (
+          !allowedTypes.includes(uploadFile.type) &&
+          !allowedExtensions.includes(fileExtension)
+        ) {
+          Swal.fire({
+            icon: "error",
+            title: "Invalid File Type",
+            text: "Please upload a PDF, DOC, DOCX, JPG, or PNG file.",
+          });
+          return;
+        }
+      }
+
+      // Get selected mechanic account details
+      const selectedMechanic = mechanicAccounts.find(
+        (account) => account.id.toString() === formData.mechanicFk
+      );
+
+      // aircraft_fk is required for create and must be sent for update (backend expects it)
+      const baseData: any = {
+        sequenceNo: formData.sequenceNo || undefined,
+        description: formData.description || undefined,
+        mechanicFk: formData.mechanicFk
+          ? parseInt(formData.mechanicFk)
+          : undefined,
+        mechanicName:
+          selectedMechanic?.fullName || formData.mechanicName || undefined,
+        licenseNumber:
+          selectedMechanic?.licenseNo || formData.licenseNumber || undefined,
+        signature: formData.signature || undefined,
+      };
+
+      // Include aircraft_fk for both create and update (required by backend)
+      baseData.aircraftFk =
+        editingEntry != null
+          ? (editingEntry as any).aircraftFk ?? (editingEntry as any).aircraft_fk ?? aircraftId
+          : aircraftId;
+
+      // Only include date when creating (not updating); backend may not allow date updates
+      if (!editingEntry) {
+        if (formData.date && formData.date.trim() !== "") {
+          baseData.date = formData.date;
+        }
+      }
+
+      let data: any;
+
+      switch (activeCategory) {
+        case "AIRFRAME":
+          data = {
+            ...baseData,
+            tachTime: formData.tachTime
+              ? parseFloat(formData.tachTime)
+              : undefined,
+            airframeTime: formData.airframeTime
+              ? parseFloat(formData.airframeTime)
+              : undefined,
+          };
+          break;
+        case "AVIONICS":
+          data = {
+            ...baseData,
+            airframeTsn: formData.airframeTsn
+              ? parseFloat(formData.airframeTsn)
+              : undefined,
+            component: formData.component || undefined,
+            partNo: formData.partNo || undefined,
+            serialNo: formData.serialNo || undefined,
+          };
+          break;
+        case "ENGINE":
+          data = {
+            ...baseData,
+            engineTsn: formData.engineTsn
+              ? parseFloat(formData.engineTsn)
+              : undefined,
+            tachTime: formData.tachTime
+              ? parseFloat(formData.tachTime)
+              : undefined,
+            engineTso: formData.engineTso
+              ? parseFloat(formData.engineTso)
+              : undefined,
+            engineTbo: formData.engineTbo
+              ? parseFloat(formData.engineTbo)
+              : undefined,
+          };
+          break;
+        case "PROPELLER":
+          data = {
+            ...baseData,
+            propellerTsn: formData.propellerTsn
+              ? parseFloat(formData.propellerTsn)
+              : undefined,
+            tachTime: formData.tachTime
+              ? parseFloat(formData.tachTime)
+              : undefined,
+            propellerTso: formData.propellerTso
+              ? parseFloat(formData.propellerTso)
+              : undefined,
+            propellerTbo: formData.propellerTbo
+              ? parseFloat(formData.propellerTbo)
+              : undefined,
+          };
+          break;
+      }
+
+      // Remove undefined and null values, but keep empty strings for optional fields
+      // Keep 0 values for numbers as they are valid
+      const cleanData = Object.fromEntries(
+        Object.entries(data).filter(([key, v]) => {
+          if (v === undefined || v === null) return false;
+          // Keep numbers including 0
+          if (typeof v === "number") return true;
+          // Keep boolean values
+          if (typeof v === "boolean") return true;
+          // For strings, filter out empty strings except for specific text fields
+          if (typeof v === "string") {
+            // Keep empty strings for description, component, partNo, serialNo, signature, sequenceNo
+            if (
+              [
+                "description",
+                "component",
+                "partNo",
+                "serialNo",
+                "signature",
+                "sequenceNo",
+              ].includes(key)
+            ) {
+              return true;
+            }
+            // Filter out empty strings for other fields
+            return v.trim() !== "";
+          }
+          return true;
+        })
+      );
+
+      // If mechanic_fk is present, don't send mechanic_name and license_number
+      // The backend should derive these from mechanic_fk
+      if (cleanData.mechanicFk) {
+        delete cleanData.mechanicName;
+        delete cleanData.licenseNumber;
+      }
+
+      // Convert to snake_case
+      const apiDataSnake = snakeAllKeys(cleanData);
+
+      // For JSON updates (no file), ensure we don't send empty strings except for allowed fields
+      if (!uploadFile) {
+        const allowedEmptyStringFields = [
+          "description",
+          "component",
+          "part_no",
+          "serial_no",
+          "signature",
+          "sequence_no",
+        ];
+        Object.keys(apiDataSnake).forEach((key) => {
+          const value = apiDataSnake[key];
+          if (
+            typeof value === "string" &&
+            value.trim() === "" &&
+            !allowedEmptyStringFields.includes(key)
+          ) {
+            delete apiDataSnake[key];
+          }
+        });
+      }
+
+      // If new file is uploaded, use FormData with json_data field
+      if (uploadFile) {
+        const formDataObj = new FormData();
+
+        // Append JSON data as stringified json_data field (backend expects this format)
+        formDataObj.append("json_data", JSON.stringify(apiDataSnake));
+
+        // Append file
+        formDataObj.append("upload_file", uploadFile);
+
+        if (editingEntry) {
+          switch (activeCategory) {
+            case "AIRFRAME":
+              await updateAirframeLogbook(editingEntry.id, formDataObj as any);
+              break;
+            case "AVIONICS":
+              await updateAvionicsLogbook(editingEntry.id, formDataObj as any);
+              break;
+            case "ENGINE":
+              await updateEngineLogbook(editingEntry.id, formDataObj as any);
+              break;
+            case "PROPELLER":
+              await updatePropellerLogbook(editingEntry.id, formDataObj as any);
+              break;
+          }
+          Swal.fire(
+            "Success!",
+            `${activeCategory} logbook entry updated successfully.`,
+            "success"
+          );
+        } else {
+          switch (activeCategory) {
+            case "AIRFRAME":
+              await createAirframeLogbook(formDataObj as any);
+              break;
+            case "AVIONICS":
+              await createAvionicsLogbook(formDataObj as any);
+              break;
+            case "ENGINE":
+              await createEngineLogbook(formDataObj as any);
+              break;
+            case "PROPELLER":
+              await createPropellerLogbook(formDataObj as any);
+              break;
+          }
+          Swal.fire(
+            "Success!",
+            `${activeCategory} logbook entry created successfully.`,
+            "success"
+          );
+        }
+
+        // Reset file input after successful save
+        setUploadFile(null);
+        setUploadFileName("");
+        setExistingUploadFile(null);
+        const fileInput = document.getElementById(
+          "upload-file-input"
+        ) as HTMLInputElement;
+        if (fileInput) fileInput.value = "";
+      } else {
+        // No file, send JSON data directly
+        if (editingEntry) {
+          switch (activeCategory) {
+            case "AIRFRAME":
+              await updateAirframeLogbook(editingEntry.id, apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Airframe logbook entry updated successfully.",
+                "success"
+              );
+              break;
+            case "AVIONICS":
+              await updateAvionicsLogbook(editingEntry.id, apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Avionics logbook entry updated successfully.",
+                "success"
+              );
+              break;
+            case "ENGINE":
+              await updateEngineLogbook(editingEntry.id, apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Engine logbook entry updated successfully.",
+                "success"
+              );
+              break;
+            case "PROPELLER":
+              await updatePropellerLogbook(editingEntry.id, apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Propeller logbook entry updated successfully.",
+                "success"
+              );
+              break;
+          }
+        } else {
+          switch (activeCategory) {
+            case "AIRFRAME":
+              await createAirframeLogbook(apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Airframe logbook entry created successfully.",
+                "success"
+              );
+              break;
+            case "AVIONICS":
+              await createAvionicsLogbook(apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Avionics logbook entry created successfully.",
+                "success"
+              );
+              break;
+            case "ENGINE":
+              await createEngineLogbook(apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Engine logbook entry created successfully.",
+                "success"
+              );
+              break;
+            case "PROPELLER":
+              await createPropellerLogbook(apiDataSnake);
+              Swal.fire(
+                "Success!",
+                "Propeller logbook entry created successfully.",
+                "success"
+              );
+              break;
+          }
+        }
+      }
+
+      // Reset form and close modal after successful save (for all tabs and operations)
+      setShowAddEntryModal(false);
+      setShowEditEntryModal(false);
+      setEditingEntry(null);
+      setUploadFile(null);
+      setUploadFileName("");
+      setExistingUploadFile(null);
+      const fileInput = document.getElementById(
+        "upload-file-input"
+      ) as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+
+      // Set loading to true immediately to show spinner during refresh
+      setLoading(true);
+
+      // Reload entries to show updated data using fetchLogbooks callback
+      // This will maintain loading state and show the spinner during refresh
+      // Works for all tabs: AIRFRAME, AVIONICS, ENGINE, PROPELLER
+      await fetchLogbooks();
+    } catch (err: any) {
+      console.error("Error saving entry:", err);
+
+      // Extract error message properly
+      let errorMessage = "Failed to save entry";
+
+      if (err.response?.data) {
+        const errorData = err.response.data;
+
+        // Handle different error response formats
+        if (typeof errorData.detail === "string") {
+          errorMessage = errorData.detail;
+        } else if (Array.isArray(errorData.detail)) {
+          // Handle validation errors array
+          const messages = errorData.detail.map((item: any) => {
+            if (typeof item === "string") return item;
+            if (item.msg) return item.msg;
+            if (item.loc && item.msg)
+              return `${item.loc.join(".")}: ${item.msg}`;
+            return JSON.stringify(item);
+          });
+          errorMessage = messages.join("\n");
+        } else if (errorData.detail && typeof errorData.detail === "object") {
+          errorMessage = JSON.stringify(errorData.detail);
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+
+      Swal.fire({
+        icon: "error",
+        title: "Error!",
+        text: errorMessage,
+      });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -566,7 +1230,9 @@ export function MaintenanceLogbook() {
           </button>
           <div>
             <h2 className="text-gray-900">Maintenance Logbook</h2>
-            <p className="text-gray-500 mt-1">Aircraft ID: {aircraftId}</p>
+            <p className="text-gray-500 mt-1">
+              Registration: {aircraft?.registration || "-"}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -578,7 +1244,7 @@ export function MaintenanceLogbook() {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <button 
+          <button
             onClick={() => setShowAddEntryModal(true)}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
           >
@@ -595,21 +1261,18 @@ export function MaintenanceLogbook() {
             <button
               key={category}
               onClick={() => setActiveCategory(category)}
+              disabled={loading}
               className={`flex-1 px-6 py-4 text-sm transition-colors relative ${
                 activeCategory === category
-                  ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
+                  ? "bg-blue-50 text-blue-700 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:bg-gray-50"
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               <div className="flex items-center justify-center gap-2">
+                {loading && activeCategory === category && (
+                  <Loader className="w-4 h-4 animate-spin text-blue-600" />
+                )}
                 <span>{category}</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs ${
-                  activeCategory === category
-                    ? 'bg-blue-200 text-blue-800'
-                    : 'bg-gray-200 text-gray-700'
-                }`}>
-                  {getCategoryCount(category)}
-                </span>
               </div>
             </button>
           ))}
@@ -634,83 +1297,228 @@ export function MaintenanceLogbook() {
         </div>
 
         {/* Logbook List View */}
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-5 py-3 text-left text-gray-900 text-xs">Date</th>
-                <th className="px-5 py-3 text-left text-gray-900 text-xs">Description</th>
-                <th className="px-5 py-3 text-left text-gray-900 text-xs">Mechanic Name</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredEntries.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-5 py-8 text-center text-gray-500 text-sm">
-                    No maintenance records found.
-                  </td>
-                </tr>
-              ) : (
-                filteredEntries.map((entry) => (
-                  <tr 
-                    key={entry.id} 
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => {
-                      if (activeCategory === 'AIRFRAME') {
-                        setSelectedAirframeEntry(entry as AirframeLogEntry);
-                      } else if (activeCategory === 'AVIONICS') {
-                        setSelectedAvionicsEntry(entry as AvionicsLogEntry);
-                      } else if (activeCategory === 'ENGINE') {
-                        setSelectedEngineEntry(entry as EngineLogEntry);
-                      } else if (activeCategory === 'PROPELLER') {
-                        setSelectedPropellerEntry(entry as PropellerLogEntry);
-                      }
-                    }}
-                  >
-                    <td className="px-5 py-4 text-gray-900 text-sm">{entry.date}</td>
-                    <td className="px-5 py-4 text-gray-900 text-sm">{entry.description}</td>
-                    <td className="px-5 py-4 text-gray-600 text-sm">{entry.mechanicName}</td>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Spinner />
+          </div>
+        ) : error ? (
+          <div className="px-5 py-8 text-center text-red-600 text-sm">
+            {error}
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs">
+                      Date
+                    </th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs">
+                      Description
+                    </th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs">
+                      Mechanic Name
+                    </th>
+
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs">
+                      Actions
+                    </th>
                   </tr>
-                ))
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {currentEntries.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        className="px-5 py-12 text-center text-gray-500 text-sm font-medium"
+                      >
+                        No Data Found
+                      </td>
+                    </tr>
+                  ) : (
+                    currentEntries.map((entry) => (
+                      <tr
+                        key={entry.id}
+                        className="hover:bg-gray-50 transition-colors"
+                      >
+                        <td className="px-5 py-4 text-gray-900 text-sm">
+                          {formatDate(entry.date)}
+                        </td>
+                        <td className="px-5 py-4 text-gray-900 text-sm">
+                          {entry.description || "-"}
+                        </td>
+                        <td className="px-5 py-4 text-gray-600 text-sm">
+                          {entry.mechanicFk && accountsMap.has(entry.mechanicFk)
+                            ? `${accountsMap.get(entry.mechanicFk)!.fullName}-${
+                                accountsMap.get(entry.mechanicFk)!.licenseNo
+                              }`
+                            : entry.mechanicName && entry.licenseNumber
+                            ? `${entry.mechanicName}-${entry.licenseNumber}`
+                            : entry.mechanicName || entry.licenseNumber || "-"}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleView(entry.id);
+                              }}
+                              className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                              title="View"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(entry.id);
+                              }}
+                              className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(entry.id);
+                              }}
+                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-700">Items per page:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    disabled={loading}
+                    className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+                <div className="text-sm text-gray-700">
+                  Showing page {currentPage} of {totalPages} ({totalRecords}{" "}
+                  total records)
+                </div>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1 || loading}
+                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                    (page) => (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        disabled={loading}
+                        className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                          currentPage === page
+                            ? "bg-blue-600 text-white"
+                            : "text-gray-700 hover:text-gray-900 hover:bg-gray-100"
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+                  <button
+                    onClick={() =>
+                      setCurrentPage(Math.min(totalPages, currentPage + 1))
+                    }
+                    disabled={currentPage === totalPages || loading}
+                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Detail View Modal */}
       {selectedAirframeEntry && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(255, 255, 255, 0.15)', backdropFilter: 'blur(4px)' }}>
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{
+            background: "rgba(255, 255, 255, 0.15)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    const currentIndex = airframeLogEntries.findIndex(e => e.id === selectedAirframeEntry.id);
+                    const currentIndex = airframeLogEntries.findIndex(
+                      (e) => e.id === selectedAirframeEntry.id
+                    );
                     if (currentIndex > 0) {
-                      setSelectedAirframeEntry(airframeLogEntries[currentIndex - 1]);
+                      setSelectedAirframeEntry(
+                        airframeLogEntries[currentIndex - 1]
+                      );
                     }
                   }}
-                  disabled={airframeLogEntries.findIndex(e => e.id === selectedAirframeEntry.id) === 0}
+                  disabled={
+                    airframeLogEntries.findIndex(
+                      (e) => e.id === selectedAirframeEntry.id
+                    ) === 0 || airframeLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => {
-                    const currentIndex = airframeLogEntries.findIndex(e => e.id === selectedAirframeEntry.id);
+                    const currentIndex = airframeLogEntries.findIndex(
+                      (e) => e.id === selectedAirframeEntry.id
+                    );
                     if (currentIndex < airframeLogEntries.length - 1) {
-                      setSelectedAirframeEntry(airframeLogEntries[currentIndex + 1]);
+                      setSelectedAirframeEntry(
+                        airframeLogEntries[currentIndex + 1]
+                      );
                     }
                   }}
-                  disabled={airframeLogEntries.findIndex(e => e.id === selectedAirframeEntry.id) === airframeLogEntries.length - 1}
+                  disabled={
+                    airframeLogEntries.findIndex(
+                      (e) => e.id === selectedAirframeEntry.id
+                    ) ===
+                      airframeLogEntries.length - 1 ||
+                    airframeLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronRight className="w-5 h-5" />
-                </button>
-                <button className="px-4 py-2 bg-gray-700 text-white rounded text-sm">
-                  Preview
                 </button>
               </div>
               <button
@@ -726,18 +1534,24 @@ export function MaintenanceLogbook() {
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
                 {/* Header */}
                 <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">AIRFRAME LOGBOOK</h3>
+                  <h3 className="text-gray-900 tracking-wide">
+                    AIRFRAME LOGBOOK
+                  </h3>
                 </div>
 
                 {/* Date and Seq Info Row */}
                 <div className="grid grid-cols-2 border-b border-gray-300">
                   <div className="border-r border-gray-300 p-4">
                     <div className="text-xs text-gray-700 mb-1">Date:</div>
-                    <div className="text-gray-900">{selectedAirframeEntry.date}</div>
+                    <div className="text-gray-900">
+                      {formatDate(selectedAirframeEntry.date)}
+                    </div>
                   </div>
                   <div className="p-4">
                     <div className="text-xs text-gray-700 mb-1">Seq. No.</div>
-                    <div className="text-red-700">{selectedAirframeEntry.seqNo}</div>
+                    <div className="text-red-700">
+                      {selectedAirframeEntry.sequenceNo || "-"}
+                    </div>
                   </div>
                 </div>
 
@@ -745,11 +1559,17 @@ export function MaintenanceLogbook() {
                 <div className="grid grid-cols-2 border-b border-gray-300">
                   <div className="border-r border-gray-300 p-4">
                     <div className="text-xs text-gray-700 mb-1">Tach Time:</div>
-                    <div className="text-gray-900">{selectedAirframeEntry.tachTime}</div>
+                    <div className="text-gray-900">
+                      {selectedAirframeEntry.tachTime}
+                    </div>
                   </div>
                   <div className="p-4">
-                    <div className="text-xs text-gray-700 mb-1">Airframe Time:</div>
-                    <div className="text-gray-900">{selectedAirframeEntry.airframeTime}</div>
+                    <div className="text-xs text-gray-700 mb-1">
+                      Airframe Time:
+                    </div>
+                    <div className="text-gray-900">
+                      {selectedAirframeEntry.airframeTime}
+                    </div>
                   </div>
                 </div>
 
@@ -759,7 +1579,8 @@ export function MaintenanceLogbook() {
                     DESCRIPTION OF INSPECTIONS, TESTS, REPAIRS, AND ALTERATIONS
                   </div>
                   <div className="text-xs text-gray-500 italic mb-2">
-                    (Record of component removal/installation shall be reflected at the back page of this logbook sequence)
+                    (Record of component removal/installation shall be reflected
+                    at the back page of this logbook sequence)
                   </div>
                   <div className="text-gray-900 min-h-[60px] p-2">
                     {selectedAirframeEntry.description}
@@ -769,27 +1590,59 @@ export function MaintenanceLogbook() {
                 {/* Mechanic and Signature Row */}
                 <div className="grid grid-cols-2">
                   <div className="border-r border-gray-300 p-4">
-                    <div className="text-xs text-gray-700 mb-1">Mechanic Name/License Number:</div>
-                    <div className="text-gray-900">{selectedAirframeEntry.mechanicName}</div>
-                    <div className="text-gray-700 text-sm">{selectedAirframeEntry.licenseNumber}</div>
+                    <div className="text-xs text-gray-700 mb-1">
+                      Mechanic Name/License Number:
+                    </div>
+                    <div className="text-gray-900">
+                      {selectedAirframeEntry.mechanicFk &&
+                      accountsMap.has(selectedAirframeEntry.mechanicFk)
+                        ? `${
+                            accountsMap.get(selectedAirframeEntry.mechanicFk)!
+                              .fullName
+                          }-${
+                            accountsMap.get(selectedAirframeEntry.mechanicFk)!
+                              .licenseNo
+                          }`
+                        : selectedAirframeEntry.mechanicName &&
+                          selectedAirframeEntry.licenseNumber
+                        ? `${selectedAirframeEntry.mechanicName}-${selectedAirframeEntry.licenseNumber}`
+                        : selectedAirframeEntry.mechanicName ||
+                          selectedAirframeEntry.licenseNumber ||
+                          "-"}
+                    </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-xs text-gray-700 mb-2">Signature/Stamp</div>
+                      <div className="text-xs text-gray-700 mb-2">
+                        Signature/Stamp
+                      </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
-                        <div className="text-gray-900">{selectedAirframeEntry.signature}</div>
+                        <div className="text-gray-900">
+                          {selectedAirframeEntry.signature}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Attach Image Button */}
+              {/* Attach File View */}
               <div className="mt-6">
-                <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                  <Upload className="w-4 h-4" />
-                  Attach Image
-                </button>
+                {selectedAirframeEntry.uploadFile ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() =>
+                        handleFileDownload(selectedAirframeEntry.uploadFile)
+                      }
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-gray-400">No Upload</span>
+                )}
               </div>
             </div>
           </div>
@@ -798,37 +1651,58 @@ export function MaintenanceLogbook() {
 
       {/* AVIONICS Detail View Modal */}
       {selectedAvionicsEntry && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(255, 255, 255, 0.15)', backdropFilter: 'blur(4px)' }}>
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{
+            background: "rgba(255, 255, 255, 0.15)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    const currentIndex = avionicsLogEntries.findIndex(e => e.id === selectedAvionicsEntry.id);
+                    const currentIndex = avionicsLogEntries.findIndex(
+                      (e) => e.id === selectedAvionicsEntry.id
+                    );
                     if (currentIndex > 0) {
-                      setSelectedAvionicsEntry(avionicsLogEntries[currentIndex - 1]);
+                      setSelectedAvionicsEntry(
+                        avionicsLogEntries[currentIndex - 1]
+                      );
                     }
                   }}
-                  disabled={avionicsLogEntries.findIndex(e => e.id === selectedAvionicsEntry.id) === 0}
+                  disabled={
+                    avionicsLogEntries.findIndex(
+                      (e) => e.id === selectedAvionicsEntry.id
+                    ) === 0 || avionicsLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => {
-                    const currentIndex = avionicsLogEntries.findIndex(e => e.id === selectedAvionicsEntry.id);
+                    const currentIndex = avionicsLogEntries.findIndex(
+                      (e) => e.id === selectedAvionicsEntry.id
+                    );
                     if (currentIndex < avionicsLogEntries.length - 1) {
-                      setSelectedAvionicsEntry(avionicsLogEntries[currentIndex + 1]);
+                      setSelectedAvionicsEntry(
+                        avionicsLogEntries[currentIndex + 1]
+                      );
                     }
                   }}
-                  disabled={avionicsLogEntries.findIndex(e => e.id === selectedAvionicsEntry.id) === avionicsLogEntries.length - 1}
+                  disabled={
+                    avionicsLogEntries.findIndex(
+                      (e) => e.id === selectedAvionicsEntry.id
+                    ) ===
+                      avionicsLogEntries.length - 1 ||
+                    avionicsLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronRight className="w-5 h-5" />
-                </button>
-                <button className="px-4 py-2 bg-gray-700 text-white rounded text-sm">
-                  Preview
                 </button>
               </div>
               <button
@@ -844,18 +1718,24 @@ export function MaintenanceLogbook() {
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
                 {/* Header */}
                 <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">AVIONICS LOGBOOK</h3>
+                  <h3 className="text-gray-900 tracking-wide">
+                    AVIONICS LOGBOOK
+                  </h3>
                 </div>
 
                 {/* Date and Seq Info Row */}
                 <div className="grid grid-cols-2 border-b border-gray-300">
                   <div className="border-r border-gray-300 p-4">
                     <div className="text-xs text-gray-700 mb-1">Date:</div>
-                    <div className="text-gray-900">{selectedAvionicsEntry.date}</div>
+                    <div className="text-gray-900">
+                      {formatDate(selectedAvionicsEntry.date)}
+                    </div>
                   </div>
                   <div className="p-4">
                     <div className="text-xs text-gray-700 mb-1">Seq. No.</div>
-                    <div className="text-red-700">{selectedAvionicsEntry.seqNo}</div>
+                    <div className="text-red-700">
+                      {selectedAvionicsEntry.sequenceNo || "-"}
+                    </div>
                   </div>
                 </div>
 
@@ -865,7 +1745,8 @@ export function MaintenanceLogbook() {
                     DESCRIPTION OF INSPECTIONS, TESTS, REPAIRS, AND ALTERATIONS
                   </div>
                   <div className="text-xs text-gray-500 italic mb-2">
-                    (Record of component removal/installation shall be reflected at the back page of this logbook sequence)
+                    (Record of component removal/installation shall be reflected
+                    at the back page of this logbook sequence)
                   </div>
                   <div className="text-gray-900 min-h-[60px] p-2">
                     {selectedAvionicsEntry.description}
@@ -875,27 +1756,59 @@ export function MaintenanceLogbook() {
                 {/* Mechanic and Signature Row */}
                 <div className="grid grid-cols-2">
                   <div className="border-r border-gray-300 p-4">
-                    <div className="text-xs text-gray-700 mb-1">Mechanic Name/License Number:</div>
-                    <div className="text-gray-900">{selectedAvionicsEntry.mechanicName}</div>
-                    <div className="text-gray-700 text-sm">{selectedAvionicsEntry.licenseNumber}</div>
+                    <div className="text-xs text-gray-700 mb-1">
+                      Mechanic Name/License Number:
+                    </div>
+                    <div className="text-gray-900">
+                      {selectedAvionicsEntry.mechanicFk &&
+                      accountsMap.has(selectedAvionicsEntry.mechanicFk)
+                        ? `${
+                            accountsMap.get(selectedAvionicsEntry.mechanicFk)!
+                              .fullName
+                          }-${
+                            accountsMap.get(selectedAvionicsEntry.mechanicFk)!
+                              .licenseNo
+                          }`
+                        : selectedAvionicsEntry.mechanicName &&
+                          selectedAvionicsEntry.licenseNumber
+                        ? `${selectedAvionicsEntry.mechanicName}-${selectedAvionicsEntry.licenseNumber}`
+                        : selectedAvionicsEntry.mechanicName ||
+                          selectedAvionicsEntry.licenseNumber ||
+                          "-"}
+                    </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-xs text-gray-700 mb-2">Signature/Stamp</div>
+                      <div className="text-xs text-gray-700 mb-2">
+                        Signature/Stamp
+                      </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
-                        <div className="text-gray-900">{selectedAvionicsEntry.signature}</div>
+                        <div className="text-gray-900">
+                          {selectedAvionicsEntry.signature}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Attach Image Button */}
+              {/* Attach File View */}
               <div className="mt-6">
-                <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                  <Upload className="w-4 h-4" />
-                  Attach Image
-                </button>
+                {selectedAvionicsEntry.uploadFile ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() =>
+                        handleFileDownload(selectedAvionicsEntry.uploadFile)
+                      }
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-gray-400">-</span>
+                )}
               </div>
             </div>
           </div>
@@ -904,37 +1817,58 @@ export function MaintenanceLogbook() {
 
       {/* ENGINE Detail View Modal */}
       {selectedEngineEntry && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(255, 255, 255, 0.15)', backdropFilter: 'blur(4px)' }}>
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{
+            background: "rgba(255, 255, 255, 0.15)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    const currentIndex = engineLogEntries.findIndex(e => e.id === selectedEngineEntry.id);
+                    const currentIndex = engineLogEntries.findIndex(
+                      (e) => e.id === selectedEngineEntry.id
+                    );
                     if (currentIndex > 0) {
-                      setSelectedEngineEntry(engineLogEntries[currentIndex - 1]);
+                      setSelectedEngineEntry(
+                        engineLogEntries[currentIndex - 1]
+                      );
                     }
                   }}
-                  disabled={engineLogEntries.findIndex(e => e.id === selectedEngineEntry.id) === 0}
+                  disabled={
+                    engineLogEntries.findIndex(
+                      (e) => e.id === selectedEngineEntry.id
+                    ) === 0 || engineLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => {
-                    const currentIndex = engineLogEntries.findIndex(e => e.id === selectedEngineEntry.id);
+                    const currentIndex = engineLogEntries.findIndex(
+                      (e) => e.id === selectedEngineEntry.id
+                    );
                     if (currentIndex < engineLogEntries.length - 1) {
-                      setSelectedEngineEntry(engineLogEntries[currentIndex + 1]);
+                      setSelectedEngineEntry(
+                        engineLogEntries[currentIndex + 1]
+                      );
                     }
                   }}
-                  disabled={engineLogEntries.findIndex(e => e.id === selectedEngineEntry.id) === engineLogEntries.length - 1}
+                  disabled={
+                    engineLogEntries.findIndex(
+                      (e) => e.id === selectedEngineEntry.id
+                    ) ===
+                      engineLogEntries.length - 1 ||
+                    engineLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronRight className="w-5 h-5" />
-                </button>
-                <button className="px-4 py-2 bg-gray-700 text-white rounded text-sm">
-                  Preview
                 </button>
               </div>
               <button
@@ -950,18 +1884,24 @@ export function MaintenanceLogbook() {
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
                 {/* Header */}
                 <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">ENGINE LOGBOOK</h3>
+                  <h3 className="text-gray-900 tracking-wide">
+                    ENGINE LOGBOOK
+                  </h3>
                 </div>
 
                 {/* Date and Seq Info Row */}
                 <div className="grid grid-cols-2 border-b border-gray-300">
                   <div className="border-r border-gray-300 p-4">
                     <div className="text-xs text-gray-700 mb-1">Date:</div>
-                    <div className="text-gray-900">{selectedEngineEntry.date}</div>
+                    <div className="text-gray-900">
+                      {formatDate(selectedEngineEntry.date)}
+                    </div>
                   </div>
                   <div className="p-4">
                     <div className="text-xs text-gray-700 mb-1">Seq. No.</div>
-                    <div className="text-red-700">{selectedEngineEntry.seqNo}</div>
+                    <div className="text-red-700">
+                      {selectedEngineEntry.sequenceNo || "-"}
+                    </div>
                   </div>
                 </div>
 
@@ -969,11 +1909,19 @@ export function MaintenanceLogbook() {
                 <div className="grid grid-cols-2 border-b border-gray-300">
                   <div className="border-r border-gray-300 p-4">
                     <div className="text-xs text-gray-700 mb-1">Tach Time:</div>
-                    <div className="text-gray-900">{selectedEngineEntry.tachTime}</div>
+                    <div className="text-gray-900">
+                      {selectedEngineEntry.tachTime}
+                    </div>
                   </div>
                   <div className="p-4">
-                    <div className="text-xs text-gray-700 mb-1">Engine Time:</div>
-                    <div className="text-gray-900">{selectedEngineEntry.engineTime}</div>
+                    <div className="text-xs text-gray-700 mb-1">
+                      Engine Time:
+                    </div>
+                    <div className="text-gray-900">
+                      {(selectedEngineEntry as any).engineTime ||
+                        selectedEngineEntry.tachTime ||
+                        "-"}
+                    </div>
                   </div>
                 </div>
 
@@ -983,7 +1931,8 @@ export function MaintenanceLogbook() {
                     DESCRIPTION OF INSPECTIONS, TESTS, REPAIRS, AND ALTERATIONS
                   </div>
                   <div className="text-xs text-gray-500 italic mb-2">
-                    (Record of component removal/installation shall be reflected at the back page of this logbook sequence)
+                    (Record of component removal/installation shall be reflected
+                    at the back page of this logbook sequence)
                   </div>
                   <div className="text-gray-900 min-h-[60px] p-2">
                     {selectedEngineEntry.description}
@@ -993,27 +1942,59 @@ export function MaintenanceLogbook() {
                 {/* Mechanic and Signature Row */}
                 <div className="grid grid-cols-2">
                   <div className="border-r border-gray-300 p-4">
-                    <div className="text-xs text-gray-700 mb-1">Mechanic Name/License Number:</div>
-                    <div className="text-gray-900">{selectedEngineEntry.mechanicName}</div>
-                    <div className="text-gray-700 text-sm">{selectedEngineEntry.licenseNumber}</div>
+                    <div className="text-xs text-gray-700 mb-1">
+                      Mechanic Name/License Number:
+                    </div>
+                    <div className="text-gray-900">
+                      {selectedEngineEntry.mechanicFk &&
+                      accountsMap.has(selectedEngineEntry.mechanicFk)
+                        ? `${
+                            accountsMap.get(selectedEngineEntry.mechanicFk)!
+                              .fullName
+                          }-${
+                            accountsMap.get(selectedEngineEntry.mechanicFk)!
+                              .licenseNo
+                          }`
+                        : selectedEngineEntry.mechanicName &&
+                          selectedEngineEntry.licenseNumber
+                        ? `${selectedEngineEntry.mechanicName}-${selectedEngineEntry.licenseNumber}`
+                        : selectedEngineEntry.mechanicName ||
+                          selectedEngineEntry.licenseNumber ||
+                          "-"}
+                    </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-xs text-gray-700 mb-2">Signature/Stamp</div>
+                      <div className="text-xs text-gray-700 mb-2">
+                        Signature/Stamp
+                      </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
-                        <div className="text-gray-900">{selectedEngineEntry.signature}</div>
+                        <div className="text-gray-900">
+                          {selectedEngineEntry.signature}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Attach Image Button */}
+              {/* Attach File View */}
               <div className="mt-6">
-                <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                  <Upload className="w-4 h-4" />
-                  Attach Image
-                </button>
+                {selectedEngineEntry.uploadFile ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() =>
+                        handleFileDownload(selectedEngineEntry.uploadFile)
+                      }
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-gray-400">-</span>
+                )}
               </div>
             </div>
           </div>
@@ -1022,37 +2003,58 @@ export function MaintenanceLogbook() {
 
       {/* PROPELLER Detail View Modal */}
       {selectedPropellerEntry && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(255, 255, 255, 0.15)', backdropFilter: 'blur(4px)' }}>
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
+          style={{
+            background: "rgba(255, 255, 255, 0.15)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    const currentIndex = propellerLogEntries.findIndex(e => e.id === selectedPropellerEntry.id);
+                    const currentIndex = propellerLogEntries.findIndex(
+                      (e) => e.id === selectedPropellerEntry.id
+                    );
                     if (currentIndex > 0) {
-                      setSelectedPropellerEntry(propellerLogEntries[currentIndex - 1]);
+                      setSelectedPropellerEntry(
+                        propellerLogEntries[currentIndex - 1]
+                      );
                     }
                   }}
-                  disabled={propellerLogEntries.findIndex(e => e.id === selectedPropellerEntry.id) === 0}
+                  disabled={
+                    propellerLogEntries.findIndex(
+                      (e) => e.id === selectedPropellerEntry.id
+                    ) === 0 || propellerLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
                   onClick={() => {
-                    const currentIndex = propellerLogEntries.findIndex(e => e.id === selectedPropellerEntry.id);
+                    const currentIndex = propellerLogEntries.findIndex(
+                      (e) => e.id === selectedPropellerEntry.id
+                    );
                     if (currentIndex < propellerLogEntries.length - 1) {
-                      setSelectedPropellerEntry(propellerLogEntries[currentIndex + 1]);
+                      setSelectedPropellerEntry(
+                        propellerLogEntries[currentIndex + 1]
+                      );
                     }
                   }}
-                  disabled={propellerLogEntries.findIndex(e => e.id === selectedPropellerEntry.id) === propellerLogEntries.length - 1}
+                  disabled={
+                    propellerLogEntries.findIndex(
+                      (e) => e.id === selectedPropellerEntry.id
+                    ) ===
+                      propellerLogEntries.length - 1 ||
+                    propellerLogEntries.length === 0
+                  }
                   className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronRight className="w-5 h-5" />
-                </button>
-                <button className="px-4 py-2 bg-gray-700 text-white rounded text-sm">
-                  Preview
                 </button>
               </div>
               <button
@@ -1068,25 +2070,37 @@ export function MaintenanceLogbook() {
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
                 {/* Header */}
                 <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">PROPELLER LOGBOOK</h3>
+                  <h3 className="text-gray-900 tracking-wide">
+                    PROPELLER LOGBOOK
+                  </h3>
                 </div>
 
                 {/* Date and Seq Info Row */}
                 <div className="grid grid-cols-2 border-b border-gray-300">
                   <div className="border-r border-gray-300 p-4">
                     <div className="text-xs text-gray-700 mb-1">Date:</div>
-                    <div className="text-gray-900">{selectedPropellerEntry.date}</div>
+                    <div className="text-gray-900">
+                      {formatDate(selectedPropellerEntry.date)}
+                    </div>
                   </div>
                   <div className="p-4">
                     <div className="text-xs text-gray-700 mb-1">Seq. No.</div>
-                    <div className="text-red-700">{selectedPropellerEntry.seqNo}</div>
+                    <div className="text-red-700">
+                      {selectedPropellerEntry.sequenceNo || "-"}
+                    </div>
                   </div>
                 </div>
 
                 {/* Propeller Time Row */}
                 <div className="border-b border-gray-300 p-4">
-                  <div className="text-xs text-gray-700 mb-1">Propeller Time:</div>
-                  <div className="text-gray-900">{selectedPropellerEntry.propellerTime}</div>
+                  <div className="text-xs text-gray-700 mb-1">
+                    Propeller Time:
+                  </div>
+                  <div className="text-gray-900">
+                    {(selectedPropellerEntry as any).propellerTime ||
+                      selectedPropellerEntry.tachTime ||
+                      "-"}
+                  </div>
                 </div>
 
                 {/* Description Section */}
@@ -1095,7 +2109,8 @@ export function MaintenanceLogbook() {
                     DESCRIPTION OF INSPECTIONS, TESTS, REPAIRS, AND ALTERATIONS
                   </div>
                   <div className="text-xs text-gray-500 italic mb-2">
-                    (Record of component removal/installation shall be reflected at the back page of this logbook sequence)
+                    (Record of component removal/installation shall be reflected
+                    at the back page of this logbook sequence)
                   </div>
                   <div className="text-gray-900 min-h-[60px] p-2">
                     {selectedPropellerEntry.description}
@@ -1105,184 +2120,766 @@ export function MaintenanceLogbook() {
                 {/* Mechanic and Signature Row */}
                 <div className="grid grid-cols-2">
                   <div className="border-r border-gray-300 p-4">
-                    <div className="text-xs text-gray-700 mb-1">Mechanic Name/License Number:</div>
-                    <div className="text-gray-900">{selectedPropellerEntry.mechanicName}</div>
-                    <div className="text-gray-700 text-sm">{selectedPropellerEntry.licenseNumber}</div>
+                    <div className="text-xs text-gray-700 mb-1">
+                      Mechanic Name/License Number:
+                    </div>
+                    <div className="text-gray-900">
+                      {selectedPropellerEntry.mechanicFk &&
+                      accountsMap.has(selectedPropellerEntry.mechanicFk)
+                        ? `${
+                            accountsMap.get(selectedPropellerEntry.mechanicFk)!
+                              .fullName
+                          }-${
+                            accountsMap.get(selectedPropellerEntry.mechanicFk)!
+                              .licenseNo
+                          }`
+                        : selectedPropellerEntry.mechanicName &&
+                          selectedPropellerEntry.licenseNumber
+                        ? `${selectedPropellerEntry.mechanicName}-${selectedPropellerEntry.licenseNumber}`
+                        : selectedPropellerEntry.mechanicName ||
+                          selectedPropellerEntry.licenseNumber ||
+                          "-"}
+                    </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-xs text-gray-700 mb-2">Signature/Stamp</div>
+                      <div className="text-xs text-gray-700 mb-2">
+                        Signature/Stamp
+                      </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
-                        <div className="text-gray-900">{selectedPropellerEntry.signature}</div>
+                        <div className="text-gray-900">
+                          {selectedPropellerEntry.signature}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Attach Image Button */}
+              {/* Attach File View */}
               <div className="mt-6">
-                <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                  <Upload className="w-4 h-4" />
-                  Attach Image
-                </button>
+                {selectedPropellerEntry.uploadFile ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() =>
+                        handleFileDownload(selectedPropellerEntry.uploadFile)
+                      }
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-gray-400">-</span>
+                )}
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Entry Modal */}
-      {showAddEntryModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(255, 255, 255, 0.15)', backdropFilter: 'blur(4px)' }}>
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
+      {/* File View Modal */}
+      {showImageViewModal && imageUrl && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black bg-opacity-50"
+          onClick={() => {
+            setShowImageViewModal(false);
+            setImageUrl("");
+            setViewingFilePath(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-gray-900">Add New Entry</h2>
+              <h3 className="text-lg font-semibold text-gray-900">
+                View Document
+              </h3>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    if (viewingFilePath) {
+                      handleFileDownload(viewingFilePath);
+                    } else {
+                      // Fallback: try to extract from URL
+                      const filePath = imageUrl.split("/").pop() || "";
+                      if (filePath) {
+                        handleFileDownload(filePath);
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </button>
+                <button
+                  onClick={() => {
+                    setShowImageViewModal(false);
+                    setImageUrl("");
+                    setViewingFilePath(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-6">
+              {(() => {
+                const fileType = getFileType(imageUrl);
+                if (fileType === "image") {
+                  return (
+                    <img
+                      src={imageUrl}
+                      alt="Uploaded file"
+                      className="max-w-full h-auto rounded-lg mx-auto"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src =
+                          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect fill='%23f3f4f6' width='400' height='300'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='16' fill='%236b7280'%3EImage not found%3C/text%3E%3C/svg%3E";
+                      }}
+                    />
+                  );
+                } else if (fileType === "pdf") {
+                  return (
+                    <iframe
+                      src={imageUrl}
+                      className="w-full h-[calc(90vh-120px)] rounded-lg border border-gray-200"
+                      title="PDF Viewer"
+                    />
+                  );
+                } else {
+                  return (
+                    <div className="flex flex-col items-center justify-center h-[calc(90vh-120px)] text-center">
+                      <div className="mb-4">
+                        <Download className="w-16 h-16 text-gray-400 mx-auto" />
+                      </div>
+                      <p className="text-gray-600 mb-4">
+                        This file type cannot be previewed in the browser.
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (viewingFilePath) {
+                            handleFileDownload(viewingFilePath);
+                          } else {
+                            // Fallback: try to extract from URL
+                            const filePath = imageUrl.split("/").pop() || "";
+                            if (filePath) {
+                              handleFileDownload(filePath);
+                            }
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download File
+                      </button>
+                    </div>
+                  );
+                }
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Entry Modal */}
+      {(showAddEntryModal || showEditEntryModal) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Overlay with blur */}
+          <div
+            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            onClick={() => {
+              setShowAddEntryModal(false);
+              setShowEditEntryModal(false);
+              setEditingEntry(null);
+            }}
+          />
+          {/* Modal */}
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {editingEntry ? "Edit Entry" : "Add New Entry"}
+              </h2>
               <button
-                onClick={() => setShowAddEntryModal(false)}
-                className="p-2 hover:bg-gray-100 rounded"
+                onClick={() => {
+                  setShowAddEntryModal(false);
+                  setShowEditEntryModal(false);
+                  setEditingEntry(null);
+                }}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5 text-gray-600" />
               </button>
             </div>
 
             {/* Modal Content */}
-            <div className="p-6">
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
-                {/* Header */}
-                <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">{activeCategory} LOGBOOK</h3>
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-6">
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-gray-700">
+                    {activeCategory} LOGBOOK
+                  </h3>
                 </div>
 
                 {/* Date and Seq Info Row */}
-                <div className="grid grid-cols-2 border-b border-gray-300">
-                  <div className="border-r border-gray-300 p-4">
-                    <label className="text-xs text-gray-700 mb-1 block">Date:</label>
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Date:
+                    </label>
                     <input
-                      type="text"
-                      className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0"
+                      type="date"
+                      value={formData.date}
+                      onChange={(e) =>
+                        setFormData({ ...formData, date: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
                     />
                   </div>
-                  <div className="p-4">
-                    <label className="text-xs text-gray-700 mb-1 block">Seq. No.</label>
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Seq. No.
+                    </label>
                     <input
                       type="text"
-                      className="w-full border-0 p-0 text-red-700 focus:outline-none focus:ring-0"
+                      value={formData.sequenceNo}
+                      onChange={(e) =>
+                        setFormData({ ...formData, sequenceNo: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-red-700 focus:ring-gray-400 focus:border-gray-400"
                     />
                   </div>
                 </div>
 
-                {/* Time Fields Row - Dynamic based on category */}
-                {activeCategory === 'AIRFRAME' && (
-                  <div className="grid grid-cols-2 border-b border-gray-300">
-                    <div className="border-r border-gray-300 p-4">
-                      <label className="text-xs text-gray-700 mb-1 block">Tach Time:</label>
+                {/* Fields Row - Dynamic based on category */}
+                {activeCategory === "AIRFRAME" && (
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Tach Time:
+                      </label>
                       <input
-                        type="text"
-                        className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0"
+                        type="number"
+                        step="0.1"
+                        value={formData.tachTime}
+                        onChange={(e) =>
+                          setFormData({ ...formData, tachTime: e.target.value })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
                       />
                     </div>
-                    <div className="p-4">
-                      <label className="text-xs text-gray-700 mb-1 block">Airframe Time:</label>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Airframe Time:
+                      </label>
                       <input
-                        type="text"
-                        className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0"
+                        type="number"
+                        step="0.1"
+                        value={formData.airframeTime}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            airframeTime: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
                       />
                     </div>
                   </div>
                 )}
-                {activeCategory === 'ENGINE' && (
-                  <div className="grid grid-cols-2 border-b border-gray-300">
-                    <div className="border-r border-gray-300 p-4">
-                      <label className="text-xs text-gray-700 mb-1 block">Tach Time:</label>
-                      <input
-                        type="text"
-                        className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0"
-                      />
+                {activeCategory === "ENGINE" && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Engine TSN:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.engineTsn}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineTsn: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Tach Time:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.tachTime}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              tachTime: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
                     </div>
-                    <div className="p-4">
-                      <label className="text-xs text-gray-700 mb-1 block">Engine Time:</label>
-                      <input
-                        type="text"
-                        className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0"
-                      />
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Engine TSO:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.engineTso}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineTso: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Engine TBO:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.engineTbo}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineTbo: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
-                {activeCategory === 'PROPELLER' && (
-                  <div className="border-b border-gray-300 p-4">
-                    <label className="text-xs text-gray-700 mb-1 block">Propeller Time:</label>
-                    <input
-                      type="text"
-                      className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0"
-                    />
-                  </div>
+                {activeCategory === "AVIONICS" && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Airframe TSN:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.airframeTsn}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              airframeTsn: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Component:
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.component}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              component: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Part No:
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.partNo}
+                          onChange={(e) =>
+                            setFormData({ ...formData, partNo: e.target.value })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Serial No:
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.serialNo}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              serialNo: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+                {activeCategory === "PROPELLER" && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Propeller TSN:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.propellerTsn}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerTsn: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Tach Time:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.tachTime}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              tachTime: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Propeller TSO:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.propellerTso}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerTso: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          Propeller TBO:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={formData.propellerTbo}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerTbo: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
+                        />
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* Description Section */}
-                <div className="border-b border-gray-300 p-4">
-                  <div className="text-xs text-gray-700 mb-2">
+                <div className="mb-6">
+                  <label className="block text-gray-700 text-sm mb-1.5">
                     DESCRIPTION OF INSPECTIONS, TESTS, REPAIRS, AND ALTERATIONS
-                  </div>
-                  <div className="text-xs text-gray-500 italic mb-2">
-                    (Record of component removal/installation shall be reflected at the back page of this logbook sequence)
-                  </div>
+                  </label>
+                  <p className="text-xs text-gray-500 italic mb-2">
+                    (Record of component removal/installation shall be reflected
+                    at the back page of this logbook sequence)
+                  </p>
                   <textarea
                     rows={4}
-                    className="w-full border-0 p-2 text-gray-900 focus:outline-none focus:ring-0 resize-none"
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400 resize-none"
                   />
                 </div>
 
                 {/* Mechanic and Signature Row */}
-                <div className="grid grid-cols-2">
-                  <div className="border-r border-gray-300 p-4">
-                    <label className="text-xs text-gray-700 mb-1 block">Mechanic Name/License Number:</label>
-                    <input
-                      type="text"
-                      className="w-full border-0 p-0 text-gray-900 focus:outline-none focus:ring-0 mb-2"
-                    />
-                    <input
-                      type="text"
-                      className="w-full border-0 p-0 text-gray-700 text-sm focus:outline-none focus:ring-0"
-                    />
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div>
+                    <label className="text-xs text-gray-700 mb-1 block">
+                      Mechanic Name/License Number:
+                    </label>
+                    <div className="relative" ref={mechanicDropdownRef}>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={
+                            isMechanicDropdownOpen
+                              ? mechanicSearchTerm
+                              : getSelectedMechanic()
+                          }
+                          onChange={(e) => {
+                            setMechanicSearchTerm(e.target.value);
+                            setIsMechanicDropdownOpen(true);
+                          }}
+                          onFocus={() => {
+                            setIsMechanicDropdownOpen(true);
+                            setMechanicSearchTerm("");
+                            // Fetch accounts if not already loaded
+                            if (mechanicAccounts.length === 0) {
+                              fetchMechanicAccounts("");
+                            }
+                          }}
+                          className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          placeholder="Search mechanic..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMechanicDropdownOpen(!isMechanicDropdownOpen);
+                            if (!isMechanicDropdownOpen) {
+                              setMechanicSearchTerm("");
+                              // Fetch accounts if opening and not already loaded
+                              if (mechanicAccounts.length === 0) {
+                                fetchMechanicAccounts("");
+                              }
+                            }
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                        >
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform ${
+                              isMechanicDropdownOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      {isMechanicDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {loadingMechanicAccounts ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              Loading mechanics...
+                            </div>
+                          ) : (
+                            (() => {
+                              // Debug: Log accounts for troubleshooting
+                              if (mechanicAccounts.length > 0) {
+                                console.log(
+                                  "Mechanic accounts available:",
+                                  mechanicAccounts.length
+                                );
+                              }
+
+                              // Client-side filtering for better UX
+                              const filtered = mechanicAccounts.filter(
+                                (account) => {
+                                  if (!mechanicSearchTerm.trim()) return true;
+                                  const searchLower = mechanicSearchTerm
+                                    .toLowerCase()
+                                    .trim();
+                                  const fullName = account.fullName || "";
+                                  const licenseNo = account.licenseNo || "";
+                                  return (
+                                    fullName
+                                      .toLowerCase()
+                                      .includes(searchLower) ||
+                                    licenseNo
+                                      .toLowerCase()
+                                      .includes(searchLower)
+                                  );
+                                }
+                              );
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                    {mechanicSearchTerm.trim()
+                                      ? "No mechanics found"
+                                      : mechanicAccounts.length === 0
+                                      ? "No mechanics available"
+                                      : "No mechanics found"}
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <ul className="py-1">
+                                  {filtered.map((account) => (
+                                    <li
+                                      key={account.id}
+                                      onClick={() => {
+                                        setFormData({
+                                          ...formData,
+                                          mechanicFk: account.id.toString(),
+                                        });
+                                        setMechanicSearchTerm("");
+                                        setIsMechanicDropdownOpen(false);
+                                      }}
+                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                        formData.mechanicFk ===
+                                        account.id.toString()
+                                          ? "bg-blue-50"
+                                          : ""
+                                      }`}
+                                    >
+                                      <span className="text-gray-900 text-sm">
+                                        {account.fullName}-{account.licenseNo}
+                                      </span>
+                                      {formData.mechanicFk ===
+                                        account.id.toString() && (
+                                        <Check className="w-4 h-4 text-blue-600" />
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              );
+                            })()
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="p-4 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="text-xs text-gray-700 mb-2">Signature/Stamp</div>
+                  <div className="flex items-center justify-center">
+                    <div className="w-full">
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Signature/Stamp
+                      </label>
                       <input
                         type="text"
-                        className="border-2 border-gray-900 px-4 py-2 text-center text-gray-900 focus:outline-none focus:ring-0"
+                        value={formData.signature}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            signature: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400 text-center"
+                        placeholder="Signature/Stamp"
                       />
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Attach Image Button */}
-              <div className="mt-6 flex items-center justify-between">
-                <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-                  <Upload className="w-4 h-4" />
-                  Attach Image
-                </button>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowAddEntryModal(false)}
-                    className="px-6 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Handle save logic here
-                      setShowAddEntryModal(false);
+                {/* Attach Image Section */}
+                <div className="mb-6">
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    Attach Image:
+                  </label>
+                  <input
+                    type="file"
+                    id="upload-file-input"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setUploadFile(file);
+                      setUploadFileName(file ? file.name : "");
+                      // Clear existing file when new file is selected
+                      if (file) {
+                        setExistingUploadFile(null);
+                      }
                     }}
-                    className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  />
+                  <label
+                    htmlFor="upload-file-input"
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-gray-400 transition-colors flex items-center justify-between bg-white"
                   >
-                    Save Entry
-                  </button>
+                    <div className="flex items-center gap-2">
+                      <Upload className="w-5 h-5 text-gray-400" />
+                      <span
+                        className={
+                          uploadFileName ? "text-gray-900" : "text-gray-400"
+                        }
+                      >
+                        {uploadFileName ||
+                          (existingUploadFile
+                            ? "Existing file (click to change)"
+                            : "Choose file or drag here")}
+                      </span>
+                    </div>
+                    {uploadFileName && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setUploadFile(null);
+                          setUploadFileName("");
+                          setExistingUploadFile(null);
+                          const input = document.getElementById(
+                            "upload-file-input"
+                          ) as HTMLInputElement;
+                          if (input) input.value = "";
+                        }}
+                        className="text-red-600 hover:text-red-700 text-sm"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </label>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10MB)
+                  </p>
                 </div>
               </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 relative">
+              {isSaving && (
+                <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 rounded-b-lg">
+                  <Spinner />
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  setShowAddEntryModal(false);
+                  setShowEditEntryModal(false);
+                  setEditingEntry(null);
+                }}
+                disabled={isSaving}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEntry}
+                disabled={isSaving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isSaving && <Loader className="w-4 h-4 animate-spin" />}
+                {editingEntry ? "Update Entry" : "Save Entry"}
+              </button>
             </div>
           </div>
         </div>

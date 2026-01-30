@@ -31,3 +31,57 @@ export function toCamel<T extends Record<string, any>>(obj: T): any {
 }
 
 export const dateToday = new Date().toISOString().split("T")[0];
+
+/**
+ * Format time from API to HH:MM format (24-hour)
+ * @param timeStr - Time string in HHMM format (4 digits) or HH:MM format
+ * @returns Formatted time string in HH:MM format or "-" if invalid/empty
+ */
+export function formatTimeZulu(timeStr: string | undefined | null): string {
+  if (!timeStr) return "-";
+  try {
+    // Remove any existing "Z" suffix, colons, and whitespace
+    const cleaned = timeStr.replace(/[Z\s:]/g, "");
+
+    // Handle HHMM format (4 digits) - convert to HH:MM
+    if (cleaned.length === 4 && /^\d{4}$/.test(cleaned)) {
+      const hours = cleaned.substring(0, 2);
+      const minutes = cleaned.substring(2, 4);
+      // Validate hours (0-23) and minutes (0-59)
+      const hoursNum = parseInt(hours, 10);
+      const minutesNum = parseInt(minutes, 10);
+      if (hoursNum >= 0 && hoursNum <= 23 && minutesNum >= 0 && minutesNum <= 59) {
+        return `${hours}:${minutes}`;
+      }
+    }
+
+    // Handle HH:MM format - return as is (after validation)
+    if (timeStr.includes(":")) {
+      const parts = timeStr.split(":");
+      if (parts.length >= 2) {
+        const hours = parts[0].padStart(2, "0");
+        const minutes = parts[1].padStart(2, "0");
+        // Validate hours (0-23) and minutes (0-59)
+        const hoursNum = parseInt(hours, 10);
+        const minutesNum = parseInt(minutes, 10);
+        if (hoursNum >= 0 && hoursNum <= 23 && minutesNum >= 0 && minutesNum <= 59) {
+          return `${hours}:${minutes}`;
+        }
+      }
+    }
+
+    return "-";
+  } catch {
+    return "-";
+  }
+}
+
+/**
+ * Format time for VIEW as military time (24-hour, 4 digits HHMM, no colon)
+ * e.g. "14:30" -> "1430", "23:17" -> "2317"
+ */
+export function formatTimeZuluMilitary(timeStr: string | undefined | null): string {
+  const formatted = formatTimeZulu(timeStr);
+  if (formatted === "-") return "-";
+  return formatted.replace(":", "");
+}

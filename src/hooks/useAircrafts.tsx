@@ -121,7 +121,7 @@ export const useAircraftPaged = (
         setTotalPages(res.data.total_pages);
       })
       .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .finally(() => setTimeout(() => setLoading(false), 360));
   }, [page, limit, search]);
 
   return { aircraftData, load, err, total };
