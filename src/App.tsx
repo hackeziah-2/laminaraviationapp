@@ -80,7 +80,7 @@ function AppContent() {
           <Route path="/profile/:id/maintenance/ad-work-orders/:msn" element={<ADWorkOrders adNumber='1' onBack={()=>console.log("baba")}/>} />
           <Route path="/profile/:id/operation" element={<Operation />} />
           <Route path="/profile/:id/operation/reliability/:recordId" element={<ReliabilityMonitoring />} />
-          <Route path="/profile/:id/document_on_board" element={<AircraftDocumentOnBoard />} />
+          <Route path="/profile/:aircraft_id/document_on_board" element={<AircraftDocumentOnBoard />} />
           <Route path="/daily-update" element={<AircraftFleetDailyUpdate />} />
           <Route path="/technical-logbook" element={<AircraftTechnicalLogbook />} />
           <Route path="/document-on-board" element={<DocumentOnBoard />} />

@@ -102,8 +102,14 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+// ==================== ENDPOINT RULE ====================
+// If has aircraft_fk (aircraft context): use /aircraft/<id>/documents-on-board/
+// If not (global context): use documents-on-board/
+// ========================================================
+
 /**
- * Get paginated list of Documents On Board
+ * Get paginated list of Documents On Board.
+ * Endpoint: if aircraftFk → /aircraft/<id>/documents-on-board/paged ; else → documents-on-board/paged
  */
 export const getDocumentsOnBoard = async (
   page = 1,
@@ -112,10 +118,14 @@ export const getDocumentsOnBoard = async (
   statusFilter = "All Status",
   aircraftFk?: number
 ): Promise<PaginatedResponse<DocumentOnBoard>> => {
-  // Build params outside try block so it's accessible in catch block
+  const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
+
+  const useAircraftPath =
+    aircraftFk != null && !isNaN(Number(aircraftFk));
+
   const params = new URLSearchParams();
-  params.append("page", page.toString());
   params.append("limit", limit.toString());
+  params.append("page", page.toString());
 
   if (search.trim() !== "") {
     params.append("search", search);
@@ -125,17 +135,12 @@ export const getDocumentsOnBoard = async (
     params.append("status", statusFilter);
   }
 
-  if (aircraftFk != null && !isNaN(Number(aircraftFk))) {
-    params.append("aircraft_fk", String(aircraftFk));
-  }
-
-  const endpoint = `documents-on-board/paged?${params.toString()}`;
-  const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
+  const endpoint = useAircraftPath
+    ? `aircraft/${aircraftFk}/documents-on-board/paged?${params.toString()}`
+    : `documents-on-board/paged?${params.toString()}`;
   const fullURL = `${baseURL}${endpoint}`;
 
   try {
-    console.log("Fetching documents from:", fullURL);
-    
     const response = await apiClient.get(endpoint);
 
     // Handle different response structures
@@ -270,14 +275,22 @@ export const deleteDocumentOnBoard = async (id: number): Promise<void> => {
 };
 
 // ==================== AIRCRAFT-SCOPED DOCUMENTS ON BOARD ====================
-// GET    /api/v1/aircraft/{aircraft_id}/documents-on-board?limit=10&page=1
-// GET    /api/v1/aircraft/{aircraft_id}/documents-on-board/{document_id}
-// POST   /api/v1/aircraft/{aircraft_id}/documents-on-board
-// PUT    /api/v1/aircraft/{aircraft_id}/documents-on-board/{document_id}
-// DELETE /api/v1/aircraft/{aircraft_id}/documents-on-board/{document_id}
+// Aircraft Document On Board: use api/v1/aircraft/{aircraft_id}/documents-on-board/...
+// NOT the global: api/v1/documents-on-board/paged?aircraft_fk=...
+//
+// List:  GET  api/v1/aircraft/{aircraft_id}/documents-on-board/paged?limit=10&page=1
+// Get:   GET  .../documents-on-board/{document_id}/
+// Create: POST .../documents-on-board/
+// Update: PUT  .../documents-on-board/{document_id}/
+// Delete: DELETE .../documents-on-board/{document_id}/
+
+const AIRCRAFT_DOCUMENTS_PATH = (aircraftId: number) =>
+  `aircraft/${aircraftId}/documents-on-board/`;
 
 /**
- * Get paginated list of Documents On Board for a specific aircraft
+ * Get paginated list of Documents On Board for a specific aircraft.
+ * Matches: GET http://localhost:8000/api/v1/aircraft/{aircraft_id}/documents-on-board/paged?limit=10&page=1
+ *          -H 'accept: application/json'
  */
 export const getAircraftDocumentsOnBoard = async (
   aircraftId: number,
@@ -287,34 +300,39 @@ export const getAircraftDocumentsOnBoard = async (
   statusFilter = "All Status"
 ): Promise<PaginatedResponse<DocumentOnBoard>> => {
   const params = new URLSearchParams();
-  params.append("page", page.toString());
   params.append("limit", limit.toString());
-  if (search.trim() !== "") {
-    params.append("search", search);
-  }
-  if (statusFilter && statusFilter !== "All Status") {
-    params.append("status", statusFilter);
-  }
-  const endpoint = `aircraft/${aircraftId}/documents-on-board?${params.toString()}`;
+  params.append("page", page.toString());
+  if (search.trim() !== "") params.append("search", search);
+  if (statusFilter && statusFilter !== "All Status") params.append("status", statusFilter);
+
+  const endpoint = `${AIRCRAFT_DOCUMENTS_PATH(aircraftId)}paged?${params.toString()}`;
   const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
+
   try {
-    const response = await apiClient.get(endpoint);
-    const responseData = response.data?.data ?? response.data;
-    const rawItems = Array.isArray(responseData)
-      ? responseData
-      : (responseData?.items ?? responseData?.results ?? responseData?.data ?? []);
-    const total = Array.isArray(responseData)
-      ? responseData.length
-      : (responseData?.total ?? responseData?.count ?? (Array.isArray(rawItems) ? rawItems.length : 0));
-    const pageNum = (typeof responseData === "object" && responseData !== null && !Array.isArray(responseData))
-      ? (responseData.page ?? page)
+    const response = await apiClient.get(endpoint, {
+      headers: { Accept: "application/json" },
+    });
+    const data = response.data?.data ?? response.data;
+    const rawItems = Array.isArray(data)
+      ? data
+      : (data?.items ?? data?.results ?? data?.data ?? []);
+    const total = typeof data === "object" && data !== null && !Array.isArray(data)
+      ? (data.total ?? data.count ?? (Array.isArray(rawItems) ? rawItems.length : 0))
+      : (Array.isArray(data) ? data.length : 0);
+    const pageNum = typeof data === "object" && data !== null && !Array.isArray(data)
+      ? (data.page ?? page)
       : page;
-    const pages = (typeof responseData === "object" && responseData !== null && !Array.isArray(responseData))
-      ? (responseData.pages ?? Math.max(1, Math.ceil(total / (responseData.limit ?? limit))))
+    const limitUsed = typeof data === "object" && data !== null && !Array.isArray(data)
+      ? (data.limit ?? limit)
+      : limit;
+    const pages = typeof data === "object" && data !== null && !Array.isArray(data)
+      ? (data.pages ?? Math.max(1, Math.ceil(total / limitUsed)))
       : Math.max(1, Math.ceil(total / limit));
+
     const items = Array.isArray(rawItems)
       ? rawItems.filter((item: any) => item != null).map((item: any) => normalizeDocumentItem(item))
       : [];
+
     return { items, total, page: pageNum, pages };
   } catch (error: any) {
     console.error("Aircraft documents-on-board API Error:", {
@@ -324,7 +342,7 @@ export const getAircraftDocumentsOnBoard = async (
     });
     if (error.response?.status === 404) {
       throw new Error(
-        `Aircraft or documents endpoint not found. Verify /api/v1/aircraft/${aircraftId}/documents-on-board exists.`
+        `Endpoint not found. Verify GET /api/v1/aircraft/${aircraftId}/documents-on-board/paged exists.`
       );
     }
     const detail = error.response?.data?.detail ?? error.message ?? "Failed to load documents.";
@@ -340,7 +358,7 @@ export const getAircraftDocumentOnBoardById = async (
   documentId: number
 ): Promise<DocumentOnBoard> => {
   const response = await apiClient.get(
-    `aircraft/${aircraftId}/documents-on-board/${documentId}`
+    `${AIRCRAFT_DOCUMENTS_PATH(aircraftId)}${documentId}/`
   );
   const raw = response.data?.data ?? response.data;
   if (raw == null) {
@@ -358,7 +376,7 @@ export const createAircraftDocumentOnBoard = async (
 ): Promise<DocumentOnBoard> => {
   const config = data instanceof FormData ? {} : undefined;
   const response = await apiClient.post(
-    `aircraft/${aircraftId}/documents-on-board`,
+    AIRCRAFT_DOCUMENTS_PATH(aircraftId),
     data,
     config
   );
@@ -379,7 +397,7 @@ export const updateAircraftDocumentOnBoard = async (
 ): Promise<DocumentOnBoard> => {
   const config = data instanceof FormData ? {} : undefined;
   const response = await apiClient.put(
-    `aircraft/${aircraftId}/documents-on-board/${documentId}`,
+    `${AIRCRAFT_DOCUMENTS_PATH(aircraftId)}${documentId}/`,
     data,
     config
   );
@@ -398,7 +416,7 @@ export const deleteAircraftDocumentOnBoard = async (
   documentId: number
 ): Promise<void> => {
   await apiClient.delete(
-    `aircraft/${aircraftId}/documents-on-board/${documentId}`
+    `${AIRCRAFT_DOCUMENTS_PATH(aircraftId)}${documentId}/`
   );
 };
 

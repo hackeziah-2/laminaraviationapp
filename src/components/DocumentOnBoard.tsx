@@ -15,8 +15,10 @@ import {
   ChevronDown,
   Check,
   Upload,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import {
   getDocumentsOnBoard,
@@ -38,7 +40,10 @@ import { getAircrafts } from "../api/aircraftApi";
  */
 export function DocumentOnBoard() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All Status");
+  const [searchDebounced, setSearchDebounced] = useState("");
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sortBy, setSortBy] = useState<"document" | "expiryDate" | "status">("document");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [documents, setDocuments] = useState<DocumentOnBoardType[]>([]);
@@ -98,8 +103,8 @@ export function DocumentOnBoard() {
       const response = await getDocumentsOnBoard(
         currentPage,
         itemsPerPage,
-        searchQuery,
-        statusFilter,
+        searchDebounced,
+        undefined,
         undefined
       );
       setDocuments(response.items);
@@ -153,7 +158,7 @@ export function DocumentOnBoard() {
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
-  }, [currentPage, itemsPerPage, searchQuery, statusFilter]);
+  }, [currentPage, itemsPerPage, searchDebounced]);
 
   // Refresh documents list after save/edit - shows loading spinner
   const refreshDocuments = useCallback(async () => {
@@ -162,8 +167,8 @@ export function DocumentOnBoard() {
       const response = await getDocumentsOnBoard(
         currentPage,
         itemsPerPage,
-        searchQuery,
-        statusFilter,
+        searchDebounced,
+        undefined,
         undefined
       );
       setDocuments(response.items);
@@ -176,7 +181,7 @@ export function DocumentOnBoard() {
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
-  }, [currentPage, itemsPerPage, searchQuery, statusFilter]);
+  }, [currentPage, itemsPerPage, searchDebounced]);
 
   // Fetch aircrafts for dropdown
   const fetchAircrafts = useCallback(async () => {
@@ -259,10 +264,18 @@ export function DocumentOnBoard() {
     fetchAircrafts();
   }, [fetchAircrafts]);
 
-  // Reset to page 1 when search or filter changes
+  // Debounce search input (400ms) before applying to API
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, statusFilter]);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchDebounced(searchQuery);
+      setCurrentPage(1);
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    };
+  }, [searchQuery]);
 
   // Compute days left: expiry_date - today (positive = days until expiry, negative = overdue)
   const computeDaysLeft = (
@@ -288,6 +301,46 @@ export function DocumentOnBoard() {
     if (daysLeft <= threshold) return "Expiring Soon";
     return "Active";
   };
+
+  const STATUS_SORT_ORDER: Record<string, number> = {
+    Active: 0,
+    "Expiring Soon": 1,
+    Expired: 2,
+    Inactive: 3,
+  };
+
+  const toggleSort = (column: "document" | "expiryDate" | "status") => {
+    if (sortBy === column) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(column);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedDocuments = useMemo(() => {
+    const list = [...documents];
+    list.sort((a, b) => {
+      const daysLeftA = computeDaysLeft(a.expiryDate);
+      const daysLeftB = computeDaysLeft(b.expiryDate);
+      const statusA = computeStatus(daysLeftA, a.warningDays);
+      const statusB = computeStatus(daysLeftB, b.warningDays);
+      const docNameA = ((a as any).documentName ?? (a as any).document ?? "").toLowerCase();
+      const docNameB = ((b as any).documentName ?? (b as any).document ?? "").toLowerCase();
+      const dateA = a.expiryDate ? new Date(a.expiryDate).getTime() : 0;
+      const dateB = b.expiryDate ? new Date(b.expiryDate).getTime() : 0;
+      let cmp = 0;
+      if (sortBy === "document") {
+        cmp = docNameA.localeCompare(docNameB);
+      } else if (sortBy === "expiryDate") {
+        cmp = dateA - dateB;
+      } else {
+        cmp = (STATUS_SORT_ORDER[statusA] ?? 4) - (STATUS_SORT_ORDER[statusB] ?? 4);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [documents, sortBy, sortDir]);
 
   // Get aircraft registration for list: from doc.aircraft or lookup from aircrafts by aircraft_id
   const getAircraftRegistration = (doc: DocumentOnBoardType): string => {
@@ -809,36 +862,38 @@ export function DocumentOnBoard() {
           <h3 className="text-lg font-semibold text-white">Document Records</h3>
         </div>
 
-        {/* Search and Filter */}
-        <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            {loading && (
-              <Loader className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
-            )}
-            <input
-              type="text"
-              placeholder="Search by aircraft, document name, or type..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              disabled={loading}
-              className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-          </div>
-          <div className="sm:w-48">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              disabled={loading}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option>All Status</option>
-              {statusEnum.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
+        {/* Search: Document, Aircraft */}
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 mb-1.5">Searches: Document, Aircraft</p>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <input
+                type="text"
+                placeholder="Search by document name or aircraft..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                disabled={loading}
+                title="Searches document name and aircraft (e.g. registration)"
+                aria-label="Search by document name or aircraft"
+                className="w-full h-10 pl-10 pr-9 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
+              />
+              {searchQuery && !loading && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                  aria-label="Clear search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              {loading && (
+                <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
+              )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -857,16 +912,49 @@ export function DocumentOnBoard() {
                       AIRCRAFT
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      DOCUMENT
+                      <button
+                        type="button"
+                        onClick={() => toggleSort("document")}
+                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
+                      >
+                        DOCUMENT
+                        {sortBy === "document"
+                          ? sortDir === "asc"
+                            ? <ArrowUp className="w-3.5 h-3.5" />
+                            : <ArrowDown className="w-3.5 h-3.5" />
+                          : null}
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      EXPIRY DATE
+                      <button
+                        type="button"
+                        onClick={() => toggleSort("expiryDate")}
+                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
+                      >
+                        EXPIRY DATE
+                        {sortBy === "expiryDate"
+                          ? sortDir === "asc"
+                            ? <ArrowUp className="w-3.5 h-3.5" />
+                            : <ArrowDown className="w-3.5 h-3.5" />
+                          : null}
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       DAYS LEFT
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      STATUS
+                      <button
+                        type="button"
+                        onClick={() => toggleSort("status")}
+                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
+                      >
+                        STATUS
+                        {sortBy === "status"
+                          ? sortDir === "asc"
+                            ? <ArrowUp className="w-3.5 h-3.5" />
+                            : <ArrowDown className="w-3.5 h-3.5" />
+                          : null}
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       ACTIONS
@@ -874,7 +962,7 @@ export function DocumentOnBoard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {documents.length === 0 ? (
+                  {sortedDocuments.length === 0 ? (
                     <tr key="empty">
                       <td
                         colSpan={6}
@@ -884,7 +972,7 @@ export function DocumentOnBoard() {
                       </td>
                     </tr>
                   ) : (
-                    documents.map((doc, index) => {
+                    sortedDocuments.map((doc, index) => {
                       const daysLeft = computeDaysLeft(doc.expiryDate);
                       const status = computeStatus(daysLeft, doc.warningDays);
                       const docId = getDocumentId(doc);
