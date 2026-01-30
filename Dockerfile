@@ -1,28 +1,32 @@
 # Multi-stage build for React/Vite application
+# Use same Dockerfile for dev and prod; pass VITE_API_URL at build time.
 
 # Stage 1: Build the application
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files (package-lock.json required for npm ci)
+COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci --only=production=false
+# Install dependencies (including devDependencies for Vite build)
+RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build arguments for environment variables
+# Build arguments: set at build time for dev or prod API URL
 ARG VITE_API_URL=http://localhost:8000/api/v1/
 ENV VITE_API_URL=$VITE_API_URL
 
-# Build the application
+# Build for production
 RUN npm run build
 
-# Stage 2: Serve with nginx
+# Stage 2: Serve with nginx (production image)
 FROM nginx:alpine
+
+# Install wget for HEALTHCHECK (minimal)
+RUN apk add --no-cache wget
 
 # Copy built files from builder stage
 COPY --from=builder /app/build /usr/share/nginx/html
@@ -30,8 +34,10 @@ COPY --from=builder /app/build /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80
 EXPOSE 80
 
-# Start nginx
+# Health check for orchestrators
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -q --spider http://localhost:80/health || exit 1
+
 CMD ["nginx", "-g", "daemon off;"]
