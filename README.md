@@ -8,7 +8,8 @@ A comprehensive fleet management application for aviation operations. This is a 
 - [Getting Started](#getting-started)
 - [Development](#development)
 - [Deployment](#deployment)
-  - [Docker Deployment](#docker-deployment)
+  - [How to Deploy (Steps)](#how-to-deploy-steps)
+  - [Docker Deployment](#docker-deployment-recommended)
   - [Traditional Deployment](#traditional-deployment)
   - [Production Configuration](#production-configuration)
 - [Environment Variables](#environment-variables)
@@ -59,6 +60,57 @@ src/
 ```
 
 ## Deployment
+
+### How to Deploy (Steps)
+
+#### Option A: Docker (recommended)
+
+Run these commands in order from the project root:
+
+| Step | Command |
+|------|--------|
+| 1. Set API URL (production) | `echo "VITE_API_URL=http://your-backend-url:8000/api/v1/" > .env` |
+| 2. Build and start | `docker-compose up -d --build` |
+| 3. View logs (optional) | `docker-compose logs -f` |
+| 4. Verify | `curl http://localhost:3000/health` |
+
+**Manual Docker build (without docker-compose):**
+
+```bash
+# 1. Set API URL and build image
+docker build --build-arg VITE_API_URL=http://your-backend-url:8000/api/v1/ -t laminar-aviation-app:latest .
+
+# 2. Run container
+docker run -d -p 3000:80 --name laminar-frontend laminar-aviation-app:latest
+
+# 3. Verify
+curl http://localhost:3000/health
+```
+
+---
+
+#### Option B: Traditional (build + Nginx/Apache)
+
+Run these commands in order:
+
+| Step | Command |
+|------|--------|
+| 1. Install dependencies | `npm install` |
+| 2. Set API URL (production) | `export VITE_API_URL=http://your-backend-url:8000/api/v1/` |
+| 3. Build | `npm run build` |
+| 4. Copy to server | `scp -r build/* user@your-server:/var/www/laminar-aviation/` |
+| 5. On server: enable Nginx site | `sudo ln -s /etc/nginx/sites-available/laminar-aviation /etc/nginx/sites-enabled/` |
+| 6. On server: test and restart | `sudo nginx -t && sudo systemctl restart nginx` |
+
+**One-liner build (with API URL):**
+
+```bash
+npm install && VITE_API_URL=http://your-backend-url:8000/api/v1/ npm run build
+```
+
+Details and config files (Nginx, Apache, Docker Compose) are in the sections below.
+
+---
 
 ### Docker Deployment (Recommended)
 
