@@ -11,7 +11,6 @@ export interface ComponentPartsRecord {
   removedSerialNo?: string;
   installedPartNo?: string;
   installedSerialNo?: string;
-  partDescription?: string;
   ataChapter?: string;
 }
 
@@ -23,7 +22,6 @@ export interface ComponentPartsRecordCreate {
   removedSerialNo?: string;
   installedPartNo?: string;
   installedSerialNo?: string;
-  partDescription?: string;
   ataChapter?: string;
 }
 
@@ -35,12 +33,21 @@ export interface ComponentPartsRecordUpdate {
   removedSerialNo?: string;
   installedPartNo?: string;
   installedSerialNo?: string;
-  partDescription?: string;
   ataChapter?: string;
 }
 
 // Aircraft Technical Log Interfaces
-export type NatureOfFlightType = "TR" | "PSF" | "PRF" | "EGR" | "ME" | "TR W/ PIREM" | "VOID" | "VE" | "EOR" | "OTHER";
+export type NatureOfFlightType =
+  | "TR"
+  | "PSF"
+  | "PRF"
+  | "EGR"
+  | "ME"
+  | "TR W/ PIREM"
+  | "VOID"
+  | "VE"
+  | "EOR"
+  | "OTHER";
 
 export interface AircraftTechnicalLog {
   id: number;
@@ -78,6 +85,9 @@ export interface AircraftTechnicalLog {
   pilotAcceptedBy?: number;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
+  airframeTotalTime?: number;
+  engineTotalTime?: number;
+  propellerTotalTime?: number;
   rtsSignedBy?: number;
   rtsDate?: string;
   rtsTime?: string;
@@ -220,8 +230,25 @@ export const getAircraftTechnicalLogs = async (
       `aircraft-technical-log/paged?${params.toString()}`
     );
 
-    // Transform the response to camelCase
-    const transformedItems = response.data.items.map((item: any) => toCamel(item));
+    // Transform the response to camelCase (recursively handle nested objects and arrays)
+    const transformToCamel = (obj: any): any => {
+      if (Array.isArray(obj)) {
+        return obj.map(transformToCamel);
+      }
+      if (obj !== null && typeof obj === "object") {
+        const result: any = {};
+        for (const key in obj) {
+          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          result[camel] = transformToCamel(obj[key]);
+        }
+        return result;
+      }
+      return obj;
+    };
+
+    const transformedItems = response.data.items.map((item: any) =>
+      transformToCamel(item)
+    );
 
     return {
       items: transformedItems,
@@ -242,7 +269,25 @@ export const getAircraftTechnicalLogById = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const response = await apiClient.get(`aircraft-technical-log/${logId}`);
-    return toCamel(response.data);
+
+    // Transform the response to camelCase (recursively handle nested objects and arrays)
+    const transformToCamel = (obj: any): any => {
+      if (Array.isArray(obj)) {
+        return obj.map(transformToCamel);
+      }
+      if (obj !== null && typeof obj === "object") {
+        const result: any = {};
+        for (const key in obj) {
+          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          result[camel] = transformToCamel(obj[key]);
+        }
+        console.log(result);
+        return result;
+      }
+      return obj;
+    };
+
+    return transformToCamel(response.data);
   } catch (error) {
     throw error;
   }
@@ -270,11 +315,27 @@ export const updateAircraftTechnicalLog = async (
   data: AircraftTechnicalLogUpdate
 ): Promise<AircraftTechnicalLog> => {
   try {
+    // Transform the response to camelCase (recursively handle nested objects and arrays)
+    const transformToCamel = (obj: any): any => {
+      if (Array.isArray(obj)) {
+        return obj.map(transformToCamel);
+      }
+      if (obj !== null && typeof obj === "object") {
+        const result: any = {};
+        for (const key in obj) {
+          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          result[camel] = transformToCamel(obj[key]);
+        }
+        return result;
+      }
+      return obj;
+    };
+
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       data
     );
-    return toCamel(response.data);
+    return transformToCamel(response.data);
   } catch (error) {
     throw error;
   }
@@ -289,6 +350,26 @@ export const deleteAircraftTechnicalLog = async (
   try {
     await apiClient.delete(`aircraft-technical-log/${logId}`);
   } catch (error) {
+    throw error;
+  }
+};
+
+/**
+ * Get the latest Aircraft Technical Log entry for a specific aircraft
+ */
+export const getLatestAircraftTechnicalLog = async (
+  aircraftFk: number
+): Promise<AircraftTechnicalLog | null> => {
+  try {
+    const response = await apiClient.get(
+      `aircraft-technical-log/latest?aircraft_fk=${aircraftFk}`
+    );
+    return toCamel(response.data);
+  } catch (error) {
+    // If no latest entry exists, return null
+    if ((error as any)?.response?.status === 404) {
+      return null;
+    }
     throw error;
   }
 };

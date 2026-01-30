@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000/api/v1/}
+    container_name: laminar-aviation-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    networks:
+      - laminar-network
+
+  # Uncomment and configure if you have a backend service
+  # backend:
+  #   build:
+  #     context: ../laminar_core/backend
+  #     dockerfile: Dockerfile
+  #   container_name: laminar-aviation-backend
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - DATABASE_URL=postgresql://user:password@db:5432/laminar_db
+  #   depends_on:
+  #     - db
+  #   restart: unless-stopped
+  #   networks:
+  #     - laminar-network
+
+  # Uncomment if you need a database
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: laminar-aviation-db
+  #   environment:
+  #     - POSTGRES_USER=user
+  #     - POSTGRES_PASSWORD=password
+  #     - POSTGRES_DB=laminar_db
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   restart: unless-stopped
+  #   networks:
+  #     - laminar-network
+
+networks:
+  laminar-network:
+    driver: bridge
+
+# Uncomment if using database
+# volumes:
+#   postgres_data:

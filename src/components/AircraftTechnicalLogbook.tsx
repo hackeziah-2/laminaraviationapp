@@ -154,7 +154,7 @@ export function AircraftTechnicalLogbook() {
       setTotalPages(0);
       setTotalEntries(0);
     } finally {
-      setLoading(false);
+      setTimeout(() => setLoading(false), 360);
     }
   };
 

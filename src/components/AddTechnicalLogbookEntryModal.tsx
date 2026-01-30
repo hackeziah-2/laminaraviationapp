@@ -1,18 +1,35 @@
 import { X, Upload, Plus, Trash2, ChevronDown, Check } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { getAircrafts } from "../api/aircraftApi";
+import Swal from "sweetalert2";
+import { getAircrafts, getAircraftById } from "../api/aircraftApi";
+import { getAccountsByDesignation, Account } from "../api/accountApi";
+import {
+  getLatestAircraftTechnicalLog,
+  AircraftTechnicalLog,
+  createAircraftTechnicalLog,
+  AircraftTechnicalLogCreate,
+  updateAircraftTechnicalLog,
+  AircraftTechnicalLogUpdate,
+} from "../api/aircraftTechnicalLogApi";
+import { snakeAllKeys } from "../utility/utils";
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
+  editEntry?: AircraftTechnicalLog | null;
+  onSuccess?: () => void;
+  aircraftId?: number; // Optional aircraft ID from useParams
 }
 
 export function AddTechnicalLogbookEntryModal({
   isOpen,
   onClose,
+  editEntry,
+  onSuccess,
+  aircraftId,
 }: AddTechnicalLogbookEntryModalProps) {
   const [formData, setFormData] = useState({
-    seqNo: "",
+    seqNo: "ATL-",
     acReg: "",
     natureOfFlight: "TR",
     // Off-blocks/Origin
@@ -24,13 +41,18 @@ export function AddTechnicalLogbookEntryModal({
     onBlocksTime: "",
     onBlocksStation: "",
     totalFlightTime: "",
+    numberOfLandings: "",
     // Fuel
-    fuelQtyLeft: "",
-    fuelQtyRight: "",
-    upliftQtyLeft: "",
-    upliftQtyRight: "",
+    fuelQtyLeftUpliftQty: "",
+    fuelQtyRightUpliftQty: "",
+    fuelQtyLeftPriorDeparture: "",
+    fuelQtyRightPriorDeparture: "",
+    fuelQtyLeftAfterOnBlks: "",
+    fuelQtyRightAfterOnBlks: "",
     // Oil
-    oilQty: "",
+    oilQtyUpliftQty: "",
+    oilQtyPriorDeparture: "",
+    oilQtyAfterOnBlks: "",
     // Times
     priorDepartureHours: "",
     priorDepartureMinutes: "",
@@ -45,20 +67,26 @@ export function AddTechnicalLogbookEntryModal({
     hobbsMeterTotal: "",
     // Inspection & Service
     nextInspectionDue: "",
-    returnToServiceHrs: "",
+    tachTimeDue: "",
     // Remarks
     pilotReport: "",
-    maintenanceEntry: "",
+    remarksPerson: "",
     actionsTaken: "",
+    actionsTakenPerson: "",
     // Signatures
     pilotName: "",
-    pilotLicense: "",
+    pilotFk: "",
+    pilotAcceptDate: "",
+    pilotAcceptTime: "",
     pilotSignature: null as File | null,
-    mechanicName: "",
-    mechanicLicense: "",
+    rtsName: "",
+    rtsSignedBy: "",
+    rtsDate: "",
+    rtsTime: "",
     mechanicAuth: "",
     mechanicSignature: null as File | null,
-    dateTime: "",
+    whiteAtl: null as File | null,
+    dfp: null as File | null,
     // Airframe & Component Times
     airframePrevTime: "",
     airframeFlightTime: "",
@@ -69,7 +97,6 @@ export function AddTechnicalLogbookEntryModal({
     propellerPrevTime: "",
     propellerFlightTime: "",
     propellerTotalTime: "",
-    approvedOrg: "",
   });
 
   // Component Records state
@@ -82,18 +109,72 @@ export function AddTechnicalLogbookEntryModal({
     removedSerialNo: string;
     installedPartNo: string;
     installedSerialNo: string;
-    partDescription: string;
     ataChapter: string;
   }
 
-  const [componentRecords, setComponentRecords] = useState<ComponentRecord[]>([]);
+  const [componentRecords, setComponentRecords] = useState<ComponentRecord[]>(
+    []
+  );
 
   // Aircraft searchable dropdown state
-  const [aircrafts, setAircrafts] = useState<Array<{ id: number; registration: string }>>([]);
+  const [aircrafts, setAircrafts] = useState<
+    Array<{ id: number; registration: string }>
+  >([]);
   const [aircraftSearchTerm, setAircraftSearchTerm] = useState("");
   const [isAircraftDropdownOpen, setIsAircraftDropdownOpen] = useState(false);
   const [loadingAircrafts, setLoadingAircrafts] = useState(false);
+  const [selectedAircraftId, setSelectedAircraftId] = useState<number | null>(
+    null
+  );
   const aircraftDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Account dropdowns state
+  const [remarksAccounts, setRemarksAccounts] = useState<Account[]>([]);
+  const [actionsTakenAccounts, setActionsTakenAccounts] = useState<Account[]>(
+    []
+  );
+  const [loadingRemarksAccounts, setLoadingRemarksAccounts] = useState(false);
+  const [loadingActionsTakenAccounts, setLoadingActionsTakenAccounts] =
+    useState(false);
+
+  // Remarks Person searchable dropdown state
+  const [remarksSearchTerm, setRemarksSearchTerm] = useState("");
+  const [isRemarksDropdownOpen, setIsRemarksDropdownOpen] = useState(false);
+  const [debouncedRemarksSearch, setDebouncedRemarksSearch] = useState("");
+  const remarksDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Actions Taken Person searchable dropdown state
+  const [actionsTakenSearchTerm, setActionsTakenSearchTerm] = useState("");
+  const [isActionsTakenDropdownOpen, setIsActionsTakenDropdownOpen] =
+    useState(false);
+  const [debouncedActionsTakenSearch, setDebouncedActionsTakenSearch] =
+    useState("");
+  const actionsTakenDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Pilot Name searchable dropdown state
+  const [pilotAccounts, setPilotAccounts] = useState<Account[]>([]);
+  const [loadingPilotAccounts, setLoadingPilotAccounts] = useState(false);
+  const [pilotSearchTerm, setPilotSearchTerm] = useState("");
+  const [isPilotDropdownOpen, setIsPilotDropdownOpen] = useState(false);
+  const [debouncedPilotSearch, setDebouncedPilotSearch] = useState("");
+  const pilotDropdownRef = useRef<HTMLDivElement>(null);
+
+  // RTS Name searchable dropdown state
+  const [rtsAccounts, setRtsAccounts] = useState<Account[]>([]);
+  const [loadingRtsAccounts, setLoadingRtsAccounts] = useState(false);
+  const [rtsSearchTerm, setRtsSearchTerm] = useState("");
+  const [isRtsDropdownOpen, setIsRtsDropdownOpen] = useState(false);
+  const [debouncedRtsSearch, setDebouncedRtsSearch] = useState("");
+  const rtsDropdownRef = useRef<HTMLDivElement>(null);
+
+  // File upload states
+  const [whiteAtlFileName, setWhiteAtlFileName] = useState("");
+  const [dfpFileName, setDfpFileName] = useState("");
+
+  // Validation errors state
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
 
   // Fetch aircrafts when modal opens
   useEffect(() => {
@@ -102,7 +183,395 @@ export function AddTechnicalLogbookEntryModal({
     }
   }, [isOpen]);
 
-  // Close dropdown when clicking outside
+  // Auto-select aircraft when aircraftId prop is provided (from useParams)
+  useEffect(() => {
+    if (aircraftId && isOpen && !editEntry && !selectedAircraftId) {
+      // Find the aircraft in the list and auto-select it
+      const findAndSelectAircraft = async () => {
+        try {
+          // First, try to fetch aircraft by ID directly
+          try {
+            const response = await getAircraftById(aircraftId);
+            const aircraftData = response.data;
+            setFormData((prev) => ({
+              ...prev,
+              acReg: aircraftData.registration || "",
+            }));
+            setSelectedAircraftId(aircraftId);
+
+            // Fetch latest technical log for auto-population
+            const latestEntry = await getLatestAircraftTechnicalLog(aircraftId);
+            if (latestEntry) {
+              setFormData((prev) => ({
+                ...prev,
+                hobbsMeterStart:
+                  latestEntry.hobbsMeterEnd?.toString() || prev.hobbsMeterStart,
+                tachometerStart:
+                  latestEntry.tachometerEnd?.toString() || prev.tachometerStart,
+
+                airframePrevTime:
+                  latestEntry.airframeTotalTime?.toString() ||
+                  prev.airframePrevTime,
+                enginePrevTime:
+                  latestEntry.engineTotalTime?.toString() ||
+                  prev.enginePrevTime,
+                propellerPrevTime:
+                  latestEntry.propellerTotalTime?.toString() ||
+                  prev.enginePrevTime,
+              }));
+            }
+          } catch (error) {
+            console.error("Error fetching aircraft by ID:", error);
+            // Fallback: try to find in aircrafts list
+            if (aircrafts.length > 0) {
+              const aircraft = aircrafts.find((ac) => ac.id === aircraftId);
+              if (aircraft) {
+                setFormData((prev) => ({
+                  ...prev,
+                  acReg: aircraft.registration,
+                }));
+                setSelectedAircraftId(aircraftId);
+
+                // Fetch latest technical log
+                try {
+                  const latestEntry = await getLatestAircraftTechnicalLog(
+                    aircraftId
+                  );
+                  if (latestEntry) {
+                    setFormData((prev) => ({
+                      ...prev,
+                      hobbsMeterStart:
+                        latestEntry.hobbsMeterEnd?.toString() ||
+                        prev.hobbsMeterStart,
+                      tachometerStart:
+                        latestEntry.tachometerEnd?.toString() ||
+                        prev.tachometerStart,
+
+                      airframePrevTime:
+                        latestEntry.airframeTotalTime?.toString() ||
+                        prev.airframePrevTime,
+                      enginePrevTime:
+                        latestEntry.engineTotalTime?.toString() ||
+                        prev.enginePrevTime,
+                      propellerPrevTime:
+                        latestEntry.propellerTotalTime?.toString() ||
+                        prev.enginePrevTime,
+                    }));
+                  }
+                } catch (error) {
+                  console.error("Error fetching latest technical log:", error);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error in auto-select aircraft:", error);
+        }
+      };
+
+      findAndSelectAircraft();
+    }
+  }, [aircraftId, isOpen, editEntry]);
+
+  // Populate form when editEntry is provided
+  useEffect(() => {
+    if (editEntry && isOpen) {
+      // Populate form data from editEntry
+      setFormData({
+        seqNo: editEntry.sequenceNo || "",
+        acReg: editEntry.aircraft?.registration || "",
+        natureOfFlight: editEntry.natureOfFlight || "TR",
+        offBlocksDate: editEntry.originDate || "",
+        offBlocksTime: formatTimeFromAPI(editEntry.originTime),
+        offBlocksStation: editEntry.originStation || "",
+        onBlocksDate: editEntry.destinationDate || "",
+        onBlocksTime: formatTimeFromAPI(editEntry.destinationTime),
+        onBlocksStation: editEntry.destinationStation || "",
+        totalFlightTime: "",
+        numberOfLandings: editEntry.numberOfLandings?.toString() || "",
+        fuelQtyLeftUpliftQty: editEntry.fuelQtyLeftUpliftQty?.toString() || "",
+        fuelQtyRightUpliftQty:
+          editEntry.fuelQtyRightUpliftQty?.toString() || "",
+        fuelQtyLeftPriorDeparture:
+          editEntry.fuelQtyLeftPriorDeparture?.toString() || "",
+        fuelQtyRightPriorDeparture:
+          editEntry.fuelQtyRightPriorDeparture?.toString() || "",
+        fuelQtyLeftAfterOnBlks:
+          editEntry.fuelQtyLeftAfterOnBlks?.toString() || "",
+        fuelQtyRightAfterOnBlks:
+          editEntry.fuelQtyRightAfterOnBlks?.toString() || "",
+        oilQtyUpliftQty: editEntry.oilQtyUpliftQty?.toString() || "",
+        oilQtyPriorDeparture: editEntry.oilQtyPriorDeparture?.toString() || "",
+        oilQtyAfterOnBlks: editEntry.oilQtyAfterOnBlks?.toString() || "",
+        priorDepartureHours: "",
+        priorDepartureMinutes: "",
+        afterLandingHours: "",
+        afterLandingMinutes: "",
+        tachometerStart: editEntry.tachometerStart?.toString() || "",
+        tachometerEnd: editEntry.tachometerEnd?.toString() || "",
+        tachometerTotal: editEntry.tachometerTotal?.toString() || "",
+        hobbsMeterStart: editEntry.hobbsMeterStart?.toString() || "",
+        hobbsMeterEnd: editEntry.hobbsMeterEnd?.toString() || "",
+        hobbsMeterTotal: editEntry.hobbsMeterTotal?.toString() || "",
+        nextInspectionDue: editEntry.nextInspectionDue || "",
+        tachTimeDue: editEntry.tachTimeDue?.toString() || "",
+        pilotReport: editEntry.remarks || "",
+        remarksPerson: editEntry.maintenanceFk?.toString() || "",
+        actionsTaken: editEntry.actionsTaken || "",
+        actionsTakenPerson: editEntry.maintenanceFk?.toString() || "",
+        pilotName: "",
+        pilotFk:
+          editEntry.pilotFk?.toString() ||
+          editEntry.pilotAcceptedBy?.toString() ||
+          "",
+        pilotAcceptDate: editEntry.pilotAcceptDate || "",
+        pilotAcceptTime: formatTimeFromAPI(editEntry.pilotAcceptTime),
+        pilotSignature: null,
+        rtsName: "",
+        rtsSignedBy: editEntry.rtsSignedBy?.toString() || "",
+        rtsDate: editEntry.rtsDate || "",
+        rtsTime: formatTimeFromAPI(editEntry.rtsTime),
+        mechanicAuth: "",
+        mechanicSignature: null,
+        whiteAtl: null,
+        dfp: null,
+        airframePrevTime: (editEntry as any).airframePrevTime?.toString() || "",
+        airframeFlightTime:
+          (editEntry as any).airframeFlightTime?.toString() || "",
+        airframeTotalTime:
+          (editEntry as any).airframeTotalTime?.toString() || "",
+        enginePrevTime: (editEntry as any).enginePrevTime?.toString() || "",
+        engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
+        engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
+        propellerPrevTime:
+          (editEntry as any).propellerPrevTime?.toString() || "",
+        propellerFlightTime:
+          (editEntry as any).propellerFlightTime?.toString() || "",
+        propellerTotalTime:
+          (editEntry as any).propellerTotalTime?.toString() || "",
+      });
+
+      // Set selected aircraft ID
+      if (editEntry.aircraftFk) {
+        setSelectedAircraftId(editEntry.aircraftFk);
+      }
+
+      // Populate component parts
+      if (
+        editEntry.componentParts &&
+        Array.isArray(editEntry.componentParts) &&
+        editEntry.componentParts.length > 0
+      ) {
+        const componentRecordsData: ComponentRecord[] =
+          editEntry.componentParts.map((part: any, index) => ({
+            id: `component-${part.id || Date.now()}-${index}`,
+            qty:
+              part.qty !== undefined && part.qty !== null
+                ? part.qty.toString()
+                : "",
+            unit: part.unit || "",
+            nomenclature: part.nomenclature || "",
+            // Handle both camelCase and snake_case field names
+            removedPartNo: part.removedPartNo || part.removed_part_no || "",
+            removedSerialNo:
+              part.removedSerialNo || part.removed_serial_no || "",
+            installedPartNo:
+              part.installedPartNo || part.installed_part_no || "",
+            installedSerialNo:
+              part.installedSerialNo || part.installed_serial_no || "",
+            ataChapter: part.ataChapter || part.ata_chapter || "",
+          }));
+        setComponentRecords(componentRecordsData);
+      } else {
+        setComponentRecords([]);
+      }
+    } else if (!editEntry && isOpen) {
+      // Reset form when creating new entry
+      setFormData({
+        seqNo: "ATL-",
+        acReg: "",
+        natureOfFlight: "TR",
+        offBlocksDate: "",
+        offBlocksTime: "",
+        offBlocksStation: "",
+        onBlocksDate: "",
+        onBlocksTime: "",
+        onBlocksStation: "",
+        totalFlightTime: "",
+        numberOfLandings: "",
+        fuelQtyLeftUpliftQty: "",
+        fuelQtyRightUpliftQty: "",
+        fuelQtyLeftPriorDeparture: "",
+        fuelQtyRightPriorDeparture: "",
+        fuelQtyLeftAfterOnBlks: "",
+        fuelQtyRightAfterOnBlks: "",
+        oilQtyUpliftQty: "",
+        oilQtyPriorDeparture: "",
+        oilQtyAfterOnBlks: "",
+        priorDepartureHours: "",
+        priorDepartureMinutes: "",
+        afterLandingHours: "",
+        afterLandingMinutes: "",
+        tachometerStart: "",
+        tachometerEnd: "",
+        tachometerTotal: "",
+        hobbsMeterStart: "",
+        hobbsMeterEnd: "",
+        hobbsMeterTotal: "",
+        nextInspectionDue: "",
+        tachTimeDue: "",
+        pilotReport: "",
+        remarksPerson: "",
+        actionsTaken: "",
+        actionsTakenPerson: "",
+        pilotName: "",
+        pilotFk: "",
+        pilotAcceptDate: "",
+        pilotAcceptTime: "",
+        pilotSignature: null,
+        rtsName: "",
+        rtsSignedBy: "",
+        rtsDate: "",
+        rtsTime: "",
+        mechanicAuth: "",
+        mechanicSignature: null,
+        whiteAtl: null,
+        dfp: null,
+        airframePrevTime: "",
+        airframeFlightTime: "",
+        airframeTotalTime: "",
+        enginePrevTime: "",
+        engineFlightTime: "",
+        engineTotalTime: "",
+        propellerPrevTime: "",
+        propellerFlightTime: "",
+        propellerTotalTime: "",
+      });
+      setComponentRecords([]);
+    }
+  }, [editEntry, isOpen]);
+
+  // Fetch latest technical log entry to populate start values (only for new entries)
+  const fetchLatestTechnicalLog = async () => {
+    try {
+      // Don't fetch if editing an existing entry
+      if (editEntry) {
+        return;
+      }
+
+      // Don't fetch if no aircraft is selected
+      if (!selectedAircraftId) {
+        return;
+      }
+
+      // Check if this is a new entry (both start values are empty)
+      const isNewEntry =
+        formData.hobbsMeterStart === "" && formData.tachometerStart === "";
+
+      if (isNewEntry) {
+        const latestEntry = await getLatestAircraftTechnicalLog(
+          selectedAircraftId
+        );
+        if (latestEntry) {
+          setFormData((prev) => ({
+            ...prev,
+            hobbsMeterStart:
+              latestEntry.hobbsMeterEnd?.toString() || prev.hobbsMeterStart,
+            tachometerStart:
+              latestEntry.tachometerEnd?.toString() || prev.tachometerStart,
+
+            airframePrevTime:
+              latestEntry.airframeTotalTime?.toString() ||
+              prev.airframePrevTime,
+            enginePrevTime:
+              latestEntry.engineTotalTime?.toString() || prev.enginePrevTime,
+            propellerPrevTime:
+              latestEntry.propellerTotalTime?.toString() || prev.enginePrevTime,
+
+            // airframeFlightTime: "",
+            // engineFlightTime: "",
+            // propellerFlightTime: "",
+
+            // airframeTotalTime: "",
+            // engineTotalTime: "",
+            // propellerTotalTime: "",
+
+            // airFramePrevTime:
+            //   latestEntry.airFramePrevTime?.toString() || prev.airFramePrevTime,
+            // enginePrevTime:
+            //   latestEntry.enginePrevTime?.toString() || prev.enginePrevTime,
+            // propellerPrevTime:
+            //   latestEntry.propellerPrevTime?.toString() || prev.propellerPrevTime,
+          }));
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching latest technical log:", error);
+      // Silently fail - don't show error to user, just use empty values
+    }
+  };
+
+  // Debounce remarks search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedRemarksSearch(remarksSearchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [remarksSearchTerm]);
+
+  // Debounce actions taken search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedActionsTakenSearch(actionsTakenSearchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [actionsTakenSearchTerm]);
+
+  // Debounce pilot search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedPilotSearch(pilotSearchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [pilotSearchTerm]);
+
+  // Debounce RTS search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedRtsSearch(rtsSearchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [rtsSearchTerm]);
+
+  // Fetch remarks accounts when dropdown opens or search changes
+  useEffect(() => {
+    if (isRemarksDropdownOpen) {
+      fetchRemarksAccounts(debouncedRemarksSearch);
+    }
+  }, [debouncedRemarksSearch, isRemarksDropdownOpen]);
+
+  // Fetch actions taken accounts when dropdown opens or search changes
+  useEffect(() => {
+    if (isActionsTakenDropdownOpen) {
+      fetchActionsTakenAccounts(debouncedActionsTakenSearch);
+    }
+  }, [debouncedActionsTakenSearch, isActionsTakenDropdownOpen]);
+
+  // Fetch pilot accounts when dropdown opens or search changes
+  useEffect(() => {
+    if (isPilotDropdownOpen) {
+      fetchPilotAccounts(debouncedPilotSearch);
+    }
+  }, [debouncedPilotSearch, isPilotDropdownOpen]);
+
+  // Fetch RTS accounts when dropdown opens or search changes
+  useEffect(() => {
+    if (isRtsDropdownOpen) {
+      fetchRtsAccounts(debouncedRtsSearch);
+    }
+  }, [debouncedRtsSearch, isRtsDropdownOpen]);
+
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -111,16 +580,52 @@ export function AddTechnicalLogbookEntryModal({
       ) {
         setIsAircraftDropdownOpen(false);
       }
+      if (
+        remarksDropdownRef.current &&
+        !remarksDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsRemarksDropdownOpen(false);
+      }
+      if (
+        actionsTakenDropdownRef.current &&
+        !actionsTakenDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsActionsTakenDropdownOpen(false);
+      }
+      if (
+        pilotDropdownRef.current &&
+        !pilotDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsPilotDropdownOpen(false);
+      }
+      if (
+        rtsDropdownRef.current &&
+        !rtsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsRtsDropdownOpen(false);
+      }
     };
 
-    if (isAircraftDropdownOpen) {
+    if (
+      isAircraftDropdownOpen ||
+      isRemarksDropdownOpen ||
+      isActionsTakenDropdownOpen ||
+      isPilotDropdownOpen ||
+      isRtsDropdownOpen
+    ) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isAircraftDropdownOpen]);
+  }, [
+    isAircraftDropdownOpen,
+    isRemarksDropdownOpen,
+    isActionsTakenDropdownOpen,
+    isPilotDropdownOpen,
+    isRtsDropdownOpen,
+  ]);
 
   const fetchAircrafts = async () => {
     setLoadingAircrafts(true);
@@ -135,7 +640,7 @@ export function AddTechnicalLogbookEntryModal({
       console.error("Error fetching aircrafts:", err);
       setAircrafts([]);
     } finally {
-      setLoadingAircrafts(false);
+      setTimeout(() => setLoadingAircrafts(false), 360);
     }
   };
 
@@ -146,24 +651,950 @@ export function AddTechnicalLogbookEntryModal({
       .includes(aircraftSearchTerm.toLowerCase())
   );
 
-  const handleAircraftSelect = (registration: string) => {
+  const handleAircraftSelect = async (id: number, registration: string) => {
     setFormData({ ...formData, acReg: registration });
+    setSelectedAircraftId(id);
     setAircraftSearchTerm("");
     setIsAircraftDropdownOpen(false);
+    // Clear validation error when aircraft is selected
+    if (validationErrors.acReg) {
+      setValidationErrors({ ...validationErrors, acReg: "" });
+    }
+
+    // Fetch latest technical log for the selected aircraft and update start values (only for new entries)
+    if (!editEntry) {
+      try {
+        const latestEntry = await getLatestAircraftTechnicalLog(id);
+        if (latestEntry) {
+          setFormData((prev) => ({
+            ...prev,
+            hobbsMeterStart:
+              latestEntry.hobbsMeterEnd?.toString() || prev.hobbsMeterStart,
+            tachometerStart:
+              latestEntry.tachometerEnd?.toString() || prev.tachometerStart,
+
+            airframePrevTime:
+              latestEntry.airframeTotalTime?.toString() ||
+              prev.airframePrevTime,
+            enginePrevTime:
+              latestEntry.engineTotalTime?.toString() || prev.enginePrevTime,
+            propellerPrevTime:
+              latestEntry.propellerTotalTime?.toString() || prev.enginePrevTime,
+          }));
+        } else {
+          // If no latest entry exists, clear the start values
+          setFormData((prev) => ({
+            ...prev,
+            hobbsMeterStart: "",
+            tachometerStart: "",
+          }));
+        }
+      } catch (error) {
+        console.error("Error fetching latest technical log:", error);
+        // Silently fail - don't show error to user
+      }
+    }
   };
+
+  // Fetch accounts for Remarks (Pilot and Maintenance Engineer)
+  const fetchRemarksAccounts = async (search: string = "") => {
+    setLoadingRemarksAccounts(true);
+    try {
+      const accounts = await getAccountsByDesignation(
+        ["Pilot", "Maintenance Engineer"],
+        search
+      );
+      setRemarksAccounts(accounts);
+    } catch (err) {
+      console.error("Error fetching remarks accounts:", err);
+      setRemarksAccounts([]);
+    } finally {
+      setTimeout(() => setLoadingRemarksAccounts(false), 360);
+    }
+  };
+
+  // Fetch accounts for Actions Taken (Maintenance Engineer only)
+  const fetchActionsTakenAccounts = async (search: string = "") => {
+    setLoadingActionsTakenAccounts(true);
+    try {
+      const accounts = await getAccountsByDesignation(
+        ["Maintenance Engineer"],
+        search
+      );
+      setActionsTakenAccounts(accounts);
+    } catch (err) {
+      console.error("Error fetching actions taken accounts:", err);
+      setActionsTakenAccounts([]);
+    } finally {
+      setTimeout(() => setLoadingActionsTakenAccounts(false), 360);
+    }
+  };
+
+  // Fetch accounts for Pilot Name (Pilot only)
+  const fetchPilotAccounts = async (search: string = "") => {
+    setLoadingPilotAccounts(true);
+    try {
+      const accounts = await getAccountsByDesignation(["Pilot"], search);
+      setPilotAccounts(accounts);
+    } catch (err) {
+      console.error("Error fetching pilot accounts:", err);
+      setPilotAccounts([]);
+    } finally {
+      setTimeout(() => setLoadingPilotAccounts(false), 360);
+    }
+  };
+
+  // Fetch accounts for RTS Name (Maintenance Engineer or Mechanic)
+  const fetchRtsAccounts = async (search: string = "") => {
+    setLoadingRtsAccounts(true);
+    try {
+      const accounts = await getAccountsByDesignation(
+        ["Maintenance Engineer", "Mechanic"],
+        search
+      );
+      setRtsAccounts(accounts);
+    } catch (err) {
+      console.error("Error fetching RTS accounts:", err);
+      setRtsAccounts([]);
+    } finally {
+      setTimeout(() => setLoadingRtsAccounts(false), 360);
+    }
+  };
+
+  // Handle remarks person select
+  const handleRemarksPersonSelect = (
+    accountId: string,
+    displayValue: string
+  ) => {
+    setFormData({ ...formData, remarksPerson: accountId });
+    setRemarksSearchTerm("");
+    setIsRemarksDropdownOpen(false);
+  };
+
+  // Handle actions taken person select
+  const handleActionsTakenPersonSelect = (
+    accountId: string,
+    displayValue: string
+  ) => {
+    setFormData({ ...formData, actionsTakenPerson: accountId });
+    setActionsTakenSearchTerm("");
+    setIsActionsTakenDropdownOpen(false);
+  };
+
+  // Get selected account display value
+  const getSelectedRemarksPerson = () => {
+    if (!formData.remarksPerson) return "";
+    const account = remarksAccounts.find(
+      (acc) => acc.id.toString() === formData.remarksPerson
+    );
+    return account ? `${account.fullName}-${account.licenseNo}` : "";
+  };
+
+  const getSelectedActionsTakenPerson = () => {
+    if (!formData.actionsTakenPerson) return "";
+    const account = actionsTakenAccounts.find(
+      (acc) => acc.id.toString() === formData.actionsTakenPerson
+    );
+    return account ? `${account.fullName}-${account.licenseNo}` : "";
+  };
+
+  // Handle pilot name select
+  const handlePilotSelect = (accountId: string, displayValue: string) => {
+    setFormData({ ...formData, pilotFk: accountId, pilotName: displayValue });
+    setPilotSearchTerm("");
+    setIsPilotDropdownOpen(false);
+    // Clear validation error when pilot is selected
+    if (validationErrors.pilotFk) {
+      setValidationErrors({ ...validationErrors, pilotFk: "" });
+    }
+  };
+
+  // Get selected pilot display value
+  const getSelectedPilot = () => {
+    // If pilotName is set, use it (it's set when pilot is selected)
+    if (formData.pilotName) return formData.pilotName;
+    // Otherwise try to find in accounts list
+    if (formData.pilotFk && pilotAccounts.length > 0) {
+      const account = pilotAccounts.find(
+        (acc) => acc.id.toString() === formData.pilotFk
+      );
+      if (account) return `${account.fullName}-${account.licenseNo}`;
+    }
+    return "";
+  };
+
+  // Filter pilot accounts based on search term
+  const filteredPilotAccounts = pilotAccounts.filter((account) =>
+    `${account.fullName}-${account.licenseNo}`
+      .toLowerCase()
+      .includes(pilotSearchTerm.toLowerCase())
+  );
+
+  // Handle RTS name select
+  const handleRtsSelect = (accountId: string, displayValue: string) => {
+    setFormData({ ...formData, rtsSignedBy: accountId, rtsName: displayValue });
+    setRtsSearchTerm("");
+    setIsRtsDropdownOpen(false);
+    // Clear validation error when RTS is selected
+    if (validationErrors.rtsSignedBy) {
+      setValidationErrors({ ...validationErrors, rtsSignedBy: "" });
+    }
+  };
+
+  // Get selected RTS display value
+  const getSelectedRts = () => {
+    // If rtsName is set, use it (it's set when RTS is selected)
+    if (formData.rtsName) return formData.rtsName;
+    // Otherwise try to find in accounts list
+    if (formData.rtsSignedBy && rtsAccounts.length > 0) {
+      const account = rtsAccounts.find(
+        (acc) => acc.id.toString() === formData.rtsSignedBy
+      );
+      if (account) return `${account.fullName}-${account.licenseNo}`;
+    }
+    return "";
+  };
+
+  // Filter RTS accounts based on search term
+  const filteredRtsAccounts = rtsAccounts.filter((account) =>
+    `${account.fullName}-${account.licenseNo}`
+      .toLowerCase()
+      .includes(rtsSearchTerm.toLowerCase())
+  );
+
+  // Format time input to HH:MM format
+  const formatTimeInput = (value: string): string => {
+    // Remove all non-numeric characters
+    const numbers = value.replace(/\D/g, "");
+
+    // Limit to 4 digits
+    const limited = numbers.slice(0, 4);
+
+    // Add colon after 2 digits if we have more than 2
+    if (limited.length > 2) {
+      return `${limited.slice(0, 2)}:${limited.slice(2)}`;
+    }
+
+    return limited;
+  };
+
+  // Convert time to API format: HH:MM or HH:MM:SS (24-hour). API expects colon format, not HHMM.
+  const convertTimeToAPIFormat = (timeStr: string): string => {
+    if (!timeStr || !timeStr.trim()) return "";
+    const cleaned = timeStr.replace(/\s/g, "").replace(/^Z$/i, "");
+    if (!cleaned) return "";
+    // Already HH:MM or HH:MM:SS
+    if (cleaned.includes(":")) {
+      const parts = cleaned.split(":");
+      if (parts.length >= 2) {
+        const h = parts[0].padStart(2, "0");
+        const m = parts[1].padStart(2, "0");
+        const s = parts[2] != null ? parts[2].padStart(2, "0") : null;
+        const hh = parseInt(h, 10);
+        const mm = parseInt(m, 10);
+        const ss = s != null ? parseInt(s, 10) : null;
+        if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 && (ss == null || (ss >= 0 && ss <= 59))) {
+          return ss != null ? `${h}:${m}:${s}` : `${h}:${m}`;
+        }
+      }
+    }
+    // 4-digit HHMM -> HH:MM
+    const digitsOnly = cleaned.replace(/\D/g, "");
+    if (digitsOnly.length === 4 && /^\d{4}$/.test(digitsOnly)) {
+      const hours = digitsOnly.substring(0, 2);
+      const minutes = digitsOnly.substring(2, 4);
+      const hh = parseInt(hours, 10);
+      const mm = parseInt(minutes, 10);
+      if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+        return `${hours}:${minutes}`;
+      }
+    }
+    // 6-digit HHMMSS -> HH:MM:SS
+    if (digitsOnly.length === 6 && /^\d{6}$/.test(digitsOnly)) {
+      const hours = digitsOnly.substring(0, 2);
+      const minutes = digitsOnly.substring(2, 4);
+      const seconds = digitsOnly.substring(4, 6);
+      const hh = parseInt(hours, 10);
+      const mm = parseInt(minutes, 10);
+      const ss = parseInt(seconds, 10);
+      if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 && ss >= 0 && ss <= 59) {
+        return `${hours}:${minutes}:${seconds}`;
+      }
+    }
+    return "";
+  };
+
+  // Format time from API (HHMM) to display format (HH:MM)
+  const formatTimeFromAPI = (timeStr: string | undefined): string => {
+    if (!timeStr) return "";
+    try {
+      // Remove any existing "Z" suffix, colons, and whitespace
+      const cleaned = timeStr.replace(/[Z\s:]/g, "");
+
+      // Handle HHMM format (4 digits) - convert to HH:MM
+      if (cleaned.length === 4 && /^\d{4}$/.test(cleaned)) {
+        const hours = cleaned.substring(0, 2);
+        const minutes = cleaned.substring(2, 4);
+        // Validate hours (0-23) and minutes (0-59)
+        const hoursNum = parseInt(hours, 10);
+        const minutesNum = parseInt(minutes, 10);
+        if (
+          hoursNum >= 0 &&
+          hoursNum <= 23 &&
+          minutesNum >= 0 &&
+          minutesNum <= 59
+        ) {
+          return `${hours}:${minutes}`;
+        }
+      }
+
+      // Handle HH:MM format - return as is
+      if (timeStr.includes(":")) {
+        const parts = timeStr.split(":");
+        if (parts.length >= 2) {
+          const hours = parts[0].padStart(2, "0");
+          const minutes = parts[1].padStart(2, "0");
+          // Validate hours (0-23) and minutes (0-59)
+          const hoursNum = parseInt(hours, 10);
+          const minutesNum = parseInt(minutes, 10);
+          if (
+            hoursNum >= 0 &&
+            hoursNum <= 23 &&
+            minutesNum >= 0 &&
+            minutesNum <= 59
+          ) {
+            return `${hours}:${minutes}`;
+          }
+        }
+      }
+
+      return ""; // Return empty if invalid
+    } catch {
+      return "";
+    }
+  };
+
+  // Calculate Total Flight Time from Origin and Destination Zulu times
+  const calculateTotalFlightTime = (
+    originTime: string,
+    destinationTime: string
+  ): string => {
+    // Return empty if either time is missing
+    if (!originTime || !destinationTime) {
+      return "";
+    }
+
+    // Parse Zulu time (format: "2317" or "0109" - HHMM)
+    const parseZuluTime = (timeStr: string): number => {
+      // Remove any colons or spaces
+      const cleaned = timeStr.replace(/[: ]/g, "");
+
+      // Should be 4 digits (HHMM)
+      if (cleaned.length !== 4 || !/^\d{4}$/.test(cleaned)) {
+        return -1; // Invalid format
+      }
+
+      const hours = parseInt(cleaned.substring(0, 2), 10);
+      const minutes = parseInt(cleaned.substring(2, 4), 10);
+
+      // Validate hours (0-23) and minutes (0-59)
+      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        return -1; // Invalid time
+      }
+
+      // Convert to minutes since midnight
+      return hours * 60 + minutes;
+    };
+
+    const startMinutes = parseZuluTime(originTime);
+    const endMinutes = parseZuluTime(destinationTime);
+
+    // Return empty if parsing failed
+    if (startMinutes === -1 || endMinutes === -1) {
+      return "";
+    }
+
+    // If end < start, add 1440 minutes (24 hours) to handle crossing midnight
+    let adjustedEndMinutes = endMinutes;
+    if (endMinutes < startMinutes) {
+      adjustedEndMinutes = endMinutes + 1440;
+    }
+
+    // Calculate difference in minutes
+    const differenceMinutes = adjustedEndMinutes - startMinutes;
+
+    // Convert to hours:minutes format
+    const hours = Math.floor(differenceMinutes / 60);
+    const minutes = differenceMinutes % 60;
+
+    // Format as H:MM or HH:MM
+    return `${hours}:${minutes.toString().padStart(2, "0")}`;
+  };
+
+  // Auto-calculate Total Flight Time when origin or destination time changes
+  useEffect(() => {
+    const calculatedTime = calculateTotalFlightTime(
+      formData.offBlocksTime,
+      formData.onBlocksTime
+    );
+    setFormData((prev) => ({
+      ...prev,
+      totalFlightTime: calculatedTime,
+    }));
+  }, [formData.offBlocksTime, formData.onBlocksTime]);
+
+  // Auto-calculate Hobbs Meter Total (End - Start)
+  useEffect(() => {
+    const start = parseFloat(formData.hobbsMeterStart) || 0;
+    const end = parseFloat(formData.hobbsMeterEnd) || 0;
+    const total = end > start ? end - start : 0;
+    setFormData((prev) => ({
+      ...prev,
+      hobbsMeterTotal: total > 0 ? total.toFixed(2) : "",
+    }));
+  }, [formData.hobbsMeterStart, formData.hobbsMeterEnd]);
+
+  // Auto-calculate Tachometer Total (End - Start)
+  useEffect(() => {
+    const start = parseFloat(formData.tachometerStart) || 0;
+    const end = parseFloat(formData.tachometerEnd) || 0;
+    const total = end > start ? end - start : 0;
+    setFormData((prev) => ({
+      ...prev,
+      tachometerTotal: total > 0 ? total.toFixed(2) : "",
+    }));
+  }, [formData.tachometerStart, formData.tachometerEnd]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Validation function
+  const validateForm = (): {
+    isValid: boolean;
+    errors: Record<string, string>;
+  } => {
+    const errors: Record<string, string> = {};
+
+    // Required fields validation
+    if (!formData.seqNo || formData.seqNo.trim() === "") {
+      errors.seqNo = "Sequence No. is required";
+    }
+
+    // Only validate A/C Registration if aircraftId prop is not provided
+    if (!aircraftId && (!formData.acReg || !selectedAircraftId)) {
+      errors.acReg = "A/C Registration is required";
+    }
+
+    if (!formData.natureOfFlight) {
+      errors.natureOfFlight = "Nature of Flight is required";
+    }
+
+    if (!formData.offBlocksDate) {
+      errors.offBlocksDate = "Off-Blocks Date is required";
+    }
+
+    if (!formData.offBlocksTime || formData.offBlocksTime.trim() === "") {
+      errors.offBlocksTime = "Off-Blocks Time is required";
+    } else if (!/^\d{2}:\d{2}$/.test(formData.offBlocksTime)) {
+      errors.offBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
+    } else {
+      // Validate hours (0-23) and minutes (0-59)
+      const [hours, minutes] = formData.offBlocksTime.split(":").map(Number);
+      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        errors.offBlocksTime =
+          "Time must be valid (hours: 0-23, minutes: 0-59)";
+      }
+    }
+
+    if (!formData.offBlocksStation || formData.offBlocksStation.trim() === "") {
+      errors.offBlocksStation = "Off-Blocks Station is required";
+    }
+
+    if (!formData.onBlocksDate) {
+      errors.onBlocksDate = "On-Blocks Date is required";
+    }
+
+    if (!formData.onBlocksTime || formData.onBlocksTime.trim() === "") {
+      errors.onBlocksTime = "On-Blocks Time is required";
+    } else if (!/^\d{2}:\d{2}$/.test(formData.onBlocksTime)) {
+      errors.onBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
+    } else {
+      // Validate hours (0-23) and minutes (0-59)
+      const [hours, minutes] = formData.onBlocksTime.split(":").map(Number);
+      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        errors.onBlocksTime = "Time must be valid (hours: 0-23, minutes: 0-59)";
+      }
+    }
+
+    if (!formData.onBlocksStation || formData.onBlocksStation.trim() === "") {
+      errors.onBlocksStation = "On-Blocks Station is required";
+    }
+
+    // Numeric field validations
+    if (
+      formData.numberOfLandings &&
+      isNaN(parseFloat(formData.numberOfLandings))
+    ) {
+      errors.numberOfLandings = "Number of Landings must be a valid number";
+    }
+
+    if (
+      formData.hobbsMeterStart &&
+      isNaN(parseFloat(formData.hobbsMeterStart))
+    ) {
+      errors.hobbsMeterStart = "Hobbs Meter Start must be a valid number";
+    }
+
+    if (formData.hobbsMeterEnd && isNaN(parseFloat(formData.hobbsMeterEnd))) {
+      errors.hobbsMeterEnd = "Hobbs Meter End must be a valid number";
+    }
+
+    if (
+      formData.tachometerStart &&
+      isNaN(parseFloat(formData.tachometerStart))
+    ) {
+      errors.tachometerStart = "Tachometer Start must be a valid number";
+    }
+
+    if (formData.tachometerEnd && isNaN(parseFloat(formData.tachometerEnd))) {
+      errors.tachometerEnd = "Tachometer End must be a valid number";
+    }
+
+    // Validate that End > Start for meters
+    if (formData.hobbsMeterStart && formData.hobbsMeterEnd) {
+      const start = parseFloat(formData.hobbsMeterStart);
+      const end = parseFloat(formData.hobbsMeterEnd);
+      if (!isNaN(start) && !isNaN(end) && end <= start) {
+        errors.hobbsMeterEnd = "Hobbs Meter End must be greater than Start";
+      }
+    }
+
+    if (formData.tachometerStart && formData.tachometerEnd) {
+      const start = parseFloat(formData.tachometerStart);
+      const end = parseFloat(formData.tachometerEnd);
+      if (!isNaN(start) && !isNaN(end) && end <= start) {
+        errors.tachometerEnd = "Tachometer End must be greater than Start";
+      }
+    }
+
+    // Time format validation for Zulu times
+    if (formData.pilotAcceptTime && formData.pilotAcceptTime.trim() !== "") {
+      if (!/^\d{2}:\d{2}$/.test(formData.pilotAcceptTime)) {
+        errors.pilotAcceptTime = "Time must be in HH:MM format (e.g., 23:17)";
+      } else {
+        // Validate hours (0-23) and minutes (0-59)
+        const [hours, minutes] = formData.pilotAcceptTime
+          .split(":")
+          .map(Number);
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+          errors.pilotAcceptTime =
+            "Time must be valid (hours: 0-23, minutes: 0-59)";
+        }
+      }
+    }
+
+    if (formData.rtsTime && formData.rtsTime.trim() !== "") {
+      if (!/^\d{2}:\d{2}$/.test(formData.rtsTime)) {
+        errors.rtsTime = "Time must be in HH:MM format (e.g., 23:17)";
+      } else {
+        // Validate hours (0-23) and minutes (0-59)
+        const [hours, minutes] = formData.rtsTime.split(":").map(Number);
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+          errors.rtsTime = "Time must be valid (hours: 0-23, minutes: 0-59)";
+        }
+      }
+    }
+
+    setValidationErrors(errors);
+    return { isValid: Object.keys(errors).length === 0, errors };
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onClose();
+
+    // Validate form (for both create and update)
+    const validationResult = validateForm();
+    if (!validationResult.isValid) {
+      const errorMessages = Object.values(validationResult.errors).join("\n");
+      Swal.fire({
+        title: "Validation Error",
+        text: errorMessages || "Please fill in all required fields correctly.",
+        icon: "error",
+        confirmButtonColor: "#dc2626",
+      });
+      return;
+    }
+
+    try {
+      // Transform formData to API format (camelCase)
+      const apiDataCamel: any = {
+        aircraftFk: aircraftId || selectedAircraftId!, // Use aircraftId from prop if provided, otherwise use selectedAircraftId
+        sequenceNo: formData.seqNo,
+        natureOfFlight: formData.natureOfFlight as any,
+        nextInspectionDue: formData.nextInspectionDue || undefined,
+        tachTimeDue: formData.tachTimeDue
+          ? parseFloat(formData.tachTimeDue)
+          : undefined,
+        originStation: formData.offBlocksStation,
+        originDate: formData.offBlocksDate,
+        originTime: convertTimeToAPIFormat(formData.offBlocksTime),
+        destinationStation: formData.onBlocksStation,
+        destinationDate: formData.onBlocksDate,
+        destinationTime: convertTimeToAPIFormat(formData.onBlocksTime),
+        numberOfLandings: parseFloat(formData.numberOfLandings) || 0,
+        hobbsMeterStart: parseFloat(formData.hobbsMeterStart) || 0,
+        hobbsMeterEnd: parseFloat(formData.hobbsMeterEnd) || 0,
+        hobbsMeterTotal: parseFloat(formData.hobbsMeterTotal) || 0,
+        tachometerStart: parseFloat(formData.tachometerStart) || 0,
+        tachometerEnd: parseFloat(formData.tachometerEnd) || 0,
+        tachometerTotal: parseFloat(formData.tachometerTotal) || 0,
+        airframePrevTime: formData.airframePrevTime
+          ? parseFloat(formData.airframePrevTime)
+          : undefined,
+        airframeFlightTime: formData.airframeFlightTime
+          ? parseFloat(formData.airframeFlightTime)
+          : undefined,
+        airframeTotalTime: formData.airframeTotalTime
+          ? parseFloat(formData.airframeTotalTime)
+          : undefined,
+        enginePrevTime: formData.enginePrevTime
+          ? parseFloat(formData.enginePrevTime)
+          : undefined,
+        engineFlightTime: formData.engineFlightTime
+          ? parseFloat(formData.engineFlightTime)
+          : undefined,
+        engineTotalTime: formData.engineTotalTime
+          ? parseFloat(formData.engineTotalTime)
+          : undefined,
+        propellerPrevTime: formData.propellerPrevTime
+          ? parseFloat(formData.propellerPrevTime)
+          : undefined,
+        propellerFlightTime: formData.propellerFlightTime
+          ? parseFloat(formData.propellerFlightTime)
+          : undefined,
+        propellerTotalTime: formData.propellerTotalTime
+          ? parseFloat(formData.propellerTotalTime)
+          : undefined,
+        fuelQtyLeftUpliftQty: formData.fuelQtyLeftUpliftQty
+          ? parseFloat(formData.fuelQtyLeftUpliftQty)
+          : undefined,
+        fuelQtyRightUpliftQty: formData.fuelQtyRightUpliftQty
+          ? parseFloat(formData.fuelQtyRightUpliftQty)
+          : undefined,
+        fuelQtyLeftPriorDeparture: formData.fuelQtyLeftPriorDeparture
+          ? parseFloat(formData.fuelQtyLeftPriorDeparture)
+          : undefined,
+        fuelQtyRightPriorDeparture: formData.fuelQtyRightPriorDeparture
+          ? parseFloat(formData.fuelQtyRightPriorDeparture)
+          : undefined,
+        fuelQtyLeftAfterOnBlks: formData.fuelQtyLeftAfterOnBlks
+          ? parseFloat(formData.fuelQtyLeftAfterOnBlks)
+          : undefined,
+        fuelQtyRightAfterOnBlks: formData.fuelQtyRightAfterOnBlks
+          ? parseFloat(formData.fuelQtyRightAfterOnBlks)
+          : undefined,
+        oilQtyUpliftQty: formData.oilQtyUpliftQty
+          ? parseFloat(formData.oilQtyUpliftQty)
+          : undefined,
+        oilQtyPriorDeparture: formData.oilQtyPriorDeparture
+          ? parseFloat(formData.oilQtyPriorDeparture)
+          : undefined,
+        oilQtyAfterOnBlks: formData.oilQtyAfterOnBlks
+          ? parseFloat(formData.oilQtyAfterOnBlks)
+          : undefined,
+        remarks: formData.pilotReport || undefined,
+        actionsTaken: formData.actionsTaken || undefined,
+        pilotFk: formData.pilotFk ? parseInt(formData.pilotFk) : undefined,
+        maintenanceFk: formData.remarksPerson
+          ? parseInt(formData.remarksPerson)
+          : formData.actionsTakenPerson
+          ? parseInt(formData.actionsTakenPerson)
+          : undefined,
+        pilotAcceptedBy: formData.pilotFk
+          ? parseInt(formData.pilotFk)
+          : undefined, // Connected to Pilot's Acceptance Name dropdown
+        pilotAcceptDate: formData.pilotAcceptDate || undefined,
+        pilotAcceptTime: formData.pilotAcceptTime
+          ? convertTimeToAPIFormat(formData.pilotAcceptTime)
+          : undefined,
+        rtsSignedBy: formData.rtsSignedBy
+          ? parseInt(formData.rtsSignedBy)
+          : undefined, // Connected to Return to Service Name dropdown
+        rtsDate: formData.rtsDate || undefined,
+        rtsTime: formData.rtsTime
+          ? convertTimeToAPIFormat(formData.rtsTime)
+          : undefined,
+        whiteAtl: formData.whiteAtl ? formData.whiteAtl.name : undefined,
+        dfp: formData.dfp ? formData.dfp.name : undefined,
+        componentParts: componentRecords.map((record) => ({
+          qty: parseFloat(record.qty) || 0,
+          unit: record.unit,
+          nomenclature: record.nomenclature,
+          removedPartNo: record.removedPartNo || undefined,
+          removedSerialNo: record.removedSerialNo || undefined,
+          installedPartNo: record.installedPartNo || undefined,
+          installedSerialNo: record.installedSerialNo || undefined,
+          ataChapter: record.ataChapter || undefined,
+        })),
+      };
+
+      // Convert camelCase to snake_case before sending to API
+      const apiDataSnake = snakeAllKeys(apiDataCamel);
+
+      if (editEntry) {
+        // Update existing entry
+        const updatedEntry = await updateAircraftTechnicalLog(
+          editEntry.id,
+          apiDataSnake as AircraftTechnicalLogUpdate
+        );
+
+        // Show success message
+        await Swal.fire({
+          title: "Success!",
+          text: `Aircraft Technical Logbook entry (Sequence No. ${formData.seqNo}) has been successfully updated.`,
+          icon: "success",
+          confirmButtonColor: "#1f2937",
+          confirmButtonText: "OK",
+          timer: 3000,
+          timerProgressBar: true,
+        });
+
+        // Call onSuccess callback if provided (this will refresh the list)
+        if (onSuccess) {
+          onSuccess();
+        }
+
+        // Close modal
+        onClose();
+        return;
+      }
+
+      // Create new entry
+      const createdEntry = await createAircraftTechnicalLog(
+        apiDataSnake as any
+      );
+
+      // Show success message
+      await Swal.fire({
+        title: "Success!",
+        text: `Aircraft Technical Logbook entry (Sequence No. ${formData.seqNo}) has been successfully created.`,
+        icon: "success",
+        confirmButtonColor: "#1f2937",
+        confirmButtonText: "OK",
+        timer: 3000,
+        timerProgressBar: true,
+      });
+
+      // Call onSuccess callback if provided (this will refresh the list)
+      if (onSuccess) {
+        onSuccess();
+      }
+
+      // Reset form
+      setFormData({
+        seqNo: "ATL-",
+        acReg: "",
+        natureOfFlight: "TR",
+        offBlocksDate: "",
+        offBlocksTime: "",
+        offBlocksStation: "",
+        onBlocksDate: "",
+        onBlocksTime: "",
+        onBlocksStation: "",
+        totalFlightTime: "",
+        numberOfLandings: "",
+        fuelQtyLeftUpliftQty: "",
+        fuelQtyRightUpliftQty: "",
+        fuelQtyLeftPriorDeparture: "",
+        fuelQtyRightPriorDeparture: "",
+        fuelQtyLeftAfterOnBlks: "",
+        fuelQtyRightAfterOnBlks: "",
+        oilQtyUpliftQty: "",
+        oilQtyPriorDeparture: "",
+        oilQtyAfterOnBlks: "",
+        priorDepartureHours: "",
+        priorDepartureMinutes: "",
+        afterLandingHours: "",
+        afterLandingMinutes: "",
+        tachometerStart: "",
+        tachometerEnd: "",
+        tachometerTotal: "",
+        hobbsMeterStart: "",
+        hobbsMeterEnd: "",
+        hobbsMeterTotal: "",
+        nextInspectionDue: "",
+        tachTimeDue: "",
+        pilotReport: "",
+        remarksPerson: "",
+        actionsTaken: "",
+        actionsTakenPerson: "",
+        pilotName: "",
+        pilotFk: "",
+        pilotAcceptDate: "",
+        pilotAcceptTime: "",
+        pilotSignature: null,
+        rtsName: "",
+        rtsSignedBy: "",
+        rtsDate: "",
+        rtsTime: "",
+        mechanicAuth: "",
+        mechanicSignature: null,
+        whiteAtl: null,
+        dfp: null,
+        airframePrevTime: "",
+        airframeFlightTime: "",
+        airframeTotalTime: "",
+        enginePrevTime: "",
+        engineFlightTime: "",
+        engineTotalTime: "",
+        propellerPrevTime: "",
+        propellerFlightTime: "",
+        propellerTotalTime: "",
+      });
+      setComponentRecords([]);
+      setSelectedAircraftId(null);
+      setWhiteAtlFileName("");
+      setDfpFileName("");
+      setValidationErrors({});
+
+      // Close modal
+      onClose();
+    } catch (error: any) {
+      console.error(
+        `Error ${editEntry ? "updating" : "creating"} entry:`,
+        error
+      );
+
+      // Extract error message safely
+      let errorMessage = editEntry
+        ? "Failed to update entry"
+        : "Failed to create entry";
+
+      if (error.response?.data) {
+        // Handle different error response formats
+        if (typeof error.response.data.detail === "string") {
+          errorMessage = error.response.data.detail;
+        } else if (Array.isArray(error.response.data.detail)) {
+          // Handle validation errors array
+          errorMessage = error.response.data.detail
+            .map((err: any) => {
+              if (typeof err === "string") return err;
+              if (err.msg) return err.msg;
+              if (err.message) return err.message;
+              if (err.loc && err.msg) {
+                // Handle Pydantic validation errors
+                return `${err.loc.join(".")}: ${err.msg}`;
+              }
+              return JSON.stringify(err);
+            })
+            .join("\n");
+        } else if (error.response.data.detail) {
+          // Handle object error
+          if (typeof error.response.data.detail === "object") {
+            // Try to extract meaningful message from object
+            if (error.response.data.detail.message) {
+              errorMessage = error.response.data.detail.message;
+            } else {
+              errorMessage = JSON.stringify(error.response.data.detail);
+            }
+          } else {
+            errorMessage = String(error.response.data.detail);
+          }
+        } else if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (typeof error.response.data === "string") {
+          errorMessage = error.response.data;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      // Convert to string and check for duplicate sequence number
+      const errorMessageStr = String(errorMessage).toLowerCase();
+
+      // Check if this is a duplicate sequence number error
+      // Look for keywords that indicate duplicate sequence number
+      const hasSequenceKeyword = errorMessageStr.includes("sequence");
+      const hasAlreadyKeyword =
+        errorMessageStr.includes("already exist") ||
+        errorMessageStr.includes("already exists");
+      const hasDuplicateKeyword = errorMessageStr.includes("duplicate");
+      const hasUniqueConstraint =
+        errorMessageStr.includes("unique constraint") ||
+        errorMessageStr.includes("uniqueconstraint");
+
+      const isDuplicateSequence =
+        hasSequenceKeyword &&
+        (hasAlreadyKeyword || hasDuplicateKeyword || hasUniqueConstraint);
+
+      // If it's a duplicate sequence error, show appropriate message
+      if (isDuplicateSequence) {
+        // Try to extract sequence number from error message
+        const sequenceMatch =
+          errorMessage.match(/sequence\s+no\.?\s*([A-Z0-9-]+)/i) ||
+          errorMessage.match(/sequence\s+([A-Z0-9-]+)/i) ||
+          errorMessage.match(/([A-Z0-9-]+)\s+already/i);
+
+        const extractedSeqNo =
+          sequenceMatch && sequenceMatch[1] ? sequenceMatch[1] : formData.seqNo;
+
+        // Use the error message from API if it already contains the sequence number
+        // Otherwise, construct our own message
+        if (extractedSeqNo && errorMessage.includes(extractedSeqNo)) {
+          Swal.fire({
+            title: "Error!",
+            text: errorMessage,
+            icon: "error",
+            confirmButtonColor: "#dc2626",
+          });
+        } else if (extractedSeqNo) {
+          Swal.fire({
+            title: "Error!",
+            text: `Sequence No. ${extractedSeqNo} already exists. Please use a different Sequence No.`,
+            icon: "error",
+            confirmButtonColor: "#dc2626",
+          });
+        } else {
+          // Fallback if we can't extract sequence number
+          Swal.fire({
+            title: "Error!",
+            text:
+              errorMessage ||
+              "Sequence No. already exists. Please use a different Sequence No.",
+            icon: "error",
+            confirmButtonColor: "#dc2626",
+          });
+        }
+      } else {
+        // Show generic error message for other validation errors
+        Swal.fire({
+          title: "Error!",
+          text: errorMessage,
+          icon: "error",
+          confirmButtonColor: "#dc2626",
+        });
+      }
+    }
   };
 
   const handleFileChange = (
-    field: "pilotSignature" | "mechanicSignature",
+    field: "pilotSignature" | "mechanicSignature" | "whiteAtl" | "dfp",
     file: File | null
   ) => {
     setFormData((prev) => ({ ...prev, [field]: file }));
+    if (field === "whiteAtl") {
+      setWhiteAtlFileName(file ? file.name : "");
+    } else if (field === "dfp") {
+      setDfpFileName(file ? file.name : "");
+    }
+  };
+
+  const handleRemoveFile = (field: "whiteAtl" | "dfp") => {
+    setFormData((prev) => ({ ...prev, [field]: null }));
+    if (field === "whiteAtl") {
+      setWhiteAtlFileName("");
+    } else if (field === "dfp") {
+      setDfpFileName("");
+    }
   };
 
   // Calculate total time from prev time + flight time
@@ -185,34 +1616,22 @@ export function AddTechnicalLogbookEntryModal({
     if (type === "airframe") {
       if (field === "airframePrevTime" || field === "airframeFlightTime") {
         updates.airframeTotalTime = calculateTotalTime(
-          field === "airframePrevTime"
-            ? value
-            : formData.airframePrevTime,
-          field === "airframeFlightTime"
-            ? value
-            : formData.airframeFlightTime
+          field === "airframePrevTime" ? value : formData.airframePrevTime,
+          field === "airframeFlightTime" ? value : formData.airframeFlightTime
         );
       }
     } else if (type === "engine") {
       if (field === "enginePrevTime" || field === "engineFlightTime") {
         updates.engineTotalTime = calculateTotalTime(
-          field === "enginePrevTime"
-            ? value
-            : formData.enginePrevTime,
-          field === "engineFlightTime"
-            ? value
-            : formData.engineFlightTime
+          field === "enginePrevTime" ? value : formData.enginePrevTime,
+          field === "engineFlightTime" ? value : formData.engineFlightTime
         );
       }
     } else if (type === "propeller") {
       if (field === "propellerPrevTime" || field === "propellerFlightTime") {
         updates.propellerTotalTime = calculateTotalTime(
-          field === "propellerPrevTime"
-            ? value
-            : formData.propellerPrevTime,
-          field === "propellerFlightTime"
-            ? value
-            : formData.propellerFlightTime
+          field === "propellerPrevTime" ? value : formData.propellerPrevTime,
+          field === "propellerFlightTime" ? value : formData.propellerFlightTime
         );
       }
     }
@@ -231,7 +1650,6 @@ export function AddTechnicalLogbookEntryModal({
       removedSerialNo: "",
       installedPartNo: "",
       installedSerialNo: "",
-      partDescription: "",
       ataChapter: "",
     };
     setComponentRecords([...componentRecords, newRecord]);
@@ -264,14 +1682,13 @@ export function AddTechnicalLogbookEntryModal({
       {/* Modal */}
       <div className="relative bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
-          <div>
-            <h2 className="text-gray-900">Aircraft Technical Logbook</h2>
-            <p className="text-sm text-gray-600">New Entry</p>
-          </div>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {editEntry ? "Edit Entry" : "Add New Entry"}
+          </h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+            className="p-1 hover:bg-gray-100 rounded transition-colors"
           >
             <X className="w-5 h-5 text-gray-600" />
           </button>
@@ -281,99 +1698,145 @@ export function AddTechnicalLogbookEntryModal({
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
             {/* Sequence Number & Aircraft Registration */}
-            <div className="grid grid-cols-2 gap-4">
+            <div
+              className={`grid ${
+                aircraftId ? "grid-cols-1" : "grid-cols-2"
+              } gap-4`}
+            >
               <div>
-                <label className="block text-gray-700 mb-2">
+                <label className="block text-gray-700 text-sm mb-1.5">
                   Sequence No. *
                 </label>
                 <input
                   type="text"
                   value={formData.seqNo}
-                  onChange={(e) =>
-                    setFormData({ ...formData, seqNo: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                  onChange={(e) => {
+                    setFormData({ ...formData, seqNo: e.target.value });
+                    // Clear error when user starts typing
+                    if (validationErrors.seqNo) {
+                      setValidationErrors({ ...validationErrors, seqNo: "" });
+                    }
+                  }}
+                  className={`w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                    validationErrors.seqNo
+                      ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                      : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                  }`}
                   required
                 />
+                {validationErrors.seqNo && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {validationErrors.seqNo}
+                  </p>
+                )}
               </div>
-              <div>
-                <label className="block text-gray-700 mb-2">
-                  A/C Registration *
-                </label>
-                <div className="relative" ref={aircraftDropdownRef}>
-                  <div className="relative">
-                <input
-                  type="text"
-                      value={isAircraftDropdownOpen ? aircraftSearchTerm : formData.acReg}
-                      onChange={(e) => {
-                        setAircraftSearchTerm(e.target.value);
-                        setIsAircraftDropdownOpen(true);
-                      }}
-                      onFocus={() => {
-                        setIsAircraftDropdownOpen(true);
-                        setAircraftSearchTerm("");
-                      }}
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                  required
-                      placeholder="Search aircraft registration..."
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setIsAircraftDropdownOpen(!isAircraftDropdownOpen)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
-                    >
-                      <ChevronDown
-                        className={`w-4 h-4 transition-transform ${
-                          isAircraftDropdownOpen ? "rotate-180" : ""
+              {!aircraftId && (
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    A/C Registration *
+                  </label>
+                  <div className="relative" ref={aircraftDropdownRef}>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={
+                          isAircraftDropdownOpen
+                            ? aircraftSearchTerm
+                            : formData.acReg
+                        }
+                        onChange={(e) => {
+                          setAircraftSearchTerm(e.target.value);
+                          setIsAircraftDropdownOpen(true);
+                          // Clear error when user starts typing
+                          if (validationErrors.acReg) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              acReg: "",
+                            });
+                          }
+                        }}
+                        onFocus={() => {
+                          setIsAircraftDropdownOpen(true);
+                          setAircraftSearchTerm("");
+                        }}
+                        className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                          validationErrors.acReg
+                            ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                            : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                         }`}
+                        required
+                        placeholder="Search aircraft registration..."
                       />
-                    </button>
-                  </div>
-
-                  {isAircraftDropdownOpen && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                      {loadingAircrafts ? (
-                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                          Loading aircrafts...
-                        </div>
-                      ) : filteredAircrafts.length === 0 ? (
-                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                          {aircraftSearchTerm
-                            ? "No aircrafts found"
-                            : "No aircrafts available"}
-                        </div>
-                      ) : (
-                        <ul className="py-1">
-                          {filteredAircrafts.map((aircraft) => (
-                            <li
-                              key={aircraft.id}
-                              onClick={() => handleAircraftSelect(aircraft.registration)}
-                              className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                formData.acReg === aircraft.registration
-                                  ? "bg-blue-50"
-                                  : ""
-                              }`}
-                            >
-                              <span className="text-gray-900">
-                                {aircraft.registration}
-                              </span>
-                              {formData.acReg === aircraft.registration && (
-                                <Check className="w-4 h-4 text-blue-600" />
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
+                        }
+                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            isAircraftDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
                     </div>
+
+                    {isAircraftDropdownOpen && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                        {loadingAircrafts ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            Loading aircrafts...
+                          </div>
+                        ) : filteredAircrafts.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            {aircraftSearchTerm
+                              ? "No aircrafts found"
+                              : "No aircrafts available"}
+                          </div>
+                        ) : (
+                          <ul className="py-1">
+                            {filteredAircrafts.map((aircraft) => (
+                              <li
+                                key={aircraft.id}
+                                onClick={() =>
+                                  handleAircraftSelect(
+                                    aircraft.id,
+                                    aircraft.registration
+                                  )
+                                }
+                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                  formData.acReg === aircraft.registration
+                                    ? "bg-blue-50"
+                                    : ""
+                                }`}
+                              >
+                                <span className="text-gray-900">
+                                  {aircraft.registration}
+                                </span>
+                                {formData.acReg === aircraft.registration && (
+                                  <Check className="w-4 h-4 text-blue-600" />
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {validationErrors.acReg && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {validationErrors.acReg}
+                    </p>
                   )}
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Nature of Flight & Total Flight Time */}
-            <div className="grid grid-cols-2 gap-4">
+            {/* Nature of Flight, NEXT INSP. DUE, TACH TIME DUE */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-gray-700 mb-2">
+                <label className="block text-gray-700 text-sm mb-1.5">
                   Nature of Flight *
                 </label>
                 <select
@@ -384,7 +1847,7 @@ export function AddTechnicalLogbookEntryModal({
                       natureOfFlight: e.target.value,
                     })
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
                   required
                 >
                   <option value="TR">TR - Training Flight</option>
@@ -392,20 +1855,41 @@ export function AddTechnicalLogbookEntryModal({
                   <option value="PRF">PRF - Pre Flight Inspection</option>
                   <option value="EGR">EGR - Engine Run-up</option>
                   <option value="ME">ME - Maintenance Entry</option>
-                  <option value="TR W/ PIREM">TR W/ PIREM - Training Flight with Pilot Remarks VOID</option>
+                  <option value="TR W/ PIREM">
+                    TR W/ PIREM - Training Flight with Pilot Remarks VOID
+                  </option>
                 </select>
               </div>
               <div>
-                <label className="block text-gray-700 mb-2">
-                  Total Flight Time
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  NEXT INSP. DUE
                 </label>
                 <input
                   type="text"
-                  value={formData.totalFlightTime}
+                  value={formData.nextInspectionDue}
                   onChange={(e) =>
-                    setFormData({ ...formData, totalFlightTime: e.target.value })
+                    setFormData({
+                      ...formData,
+                      nextInspectionDue: e.target.value,
+                    })
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  TACH TIME DUE
+                </label>
+                <input
+                  type="text"
+                  value={formData.tachTimeDue}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      tachTimeDue: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                 />
               </div>
             </div>
@@ -423,14 +1907,29 @@ export function AddTechnicalLogbookEntryModal({
                     <input
                       type="text"
                       value={formData.offBlocksStation}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setFormData({
                           ...formData,
                           offBlocksStation: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        });
+                        if (validationErrors.offBlocksStation) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            offBlocksStation: "",
+                          });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                        validationErrors.offBlocksStation
+                          ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                          : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                      }`}
                     />
+                    {validationErrors.offBlocksStation && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {validationErrors.offBlocksStation}
+                      </p>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -440,30 +1939,59 @@ export function AddTechnicalLogbookEntryModal({
                       <input
                         type="date"
                         value={formData.offBlocksDate}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setFormData({
                             ...formData,
                             offBlocksDate: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          });
+                          if (validationErrors.offBlocksDate) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              offBlocksDate: "",
+                            });
+                          }
+                        }}
+                        className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                          validationErrors.offBlocksDate
+                            ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                            : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                        }`}
                       />
+                      {validationErrors.offBlocksDate && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {validationErrors.offBlocksDate}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-gray-700 text-sm mb-1">
-                        Time (UTC)
+                        Zulu Time
                       </label>
-                      <input
-                        type="time"
-                        value={formData.offBlocksTime}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            offBlocksTime: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
+                      <div>
+                        <input
+                          type="text"
+                          value={formData.offBlocksTime}
+                          onChange={(e) => {
+                            const formatted = formatTimeInput(e.target.value);
+                            setFormData({
+                              ...formData,
+                              offBlocksTime: formatted,
+                            });
+                            if (validationErrors.offBlocksTime) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                offBlocksTime: "",
+                              });
+                            }
+                          }}
+                          maxLength={5}
+                          placeholder="HH:MM"
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Format: HH:MM (24-hour, e.g., 23:17)
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -508,178 +2036,75 @@ export function AddTechnicalLogbookEntryModal({
                     </div>
                     <div>
                       <label className="block text-gray-700 text-sm mb-1">
-                        Time (UTC)
+                        Zulu Time
                       </label>
-                      <input
-                        type="time"
-                        value={formData.onBlocksTime}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            onBlocksTime: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
+                      <div>
+                        <input
+                          type="text"
+                          value={formData.onBlocksTime}
+                          onChange={(e) => {
+                            const formatted = formatTimeInput(e.target.value);
+                            setFormData({
+                              ...formData,
+                              onBlocksTime: formatted,
+                            });
+                            if (validationErrors.onBlocksTime) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                onBlocksTime: "",
+                              });
+                            }
+                          }}
+                          maxLength={5}
+                          placeholder="HH:MM"
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Format: HH:MM (24-hour, e.g., 23:17)
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Fuel & Oil Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Fuel Quantity */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3 text-sm">Fuel Qty. (Gals)</h3>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Left
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.fuelQtyLeft}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          fuelQtyLeft: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Right
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.fuelQtyRight}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          fuelQtyRight: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Uplift Quantity */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3 text-sm">Uplift Qty.</h3>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Left
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.upliftQtyLeft}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          upliftQtyLeft: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Right
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.upliftQtyRight}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          upliftQtyRight: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Oil Quantity */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3 text-sm">Oil Qty. (QTS)</h3>
+            {/* Total Flight Time & Number of Landings */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Total Flight Time
+                </label>
                 <input
                   type="text"
-                  value={formData.oilQty}
-                  onChange={(e) =>
-                    setFormData({ ...formData, oilQty: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                  value={formData.totalFlightTime}
+                  disabled
+                  readOnly
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Number of Landings
+                </label>
+                <input
+                  type="text"
+                  value={formData.numberOfLandings}
+                  onChange={(e) => {
+                    // Only allow numeric input
+                    const value = e.target.value.replace(/\D/g, "");
+                    setFormData({
+                      ...formData,
+                      numberOfLandings: value,
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                 />
               </div>
             </div>
 
-            {/* Tachometer & Hobbs Meter */}
+            {/* Hobbs Meter & Tachometer */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Tachometer */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Tachometer</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Start
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.tachometerStart}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            tachometerStart: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        End
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.tachometerEnd}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            tachometerEnd: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Total
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.tachometerTotal}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          tachometerTotal: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Hobbs Meter */}
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                 <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
@@ -725,59 +2150,260 @@ export function AddTechnicalLogbookEntryModal({
                     <input
                       type="text"
                       value={formData.hobbsMeterTotal}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          hobbsMeterTotal: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      readOnly
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Tachometer */}
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h3 className="text-gray-900 mb-3">Tachometer</h3>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Start
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.tachometerStart}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            tachometerStart: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        End
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.tachometerEnd}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            tachometerEnd: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-1">
+                      Total
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.tachometerTotal}
+                      readOnly
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
                     />
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Inspection & Service */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-gray-700 mb-2">
-                  Next Inspection Due
-                </label>
-                <input
-                  type="text"
-                  value={formData.nextInspectionDue}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      nextInspectionDue: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
-              </div>
-              <div>
-                <label className="block text-gray-700 mb-2">
-                  Return to Service (HRS)
-                </label>
-                <input
-                  type="text"
-                  value={formData.returnToServiceHrs}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      returnToServiceHrs: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
-              </div>
+            {/* Fuel & Oil Section - Table Format */}
+            <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 border-b border-gray-300">
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
+                    <th
+                      colSpan={3}
+                      className="px-4 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"
+                    >
+                      FUEL QTY. (GALS)
+                    </th>
+                    <th
+                      colSpan={3}
+                      className="px-4 py-2 text-center text-xs font-semibold text-gray-900"
+                    >
+                      OIL QTY. (QTS)
+                    </th>
+                  </tr>
+                  <tr className="bg-gray-100 border-b border-gray-300">
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                      UPLIFT QTY.
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                      PRIOR DEPARTURE
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                      AFTER ON-BLKS
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                      UPLIFT QTY.
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                      PRIOR DEPARTURE
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900">
+                      AFTER ON-BLKS
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {/* Row label */}
+                    <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                      RIGHT
+                    </td>
+
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.fuelQtyRightUpliftQty}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyRightUpliftQty: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* FUEL - PRIOR DEPARTURE RIGHT */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.fuelQtyRightPriorDeparture}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyRightPriorDeparture: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* FUEL - AFTER ON-BLKS RIGHT */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.fuelQtyRightAfterOnBlks}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyRightAfterOnBlks: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* OIL - UPLIFT QTY */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.oilQtyUpliftQty}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            oilQtyUpliftQty: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* OIL - PRIOR DEPARTURE */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.oilQtyPriorDeparture}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            oilQtyPriorDeparture: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* OIL - AFTER ON-BLKS */}
+                    <td className="px-3 py-2">
+                      <input
+                        type="text"
+                        value={formData.oilQtyAfterOnBlks}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            oilQtyAfterOnBlks: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                  </tr>
+                  <tr>
+                    {/* Row label */}
+                    <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                      LEFT
+                    </td>
+                    {/* FUEL - UPLIFT QTY LEFT */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.fuelQtyLeftUpliftQty}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyLeftUpliftQty: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* FUEL - PRIOR DEPARTURE LEFT */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.fuelQtyLeftPriorDeparture}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyLeftPriorDeparture: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* FUEL - AFTER ON-BLKS LEFT */}
+                    <td className="px-3 py-2 border-r border-gray-300">
+                      <input
+                        type="text"
+                        value={formData.fuelQtyLeftAfterOnBlks}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyLeftAfterOnBlks: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </td>
+                    {/* OIL - Empty cells for alignment */}
+                    <td className="px-3 py-2 border-r border-gray-300"></td>
+                    <td className="px-3 py-2 border-r border-gray-300"></td>
+                    <td className="px-3 py-2"></td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
             {/* Remarks Section */}
             <div className="space-y-4">
               <div>
-                <label className="block text-gray-700 mb-2">Pilot Report</label>
+                <label className="block text-gray-700 mb-2">Remarks</label>
                 <textarea
                   value={formData.pilotReport}
                   onChange={(e) =>
@@ -786,22 +2412,90 @@ export function AddTechnicalLogbookEntryModal({
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
                 />
-              </div>
-              <div>
-                <label className="block text-gray-700 mb-2">
-                  Maintenance Entry
-                </label>
-                <textarea
-                  value={formData.maintenanceEntry}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      maintenanceEntry: e.target.value,
-                    })
-                  }
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
-                />
+                <div className="mt-2">
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    Name
+                  </label>
+                  <div className="relative" ref={remarksDropdownRef}>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={
+                          isRemarksDropdownOpen
+                            ? remarksSearchTerm
+                            : getSelectedRemarksPerson()
+                        }
+                        onChange={(e) => {
+                          setRemarksSearchTerm(e.target.value);
+                          setIsRemarksDropdownOpen(true);
+                        }}
+                        onFocus={() => {
+                          setIsRemarksDropdownOpen(true);
+                          setRemarksSearchTerm("");
+                        }}
+                        className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        placeholder="Search name..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setIsRemarksDropdownOpen(!isRemarksDropdownOpen)
+                        }
+                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            isRemarksDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {isRemarksDropdownOpen && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                        {loadingRemarksAccounts ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            Loading...
+                          </div>
+                        ) : remarksAccounts.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            {remarksSearchTerm
+                              ? "No accounts found"
+                              : "No accounts available"}
+                          </div>
+                        ) : (
+                          <ul className="py-1">
+                            {remarksAccounts.map((account) => (
+                              <li
+                                key={account.id}
+                                onClick={() =>
+                                  handleRemarksPersonSelect(
+                                    account.id.toString(),
+                                    `${account.fullName}-${account.licenseNo}`
+                                  )
+                                }
+                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                  formData.remarksPerson ===
+                                  account.id.toString()
+                                    ? "bg-blue-50"
+                                    : ""
+                                }`}
+                              >
+                                <span className="text-gray-900 text-sm">
+                                  {account.fullName}-{account.licenseNo}
+                                </span>
+                                {formData.remarksPerson ===
+                                  account.id.toString() && (
+                                  <Check className="w-4 h-4 text-blue-600" />
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="block text-gray-700 mb-2">
@@ -815,6 +2509,92 @@ export function AddTechnicalLogbookEntryModal({
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
                 />
+                <div className="mt-2">
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    Name
+                  </label>
+                  <div className="relative" ref={actionsTakenDropdownRef}>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={
+                          isActionsTakenDropdownOpen
+                            ? actionsTakenSearchTerm
+                            : getSelectedActionsTakenPerson()
+                        }
+                        onChange={(e) => {
+                          setActionsTakenSearchTerm(e.target.value);
+                          setIsActionsTakenDropdownOpen(true);
+                        }}
+                        onFocus={() => {
+                          setIsActionsTakenDropdownOpen(true);
+                          setActionsTakenSearchTerm("");
+                        }}
+                        className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        placeholder="Search name..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setIsActionsTakenDropdownOpen(
+                            !isActionsTakenDropdownOpen
+                          )
+                        }
+                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            isActionsTakenDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {isActionsTakenDropdownOpen && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                        {loadingActionsTakenAccounts ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            Loading...
+                          </div>
+                        ) : actionsTakenAccounts.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            {actionsTakenSearchTerm
+                              ? "No accounts found"
+                              : "No accounts available"}
+                          </div>
+                        ) : (
+                          <ul className="py-1">
+                            {actionsTakenAccounts.map((account) => (
+                              <li
+                                key={account.id}
+                                onClick={() =>
+                                  handleActionsTakenPersonSelect(
+                                    account.id.toString(),
+                                    `${account.fullName}-${account.licenseNo}`
+                                  )
+                                }
+                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                  formData.actionsTakenPerson ===
+                                  account.id.toString()
+                                    ? "bg-blue-50"
+                                    : ""
+                                }`}
+                              >
+                                <span className="text-gray-900 text-sm">
+                                  {account.fullName}-{account.licenseNo}
+                                </span>
+                                {formData.actionsTakenPerson ===
+                                  account.id.toString() && (
+                                  <Check className="w-4 h-4 text-blue-600" />
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -847,45 +2627,51 @@ export function AddTechnicalLogbookEntryModal({
                         PREV. TIME
                       </td>
                       <td className="border border-gray-300 px-3 py-2">
-                  <input
-                    type="text"
+                        <input
+                          type="text"
                           value={formData.airframePrevTime}
-                    onChange={(e) =>
+                          readOnly
+                          disabled
+                          onChange={(e) =>
                             handleTimeFieldChange(
                               "airframePrevTime",
                               e.target.value,
                               "airframe"
                             )
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
                         />
                       </td>
                       <td className="border border-gray-300 px-3 py-2">
-                  <input
-                    type="text"
+                        <input
+                          type="text"
                           value={formData.enginePrevTime}
-                    onChange={(e) =>
+                          readOnly
+                          disabled
+                          onChange={(e) =>
                             handleTimeFieldChange(
                               "enginePrevTime",
                               e.target.value,
                               "engine"
                             )
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
                         />
                       </td>
                       <td className="border border-gray-300 px-3 py-2">
-                  <input
-                    type="text"
+                        <input
+                          type="text"
                           value={formData.propellerPrevTime}
-                    onChange={(e) =>
+                          readOnly
+                          disabled
+                          onChange={(e) =>
                             handleTimeFieldChange(
                               "propellerPrevTime",
                               e.target.value,
                               "propeller"
                             )
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
                         />
                       </td>
                     </tr>
@@ -970,7 +2756,7 @@ export function AddTechnicalLogbookEntryModal({
                     </tr>
                   </tbody>
                 </table>
-                </div>
+              </div>
             </div>
 
             {/* COMPONENT RECORD */}
@@ -992,20 +2778,18 @@ export function AddTechnicalLogbookEntryModal({
                         NOMENCLATURE
                       </th>
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        REMOVED PART NO
+                        REMOVED P/N
                       </th>
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                         REMOVED S/N
                       </th>
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        INSTALLED PART NO
+                        INSTALLED P/N
                       </th>
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                         INSTALLED S/N
                       </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        PART DESCRIPTION
-                      </th>
+
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                         ATA CHAPTER
                       </th>
@@ -1021,7 +2805,8 @@ export function AddTechnicalLogbookEntryModal({
                           colSpan={10}
                           className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
                         >
-                          No component records added. Click "Add another Component" to add one.
+                          No component records added. Click "Add another
+                          Component" to add one.
                         </td>
                       </tr>
                     ) : (
@@ -1032,7 +2817,11 @@ export function AddTechnicalLogbookEntryModal({
                               type="text"
                               value={record.qty}
                               onChange={(e) =>
-                                updateComponentRecord(record.id, "qty", e.target.value)
+                                updateComponentRecord(
+                                  record.id,
+                                  "qty",
+                                  e.target.value
+                                )
                               }
                               className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                             />
@@ -1042,7 +2831,11 @@ export function AddTechnicalLogbookEntryModal({
                               type="text"
                               value={record.unit}
                               onChange={(e) =>
-                                updateComponentRecord(record.id, "unit", e.target.value)
+                                updateComponentRecord(
+                                  record.id,
+                                  "unit",
+                                  e.target.value
+                                )
                               }
                               className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                             />
@@ -1120,20 +2913,6 @@ export function AddTechnicalLogbookEntryModal({
                           <td className="border border-gray-300 px-2 py-2">
                             <input
                               type="text"
-                              value={record.partDescription}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "partDescription",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
                               value={record.ataChapter}
                               onChange={(e) =>
                                 updateComponentRecord(
@@ -1181,49 +2960,290 @@ export function AddTechnicalLogbookEntryModal({
                     <label className="block text-gray-700 text-sm mb-1">
                       Name
                     </label>
+                    <div className="relative" ref={pilotDropdownRef}>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={
+                            isPilotDropdownOpen
+                              ? pilotSearchTerm
+                              : getSelectedPilot()
+                          }
+                          onChange={(e) => {
+                            setPilotSearchTerm(e.target.value);
+                            setIsPilotDropdownOpen(true);
+                            // Clear error when user starts typing
+                            if (validationErrors.pilotFk) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                pilotFk: "",
+                              });
+                            }
+                          }}
+                          onFocus={() => {
+                            setIsPilotDropdownOpen(true);
+                            // If there's a selected value, use it as initial search term, otherwise clear
+                            if (formData.pilotName) {
+                              setPilotSearchTerm(formData.pilotName);
+                            } else {
+                              setPilotSearchTerm("");
+                            }
+                            // Fetch accounts if not already loaded
+                            if (pilotAccounts.length === 0) {
+                              fetchPilotAccounts("");
+                            }
+                          }}
+                          className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            validationErrors.pilotFk
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
+                          placeholder="Search pilot..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsPilotDropdownOpen(!isPilotDropdownOpen);
+                            // Fetch accounts if opening and not already loaded
+                            if (
+                              !isPilotDropdownOpen &&
+                              pilotAccounts.length === 0
+                            ) {
+                              fetchPilotAccounts("");
+                            }
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                        >
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform ${
+                              isPilotDropdownOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {isPilotDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {loadingPilotAccounts ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              Loading pilots...
+                            </div>
+                          ) : filteredPilotAccounts.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {pilotSearchTerm
+                                ? "No pilots found"
+                                : "No pilots available"}
+                            </div>
+                          ) : (
+                            <ul className="py-1">
+                              {filteredPilotAccounts.map((account) => (
+                                <li
+                                  key={account.id}
+                                  onClick={() =>
+                                    handlePilotSelect(
+                                      account.id.toString(),
+                                      `${account.fullName}-${account.licenseNo}`
+                                    )
+                                  }
+                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                    formData.pilotFk === account.id.toString()
+                                      ? "bg-blue-50"
+                                      : ""
+                                  }`}
+                                >
+                                  <span className="text-gray-900 text-sm">
+                                    {account.fullName}-{account.licenseNo}
+                                  </span>
+                                  {formData.pilotFk ===
+                                    account.id.toString() && (
+                                    <Check className="w-4 h-4 text-blue-600" />
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {validationErrors.pilotFk && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {validationErrors.pilotFk}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1">
+                      Date
+                    </label>
                     <input
-                      type="text"
-                      value={formData.pilotName}
+                      type="date"
+                      value={formData.pilotAcceptDate}
                       onChange={(e) =>
-                        setFormData({ ...formData, pilotName: e.target.value })
+                        setFormData({
+                          ...formData,
+                          pilotAcceptDate: e.target.value,
+                        })
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                     />
                   </div>
                   <div>
                     <label className="block text-gray-700 text-sm mb-1">
-                      License No. & Signature
+                      Time (Zulu)
                     </label>
                     <input
                       type="text"
-                      value={formData.pilotLicense}
-                      onChange={(e) =>
+                      value={formData.pilotAcceptTime}
+                      onChange={(e) => {
+                        const formatted = formatTimeInput(e.target.value);
                         setFormData({
                           ...formData,
-                          pilotLicense: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          pilotAcceptTime: formatted,
+                        });
+                        if (validationErrors.pilotAcceptTime) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            pilotAcceptTime: "",
+                          });
+                        }
+                      }}
+                      placeholder="HH:MM"
+                      maxLength={5}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Mechanic Signature */}
+              {/* Return to Service */}
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">PIC Name & Signature</h3>
+                <h3 className="text-gray-900 mb-3">Return to Service</h3>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-gray-700 text-sm mb-1">
                       Name
                     </label>
+                    <div className="relative" ref={rtsDropdownRef}>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={
+                            isRtsDropdownOpen ? rtsSearchTerm : getSelectedRts()
+                          }
+                          onChange={(e) => {
+                            setRtsSearchTerm(e.target.value);
+                            setIsRtsDropdownOpen(true);
+                            // Clear error when user starts typing
+                            if (validationErrors.rtsSignedBy) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                rtsSignedBy: "",
+                              });
+                            }
+                          }}
+                          onFocus={() => {
+                            setIsRtsDropdownOpen(true);
+                            // If there's a selected value, use it as initial search term, otherwise clear
+                            if (formData.rtsName) {
+                              setRtsSearchTerm(formData.rtsName);
+                            } else {
+                              setRtsSearchTerm("");
+                            }
+                            // Fetch accounts if not already loaded
+                            if (rtsAccounts.length === 0) {
+                              fetchRtsAccounts("");
+                            }
+                          }}
+                          className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            validationErrors.rtsSignedBy
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
+                          placeholder="Search maintenance engineer or mechanic..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsRtsDropdownOpen(!isRtsDropdownOpen);
+                            // Fetch accounts if opening and not already loaded
+                            if (
+                              !isRtsDropdownOpen &&
+                              rtsAccounts.length === 0
+                            ) {
+                              fetchRtsAccounts("");
+                            }
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                        >
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform ${
+                              isRtsDropdownOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {isRtsDropdownOpen && (
+                        <div className="absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {loadingRtsAccounts ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              Loading...
+                            </div>
+                          ) : filteredRtsAccounts.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {rtsSearchTerm
+                                ? "No accounts found"
+                                : "No accounts available"}
+                            </div>
+                          ) : (
+                            <ul className="py-1">
+                              {filteredRtsAccounts.map((account) => (
+                                <li
+                                  key={account.id}
+                                  onClick={() =>
+                                    handleRtsSelect(
+                                      account.id.toString(),
+                                      `${account.fullName}-${account.licenseNo}`
+                                    )
+                                  }
+                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                    formData.rtsSignedBy ===
+                                    account.id.toString()
+                                      ? "bg-blue-50"
+                                      : ""
+                                  }`}
+                                >
+                                  <span className="text-gray-900 text-sm">
+                                    {account.fullName}-{account.licenseNo}
+                                  </span>
+                                  {formData.rtsSignedBy ===
+                                    account.id.toString() && (
+                                    <Check className="w-4 h-4 text-blue-600" />
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {validationErrors.rtsSignedBy && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {validationErrors.rtsSignedBy}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1">
+                      Date
+                    </label>
                     <input
-                      type="text"
-                      value={formData.mechanicName}
+                      type="date"
+                      value={formData.rtsDate}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          mechanicName: e.target.value,
+                          rtsDate: e.target.value,
                         })
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
@@ -1231,69 +3251,124 @@ export function AddTechnicalLogbookEntryModal({
                   </div>
                   <div>
                     <label className="block text-gray-700 text-sm mb-1">
-                      License No.
+                      Time (Zulu)
                     </label>
                     <input
                       type="text"
-                      value={formData.mechanicLicense}
-                      onChange={(e) =>
+                      value={formData.rtsTime}
+                      onChange={(e) => {
+                        const formatted = formatTimeInput(e.target.value);
                         setFormData({
                           ...formData,
-                          mechanicLicense: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          rtsTime: formatted,
+                        });
+                        if (validationErrors.rtsTime) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            rtsTime: "",
+                          });
+                        }
+                      }}
+                      placeholder="HH:MM"
+                      maxLength={5}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
                     />
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Date & Time / Approved Organization */}
+            {/* White ATL / DFP */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
-                <label className="block text-gray-700 mb-2">
-                  Date & Time (UTC)
-                </label>
-                <input
-                  type="datetime-local"
-                  value={formData.dateTime}
-                  onChange={(e) =>
-                    setFormData({ ...formData, dateTime: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
+                <label className="block text-gray-700 mb-2">White ATL</label>
+                <div>
+                  <input
+                    type="file"
+                    id="white-atl-file"
+                    onChange={(e) =>
+                      handleFileChange("whiteAtl", e.target.files?.[0] || null)
+                    }
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  />
+                  <label
+                    htmlFor="white-atl-file"
+                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                  >
+                    <span
+                      className={
+                        whiteAtlFileName ? "text-gray-900" : "text-gray-400"
+                      }
+                    >
+                      {whiteAtlFileName || "Choose file or N/A"}
+                    </span>
+                    <Upload className="w-4 h-4 text-gray-400" />
+                  </label>
+                  {whiteAtlFileName && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile("whiteAtl")}
+                      className="text-xs text-red-600 hover:text-red-700 mt-1"
+                    >
+                      Remove file
+                    </button>
+                  )}
+                </div>
               </div>
               <div>
-                <label className="block text-gray-700 mb-2">
-                  Approved Maintenance Organization
-                </label>
-                <input
-                  type="text"
-                  value={formData.approvedOrg}
-                  onChange={(e) =>
-                    setFormData({ ...formData, approvedOrg: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
+                <label className="block text-gray-700 mb-2">DFP</label>
+                <div>
+                  <input
+                    type="file"
+                    id="dfp-file"
+                    onChange={(e) =>
+                      handleFileChange("dfp", e.target.files?.[0] || null)
+                    }
+                    className="hidden"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  />
+                  <label
+                    htmlFor="dfp-file"
+                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                  >
+                    <span
+                      className={
+                        dfpFileName ? "text-gray-900" : "text-gray-400"
+                      }
+                    >
+                      {dfpFileName || "Choose file or N/A"}
+                    </span>
+                    <Upload className="w-4 h-4 text-gray-400" />
+                  </label>
+                  {dfpFileName && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile("dfp")}
+                      className="text-xs text-red-600 hover:text-red-700 mt-1"
+                    >
+                      Remove file
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           {/* Footer Actions */}
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 bg-gray-50">
+          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors"
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Save Entry
+              {editEntry ? "Update Entry" : "Save Entry"}
             </button>
           </div>
         </form>

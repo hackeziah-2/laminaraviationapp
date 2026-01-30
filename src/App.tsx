@@ -5,6 +5,8 @@ import { Dashboard } from './components/Dashboard';
 import { AircraftFleetProfile } from './components/AircraftFleetProfile';
 import { AircraftFleetDailyUpdate } from './components/AircraftFleetDailyUpdate';
 import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook';
+import { DocumentOnBoard } from './components/DocumentOnBoard';
+import { AircraftDocumentOnBoard } from './components/AircraftDocumentOnBoard';
 import { AircraftDetail } from './components/AircraftDetail';
 import { MaintenanceLogbook } from './components/MaintenanceLogbook';
 import { Maintenance } from './components/Maintenance';
@@ -78,8 +80,10 @@ function AppContent() {
           <Route path="/profile/:id/maintenance/ad-work-orders/:msn" element={<ADWorkOrders adNumber='1' onBack={()=>console.log("baba")}/>} />
           <Route path="/profile/:id/operation" element={<Operation />} />
           <Route path="/profile/:id/operation/reliability/:recordId" element={<ReliabilityMonitoring />} />
+          <Route path="/profile/:id/document_on_board" element={<AircraftDocumentOnBoard />} />
           <Route path="/daily-update" element={<AircraftFleetDailyUpdate />} />
           <Route path="/technical-logbook" element={<AircraftTechnicalLogbook />} />
+          <Route path="/document-on-board" element={<DocumentOnBoard />} />
         </Routes>
       </div>
     </div>

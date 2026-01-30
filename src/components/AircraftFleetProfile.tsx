@@ -130,6 +130,9 @@ export function AircraftFleetProfile() {
       case "operation":
         navigate(`/profile/${aircraftId}/operation`);
         break;
+      case "document_on_board":
+        navigate(`/profile/${aircraftId}/document_on_board`);
+        break;
       default:
         navigate(`/profile/${aircraftId}`);
     }
@@ -277,9 +280,8 @@ export function AircraftFleetProfile() {
       setErrors({});
 
       setTimeout(() => {
-        setLoading(false);
         refresh();
-      }, 500);
+      }, 360);
     } catch (err: any) {
       // console.log();
       if (err.status == 400) {
@@ -513,12 +515,14 @@ export function AircraftFleetProfile() {
                               <option value="detail">
                                 General Information
                               </option>
+                              <option value="operation">Fleet Time Monitoring</option>
                               <option value="maintenance">Maintenance</option>
-                              <option value="operation">Realibily</option>
                               <option value="logbook">
                                 Maintenance Logbook
                               </option>
-                              <option value="">Documents On Board</option>
+                              <option value="document_on_board">
+                                Documents On Board
+                              </option>
                             </select>
                             {/* <button
                               className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"

@@ -1,5 +1,11 @@
 import { X, FileText } from "lucide-react";
-import { AircraftTechnicalLog } from "../api/aircraftTechnicalLogApi";
+import { useState, useEffect } from "react";
+import {
+  AircraftTechnicalLog,
+  getAircraftTechnicalLogById,
+} from "../api/aircraftTechnicalLogApi";
+import { Spinner } from "./ui/spinner";
+import { formatTimeZuluMilitary } from "../utility/utils";
 
 interface LogbookEntry {
   id: number;
@@ -26,6 +32,38 @@ export function ViewTechnicalLogbookEntryModal({
   entry,
   fullEntry,
 }: ViewTechnicalLogbookEntryModalProps) {
+  const [fetchedEntry, setFetchedEntry] = useState<AircraftTechnicalLog | null>(
+    null
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch entry details by ID when modal opens
+  useEffect(() => {
+    if (isOpen && entry?.id) {
+      const fetchEntryDetails = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const data = await getAircraftTechnicalLogById(entry.id);
+          setFetchedEntry(data);
+        } catch (err) {
+          console.error("Error fetching entry details:", err);
+          setError("Failed to load entry details");
+        } finally {
+          setTimeout(() => setLoading(false), 360);
+        }
+      };
+
+      fetchEntryDetails();
+    } else {
+      // Reset state when modal closes
+      setFetchedEntry(null);
+      setError(null);
+      setTimeout(() => setLoading(false), 360);
+    }
+  }, [isOpen, entry?.id]);
+
   if (!isOpen || !entry) return null;
 
   // Helper function to display N/A for empty values
@@ -57,6 +95,48 @@ export function ViewTechnicalLogbookEntryModal({
     }
   };
 
+  // Format date for Zulu display: DD MMM YYYY
+  const formatDateZulu = (dateStr: string | undefined) => {
+    if (!dateStr) return "N/A";
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return "N/A";
+      const months = [
+        "JAN",
+        "FEB",
+        "MAR",
+        "APR",
+        "MAY",
+        "JUN",
+        "JUL",
+        "AUG",
+        "SEP",
+        "OCT",
+        "NOV",
+        "DEC",
+      ];
+      return `${date.getDate().toString().padStart(2, "0")} ${
+        months[date.getMonth()]
+      } ${date.getFullYear()}`;
+    } catch {
+      return "N/A";
+    }
+  };
+
+  // Format time for view as military time (24-hour, HHMM, e.g. 1430, 2317)
+  const formatTimeZulu = (timeStr: string | undefined) => {
+    const result = formatTimeZuluMilitary(timeStr);
+    return result === "-" ? "N/A" : result;
+  };
+
+  // Format airframe/engine/propeller time (number or string) for display
+  const formatComponentTime = (value: number | string | undefined | null): string => {
+    if (value == null || value === "") return "-";
+    const num = typeof value === "string" ? parseFloat(value) : value;
+    if (Number.isNaN(num)) return "-";
+    return String(num);
+  };
+
   // Format nature of flight
   const formatNatureOfFlight = (nature: string | undefined) => {
     if (!nature) return "N/A";
@@ -75,64 +155,92 @@ export function ViewTechnicalLogbookEntryModal({
     return mapping[nature] || nature || "N/A";
   };
 
-  // Use fullEntry data if available, otherwise use entry data with defaults
-  const detailData = fullEntry
+  // Use fetchedEntry (from API) first, then fullEntry (from prop), otherwise use entry data with defaults
+  const entryData = fetchedEntry || fullEntry;
+  const detailData = entryData
     ? {
-        seqNo: displayValue(fullEntry.sequenceNo || entry.seqNo),
-        acReg: displayValue(fullEntry.aircraft?.registration || entry.acReg),
-        natureOfFlight: formatNatureOfFlight(fullEntry.natureOfFlight),
+        seqNo: displayValue(entryData.sequenceNo || entry.seqNo),
+        acReg: displayValue(entryData.aircraft?.registration || entry.acReg),
+        natureOfFlight: formatNatureOfFlight(entryData.natureOfFlight),
         // Off-blocks/Origin
-        offBlocksDate: formatDate(fullEntry.originDate),
-        offBlocksTime: displayValue(fullEntry.originTime),
-        offBlocksStation: displayValue(fullEntry.originStation),
+        offBlocksDate: formatDate(entryData.originDate),
+        offBlocksTime: entryData.originTime
+          ? formatTimeZulu(entryData.originTime)
+          : "N/A",
+        offBlocksStation: displayValue(entryData.originStation),
         // On-blocks/Destination
-        onBlocksDate: formatDate(fullEntry.destinationDate),
-        onBlocksTime: displayValue(fullEntry.destinationTime),
-        onBlocksStation: displayValue(fullEntry.destinationStation),
+        onBlocksDate: formatDate(entryData.destinationDate),
+        onBlocksTime: entryData.destinationTime
+          ? formatTimeZulu(entryData.destinationTime)
+          : "N/A",
+        onBlocksStation: displayValue(entryData.destinationStation),
         totalFlightTime:
-          fullEntry.hobbsMeterTotal || fullEntry.tachometerTotal
-            ? `${fullEntry.hobbsMeterTotal || fullEntry.tachometerTotal || 0}h`
+          entryData.hobbsMeterTotal || entryData.tachometerTotal
+            ? `${entryData.hobbsMeterTotal || entryData.tachometerTotal || 0}h`
             : "N/A",
-        numberOfLandings: displayValue(fullEntry.numberOfLandings),
+        numberOfLandings: displayValue(entryData.numberOfLandings),
         // Fuel
-        fuelQtyLeft: displayValue(fullEntry.fuelQtyLeftPriorDeparture),
-        fuelQtyRight: displayValue(fullEntry.fuelQtyRightPriorDeparture),
-        upliftQtyLeft: displayValue(fullEntry.fuelQtyLeftUpliftQty),
-        upliftQtyRight: displayValue(fullEntry.fuelQtyRightUpliftQty),
-        // Oil
-        oilQty: displayValue(fullEntry.oilQtyUpliftQty),
-        // Tachometer & Hobbs
-        tachometerStart: displayValue(fullEntry.tachometerStart),
-        tachometerEnd: displayValue(fullEntry.tachometerEnd),
-        tachometerTotal: displayValue(fullEntry.tachometerTotal),
-        hobbsMeterStart: displayValue(fullEntry.hobbsMeterStart),
-        hobbsMeterEnd: displayValue(fullEntry.hobbsMeterEnd),
-        hobbsMeterTotal: displayValue(fullEntry.hobbsMeterTotal),
-        // Inspection & Service
-        nextInspectionDue: displayValue(fullEntry.nextInspectionDue),
-        returnToServiceHrs: displayValue(fullEntry.tachTimeDue),
-        // Remarks
-        pilotReport: displayValue(fullEntry.remarks?.split("\n")[0]),
-        maintenanceEntry: displayValue(
-          fullEntry.remarks?.split("\n").slice(1).join("\n")
+        fuelQtyLeftUpliftQty: displayValue(entryData.fuelQtyLeftUpliftQty),
+        fuelQtyRightUpliftQty: displayValue(entryData.fuelQtyRightUpliftQty),
+        fuelQtyLeftPriorDeparture: displayValue(
+          entryData.fuelQtyLeftPriorDeparture
         ),
-        actionsTaken: displayValue(fullEntry.actionsTaken),
+        fuelQtyRightPriorDeparture: displayValue(
+          entryData.fuelQtyRightPriorDeparture
+        ),
+        fuelQtyLeftAfterOnBlks: displayValue(entryData.fuelQtyLeftAfterOnBlks),
+        fuelQtyRightAfterOnBlks: displayValue(
+          entryData.fuelQtyRightAfterOnBlks
+        ),
+        // Oil
+        oilQtyUpliftQty: displayValue(entryData.oilQtyUpliftQty),
+        oilQtyPriorDeparture: displayValue(entryData.oilQtyPriorDeparture),
+        oilQtyAfterOnBlks: displayValue(entryData.oilQtyAfterOnBlks),
+        // Tachometer & Hobbs
+        tachometerStart: displayValue(entryData.tachometerStart),
+        tachometerEnd: displayValue(entryData.tachometerEnd),
+        tachometerTotal: displayValue(entryData.tachometerTotal),
+        hobbsMeterStart: displayValue(entryData.hobbsMeterStart),
+        hobbsMeterEnd: displayValue(entryData.hobbsMeterEnd),
+        hobbsMeterTotal: displayValue(entryData.hobbsMeterTotal),
+        // Inspection & Service
+        nextInspectionDue: displayValue(entryData.nextInspectionDue),
+        returnToServiceHrs: displayValue(entryData.tachTimeDue),
+        // Remarks
+        pilotReport: displayValue(entryData.remarks?.split("\n")[0]),
+        maintenanceEntry: displayValue(
+          entryData.remarks?.split("\n").slice(1).join("\n")
+        ),
+        actionsTaken: displayValue(entryData.actionsTaken),
         // Signatures
         pilotName: displayValue(entry.pilot),
-        pilotLicense: "N/A",
-        mechanicName: "N/A",
-        mechanicLicense: "N/A",
+        pilotAcceptDate: entryData.pilotAcceptDate
+          ? formatDateZulu(entryData.pilotAcceptDate)
+          : "N/A",
+        pilotAcceptTime: entryData.pilotAcceptTime
+          ? formatTimeZulu(entryData.pilotAcceptTime)
+          : "N/A",
+        rtsName: "N/A", // Will need to fetch from account API using rtsSignedBy
+        rtsDate: entryData.rtsDate ? formatDateZulu(entryData.rtsDate) : "N/A",
+        rtsTime: entryData.rtsTime ? formatTimeZulu(entryData.rtsTime) : "N/A",
         dateTime:
-          fullEntry.destinationDate && fullEntry.destinationTime
-            ? `${formatDate(fullEntry.destinationDate)} ${
-                fullEntry.destinationTime
-              }`
+          entryData.destinationDate && entryData.destinationTime
+            ? `${formatDate(entryData.destinationDate)} ${formatTimeZulu(
+                entryData.destinationTime
+              )}`
             : displayValue(entry.date),
-        // Airframe & Component - These are not in the API response currently
-        airframeTime: "N/A",
-        engineTime: "N/A",
-        propellerTime: "N/A",
-        approvedOrg: "N/A",
+        // Airframe, Engine & Propeller times (PREV / FLIGHT / TOTAL)
+        airframePrevTime: formatComponentTime((entryData as any).airframePrevTime),
+        airframeFlightTime: formatComponentTime((entryData as any).airframeFlightTime),
+        airframeTotalTime: formatComponentTime(entryData.airframeTotalTime ?? (entryData as any).airframeTotalTime),
+        enginePrevTime: formatComponentTime((entryData as any).enginePrevTime),
+        engineFlightTime: formatComponentTime((entryData as any).engineFlightTime),
+        engineTotalTime: formatComponentTime(entryData.engineTotalTime ?? (entryData as any).engineTotalTime),
+        propellerPrevTime: formatComponentTime((entryData as any).propellerPrevTime),
+        propellerFlightTime: formatComponentTime((entryData as any).propellerFlightTime),
+        propellerTotalTime: formatComponentTime(entryData.propellerTotalTime ?? (entryData as any).propellerTotalTime),
+        whiteAtl: entryData.whiteAtl || "N/A",
+        dfp: entryData.dfp || "N/A",
       }
     : {
         // Fallback to mock data if fullEntry is not provided
@@ -147,11 +255,15 @@ export function ViewTechnicalLogbookEntryModal({
         onBlocksStation: "RP-CL",
         totalFlightTime: entry.fltTime,
         numberOfLandings: "1",
-        fuelQtyLeft: "28.5",
-        fuelQtyRight: "28.5",
-        upliftQtyLeft: "15.0",
-        upliftQtyRight: "15.0",
-        oilQty: "7.5",
+        fuelQtyLeftUpliftQty: "6",
+        fuelQtyRightUpliftQty: "7",
+        fuelQtyLeftPriorDeparture: "19",
+        fuelQtyRightPriorDeparture: "19",
+        fuelQtyLeftAfterOnBlks: "8",
+        fuelQtyRightAfterOnBlks: "7",
+        oilQtyUpliftQty: "-",
+        oilQtyPriorDeparture: "6.6",
+        oilQtyAfterOnBlks: "6.5",
         tachometerStart: "2163.0",
         tachometerEnd: "2164.2",
         tachometerTotal: "1.2",
@@ -167,14 +279,23 @@ export function ViewTechnicalLogbookEntryModal({
         actionsTaken:
           "Routine pre-flight inspection completed. Oil level checked and topped off.",
         pilotName: entry.pilot,
-        pilotLicense: "127409",
-        mechanicName: "Vandervorf, Kayla",
-        mechanicLicense: "160476-AMT",
+        pilotAcceptDate: "01 JAN 2024",
+        pilotAcceptTime: "08:30Z",
+        rtsName: "Vandervorf, Kayla",
+        rtsDate: "01 JAN 2024",
+        rtsTime: "10:45Z",
         dateTime: `${entry.date} 10:45`,
-        airframeTime: "1427.11",
-        engineTime: "373.1",
-        propellerTime: "760.9",
-        approvedOrg: "",
+        airframePrevTime: "-",
+        airframeFlightTime: "-",
+        airframeTotalTime: "1427.11",
+        enginePrevTime: "-",
+        engineFlightTime: "-",
+        engineTotalTime: "373.1",
+        propellerPrevTime: "-",
+        propellerFlightTime: "-",
+        propellerTotalTime: "760.9",
+        whiteAtl: "N/A",
+        dfp: "N/A",
       };
 
   return (
@@ -205,9 +326,50 @@ export function ViewTechnicalLogbookEntryModal({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-6">
-            {/* Status Badge */}
-            {/* <div className="flex items-center gap-3">
+          {loading ? (
+            <div className="flex items-center justify-center p-12">
+              <div className="flex flex-col items-center gap-4">
+                <Spinner />
+                <p className="text-sm text-gray-600">
+                  Loading entry details...
+                </p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center p-12">
+              <div className="flex flex-col items-center gap-4">
+                <p className="text-sm text-red-600">{error}</p>
+                <button
+                  onClick={() => {
+                    if (entry?.id) {
+                      const fetchEntryDetails = async () => {
+                        setLoading(true);
+                        setError(null);
+                        try {
+                          const data = await getAircraftTechnicalLogById(
+                            entry.id
+                          );
+                          setFetchedEntry(data);
+                        } catch (err) {
+                          console.error("Error fetching entry details:", err);
+                          setError("Failed to load entry details");
+                        } finally {
+                          setTimeout(() => setLoading(false), 360);
+                        }
+                      };
+                      fetchEntryDetails();
+                    }
+                  }}
+                  className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 space-y-6">
+              {/* Status Badge */}
+              {/* <div className="flex items-center gap-3">
               <span
                 className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
                   entry.status === "Serviceable"
@@ -219,438 +381,696 @@ export function ViewTechnicalLogbookEntryModal({
               </span>
             </div> */}
 
-            {/* Sequence Number & Aircraft Registration */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Sequence No.
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.seqNo)}
-                </p>
-              </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  A/C Registration
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.acReg)}
-                </p>
-              </div>
-            </div>
-
-            {/* Nature of Flight */}
-            <div>
-              <label className="block text-gray-600 text-sm mb-1">
-                Nature of Flight
-              </label>
-              <p className="text-gray-900">
-                {displayValue(detailData.natureOfFlight)}
-              </p>
-            </div>
-
-            {/* Off-Blocks/Origin & On-Blocks/Destination */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Off-Blocks/Origin */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Off-Blocks / Origin</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-1">
-                      Station (STN)
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.offBlocksStation)}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-gray-600 text-sm mb-1">
-                        Date (UTC)
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.offBlocksDate)}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-sm mb-1">
-                        Time (UTC)
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.offBlocksTime)}
-                      </p>
-                    </div>
-                  </div>
+              {/* Sequence Number & Aircraft Registration */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Sequence No.
+                  </label>
+                  <p className="text-gray-900">
+                    {displayValue(detailData.seqNo)}
+                  </p>
                 </div>
-              </div>
-
-              {/* On-Blocks/Destination */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">On-Blocks / Destination</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-600 text-sm mb-1">
-                      Station (STN)
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.onBlocksStation)}
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-gray-600 text-sm mb-1">
-                        Date (UTC)
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.onBlocksDate)}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-sm mb-1">
-                        Time (UTC)
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.onBlocksTime)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Route & Total Flight Time & Landings */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Route
-                </label>
-                <p className="text-gray-900">{displayValue(entry.route)}</p>
-              </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Total Flight Time
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.totalFlightTime)}
-                </p>
-              </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Number of Landings
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.numberOfLandings)}
-                </p>
-              </div>
-            </div>
-
-            {/* Fuel & Oil Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Fuel Quantity */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3 text-sm">Fuel Qty. (Gals)</h3>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1">
-                      Left
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.fuelQtyLeft)}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1">
-                      Right
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.fuelQtyRight)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Uplift Quantity */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3 text-sm">Uplift Qty.</h3>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1">
-                      Left
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.upliftQtyLeft)}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1">
-                      Right
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.upliftQtyRight)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Oil Quantity */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3 text-sm">Oil Qty. (QTS)</h3>
-                <p className="text-gray-900">
-                  {displayValue(detailData.oilQty)}
-                </p>
-              </div>
-            </div>
-
-            {/* Tachometer & Hobbs Meter */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Tachometer */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Tachometer</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1">
-                        Start
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.tachometerStart)}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1">
-                        End
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.tachometerEnd)}
-                      </p>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1">
-                      Total
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.tachometerTotal)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Hobbs Meter */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1">
-                        Start
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.hobbsMeterStart)}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1">
-                        End
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.hobbsMeterEnd)}
-                      </p>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1">
-                      Total
-                    </label>
-                    <p className="text-gray-900">
-                      {displayValue(detailData.hobbsMeterTotal)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Inspection & Service */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Next Inspection Due
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.nextInspectionDue)}
-                </p>
-              </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Return to Service (HRS)
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.returnToServiceHrs)}
-                </p>
-              </div>
-            </div>
-
-            {/* Remarks Section */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-gray-600 text-sm mb-2">
-                  Pilot Report
-                </label>
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <p className="text-gray-900 text-sm leading-relaxed">
-                    {displayValue(detailData.pilotReport)}
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    A/C Registration
+                  </label>
+                  <p className="text-gray-900">
+                    {displayValue(detailData.acReg)}
                   </p>
                 </div>
               </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-2">
-                  Maintenance Entry
-                </label>
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <p className="text-gray-900 text-sm leading-relaxed">
-                    {displayValue(detailData.maintenanceEntry)}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-2">
-                  Actions Taken
-                </label>
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <p className="text-gray-900 text-sm leading-relaxed">
-                    {displayValue(detailData.actionsTaken)}
-                  </p>
-                </div>
-              </div>
-            </div>
 
-            {/* Component Record */}
-            {(detailData.airframeTime ||
-              detailData.engineTime ||
-              detailData.propellerTime) && (
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Component Record</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {detailData.airframeTime &&
-                    detailData.airframeTime !== "N/A" && (
-                      <div>
-                        <label className="block text-gray-600 text-sm mb-1">
-                          Airframe Time
-                        </label>
-                        <p className="text-gray-900">
-                          {displayValue(detailData.airframeTime)}
-                        </p>
-                      </div>
-                    )}
-                  {detailData.engineTime && detailData.engineTime !== "N/A" && (
-                    <div>
-                      <label className="block text-gray-600 text-sm mb-1">
-                        Engine Time
-                      </label>
-                      <p className="text-gray-900">
-                        {displayValue(detailData.engineTime)}
-                      </p>
-                    </div>
-                  )}
-                  {detailData.propellerTime &&
-                    detailData.propellerTime !== "N/A" && (
-                      <div>
-                        <label className="block text-gray-600 text-sm mb-1">
-                          Propeller Time
-                        </label>
-                        <p className="text-gray-900">
-                          {displayValue(detailData.propellerTime)}
-                        </p>
-                      </div>
-                    )}
-                </div>
+              {/* Nature of Flight */}
+              <div>
+                <label className="block text-gray-600 text-sm mb-1">
+                  Nature of Flight
+                </label>
+                <p className="text-gray-900">
+                  {displayValue(detailData.natureOfFlight)}
+                </p>
               </div>
-            )}
 
-            {/* Signatures Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Pilot Signature */}
-              {(detailData.pilotName || detailData.pilotLicense) && (
+              {/* Off-Blocks/Origin & On-Blocks/Destination */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Off-Blocks/Origin */}
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
+                  <h3 className="text-gray-900 mb-3">Off-Blocks / Origin</h3>
                   <div className="space-y-3">
-                    {detailData.pilotName && detailData.pilotName !== "N/A" && (
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-1">
+                        Station (STN)
+                      </label>
+                      <p className="text-gray-900">
+                        {displayValue(detailData.offBlocksStation)}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-gray-600 text-sm mb-1">
-                          Name
+                          Date (UTC)
                         </label>
                         <p className="text-gray-900">
-                          {displayValue(detailData.pilotName)}
+                          {displayValue(detailData.offBlocksDate)}
                         </p>
                       </div>
-                    )}
-                    {detailData.pilotLicense &&
-                      detailData.pilotLicense !== "N/A" && (
-                        <div>
-                          <label className="block text-gray-600 text-sm mb-1">
-                            License No.
-                          </label>
-                          <p className="text-gray-900">
-                            {displayValue(detailData.pilotLicense)}
-                          </p>
-                        </div>
-                      )}
+                      <div>
+                        <label className="block text-gray-600 text-sm mb-1">
+                          Time (UTC)
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.offBlocksTime)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
 
-              {/* Mechanic Signature */}
-              {(detailData.mechanicName || detailData.mechanicLicense) && (
+                {/* On-Blocks/Destination */}
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">PIC Name & Signature</h3>
+                  <h3 className="text-gray-900 mb-3">
+                    On-Blocks / Destination
+                  </h3>
                   <div className="space-y-3">
-                    {detailData.mechanicName &&
-                      detailData.mechanicName !== "N/A" && (
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-1">
+                        Station (STN)
+                      </label>
+                      <p className="text-gray-900">
+                        {displayValue(detailData.onBlocksStation)}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-gray-600 text-sm mb-1">
+                          Date (UTC)
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.onBlocksDate)}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-gray-600 text-sm mb-1">
+                          Time (UTC)
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.onBlocksTime)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Route & Total Flight Time & Landings */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Route
+                  </label>
+                  <p className="text-gray-900">{displayValue(entry.route)}</p>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Total Flight Time
+                  </label>
+                  <p className="text-gray-900">
+                    {displayValue(detailData.totalFlightTime)}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Number of Landings
+                  </label>
+                  <p className="text-gray-900">
+                    {displayValue(detailData.numberOfLandings)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Fuel & Oil Section - Table Format */}
+              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 border-b border-gray-300">
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
+                      <th
+                        colSpan={3}
+                        className="px-4 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"
+                      >
+                        FUEL QTY. (GALS)
+                      </th>
+                      <th
+                        colSpan={3}
+                        className="px-4 py-2 text-center text-xs font-semibold text-gray-900"
+                      >
+                        OIL QTY. (QTS)
+                      </th>
+                    </tr>
+                    <tr className="bg-gray-100 border-b border-gray-300">
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        UPLIFT QTY.
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        PRIOR DEPARTURE
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        AFTER ON-BLKS
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        UPLIFT QTY.
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        PRIOR DEPARTURE
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900">
+                        AFTER ON-BLKS
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {/* Row label */}
+                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                        RIGHT
+                      </td>
+                      {/* FUEL - UPLIFT QTY RIGHT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyRightUpliftQty)}
+                      </td>
+                      {/* FUEL - PRIOR DEPARTURE RIGHT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyRightPriorDeparture)}
+                      </td>
+                      {/* FUEL - AFTER ON-BLKS RIGHT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyRightAfterOnBlks)}
+                      </td>
+                      {/* OIL - UPLIFT QTY */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.oilQtyUpliftQty)}
+                      </td>
+                      {/* OIL - PRIOR DEPARTURE */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.oilQtyPriorDeparture)}
+                      </td>
+                      {/* OIL - AFTER ON-BLKS */}
+                      <td className="px-3 py-2 text-center text-gray-900">
+                        {displayValue(detailData.oilQtyAfterOnBlks)}
+                      </td>
+                    </tr>
+                    <tr>
+                      {/* Row label */}
+                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                        LEFT
+                      </td>
+                      {/* FUEL - UPLIFT QTY LEFT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyLeftUpliftQty)}
+                      </td>
+                      {/* FUEL - PRIOR DEPARTURE LEFT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyLeftPriorDeparture)}
+                      </td>
+                      {/* FUEL - AFTER ON-BLKS LEFT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyLeftAfterOnBlks)}
+                      </td>
+                      {/* OIL - Empty cells for alignment */}
+                      <td className="px-3 py-2 border-r border-gray-300"></td>
+                      <td className="px-3 py-2 border-r border-gray-300"></td>
+                      <td className="px-3 py-2"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Tachometer & Hobbs Meter */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Tachometer */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Tachometer</h3>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-gray-600 text-xs mb-1">
+                          Start
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.tachometerStart)}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-gray-600 text-xs mb-1">
+                          End
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.tachometerEnd)}
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-xs mb-1">
+                        Total
+                      </label>
+                      <p className="text-gray-900">
+                        {displayValue(detailData.tachometerTotal)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hobbs Meter */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-gray-600 text-xs mb-1">
+                          Start
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.hobbsMeterStart)}
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-gray-600 text-xs mb-1">
+                          End
+                        </label>
+                        <p className="text-gray-900">
+                          {displayValue(detailData.hobbsMeterEnd)}
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-xs mb-1">
+                        Total
+                      </label>
+                      <p className="text-gray-900">
+                        {displayValue(detailData.hobbsMeterTotal)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Inspection & Service */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Next Inspection Due
+                  </label>
+                  <p className="text-gray-900">
+                    {displayValue(detailData.nextInspectionDue)}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Return to Service (HRS)
+                  </label>
+                  <p className="text-gray-900">
+                    {displayValue(detailData.returnToServiceHrs)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Remarks Section */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-gray-600 text-sm mb-2">
+                    Pilot Report
+                  </label>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p className="text-gray-900 text-sm leading-relaxed">
+                      {displayValue(detailData.pilotReport)}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-2">
+                    Maintenance Entry
+                  </label>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p className="text-gray-900 text-sm leading-relaxed">
+                      {displayValue(detailData.maintenanceEntry)}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-2">
+                    Actions Taken
+                  </label>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p className="text-gray-900 text-sm leading-relaxed">
+                      {displayValue(detailData.actionsTaken)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* AIRFRAME, ENGINE & PROPELLER TIMES - 3×3 grid (PREV / FLIGHT / TOTAL) */}
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h3 className="text-gray-900 font-medium mb-3">
+                  AIRFRAME, ENGINE & PROPELLER TIMES
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300 rounded-lg overflow-hidden">
+                    <thead>
+                      <tr className="bg-gray-200">
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-700 border-b border-r border-gray-300 w-28">
+                          {" "}
+                        </th>
+                        <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-700 border-b border-r border-gray-300">
+                          AIRFRAME
+                        </th>
+                        <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-700 border-b border-r border-gray-300">
+                          ENGINE
+                        </th>
+                        <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-700 border-b border-gray-300">
+                          PROPELLER
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      <tr className="border-b border-gray-200">
+                        <td className="px-4 py-2.5 text-xs font-semibold text-gray-700 border-r border-gray-200 bg-gray-50">
+                          PREV. TIME
+                        </td>
+                        <td className="px-4 py-2 border-r border-gray-200">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.airframePrevTime ?? "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 border-r border-gray-200">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.enginePrevTime ?? "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.propellerPrevTime ?? "-"}
+                          </div>
+                        </td>
+                      </tr>
+                      <tr className="border-b border-gray-200">
+                        <td className="px-4 py-2.5 text-xs font-semibold text-gray-700 border-r border-gray-200 bg-gray-50">
+                          FLIGHT TIME
+                        </td>
+                        <td className="px-4 py-2 border-r border-gray-200">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.airframeFlightTime ?? "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 border-r border-gray-200">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.engineFlightTime ?? "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.propellerFlightTime ?? "-"}
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2.5 text-xs font-semibold text-gray-700 border-r border-gray-200 bg-gray-50">
+                          TOTAL TIME
+                        </td>
+                        <td className="px-4 py-2 border-r border-gray-200">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.airframeTotalTime ?? "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 border-r border-gray-200">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.engineTotalTime ?? "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 min-h-[2.25rem] flex items-center">
+                            {detailData.propellerTotalTime ?? "-"}
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Component Parts Section */}
+              {entryData?.componentParts &&
+                Array.isArray(entryData.componentParts) &&
+                entryData.componentParts.length > 0 && (
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h3 className="text-gray-900 mb-3">Component Parts</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300">
+                        <thead>
+                          <tr className="bg-gray-200">
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border border-gray-300"
+                            >
+                              QTY
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border border-gray-300"
+                            >
+                              UNIT
+                            </th>
+                            <th
+                              colSpan={2}
+                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border border-gray-300"
+                            >
+                              PARTS REMOVED
+                            </th>
+                            <th
+                              colSpan={2}
+                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border border-gray-300"
+                            >
+                              PARTS INSTALLED
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-2 text-left text-xs font-medium text-gray-900 border border-gray-300"
+                            >
+                              NOMENCLATURE
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-2 text-left text-xs font-medium text-gray-900 border border-gray-300"
+                            >
+                              ATA CHAPTER
+                            </th>
+                          </tr>
+                          <tr className="bg-gray-200">
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border border-gray-300">
+                              P/N
+                            </th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border border-gray-300">
+                              S/N
+                            </th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border border-gray-300">
+                              P/N
+                            </th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border border-gray-300">
+                              S/N
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entryData.componentParts.map((part: any, index) => (
+                            <tr
+                              key={part.id || index}
+                              className="bg-white hover:bg-gray-50"
+                            >
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300 text-center">
+                                {displayValue(part.qty)}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300 text-center">
+                                {part.unit || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300">
+                                {part.removedPartNo || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300">
+                                {part.removedSerialNo || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300">
+                                {part.installedPartNo || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300">
+                                {part.installedSerialNo || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300">
+                                {part.nomenclature || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900 border border-gray-300">
+                                {part.ataChapter || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+              {/* Signatures Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Pilot Signature */}
+                {(detailData.pilotName ||
+                  detailData.pilotAcceptDate ||
+                  detailData.pilotAcceptTime) && (
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
+                    <div className="space-y-3">
+                      {detailData.pilotName &&
+                        detailData.pilotName !== "N/A" && (
+                          <div>
+                            <label className="block text-gray-600 text-sm mb-1">
+                              Name
+                            </label>
+                            <p className="text-gray-900">
+                              {displayValue(detailData.pilotName)}
+                            </p>
+                          </div>
+                        )}
+                      {detailData.pilotAcceptDate &&
+                        detailData.pilotAcceptDate !== "N/A" && (
+                          <div>
+                            <label className="block text-gray-600 text-sm mb-1">
+                              Date
+                            </label>
+                            <p className="text-gray-900">
+                              {displayValue(detailData.pilotAcceptDate)}
+                            </p>
+                          </div>
+                        )}
+                      {detailData.pilotAcceptTime &&
+                        detailData.pilotAcceptTime !== "N/A" && (
+                          <div>
+                            <label className="block text-gray-600 text-sm mb-1">
+                              Time (Zulu)
+                            </label>
+                            <p className="text-gray-900 font-mono">
+                              {displayValue(detailData.pilotAcceptTime)}
+                            </p>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Return to Service */}
+                {(detailData.rtsName ||
+                  detailData.rtsDate ||
+                  detailData.rtsTime) && (
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h3 className="text-gray-900 mb-3">Return to Service</h3>
+                    <div className="space-y-3">
+                      {detailData.rtsName && detailData.rtsName !== "N/A" && (
                         <div>
                           <label className="block text-gray-600 text-sm mb-1">
                             Name
                           </label>
                           <p className="text-gray-900">
-                            {displayValue(detailData.mechanicName)}
+                            {displayValue(detailData.rtsName)}
                           </p>
                         </div>
                       )}
-                    {detailData.mechanicLicense &&
-                      detailData.mechanicLicense !== "N/A" && (
+                      {detailData.rtsDate && detailData.rtsDate !== "N/A" && (
                         <div>
                           <label className="block text-gray-600 text-sm mb-1">
-                            License No.
+                            Date
                           </label>
                           <p className="text-gray-900">
-                            {displayValue(detailData.mechanicLicense)}
+                            {displayValue(detailData.rtsDate)}
                           </p>
                         </div>
                       )}
+                      {detailData.rtsTime && detailData.rtsTime !== "N/A" && (
+                        <div>
+                          <label className="block text-gray-600 text-sm mb-1">
+                            Time (Zulu)
+                          </label>
+                          <p className="text-gray-900 font-mono">
+                            {displayValue(detailData.rtsTime)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            {/* Date & Time / Approved Organization */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Date & Time (UTC)
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.dateTime)}
-                </p>
-              </div>
-              <div>
-                <label className="block text-gray-600 text-sm mb-1">
-                  Approved Maintenance Organization
-                </label>
-                <p className="text-gray-900">
-                  {displayValue(detailData.approvedOrg)}
-                </p>
+              {/* White ATL / DFP */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    White ATL
+                  </label>
+                  {detailData.whiteAtl && detailData.whiteAtl !== "N/A" ? (
+                    <div>
+                      <p className="text-gray-900 mb-1">
+                        {detailData.whiteAtl.includes("http") ||
+                        detailData.whiteAtl.includes("/") ? (
+                          <a
+                            href={
+                              detailData.whiteAtl.startsWith("http")
+                                ? detailData.whiteAtl
+                                : `/uploads/${detailData.whiteAtl}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 underline"
+                          >
+                            {detailData.whiteAtl.replace("uploads/", "")}
+                          </a>
+                        ) : (
+                          detailData.whiteAtl
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400">N/A</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    DFP
+                  </label>
+                  {detailData.dfp && detailData.dfp !== "N/A" ? (
+                    <div>
+                      <p className="text-gray-900 mb-1">
+                        {detailData.dfp.includes("http") ||
+                        detailData.dfp.includes("/") ? (
+                          <a
+                            href={
+                              detailData.dfp.startsWith("http")
+                                ? detailData.dfp
+                                : `/uploads/${detailData.dfp}`
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 underline"
+                          >
+                            {detailData.dfp.replace("uploads/", "")}
+                          </a>
+                        ) : (
+                          detailData.dfp
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-gray-400">N/A</p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}

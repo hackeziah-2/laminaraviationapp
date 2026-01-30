@@ -1,6 +1,15 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Printer, Download, Plus, X, Filter, ChevronDown } from 'lucide-react';
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  ArrowLeft,
+  Printer,
+  Download,
+  Plus,
+  X,
+  Filter,
+  ChevronDown,
+} from "lucide-react";
+import { formatTimeZulu } from "../utility/utils";
 
 interface ReliabilityRecord {
   atlSeqNo: string;
@@ -19,39 +28,37 @@ interface ReliabilityRecord {
     pn1: string;
     sn2: string;
   };
-  partDescription: string;
   remarks: string;
 }
 
 export function ReliabilityMonitoring() {
   const { id, recordId } = useParams<{ id: string; recordId: string }>();
   const navigate = useNavigate();
-  const aircraftId = parseInt(id || '1');
-  const recordIdNum = parseInt(recordId || '1');
+  const aircraftId = parseInt(id || "1");
+  const recordIdNum = parseInt(recordId || "1");
 
   const handleBack = () => {
     navigate(`/profile/${id}/operation`);
   };
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [filterMonth, setFilterMonth] = useState('April');
-  const [filterYear, setFilterYear] = useState('2023');
+  const [filterMonth, setFilterMonth] = useState("April");
+  const [filterYear, setFilterYear] = useState("2023");
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [formData, setFormData] = useState({
-    atlSeqNo: '',
-    workStartedDate: '',
-    workStartedTime: '',
-    workReleasedDate: '',
-    workReleasedTime: '',
-    actionTaken: '',
-    part1PN: '',
-    part1SN: '',
-    part2PN: '',
-    part2SN: '',
-    installedPN: '',
-    installedSN: '',
-    partDescription: '',
-    remarks: ''
+    atlSeqNo: "",
+    workStartedDate: "",
+    workStartedTime: "",
+    workReleasedDate: "",
+    workReleasedTime: "",
+    actionTaken: "",
+    part1PN: "",
+    part1SN: "",
+    part2PN: "",
+    part2SN: "",
+    installedPN: "",
+    installedSN: "",
+    remarks: "",
   });
 
   // Mock data - would come from API based on aircraftId and recordId
@@ -61,29 +68,28 @@ export function ReliabilityMonitoring() {
   const lastUpdate = "20-Sep-25";
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = () => {
-    console.log('Submitting form data:', formData);
+    console.log("Submitting form data:", formData);
     // Here you would send data to backend
     setShowAddModal(false);
     // Reset form
     setFormData({
-      atlSeqNo: '',
-      workStartedDate: '',
-      workStartedTime: '',
-      workReleasedDate: '',
-      workReleasedTime: '',
-      actionTaken: '',
-      part1PN: '',
-      part1SN: '',
-      part2PN: '',
-      part2SN: '',
-      installedPN: '',
-      installedSN: '',
-      partDescription: '',
-      remarks: ''
+      atlSeqNo: "",
+      workStartedDate: "",
+      workStartedTime: "",
+      workReleasedDate: "",
+      workReleasedTime: "",
+      actionTaken: "",
+      part1PN: "",
+      part1SN: "",
+      part2PN: "",
+      part2SN: "",
+      installedPN: "",
+      installedSN: "",
+      remarks: "",
     });
   };
 
@@ -98,15 +104,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "66-10",
         sn1: "NON",
-        pn2: "66-10"
+        pn2: "66-10",
       },
       partsInstalled: {
         sn: "51116-3B",
         pn1: "NON",
-        sn2: "CESSNA STUD"
+        sn2: "CESSNA STUD",
       },
-      partDescription: "CESSNA STUD",
-      remarks: "BRAKE LINING (LH)"
+      remarks: "BRAKE LINING (LH)",
     },
     {
       atlSeqNo: "24828",
@@ -118,15 +123,15 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "51116-3B",
         pn1: "NON",
-        sn2: "CESSNA STUD"
+        sn2: "CESSNA STUD",
       },
-      partDescription: "CESSNA STUD",
-      remarks: "PERFORMED INSTALLATION OF UPPER COWL STUD DUE TO WEARING, OTHER STUD"
+      remarks:
+        "PERFORMED INSTALLATION OF UPPER COWL STUD DUE TO WEARING, OTHER STUD",
     },
     {
       atlSeqNo: "24769",
@@ -138,15 +143,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+      remarks: "",
     },
     {
       atlSeqNo: "24760",
@@ -158,15 +162,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+      remarks: "",
     },
     {
       atlSeqNo: "24761",
@@ -178,15 +181,15 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+
+      remarks: "",
     },
     {
       atlSeqNo: "24762",
@@ -198,15 +201,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+      remarks: "",
     },
     {
       atlSeqNo: "24763",
@@ -218,15 +220,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+      remarks: "",
     },
     {
       atlSeqNo: "24764",
@@ -238,15 +239,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+      remarks: "",
     },
     {
       atlSeqNo: "24765",
@@ -258,15 +258,14 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
+      remarks: "",
     },
     {
       atlSeqNo: "24766",
@@ -278,16 +277,15 @@ export function ReliabilityMonitoring() {
       partsRemoved: {
         pn1: "",
         sn1: "",
-        pn2: ""
+        pn2: "",
       },
       partsInstalled: {
         sn: "",
         pn1: "",
-        sn2: ""
+        sn2: "",
       },
-      partDescription: "",
-      remarks: ""
-    }
+      remarks: "",
+    },
   ];
 
   return (
@@ -311,7 +309,7 @@ export function ReliabilityMonitoring() {
               <Download className="w-4 h-4" />
               Export
             </button>
-            <button 
+            <button
               onClick={() => setShowAddModal(true)}
               className="flex items-center gap-2 px-4 py-2 text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors text-sm"
             >
@@ -320,10 +318,12 @@ export function ReliabilityMonitoring() {
             </button>
           </div>
         </div>
-        
+
         <div className="space-y-1">
           <h1 className="text-gray-900">Reliability Monitoring</h1>
-          <p className="text-gray-500 text-sm">{aircraftReg} | S/N: {serialNumber}</p>
+          <p className="text-gray-500 text-sm">
+            {aircraftReg} | S/N: {serialNumber}
+          </p>
         </div>
       </div>
 
@@ -361,12 +361,15 @@ export function ReliabilityMonitoring() {
                   <Filter className="w-4 h-4" />
                   <span className="text-sm">Filter:</span>
                 </div>
-                
-                <select 
+
+                <select
                   value={filterMonth}
                   onChange={(e) => setFilterMonth(e.target.value)}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center' }}
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                    backgroundPosition: "right 8px center",
+                  }}
                 >
                   <option>January</option>
                   <option>February</option>
@@ -382,11 +385,14 @@ export function ReliabilityMonitoring() {
                   <option>December</option>
                 </select>
 
-                <select 
+                <select
                   value={filterYear}
                   onChange={(e) => setFilterYear(e.target.value)}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center' }}
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                    backgroundPosition: "right 8px center",
+                  }}
                 >
                   <option>2025</option>
                   <option>2024</option>
@@ -399,11 +405,14 @@ export function ReliabilityMonitoring() {
               {/* Right: Items per page */}
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <span>Items per page:</span>
-                <select 
+                <select
                   value={itemsPerPage}
                   onChange={(e) => setItemsPerPage(Number(e.target.value))}
                   className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
-                  style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center' }}
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                    backgroundPosition: "right 8px center",
+                  }}
                 >
                   <option>10</option>
                   <option>25</option>
@@ -435,7 +444,10 @@ export function ReliabilityMonitoring() {
                   <th className="px-4 py-3.5 text-left text-gray-900 text-xs whitespace-nowrap border-r border-gray-200">
                     ACTION TAKEN
                   </th>
-                  <th className="px-4 py-3.5 text-center text-gray-900 text-xs border-r border-gray-300 bg-blue-50/50" colSpan={3}>
+                  <th
+                    className="px-4 py-3.5 text-center text-gray-900 text-xs border-r border-gray-300 bg-blue-50/50"
+                    colSpan={3}
+                  >
                     <div className="mb-1.5">PARTS REMOVED</div>
                     <div className="grid grid-cols-3 gap-px">
                       <div className="border-r border-gray-200 pr-2">P/N</div>
@@ -443,16 +455,16 @@ export function ReliabilityMonitoring() {
                       <div>P/N</div>
                     </div>
                   </th>
-                  <th className="px-4 py-3.5 text-center text-gray-900 text-xs border-r border-gray-300 bg-orange-50/50" colSpan={3}>
+                  <th
+                    className="px-4 py-3.5 text-center text-gray-900 text-xs border-r border-gray-300 bg-orange-50/50"
+                    colSpan={3}
+                  >
                     <div className="mb-1.5">PARTS INSTALLED</div>
                     <div className="grid grid-cols-3 gap-px">
                       <div className="border-r border-gray-200 pr-2">S/N</div>
                       <div className="border-r border-gray-200 pr-2">P/N</div>
                       <div>S/N</div>
                     </div>
-                  </th>
-                  <th className="px-4 py-3.5 text-left text-gray-900 text-xs whitespace-nowrap border-r border-gray-200">
-                    PART DESCRIPTION
                   </th>
                   <th className="px-4 py-3.5 text-left text-gray-900 text-xs whitespace-nowrap">
                     REMARKS
@@ -461,10 +473,10 @@ export function ReliabilityMonitoring() {
               </thead>
               <tbody className="bg-white">
                 {reliabilityRecords.map((record, index) => (
-                  <tr 
+                  <tr
                     key={record.atlSeqNo}
                     className={`border-b border-gray-200 hover:bg-gray-50 transition-colors ${
-                      index < 2 ? 'bg-green-50/30' : ''
+                      index < 2 ? "bg-green-50/30" : ""
                     }`}
                   >
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
@@ -474,13 +486,13 @@ export function ReliabilityMonitoring() {
                       {record.dateStarted}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
-                      {record.timeStarted}
+                      {formatTimeZulu(record.timeStarted)}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
                       {record.dateReleased}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
-                      {record.timeReleased}
+                      {formatTimeZulu(record.timeReleased)}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
                       {record.actionTaken}
@@ -543,32 +555,44 @@ export function ReliabilityMonitoring() {
                   type="text"
                   placeholder="e.g., 24780"
                   value={formData.atlSeqNo}
-                  onChange={(e) => handleInputChange('atlSeqNo', e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("atlSeqNo", e.target.value)
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
 
               {/* Work Started */}
               <div>
-                <label className="block text-gray-700 text-sm mb-1.5">Work Started</label>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Work Started
+                </label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-gray-500 text-xs mb-1">Date</label>
+                    <label className="block text-gray-500 text-xs mb-1">
+                      Date
+                    </label>
                     <input
                       type="text"
                       placeholder="e.g., 20-Sep"
                       value={formData.workStartedDate}
-                      onChange={(e) => handleInputChange('workStartedDate', e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("workStartedDate", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label className="block text-gray-500 text-xs mb-1">Time</label>
+                    <label className="block text-gray-500 text-xs mb-1">
+                      Time
+                    </label>
                     <input
                       type="text"
                       placeholder="e.g., 810"
                       value={formData.workStartedTime}
-                      onChange={(e) => handleInputChange('workStartedTime', e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("workStartedTime", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -577,25 +601,35 @@ export function ReliabilityMonitoring() {
 
               {/* Work Released */}
               <div>
-                <label className="block text-gray-700 text-sm mb-1.5">Work Released</label>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Work Released
+                </label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-gray-500 text-xs mb-1">Date</label>
+                    <label className="block text-gray-500 text-xs mb-1">
+                      Date
+                    </label>
                     <input
                       type="text"
                       placeholder="e.g., 20-Sep"
                       value={formData.workReleasedDate}
-                      onChange={(e) => handleInputChange('workReleasedDate', e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("workReleasedDate", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label className="block text-gray-500 text-xs mb-1">Time</label>
+                    <label className="block text-gray-500 text-xs mb-1">
+                      Time
+                    </label>
                     <input
                       type="text"
                       placeholder="e.g., 840"
                       value={formData.workReleasedTime}
-                      onChange={(e) => handleInputChange('workReleasedTime', e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("workReleasedTime", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -604,11 +638,15 @@ export function ReliabilityMonitoring() {
 
               {/* Action Taken */}
               <div>
-                <label className="block text-gray-700 text-sm mb-1.5">Action Taken</label>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Action Taken
+                </label>
                 <textarea
                   placeholder="e.g., BRAKE LINING BACK PLATE STUD WORN OUT"
                   value={formData.actionTaken}
-                  onChange={(e) => handleInputChange('actionTaken', e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("actionTaken", e.target.value)
+                  }
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                 />
@@ -616,53 +654,75 @@ export function ReliabilityMonitoring() {
 
               {/* Parts Removed */}
               <div>
-                <label className="block text-blue-600 text-sm mb-1.5">Parts Removed</label>
+                <label className="block text-blue-600 text-sm mb-1.5">
+                  Parts Removed
+                </label>
                 <div className="space-y-2.5">
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">Part 1</label>
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      Part 1
+                    </label>
                     <div className="grid grid-cols-2 gap-2.5">
                       <div>
-                        <label className="block text-gray-500 text-xs mb-1">P/N</label>
+                        <label className="block text-gray-500 text-xs mb-1">
+                          P/N
+                        </label>
                         <input
                           type="text"
                           placeholder="e.g., 66-10"
                           value={formData.part1PN}
-                          onChange={(e) => handleInputChange('part1PN', e.target.value)}
+                          onChange={(e) =>
+                            handleInputChange("part1PN", e.target.value)
+                          }
                           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
                       <div>
-                        <label className="block text-gray-500 text-xs mb-1">S/N</label>
+                        <label className="block text-gray-500 text-xs mb-1">
+                          S/N
+                        </label>
                         <input
                           type="text"
                           placeholder="e.g., NSN"
                           value={formData.part1SN}
-                          onChange={(e) => handleInputChange('part1SN', e.target.value)}
+                          onChange={(e) =>
+                            handleInputChange("part1SN", e.target.value)
+                          }
                           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">Part 2</label>
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      Part 2
+                    </label>
                     <div className="grid grid-cols-2 gap-2.5">
                       <div>
-                        <label className="block text-gray-500 text-xs mb-1">P/N</label>
+                        <label className="block text-gray-500 text-xs mb-1">
+                          P/N
+                        </label>
                         <input
                           type="text"
                           placeholder="e.g., 66-10"
                           value={formData.part2PN}
-                          onChange={(e) => handleInputChange('part2PN', e.target.value)}
+                          onChange={(e) =>
+                            handleInputChange("part2PN", e.target.value)
+                          }
                           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
                       <div>
-                        <label className="block text-gray-500 text-xs mb-1">S/N</label>
+                        <label className="block text-gray-500 text-xs mb-1">
+                          S/N
+                        </label>
                         <input
                           type="text"
                           placeholder="e.g., NSN"
                           value={formData.part2SN}
-                          onChange={(e) => handleInputChange('part2SN', e.target.value)}
+                          onChange={(e) =>
+                            handleInputChange("part2SN", e.target.value)
+                          }
                           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
@@ -673,51 +733,51 @@ export function ReliabilityMonitoring() {
 
               {/* Parts Installed */}
               <div>
-                <label className="block text-orange-600 text-sm mb-1.5">Parts Installed</label>
+                <label className="block text-orange-600 text-sm mb-1.5">
+                  Parts Installed
+                </label>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-gray-500 text-xs mb-1">P/N</label>
+                    <label className="block text-gray-500 text-xs mb-1">
+                      P/N
+                    </label>
                     <input
                       type="text"
                       placeholder="e.g., 51116-3B"
                       value={formData.installedPN}
-                      onChange={(e) => handleInputChange('installedPN', e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("installedPN", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label className="block text-gray-500 text-xs mb-1">S/N</label>
+                    <label className="block text-gray-500 text-xs mb-1">
+                      S/N
+                    </label>
                     <input
                       type="text"
                       placeholder="e.g., NSN"
                       value={formData.installedSN}
-                      onChange={(e) => handleInputChange('installedSN', e.target.value)}
+                      onChange={(e) =>
+                        handleInputChange("installedSN", e.target.value)
+                      }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Part Description */}
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">Part Description</label>
-                <input
-                  type="text"
-                  placeholder="e.g., CESSNA STUD"
-                  value={formData.partDescription}
-                  onChange={(e) => handleInputChange('partDescription', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
               {/* Remarks */}
               <div>
-                <label className="block text-gray-700 text-sm mb-1.5">Remarks</label>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Remarks
+                </label>
                 <input
                   type="text"
                   placeholder="e.g., BRAKE LINING (LH)"
                   value={formData.remarks}
-                  onChange={(e) => handleInputChange('remarks', e.target.value)}
+                  onChange={(e) => handleInputChange("remarks", e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
