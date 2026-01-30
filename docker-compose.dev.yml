@@ -1,0 +1,12 @@
+# Dev override: frontend in Docker, backend on host.
+# API calls run in the browser (on your machine), so use localhost:8000 for the backend.
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1/}
+    container_name: laminar-aviation-frontend-dev

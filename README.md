@@ -8,6 +8,7 @@ A comprehensive fleet management application for aviation operations. This is a 
 - [Getting Started](#getting-started)
 - [Development](#development)
 - [Deployment](#deployment)
+  - [Steps for Deployment (Prod and UAT)](#steps-for-deployment-prod-and-uat)
   - [How to Deploy (Steps)](#how-to-deploy-steps)
   - [Docker Deployment](#docker-deployment-recommended)
   - [Traditional Deployment](#traditional-deployment)
@@ -60,6 +61,61 @@ src/
 ```
 
 ## Deployment
+
+### Steps for Deployment (Prod and UAT)
+
+Use the API URL for the target environment. Rebuild the app whenever `VITE_API_URL` changes (it is set at build time).
+
+---
+
+#### Production (Prod)
+
+| Step | Action | Command |
+|------|--------|--------|
+| 1 | Set production API URL | `echo "VITE_API_URL=https://api.yourdomain.com/api/v1/" > .env` |
+| 2 | Build and run (Docker) | `docker-compose up -d --build` |
+| 3 | Or build image only | `docker build --build-arg VITE_API_URL=https://api.yourdomain.com/api/v1/ -t laminar-aviation-app:prod .` |
+| 4 | Verify | `curl https://your-frontend-domain/health` and open the app in a browser |
+
+**Traditional (no Docker):**
+
+| Step | Action | Command |
+|------|--------|--------|
+| 1 | Set production API URL | `export VITE_API_URL=https://api.yourdomain.com/api/v1/` |
+| 2 | Build | `npm install && npm run build` |
+| 3 | Deploy | Copy `build/` to prod server (e.g. `scp -r build/* user@prod-server:/var/www/laminar-aviation/`) |
+| 4 | Restart web server | On server: `sudo nginx -t && sudo systemctl restart nginx` |
+
+---
+
+#### UAT (User Acceptance Testing)
+
+| Step | Action | Command |
+|------|--------|--------|
+| 1 | Set UAT API URL | `echo "VITE_API_URL=https://uat-api.yourdomain.com/api/v1/" > .env` |
+| 2 | Build and run (Docker) | `docker-compose up -d --build` |
+| 3 | Or build image only | `docker build --build-arg VITE_API_URL=https://uat-api.yourdomain.com/api/v1/ -t laminar-aviation-app:uat .` |
+| 4 | Verify | `curl http://localhost:3000/health` and test the app against UAT backend |
+
+**Traditional (no Docker):**
+
+| Step | Action | Command |
+|------|--------|--------|
+| 1 | Set UAT API URL | `export VITE_API_URL=https://uat-api.yourdomain.com/api/v1/` |
+| 2 | Build | `npm install && npm run build` |
+| 3 | Deploy | Copy `build/` to UAT server (e.g. `scp -r build/* user@uat-server:/var/www/laminar-aviation-uat/`) |
+| 4 | Restart web server | On server: `sudo nginx -t && sudo systemctl restart nginx` |
+
+---
+
+**Checklist**
+
+- [ ] Backend for the environment (prod or UAT) is running and reachable.
+- [ ] CORS on the backend allows the frontend origin (e.g. `https://app.yourdomain.com`, `https://uat.yourdomain.com`).
+- [ ] `.env` (or build arg) has the correct `VITE_API_URL` for that environment.
+- [ ] After changing `VITE_API_URL`, you ran a new build and redeployed.
+
+---
 
 ### How to Deploy (Steps)
 
@@ -137,6 +193,16 @@ docker-compose down
 ```
 
 The application will be available at `http://localhost:3000`
+
+#### Docker: Dev vs Prod
+
+| Environment | Command | API URL (build-time) |
+|-------------|---------|----------------------|
+| **Prod** | `echo "VITE_API_URL=https://api.yourdomain.com/api/v1/" > .env` then `docker-compose up -d --build` | From `.env` or default `http://localhost:8000/api/v1/` |
+| **Dev** (backend on host) | `docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build` | `http://host.docker.internal:8000/api/v1/` so the container can reach backend on your machine |
+
+- **Prod:** Set `VITE_API_URL` in `.env` to your production API, then run `docker-compose up -d --build`.
+- **Dev:** Use `docker-compose.dev.yml` so the frontend (in Docker) talks to a backend running on the host (Docker Desktop: `host.docker.internal`).
 
 2. **Build Docker image manually:**
 
@@ -364,11 +430,39 @@ docker builder prune
 docker build --no-cache -t laminar-aviation-app:latest .
 ```
 
-**API connection errors:**
+**"Unable to connect to the backend server" (frontend in Docker, backend on host):**
+
+API requests run in your **browser**, not inside the container. The browser must be able to reach the backend (usually on your machine).
+
+1. **Backend must be running on your host** on port 8000:
+   ```bash
+   # Example: start your backend (FastAPI/Django/etc.) on port 8000
+   # Ensure it listens on 0.0.0.0 or 127.0.0.1 so the browser can connect
+   ```
+
+2. **Use `localhost` for the API URL in dev** (not `host.docker.internal`):
+   - Create `.env` in the project root: `VITE_API_URL=http://localhost:8000/api/v1/`
+   - Rebuild and run: `docker-compose up -d --build`
+   - Or with dev override: `docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`
+   - The dev override now defaults to `http://localhost:8000/api/v1/` so the browser (on your machine) can reach the backend.
+
+3. **CORS on the backend** must allow requests from the frontend origin:
+   - Allow origin: `http://localhost:3000` (and your production domain in prod)
+   - Example (FastAPI): `CORSMiddleware(allow_origins=["http://localhost:3000"])`
+
+4. **Verify backend from your machine:**
+   ```bash
+   curl http://localhost:8000/api/v1/
+   # or
+   curl http://localhost:8000/api/v1/documents-on-board/paged?page=1&limit=10
+   ```
+   If this fails, the backend is not running or not listening on port 8000.
+
+**API connection errors (general):**
 - Verify backend is running and accessible
-- Check `VITE_API_URL` is set correctly at build time
+- Check `VITE_API_URL` is set correctly at **build time**
 - Ensure CORS is configured on backend
-- Rebuild image if API URL changed
+- Rebuild image after changing `VITE_API_URL`
 
 ### Build Issues
 
