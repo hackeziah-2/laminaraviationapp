@@ -515,7 +515,9 @@ export function AircraftFleetProfile() {
                               <option value="detail">
                                 General Information
                               </option>
-                              <option value="operation">Fleet Time Monitoring</option>
+                              <option value="operation">
+                                Fleet Time Monitoring
+                              </option>
                               <option value="maintenance">Maintenance</option>
                               <option value="logbook">
                                 Maintenance Logbook
@@ -796,7 +798,7 @@ export function AircraftFleetProfile() {
                       <input
                         maxLength={24}
                         inputMode="numeric"
-                        type="number"
+                        type="text"
                         value={form.airframeServiceManual}
                         onChange={(e) =>
                           handleChange("airframeServiceManual", e.target.value)
@@ -812,7 +814,7 @@ export function AircraftFleetProfile() {
                       <input
                         maxLength={20}
                         inputMode="numeric"
-                        type="number"
+                        type="text"
                         value={form.airframeIpc}
                         onChange={(e) =>
                           handleChange("airframeIpc", e.target.value)

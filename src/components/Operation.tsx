@@ -125,6 +125,9 @@ export function Operation() {
     new Map()
   );
 
+  type GroupBy = "all" | "fuelAndOil" | "maintenancePlanning" | "reliabilityMonitoring";
+  const [groupBy, setGroupBy] = useState<GroupBy>("all");
+
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
@@ -293,27 +296,45 @@ export function Operation() {
             </h4>
           </div>
 
-          {/* Search Section */}
-          <div>
-            <h5 className="text-gray-700 text-sm font-medium mb-3">
-              Search Entries
-            </h5>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search by sequence number, tach time..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+          {/* Search and Group-by Section */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+            <div className="flex-1">
+              <h5 className="text-gray-700 text-sm font-medium mb-3">
+                Search Entries
+              </h5>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search by sequence number, tach time..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="sm:w-56">
+              <label htmlFor="operation-group-by" className="block text-gray-700 text-sm font-medium mb-2">
+                Group by
+              </label>
+              <select
+                id="operation-group-by"
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+              >
+                <option value="all">All Columns</option>
+                <option value="fuelAndOil">Fuel and Oil Data</option>
+                <option value="maintenancePlanning">Maintenance Planning</option>
+                <option value="reliabilityMonitoring">Reliability Monitoring</option>
+              </select>
             </div>
           </div>
 
@@ -362,6 +383,8 @@ export function Operation() {
                 </div>
               </div>
             ) : (
+              <>
+                {groupBy === "all" && (
               <div className="overflow-x-auto">
                 <div className="inline-block min-w-full align-middle">
                   <table className="min-w-full border-collapse table-fixed">
@@ -513,7 +536,7 @@ export function Operation() {
                           rowSpan={2}
                           className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                         >
-                          NOMENCLATURE
+                          PART DESCRIPTION
                         </th>
                         <th
                           rowSpan={2}
@@ -1027,6 +1050,227 @@ export function Operation() {
                   </table>
                 </div>
               </div>
+                )}
+
+                {/* Fuel and Oil Data view */}
+                {groupBy === "fuelAndOil" && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse border border-gray-200">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap sticky left-0 z-30 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]">ATL SEQ</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">NATURE OF FLIGHT</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">OFF BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">ON BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">TOTAL FLIGHT TIME</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">FUEL UPLIFT QTY (L)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">FUEL UPLIFT QTY (R)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">OIL UPLIFT QTY</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">REMARKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-gray-300 whitespace-nowrap">NAME AND LICENSE</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {paginatedRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
+                              {searchQuery ? `No records found matching "${searchQuery}"` : "No records available"}
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50/50">
+                              <td className="px-3 py-2 border-r border-gray-200 font-medium sticky left-0 z-20 bg-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="flex flex-col">
+                                  <span>{record.sequenceNo || "-"}</span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-0.5 text-xs">
+                                    <button type="button" onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline">View</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button type="button" onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline">Edit</button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">{record.natureOfFlight || "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {record.originDate ? new Date(record.originDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"} {formatTimeZulu(record.originTime)}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {record.destinationDate ? new Date(record.destinationDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"} {formatTimeZulu(record.destinationTime)}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {record.hobbsMeterTotal ? `${record.hobbsMeterTotal.toFixed(1)} hr` : record.tachometerTotal ? `${record.tachometerTotal.toFixed(1)} hr` : "-"}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.fuelQtyLeftUpliftQty ?? "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.fuelQtyRightUpliftQty ?? "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.oilQtyUpliftQty ?? "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.remarks || "-"}</td>
+                              <td className="px-3 py-2">
+                                {record.maintenanceFk && accountsMap.has(record.maintenanceFk)
+                                  ? `${accountsMap.get(record.maintenanceFk)!.fullName} - ${accountsMap.get(record.maintenanceFk)!.licenseNo}` : "-"}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Maintenance Planning view */}
+                {groupBy === "maintenancePlanning" && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse border border-gray-200">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap sticky left-0 z-30 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]">ATL SEQ</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">NATURE OF FLIGHT</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">OFF BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">ON BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">AIRFRAME (RUN / AFTT)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">ENGINE (RUN / TSN / TSO / TBO)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-gray-300 whitespace-nowrap">PROPELLER (RUN / TSN / TSO / TBO)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {paginatedRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                              {searchQuery ? `No records found matching "${searchQuery}"` : "No records available"}
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50/50">
+                              <td className="px-3 py-2 border-r border-gray-200 font-medium sticky left-0 z-20 bg-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="flex flex-col">
+                                  <span>{record.sequenceNo || "-"}</span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-0.5 text-xs">
+                                    <button type="button" onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline">View</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button type="button" onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline">Edit</button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">{record.natureOfFlight || "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {record.originDate ? new Date(record.originDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"} {formatTimeZulu(record.originTime)}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {record.destinationDate ? new Date(record.destinationDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"} {formatTimeZulu(record.destinationTime)}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {(() => {
+                                  const af = (record as any).airframe;
+                                  const run = af?.hrsTime ?? (record as any).airframeRunTime;
+                                  const aftt = af?.aptt ?? (record as any).airframeAftt ?? record.airframeTotalTime;
+                                  return run != null || aftt != null ? `Run: ${run ?? "-"} / AFTT: ${aftt ?? "-"}` : "-";
+                                })()}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {(() => {
+                                  const eng = (record as any).engine;
+                                  if (!eng && (record as any).engineTotalTime == null) return "-";
+                                  return `Run: ${eng?.hrsTime ?? (record as any).engineRun ?? "-"} / TSN: ${eng?.tsn ?? "-"} / TSO: ${eng?.tso ?? "-"} / TBO: ${eng?.tbo ?? "-"}`;
+                                })()}
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                {(() => {
+                                  const prop = (record as any).propeller;
+                                  if (!prop && (record as any).propellerTotalTime == null) return "-";
+                                  return `Run: ${prop?.hrsTime ?? (record as any).propellerRun ?? "-"} / TSN: ${prop?.tsn ?? "-"} / TSO: ${prop?.tso ?? "-"} / TBO: ${prop?.tbo ?? "-"}`;
+                                })()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Reliability Monitoring view */}
+                {groupBy === "reliabilityMonitoring" && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse border border-gray-200">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap sticky left-0 z-30 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]">ATL SEQ</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">NATURE OF FLIGHT</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">AIRFRAME (RUN / AFTT)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">TOTAL FLIGHT TIME</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">NO. OF LANDINGS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">REMARKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">ACTION TAKEN</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">PARTS REMOVED (P/N & S/N)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">PARTS INSTALLED (P/N & S/N)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-r border-gray-300 whitespace-nowrap">PART DESCRIPTION</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 border-gray-300 whitespace-nowrap">ATA CHAPTER</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {paginatedRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
+                              {searchQuery ? `No records found matching "${searchQuery}"` : "No records available"}
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50/50">
+                              <td className="px-3 py-2 border-r border-gray-200 font-medium sticky left-0 z-20 bg-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="flex flex-col">
+                                  <span>{record.sequenceNo || "-"}</span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-0.5 text-xs">
+                                    <button type="button" onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline">View</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button type="button" onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline">Edit</button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">{record.natureOfFlight || "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {(() => {
+                                  const af = (record as any).airframe;
+                                  const run = af?.hrsTime ?? (record as any).airframeRunTime;
+                                  const aftt = af?.aptt ?? (record as any).airframeAftt ?? record.airframeTotalTime;
+                                  return run != null || aftt != null ? `Run: ${run ?? "-"} / AFTT: ${aftt ?? "-"}` : "-";
+                                })()}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200 whitespace-nowrap">
+                                {record.hobbsMeterTotal ? `${record.hobbsMeterTotal.toFixed(1)} hr` : record.tachometerTotal ? `${record.tachometerTotal.toFixed(1)} hr` : "-"}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.numberOfLandings ?? "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.remarks || "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200">{record.actionsTaken || "-"}</td>
+                              <td className="px-3 py-2 border-r border-gray-200">
+                                {record.componentParts?.length
+                                  ? (record.componentParts[0] as any)?.removedPartNo || (record.componentParts[0] as any)?.removedSerialNo
+                                    ? `${(record.componentParts[0] as any).removedPartNo ?? ""} / ${(record.componentParts[0] as any).removedSerialNo ?? ""}`.trim() || "-"
+                                    : "-"
+                                  : "-"}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200">
+                                {record.componentParts?.length
+                                  ? (record.componentParts[0] as any)?.installedPartNo || (record.componentParts[0] as any)?.installedSerialNo
+                                    ? `${(record.componentParts[0] as any).installedPartNo ?? ""} / ${(record.componentParts[0] as any).installedSerialNo ?? ""}`.trim() || "-"
+                                    : "-"
+                                  : "-"}
+                              </td>
+                              <td className="px-3 py-2 border-r border-gray-200">
+                                {record.componentParts?.length ? record.componentParts[0].nomenclature || "-" : "-"}
+                              </td>
+                              <td className="px-3 py-2">
+                                {record.componentParts?.length
+                                  ? record.componentParts[0].ataChapter ?? (record.componentParts[0] as any).ata_chapter ?? "-" : "-"}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Pagination */}
