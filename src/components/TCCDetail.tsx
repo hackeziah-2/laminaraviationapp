@@ -30,7 +30,7 @@ export function TCCDetail() {
   const msnNum = parseInt(msn || '1');
 
   const handleBack = () => {
-    navigate(`/profile/${id}/maintenance`);
+    navigate(`/profile/${id}/maintenance-tcc`);
   };
 
   const [activeTab, setActiveTab] = useState<'POWERPLANT' | 'AIRFRAME' | 'PROPELLER'>('POWERPLANT');
