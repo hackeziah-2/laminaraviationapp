@@ -25,6 +25,12 @@ import { Aircraft } from "../types/Aircraft";
 import { toCamel, formatTimeZulu } from "../utility/utils";
 import { getAllAccounts, Account } from "../api/accountApi";
 
+type GroupByOption =
+  | "allColumns"
+  | "fuelAndOilData"
+  | "maintenancePlanning"
+  | "reliabilityMonitoring";
+
 interface FleetTimeRecord {
   id: number;
   seqNo: string;
@@ -61,6 +67,11 @@ interface FleetTimeRecord {
     aogEvents: number;
   };
 }
+
+const STICKY_SEQ_CLASS =
+  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
+const STICKY_SEQ_CELL_CLASS =
+  "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
 
 export function Operation() {
   const { id } = useParams<{ id: string }>();
@@ -124,6 +135,50 @@ export function Operation() {
   const [accountsMap, setAccountsMap] = useState<Map<number, Account>>(
     new Map()
   );
+  const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
+
+  // Helpers for airframe/engine/propeller from nested or flat API
+  const getAirframeDisplay = (r: AircraftTechnicalLog) => {
+    const nested = (r as any).airframe;
+    if (nested && (nested.hrsTime != null || nested.run != null || nested.aptt != null || nested.aftt != null)) {
+      const run = nested.hrsTime ?? nested.run ?? r.airframeTotalTime ?? "-";
+      const aftt = nested.aptt ?? nested.aftt ?? "-";
+      return `${run} / ${aftt}`;
+    }
+    const run = r.airframeTotalTime ?? (r as any).airframeRun ?? "-";
+    const aftt = (r as any).airframeAftt ?? (r as any).airframeTotalTime ?? "-";
+    return `${run} / ${aftt}`;
+  };
+  const getEngineDisplay = (r: AircraftTechnicalLog) => {
+    const nested = (r as any).engine;
+    if (nested) {
+      const run = nested.hrsTime ?? nested.run ?? r.engineTotalTime ?? "-";
+      const tsn = nested.tsn ?? "-";
+      const tso = nested.tso ?? "-";
+      const tbo = nested.tbo ?? "-";
+      return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
+    }
+    const run = r.engineTotalTime ?? (r as any).engineRun ?? "-";
+    const tsn = (r as any).engineTsn ?? "-";
+    const tso = (r as any).engineTso ?? "-";
+    const tbo = (r as any).engineTbo ?? "-";
+    return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
+  };
+  const getPropellerDisplay = (r: AircraftTechnicalLog) => {
+    const nested = (r as any).propeller;
+    if (nested) {
+      const run = nested.hrsTime ?? nested.run ?? r.propellerTotalTime ?? "-";
+      const tsn = nested.tsn ?? "-";
+      const tso = nested.tso ?? "-";
+      const tbo = nested.tbo ?? "-";
+      return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
+    }
+    const run = r.propellerTotalTime ?? (r as any).propellerRun ?? "-";
+    const tsn = (r as any).propellerTsn ?? "-";
+    const tso = (r as any).propellerTso ?? "-";
+    const tbo = (r as any).propellerTbo ?? "-";
+    return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
+  };
 
   // Fetch aircraft information
   useEffect(() => {
@@ -293,27 +348,45 @@ export function Operation() {
             </h4>
           </div>
 
-          {/* Search Section */}
+          {/* Search Section + Group by */}
           <div>
             <h5 className="text-gray-700 text-sm font-medium mb-3">
               Search Entries
             </h5>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Search by sequence number, tach time..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  placeholder="Search by sequence number, tach time..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="group-by" className="text-gray-700 text-sm font-medium whitespace-nowrap">
+                  Group by
+                </label>
+                <select
+                  id="group-by"
+                  value={groupBy}
+                  onChange={(e) => setGroupBy(e.target.value as GroupByOption)}
+                  className="px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 min-w-[200px]"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
+                  <option value="allColumns">All Columns</option>
+                  <option value="fuelAndOilData">Fuel and Oil Data</option>
+                  <option value="maintenancePlanning">Maintenance Planning</option>
+                  <option value="reliabilityMonitoring">Reliability Monitoring</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -362,6 +435,8 @@ export function Operation() {
                 </div>
               </div>
             ) : (
+              <>
+                {groupBy === "allColumns" && (
               <div className="overflow-x-auto">
                 <div className="inline-block min-w-full align-middle">
                   <table className="min-w-full border-collapse table-fixed">
@@ -369,7 +444,7 @@ export function Operation() {
                       <tr>
                         <th
                           rowSpan={2}
-                          className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]"
+                          className={STICKY_SEQ_CLASS}
                         >
                           <b>SEQUENCE NO</b>
                         </th>
@@ -697,7 +772,7 @@ export function Operation() {
                             key={record.id}
                             className="hover:bg-gray-50/50 transition-colors"
                           >
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium">
+                            <td className={STICKY_SEQ_CELL_CLASS}>
                               <div className="flex flex-col">
                                 <span className="font-medium">
                                   {record.sequenceNo || "-"}
@@ -1027,6 +1102,165 @@ export function Operation() {
                   </table>
                 </div>
               </div>
+                )}
+
+                {/* Fuel and Oil Data */}
+                {groupBy === "fuelAndOilData" && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">NATURE OF FLIGHT</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">OFF BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">ON BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">TOTAL FLIGHT TIME</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">FUEL UPLIFT QTY (L) / (R)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">OIL UPLIFT QTY</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">REMARKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">NAME AND LICENSE</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {paginatedRecords.length === 0 ? (
+                          <tr><td colSpan={9} className="px-5 py-8 text-center text-gray-500 text-sm">No records</td></tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50">
+                              <td className={STICKY_SEQ_CELL_CLASS}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{record.sequenceNo || "-"}</span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                    <button onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline text-xs">View</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline text-xs">Edit</button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.natureOfFlight || "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.originDate ? new Date(record.originDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"}
+                                {record.originTime ? ` ${formatTimeZulu(record.originTime)}` : ""}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.destinationDate ? new Date(record.destinationDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"}
+                                {record.destinationTime ? ` ${formatTimeZulu(record.destinationTime)}` : ""}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.hobbsMeterTotal ? `${record.hobbsMeterTotal.toFixed(1)} hr` : record.tachometerTotal ? `${record.tachometerTotal.toFixed(1)}` : "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.fuelQtyLeftUpliftQty ?? "-"} / {record.fuelQtyRightUpliftQty ?? "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.oilQtyUpliftQty ?? "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.remarks || "-"}</td>
+                              <td className="px-3 py-2 text-sm">{record.maintenanceFk && accountsMap.has(record.maintenanceFk) ? `${accountsMap.get(record.maintenanceFk)!.fullName} - ${accountsMap.get(record.maintenanceFk)!.licenseNo}` : "-"}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Maintenance Planning */}
+                {groupBy === "maintenancePlanning" && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">NATURE OF FLIGHT</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">OFF BLOCKS / ON BLOCKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">AIRFRAME (RUN / AFTT)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">ENGINE (RUN / TSN / TSO / TBO)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">PROPELLER (RUN / TSN / TSO / TBO)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {paginatedRecords.length === 0 ? (
+                          <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-500 text-sm">No records</td></tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50">
+                              <td className={STICKY_SEQ_CELL_CLASS}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{record.sequenceNo || "-"}</span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                    <button onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline text-xs">View</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline text-xs">Edit</button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.natureOfFlight || "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.originDate ? new Date(record.originDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"} / {record.destinationDate ? new Date(record.destinationDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{getAirframeDisplay(record)}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{getEngineDisplay(record)}</td>
+                              <td className="px-3 py-2 text-sm">{getPropellerDisplay(record)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Reliability Monitoring */}
+                {groupBy === "reliabilityMonitoring" && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">NATURE OF FLIGHT</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">AIRFRAME (RUN / AFTT)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">TOTAL FLIGHT TIME</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">NO. OF LANDINGS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">REMARKS</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">ACTION TAKEN</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">PARTS REMOVED (P/N & S/N)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">PARTS INSTALLED (P/N & S/N)</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">PART DESCRIPTION</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">ATA CHAPTER</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {paginatedRecords.length === 0 ? (
+                          <tr><td colSpan={11} className="px-5 py-8 text-center text-gray-500 text-sm">No records</td></tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50">
+                              <td className={STICKY_SEQ_CELL_CLASS}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{record.sequenceNo || "-"}</span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                    <button onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline text-xs">View</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline text-xs">Edit</button>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.natureOfFlight || "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{getAirframeDisplay(record)}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.hobbsMeterTotal ? `${record.hobbsMeterTotal.toFixed(1)} hr` : record.tachometerTotal ? `${record.tachometerTotal.toFixed(1)}` : "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.numberOfLandings ?? "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.remarks || "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.actionsTaken || "-"}</td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.componentParts && record.componentParts.length > 0 ? `${(record.componentParts[0] as any).removedPartNo ?? "-"} / ${(record.componentParts[0] as any).removedSerialNo ?? "-"}` : "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.componentParts && record.componentParts.length > 0 ? `${(record.componentParts[0] as any).installedPartNo ?? "-"} / ${(record.componentParts[0] as any).installedSerialNo ?? "-"}` : "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">{record.componentParts && record.componentParts.length > 0 ? record.componentParts[0].nomenclature || "-" : "-"}</td>
+                              <td className="px-3 py-2 text-sm">{record.componentParts && record.componentParts.length > 0 ? record.componentParts[0].ataChapter || (record.componentParts[0] as any).ata_chapter || "-" : "-"}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Pagination */}
