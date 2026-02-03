@@ -125,7 +125,7 @@ export function AircraftFleetProfile() {
         navigate(`/profile/${aircraftId}/logbook`);
         break;
       case "maintenance":
-        navigate(`/profile/${aircraftId}/maintenance`);
+        navigate(`/profile/${aircraftId}/maintenance-ldnd`);
         break;
       case "operation":
         navigate(`/profile/${aircraftId}/operation`);

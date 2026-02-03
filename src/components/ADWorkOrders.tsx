@@ -1,150 +1,239 @@
-import { ArrowLeft, Printer, Download, Plus, X, Calendar } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Printer, Download, Plus, X, Pencil, Trash2, Loader, Search } from "lucide-react";
+import { useState, useCallback, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  getWorkOrderAdMonitoring,
+  createWorkOrderAdMonitoring,
+  updateWorkOrderAdMonitoring,
+  deleteWorkOrderAdMonitoring,
+  type WorkOrderAdMonitoring,
+} from "../api/workOrderAdMonitoringApi";
+import { Spinner } from "./ui/spinner";
+import Swal from "sweetalert2";
 
-interface ADWorkOrdersProps {
-  adNumber: string;
-  onBack: () => void;
+function toDateInputValue(s: string | null | undefined): string {
+  if (s == null || String(s).trim() === "") return "";
+  const raw = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-interface WorkOrder {
-  id: number;
-  woNumber: string;
-  lastDoneAcft: string;
-  lastDoneTach: string;
-  lastDoneDate: string;
-  nextDueAcft: string;
-  nextDueTach: string;
-  atlReference: string;
+function formatDateDisplay(s: string | null | undefined): string {
+  if (s == null || String(s).trim() === "") return "—";
+  const d = new Date(String(s).trim());
+  if (Number.isNaN(d.getTime())) return String(s);
+  return d.toLocaleDateString();
 }
 
-export function ADWorkOrders({ adNumber, onBack }: ADWorkOrdersProps) {
+export function ADWorkOrders() {
+  const params = useParams<{ id: string; ad_monitoring_id: string }>();
+  const navigate = useNavigate();
+  const aircraft_fk = parseInt(params.id ?? "0", 10);
+  const ad_monitoring_fk = parseInt(params.ad_monitoring_id ?? "0", 10);
+  const hasValidParams = aircraft_fk > 0 && ad_monitoring_fk > 0;
+
+  const handleBack = () => {
+    navigate(`/profile/${params.id ?? ""}/maintenance-ad`);
+  };
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({
     woNumber: "",
-    lastDoneAcft: "",
+    lastDoneActt: "",
     lastDoneTach: "",
     lastDoneDate: "",
-    nextDueAcft: "",
+    nextDoneActt: "",
     nextDueTach: "",
-    atlReference: "",
+    atlRef: "",
   });
 
-  // Mock data for work orders
-  const workOrders: WorkOrder[] = [
-    {
-      id: 1,
-      woNumber: "VFD-2-A-002444",
-      lastDoneAcft: "6586.1",
-      lastDoneTach: "6079.8",
-      lastDoneDate: "6-Jan-24",
-      nextDueAcft: "6386.1",
-      nextDueTach: "6679.8",
-      atlReference: "ATL-002525",
-    },
-    {
-      id: 2,
-      woNumber: "VFD-2-A-002451",
-      lastDoneAcft: "6561.3",
-      lastDoneTach: "6168.7",
-      lastDoneDate: "7-Jul-23",
-      nextDueAcft: "6586.1",
-      nextDueTach: "6276.1",
-      atlReference: "ATL-002412",
-    },
-    {
-      id: 3,
-      woNumber: "VFD-2-A-002458",
-      lastDoneAcft: "6502.6",
-      lastDoneTach: "6363.9",
-      lastDoneDate: "18-Aug-23",
-      nextDueAcft: "6586.1",
-      nextDueTach: "6378.1",
-      atlReference: "ATL-002458",
-    },
-    {
-      id: 4,
-      woNumber: "VFD-2-A-002467",
-      lastDoneAcft: "6532.7",
-      lastDoneTach: "6416.1",
-      lastDoneDate: "23-Nov-23",
-      nextDueAcft: "6586.1",
-      nextDueTach: "6479.6",
-      atlReference: "ATL-002788",
-    },
-    {
-      id: 5,
-      woNumber: "VFD-2-A-002475",
-      lastDoneAcft: "6524.9",
-      lastDoneTach: "6424.8",
-      lastDoneDate: "27-Feb-24",
-      nextDueAcft: "6586.1",
-      nextDueTach: "6579.1",
-      atlReference: "ATL-002835",
-    },
-    {
-      id: 6,
-      woNumber: "VFD-2-A-002484",
-      lastDoneAcft: "6636.1",
-      lastDoneTach: "6631.8",
-      lastDoneDate: "16-Apr-24",
-      nextDueAcft: "6886.1",
-      nextDueTach: "6879.6",
-      atlReference: "ATL-002986",
-    },
-    {
-      id: 7,
-      woNumber: "VFD-2-A-002491",
-      lastDoneAcft: "6747.3",
-      lastDoneTach: "6768.7",
-      lastDoneDate: "05-May-24",
-      nextDueAcft: "6786.1",
-      nextDueTach: "6779.1",
-      atlReference: "ATL-003048",
-    },
-    {
-      id: 8,
-      woNumber: "VFD-2-A-002498",
-      lastDoneAcft: "6869.9",
-      lastDoneTach: "6882.9",
-      lastDoneDate: "09-Jul-2024",
-      nextDueAcft: "6886.1",
-      nextDueTach: "6879.6",
-      atlReference: "ATL-003254",
-    },
-    {
-      id: 9,
-      woNumber: "VFD-2-A-002507",
-      lastDoneAcft: "6996.7",
-      lastDoneTach: "6986.1",
-      lastDoneDate: "24-Aug-2024",
-      nextDueAcft: "6986.1",
-      nextDueTach: "6979.1",
-      atlReference: "ATL-003257",
-    },
-  ];
+  const [workOrders, setWorkOrders] = useState<WorkOrderAdMonitoring[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editingWorkOrder, setEditingWorkOrder] = useState<WorkOrderAdMonitoring | null>(null);
 
-  const adData = {
-    title: "Work Orders",
-    subtitle: "Inspection of Main Landing Gear Actuator",
-    status: "Active",
-    interval: "TBO Flight Hours",
-    effectiveDate: "2023-01-15",
-    workOrdersCount: 9,
+  const fetchWorkOrders = useCallback(async () => {
+    if (!hasValidParams) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await getWorkOrderAdMonitoring(
+        aircraft_fk,
+        ad_monitoring_fk,
+        currentPage,
+        itemsPerPage,
+        searchQuery
+      );
+      setWorkOrders(res.items);
+      setTotal(res.total);
+      setPages(res.pages);
+    } catch (err: any) {
+      console.error("Work orders fetch error:", err);
+      setError(err?.response?.data?.detail ?? err?.message ?? "Failed to load work orders");
+      setWorkOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [aircraft_fk, ad_monitoring_fk, hasValidParams, currentPage, itemsPerPage, searchQuery]);
+
+  useEffect(() => {
+    fetchWorkOrders();
+  }, [fetchWorkOrders]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  const resetForm = () => {
+    setFormData({
+      woNumber: "",
+      lastDoneActt: "",
+      lastDoneTach: "",
+      lastDoneDate: "",
+      nextDoneActt: "",
+      nextDueTach: "",
+      atlRef: "",
+    });
+    setEditingWorkOrder(null);
   };
+
+  const handleCreateOrUpdate = async () => {
+    if (!hasValidParams) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Invalid route",
+        text: "Aircraft or AD monitoring is missing. Go back to the list.",
+      });
+      return;
+    }
+    const woNumber = String(formData.woNumber).trim();
+    if (!woNumber) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please enter Work Order Number.",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editingWorkOrder) {
+        await updateWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, editingWorkOrder.id, {
+          woNumber,
+          lastDoneActt: formData.lastDoneActt || undefined,
+          lastDoneTach: formData.lastDoneTach || undefined,
+          lastDoneDate: formData.lastDoneDate || undefined,
+          nextDoneActt: formData.nextDoneActt || undefined,
+          nextDueTach: formData.nextDueTach || undefined,
+          atlRef: formData.atlRef || undefined,
+        });
+      } else {
+        await createWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, {
+          woNumber,
+          lastDoneActt: formData.lastDoneActt ?? "",
+          lastDoneTach: formData.lastDoneTach ?? "",
+          lastDoneDate: formData.lastDoneDate ?? "",
+          nextDoneActt: formData.nextDoneActt ?? "",
+          nextDueTach: formData.nextDueTach ?? "",
+          atlRef: formData.atlRef ?? "",
+        });
+      }
+      setShowAddModal(false);
+      resetForm();
+      await fetchWorkOrders();
+      await Swal.fire({
+        icon: "success",
+        title: editingWorkOrder ? "Updated!" : "Saved!",
+        text: editingWorkOrder ? "Work order updated." : "Work order added.",
+      });
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail ?? err?.message ?? "Failed to save.";
+      await Swal.fire({ icon: "error", title: "Error", text: msg });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (item: WorkOrderAdMonitoring) => {
+    if (!hasValidParams) return;
+    const result = await Swal.fire({
+      title: "Delete Work Order?",
+      text: `"${item.woNumber}" — you won't be able to revert this.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete it",
+    });
+    if (!result.isConfirmed) return;
+    setDeletingId(item.id);
+    try {
+      await deleteWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, item.id);
+      await fetchWorkOrders();
+      await Swal.fire({ icon: "success", title: "Deleted!", text: "Work order deleted." });
+    } catch (err: any) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err?.response?.data?.detail ?? err?.message ?? "Failed to delete.",
+      });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const openEdit = (item: WorkOrderAdMonitoring) => {
+    setEditingWorkOrder(item);
+    setFormData({
+      woNumber: item.woNumber,
+      lastDoneActt: String(item.lastDoneActt ?? ""),
+      lastDoneTach: String(item.lastDoneTach ?? ""),
+      lastDoneDate: toDateInputValue(item.lastDoneDate),
+      nextDoneActt: String(item.nextDoneActt ?? ""),
+      nextDueTach: String(item.nextDueTach ?? ""),
+      atlRef: item.atlRef ?? "",
+    });
+    setShowAddModal(true);
+  };
+
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, total);
 
   return (
     <div className="flex-1 bg-gray-50 overflow-auto">
-      {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <button
-            onClick={onBack}
+            onClick={handleBack}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors text-sm"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to List
           </button>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                resetForm();
+                setShowAddModal(true);
+              }}
+              disabled={!hasValidParams}
+              className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-4 h-4" />
+              Add Work Order
+            </button>
             <button className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
               <Printer className="w-4 h-4" />
               Print
@@ -153,342 +242,187 @@ export function ADWorkOrders({ adNumber, onBack }: ADWorkOrdersProps) {
               <Download className="w-4 h-4" />
               Export
             </button>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm"
-            >
-              <Plus className="w-4 h-4" />
-              Add Work Order
-            </button>
           </div>
         </div>
-
         <div>
           <h2 className="text-gray-900">
-            AD {adNumber} - {adData.title}
+            Work Orders — AD Monitoring #{params.ad_monitoring_id ?? "—"}
           </h2>
-          <p className="text-gray-500 mt-1">{adData.subtitle}</p>
         </div>
       </div>
 
-      {/* Content */}
       <div className="p-6">
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          {/* Info Section */}
+          {/* Search bar: WO NUMBER and ATL_REF */}
           <div className="p-5 border-b border-gray-200">
-            <div className="grid grid-cols-4 gap-4">
-              <div>
-                <div className="text-xs text-gray-500 mb-2">Status</div>
-                <span className="inline-flex items-center px-2.5 py-1 rounded text-xs bg-green-50 text-green-700 border border-green-200">
-                  {adData.status}
-                </span>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500 mb-2">Interval</div>
-                <div className="text-gray-900 text-sm">{adData.interval}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500 mb-2">Effective Date</div>
-                <div className="text-gray-900 text-sm">
-                  {adData.effectiveDate}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500 mb-2">Work Orders</div>
-                <div className="text-gray-900 text-sm">
-                  {adData.workOrdersCount}
-                </div>
-              </div>
+            <div className="relative max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by WO Number, ATL Ref..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
             </div>
           </div>
 
-          {/* Compliance Work Orders Section */}
-          <div className="p-5 border-b border-gray-200">
-            <div className="text-gray-900 text-sm">Compliance Work Orders</div>
-          </div>
+          {!hasValidParams && (
+            <div className="p-4 text-sm text-amber-700 bg-amber-50 border-b border-amber-100">
+              Missing or invalid aircraft or AD monitoring.
+            </div>
+          )}
+          {error && (
+            <div className="p-4 text-sm text-red-600 bg-red-50 border-b border-red-100 flex items-center justify-between gap-2">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => { setError(null); fetchWorkOrders(); }}
+                className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 hover:bg-red-200 rounded"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
-          {/* AD Number Display */}
-          <div className="py-6 text-center bg-gray-50">
-            <div className="text-gray-900">AD NO. {adNumber}</div>
-          </div>
-
-          {/* Work Orders Table */}
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-green-50 border-y border-gray-200">
-                  <th
-                    className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider"
-                    rowSpan={2}
-                  >
-                    WO NUMBER
-                  </th>
-                  <th
-                    className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider border-x border-gray-200"
-                    colSpan={3}
-                  >
-                    LAST DONE
-                  </th>
-                  <th
-                    className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200"
-                    colSpan={2}
-                  >
-                    NEXT DUE
-                  </th>
-                  <th
-                    className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider"
-                    rowSpan={2}
-                  >
-                    ATL REFERENCE
-                  </th>
-                </tr>
-                <tr className="bg-green-50 border-b border-gray-200">
-                  <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-l border-gray-200">
-                    AFTT
-                  </th>
-                  <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                    TACH
-                  </th>
-                  <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">
-                    DATE
-                  </th>
-                  <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                    AFTT
-                  </th>
-                  <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">
-                    TACH
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {workOrders.map((wo) => (
-                  <tr
-                    key={wo.id}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-5 py-3 text-sm text-gray-900">
-                      {wo.woNumber}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-gray-900 border-l border-gray-200">
-                      {wo.lastDoneAcft}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-gray-900">
-                      {wo.lastDoneTach}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">
-                      {wo.lastDoneDate}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-gray-900">
-                      {wo.nextDueAcft}
-                    </td>
-                    <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">
-                      {wo.nextDueTach}
-                    </td>
-                    <td className="px-5 py-3 text-sm">
-                      <a
-                        href="#"
-                        className="text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        {wo.atlReference}
-                      </a>
-                    </td>
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <Spinner />
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-green-50 border-y border-gray-200">
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">WO NUMBER</th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-l border-gray-200">ACTT</th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">TACH</th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">DATE</th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">ACTT</th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">TACH</th>
+                    <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">ATL REFERENCE</th>
+                    <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">ACTIONS</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {workOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-8 text-center text-gray-500 text-sm">
+                        No work orders. Add one to get started.
+                      </td>
+                    </tr>
+                  ) : (
+                    workOrders.map((wo) => (
+                      <tr key={wo.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-3 text-sm text-gray-900">{wo.woNumber}</td>
+                        <td className="px-5 py-3 text-sm text-gray-900 border-l border-gray-200">{wo.lastDoneActt}</td>
+                        <td className="px-5 py-3 text-sm text-gray-900">{wo.lastDoneTach}</td>
+                        <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">{formatDateDisplay(wo.lastDoneDate)}</td>
+                        <td className="px-5 py-3 text-sm text-gray-900">{wo.nextDoneActt}</td>
+                        <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">{wo.nextDueTach}</td>
+                        <td className="px-5 py-3 text-sm"><span className="text-blue-600">{wo.atlRef}</span></td>
+                        <td className="px-5 py-3 text-sm">
+                          <div className="flex items-center justify-center gap-1">
+                            {deletingId === wo.id ? (
+                              <Loader className="w-5 h-5 text-gray-400 animate-spin" />
+                            ) : (
+                              <>
+                                <button type="button" onClick={() => openEdit(wo)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Edit">
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button type="button" onClick={() => handleDelete(wo)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Delete">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
+
+          {total > 0 && !loading && (
+            <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
+              <div className="text-gray-500 text-sm">
+                Showing {startIndex + 1} to {endIndex} of {total}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1 || loading}
+                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">Page {currentPage} of {pages || 1}</span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(pages || 1, p + 1))}
+                  disabled={currentPage >= (pages || 1) || loading}
+                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Add Work Order Modal */}
       {showAddModal && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4"
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(4px)",
-          }}
-        >
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: "rgba(255, 255, 255, 0.15)", backdropFilter: "blur(4px)" }}>
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            {/* Modal Header */}
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-gray-900">Add Work Order</h3>
-                <p className="text-gray-500 text-sm mt-1">
-                  Enter the compliance work order details for AD {adNumber}.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="text-gray-900">{editingWorkOrder ? "Edit Work Order" : "Add Work Order"}</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-
-            {/* Modal Body */}
             <div className="px-6 py-4 space-y-5">
-              {/* Work Order Number */}
               <div>
-                <label className="block text-gray-900 text-sm mb-2">
-                  Work Order Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., 17212-A-000343"
-                  value={formData.woNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, woNumber: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <label className="block text-gray-900 text-sm mb-2">Work Order Number <span className="text-red-500">*</span></label>
+                <input type="text" placeholder="e.g., 17212-A-000343" value={formData.woNumber} onChange={(e) => setFormData({ ...formData, woNumber: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-
-              {/* Last Done Section */}
               <div>
                 <div className="text-amber-600 text-sm mb-2">Last Done</div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      ACTT
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 60"
-                      value={formData.lastDoneAcft}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          lastDoneAcft: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <label className="block text-gray-700 text-xs mb-1.5">ACTT</label>
+                    <input type="text" placeholder="e.g., 60" value={formData.lastDoneActt} onChange={(e) => setFormData({ ...formData, lastDoneActt: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      Tach
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 60"
-                      value={formData.lastDoneTach}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          lastDoneTach: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <label className="block text-gray-700 text-xs mb-1.5">Tach</label>
+                    <input type="text" placeholder="e.g., 60" value={formData.lastDoneTach} onChange={(e) => setFormData({ ...formData, lastDoneTach: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      Date <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="e.g., 6-Jan-24"
-                        value={formData.lastDoneDate}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            lastDoneDate: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 pr-8 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <Calendar className="absolute right-2.5 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-                    </div>
+                    <label className="block text-gray-700 text-xs mb-1.5">Date</label>
+                    <input type="date" value={formData.lastDoneDate} onChange={(e) => setFormData({ ...formData, lastDoneDate: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
               </div>
-
-              {/* Next Due Section */}
               <div>
                 <div className="text-amber-600 text-sm mb-2">Next Due</div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      ACTT
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 6180.1"
-                      value={formData.nextDueAcft}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          nextDueAcft: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <label className="block text-gray-700 text-xs mb-1.5">ACTT</label>
+                    <input type="text" placeholder="e.g., 6180.1" value={formData.nextDoneActt} onChange={(e) => setFormData({ ...formData, nextDoneActt: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      Tach
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 6170.6"
-                      value={formData.nextDueTach}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          nextDueTach: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <label className="block text-gray-700 text-xs mb-1.5">Tach</label>
+                    <input type="text" placeholder="e.g., 6170.6" value={formData.nextDueTach} onChange={(e) => setFormData({ ...formData, nextDueTach: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
               </div>
-
-              {/* ATL Reference */}
               <div>
-                <label className="block text-gray-900 text-sm mb-2">
-                  ATL Reference
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., ATL-0002226"
-                  value={formData.atlReference}
-                  onChange={(e) =>
-                    setFormData({ ...formData, atlReference: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <label className="block text-gray-900 text-sm mb-2">ATL Reference</label>
+                <input type="text" placeholder="e.g., ATL-0002226" value={formData.atlRef} onChange={(e) => setFormData({ ...formData, atlRef: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
-
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  // Handle form submission here
-                  setShowAddModal(false);
-                  // Reset form
-                  setFormData({
-                    woNumber: "",
-                    lastDoneAcft: "",
-                    lastDoneTach: "",
-                    lastDoneDate: "",
-                    nextDueAcft: "",
-                    nextDueTach: "",
-                    atlReference: "",
-                  });
-                }}
-                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors text-sm"
-              >
-                Add Work Order
+              <button onClick={() => { setShowAddModal(false); resetForm(); }} disabled={saving} className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-gray-700 text-sm disabled:opacity-50">Cancel</button>
+              <button onClick={handleCreateOrUpdate} disabled={saving} className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm disabled:opacity-50 flex items-center gap-2 min-w-[140px]">
+                {saving ? <><Loader className="w-4 h-4 animate-spin" />Saving...</> : editingWorkOrder ? "Update Entry" : "Add Work Order"}
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { AircraftFleetProfile } from './components/AircraftFleetProfile';
@@ -18,16 +18,21 @@ import { ADWorkOrders } from './components/ADWorkOrders';
 import { Copy, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
+function RedirectToMaintenanceLdnd() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/profile/${id ?? ""}/maintenance-ldnd`} replace />;
+}
+
 function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
 
   // Determine if we're on a special page that hides the header
-  const isSpecialPage = location.pathname.includes('/reliability/') || 
-                        location.pathname.includes('/tcc/') ||
-                        location.pathname.includes('/cpcp/') ||
-                        location.pathname.includes('/ad-work-orders/');
+  const isSpecialPage = location.pathname.includes('/reliability/') ||
+                        location.pathname.includes('/maintenance-tcc/') ||
+                        location.pathname.includes('/maintenance-cpcp/') ||
+                        location.pathname.includes('/maintenance-ad-work-orders/');
 
   return (
     <div className="min-h-screen bg-white">
@@ -74,10 +79,14 @@ function AppContent() {
           <Route path="/profile" element={<AircraftFleetProfile />} />
           <Route path="/profile/:id" element={<AircraftDetail />} />
           <Route path="/profile/:id/logbook" element={<MaintenanceLogbook />} />
-          <Route path="/profile/:id/maintenance" element={<Maintenance />} />
-          <Route path="/profile/:id/maintenance/tcc/:msn" element={<TCCDetail />} />
-          <Route path="/profile/:id/maintenance/cpcp/:msn" element={<CPCPDetail />} />
-          <Route path="/profile/:id/maintenance/ad-work-orders/:msn" element={<ADWorkOrders adNumber='1' onBack={()=>console.log("baba")}/>} />
+          <Route path="/profile/:id/maintenance" element={<RedirectToMaintenanceLdnd />} />
+          <Route path="/profile/:id/maintenance-ad-work-orders/:ad_monitoring_id" element={<ADWorkOrders />} />
+          <Route path="/profile/:id/maintenance-tcc/:msn" element={<TCCDetail />} />
+          <Route path="/profile/:id/maintenance-cpcp/:msn" element={<CPCPDetail />} />
+          <Route path="/profile/:id/maintenance-ldnd" element={<Maintenance />} />
+          <Route path="/profile/:id/maintenance-ad" element={<Maintenance />} />
+          <Route path="/profile/:id/maintenance-tcc" element={<Maintenance />} />
+          <Route path="/profile/:id/maintenance-cpcp" element={<Maintenance />} />
           <Route path="/profile/:id/operation" element={<Operation />} />
           <Route path="/profile/:id/operation/reliability/:recordId" element={<ReliabilityMonitoring />} />
           <Route path="/profile/:aircraft_id/document_on_board" element={<AircraftDocumentOnBoard />} />

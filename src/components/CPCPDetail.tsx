@@ -20,7 +20,7 @@ export function CPCPDetail() {
   const navigate = useNavigate();
 
   const handleBack = () => {
-    navigate(`/profile/${id}/maintenance`);
+    navigate(`/profile/${id}/maintenance-cpcp`);
   };
 
   const [currentPage, setCurrentPage] = useState(1);

@@ -2775,7 +2775,7 @@ export function AddTechnicalLogbookEntryModal({
                         UNIT
                       </th>
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        PART DESCRIPTION
+                        NOMENCLATURE
                       </th>
                       <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                         REMOVED P/N
