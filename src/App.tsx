@@ -13,7 +13,6 @@ import { Maintenance } from './components/Maintenance';
 import { Operation } from './components/Operation';
 import { ReliabilityMonitoring } from './components/ReliabilityMonitoring';
 import { TCCDetail } from './components/TCCDetail';
-import { CPCPDetail } from './components/CPCPDetail';
 import { ADWorkOrders } from './components/ADWorkOrders';
 import { Copy, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
@@ -30,8 +29,6 @@ function AppContent() {
 
   // Determine if we're on a special page that hides the header
   const isSpecialPage = location.pathname.includes('/reliability/') ||
-                        location.pathname.includes('/maintenance-tcc/') ||
-                        location.pathname.includes('/maintenance-cpcp/') ||
                         location.pathname.includes('/maintenance-ad-work-orders/');
 
   return (
@@ -81,11 +78,9 @@ function AppContent() {
           <Route path="/profile/:id/logbook" element={<MaintenanceLogbook />} />
           <Route path="/profile/:id/maintenance" element={<RedirectToMaintenanceLdnd />} />
           <Route path="/profile/:id/maintenance-ad-work-orders/:ad_monitoring_id" element={<ADWorkOrders />} />
-          <Route path="/profile/:id/maintenance-tcc/:msn" element={<TCCDetail />} />
-          <Route path="/profile/:id/maintenance-cpcp/:msn" element={<CPCPDetail />} />
+          <Route path="/profile/:id/maintenance-tcc" element={<Maintenance />} />
           <Route path="/profile/:id/maintenance-ldnd" element={<Maintenance />} />
           <Route path="/profile/:id/maintenance-ad" element={<Maintenance />} />
-          <Route path="/profile/:id/maintenance-tcc" element={<Maintenance />} />
           <Route path="/profile/:id/maintenance-cpcp" element={<Maintenance />} />
           <Route path="/profile/:id/operation" element={<Operation />} />
           <Route path="/profile/:id/operation/reliability/:recordId" element={<ReliabilityMonitoring />} />
