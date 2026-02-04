@@ -570,10 +570,7 @@ export function TCCDetailContent({
         <div
           className={`${tccHeaderColor} text-white px-5 py-3.5 text-sm font-medium flex items-center gap-3`}
         >
-          <span>TCC</span>
-          <span className="text-white/80">
-            ({totalItems} components)
-          </span>
+          <span>{categoryOptions.find((o) => o.value === activeTab)?.label ?? activeTab}</span>
         </div>
 
         <div className="overflow-x-auto">

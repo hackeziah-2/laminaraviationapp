@@ -587,7 +587,7 @@ export function AircraftDocumentOnBoard() {
           <button
             type="button"
             onClick={handleAddDocument}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center gap-2 text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             Add Document
@@ -1141,7 +1141,7 @@ export function AircraftDocumentOnBoard() {
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold text-sm disabled:opacity-50 flex items-center gap-2"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:opacity-50"
               >
                 {isSaving && <Loader className="w-4 h-4 animate-spin" />}
                 {editingDocument ? "Update Entry" : "Save Entry"}
@@ -1287,7 +1287,7 @@ export function AircraftDocumentOnBoard() {
                   setShowViewModal(false);
                   setViewingDocument(null);
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-semibold text-sm"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm"
               >
                 Close
               </button>
