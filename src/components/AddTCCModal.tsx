@@ -70,7 +70,7 @@ export function AddTCCModal({ isOpen, onClose, onAdd }: AddTCCModalProps) {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div>
-            <h2 className="text-gray-900">Add New Time-Controlled Component</h2>
+            <h2 className="text-gray-900">Add TCC Entry</h2>
             <p className="text-gray-600 text-sm mt-1">
               Enter the details for the new time-controlled component.
             </p>
@@ -303,9 +303,9 @@ export function AddTCCModal({ isOpen, onClose, onAdd }: AddTCCModalProps) {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-white bg-black rounded-lg hover:bg-gray-800 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
             >
-              Add Component
+              Add TCC Entry
             </button>
           </div>
         </form>

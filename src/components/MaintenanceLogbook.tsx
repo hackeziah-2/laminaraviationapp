@@ -1246,7 +1246,7 @@ export function MaintenanceLogbook() {
           </button>
           <button
             onClick={() => setShowAddEntryModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             Add Entry
@@ -2272,7 +2272,7 @@ export function MaintenanceLogbook() {
                             }
                           }
                         }}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         <Download className="w-4 h-4" />
                         Download File
@@ -2875,7 +2875,7 @@ export function MaintenanceLogbook() {
               <button
                 onClick={handleSaveEntry}
                 disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSaving && <Loader className="w-4 h-4 animate-spin" />}
                 {editingEntry ? "Update Entry" : "Save Entry"}
