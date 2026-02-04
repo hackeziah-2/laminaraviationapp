@@ -1278,26 +1278,20 @@ export function Maintenance() {
           </>
         )}
 
-        {/* TCC Forecasting - Time Controlled Components detail inside tab */}
+        {/* TCC Forecasting – category filter (Powerplant, Airframe, Propeller) + search */}
         {activeCategory === "TCC" && (
           <div className="p-5">
-            <TCCDetailContent
-              aircraftId={String(aircraftId)}
-              showAddButton={true}
-            />
+            <TCCDetailContent aircraftId={id ?? ""} showAddButton={true} />
           </div>
         )}
 
-        {/* CPCP Forecasting - CPCP Monitoring design (first image) inside tab */}
+        {/* CPCP Forecasting */}
         {activeCategory === "CPCP" && (
           <div className="p-5">
             <CPCPMonitoring
-              msn={String(aircraftId)}
-              registration="RP-C12"
-              aftf="7895.4"
-              tach="7894.8"
-              date="20-Sep-25"
-              embedded={true}
+              msn={String(id ?? "")}
+              registration={`Aircraft ${id}`}
+              embedded
             />
           </div>
         )}
@@ -1650,113 +1644,6 @@ export function Maintenance() {
                   : editingADEntry
                   ? "Update Entry"
                   : "Add Entry"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Entry Modal for TCC with Frosted Glass Overlay */}
-      {showTCCModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full">
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-gray-900">Add TCC Entry</h3>
-                <p className="text-gray-500 text-sm mt-1">
-                  Enter the time-controlled component details
-                </p>
-              </div>
-              <button
-                onClick={() => setShowTCCModal(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="px-6 py-5 space-y-5 max-h-[calc(100vh-250px)] overflow-y-auto">
-              {/* MSN Field */}
-              <div>
-                <label className="block text-gray-900 text-sm mb-2">
-                  MSN (Manufacturer Serial Number){" "}
-                  <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., 17263830"
-                  value={tccFormData.msn}
-                  onChange={(e) =>
-                    setTccFormData({ ...tccFormData, msn: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* TSN Field */}
-              <div>
-                <label className="block text-gray-900 text-sm mb-2">
-                  TSN (Time Since New) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., 4811.7"
-                  value={tccFormData.tsn}
-                  onChange={(e) =>
-                    setTccFormData({ ...tccFormData, tsn: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* CSN Field */}
-              <div>
-                <label className="block text-gray-900 text-sm mb-2">
-                  CSN (Cycles Since New) <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g., 1549.2"
-                  value={tccFormData.csn}
-                  onChange={(e) =>
-                    setTccFormData({ ...tccFormData, csn: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button
-                onClick={() => setShowTCCModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  // Handle form submission here
-                  console.log("TCC Form data:", tccFormData);
-                  setShowTCCModal(false);
-                  // Reset form
-                  setTccFormData({
-                    msn: "",
-                    tsn: "",
-                    csn: "",
-                  });
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
-              >
-                Add Entry
               </button>
             </div>
           </div>
