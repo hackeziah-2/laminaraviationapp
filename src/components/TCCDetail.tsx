@@ -1,9 +1,27 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Plus, Search, Filter } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Search,
+  Filter,
+  Pencil,
+  Trash2,
+  Loader,
+} from "lucide-react";
 import { AddTCCModal } from "./AddTCCModal";
+import {
+  getAircraftTccMonitoring,
+  createAircraftTccMonitoring,
+  updateAircraftTccMonitoring,
+  deleteAircraftTccMonitoring,
+  type TCCMonitoring,
+} from "../api/tccMonitoringApi";
+import { Spinner } from "./ui/spinner";
+import Swal from "sweetalert2";
 
-interface ComponentItem {
+export interface ComponentItem {
   id: number;
   remaining: string;
   date: string;
@@ -12,12 +30,13 @@ interface ComponentItem {
   partNo: string;
   serialNo: string;
   description: string;
-  hours: string;       // COMPONENT LIMIT: Years (fixed from AMM/CMM/AD/SB)
-  threshold: string;   // COMPONENT LIMIT: Hours (fixed hour limit)
+  hours: string; // COMPONENT LIMIT: Years (fixed from AMM/CMM/AD/SB)
+  threshold: string; // COMPONENT LIMIT: Hours (fixed hour limit)
   methodOfCompliance: string;
   lastDoneDate: string;
-  lastDoneYear: string;  // LAST DONE TACH (aircraft TACH at maintenance)
+  lastDoneYear: string; // LAST DONE TACH (aircraft TACH at maintenance)
   lastDoneAftt: string;
+  lastDoneMethodOfCompliance?: string;
   nextDueDate: string;
   nextDueYear: string;
   nextDueAftt: string;
@@ -39,10 +58,26 @@ function parseDate(s: string | undefined): Date | null {
   if (!Number.isNaN(d.getTime())) return d;
   const match = str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
   if (match) {
-    const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const months: Record<string, number> = {
+      Jan: 0,
+      Feb: 1,
+      Mar: 2,
+      Apr: 3,
+      May: 4,
+      Jun: 5,
+      Jul: 6,
+      Aug: 7,
+      Sep: 8,
+      Oct: 9,
+      Nov: 10,
+      Dec: 11,
+    };
     const mon = months[match[2]] ?? NaN;
     if (Number.isFinite(mon)) {
-      const year = match[3].length === 2 ? 2000 + parseInt(match[3], 10) : parseInt(match[3], 10);
+      const year =
+        match[3].length === 2
+          ? 2000 + parseInt(match[3], 10)
+          : parseInt(match[3], 10);
       const day = parseInt(match[1], 10);
       const d2 = new Date(year, mon, day);
       if (!Number.isNaN(d2.getTime())) return d2;
@@ -55,7 +90,20 @@ function parseDate(s: string | undefined): Date | null {
 function formatDate(d: Date | null): string {
   if (!d) return "";
   const day = d.getDate();
-  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
+  const mon = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ][d.getMonth()];
   const y = d.getFullYear();
   const yy = y >= 2000 ? String(y).slice(-2) : String(y).slice(-2);
   return `${day}-${mon}-${yy}`;
@@ -92,12 +140,16 @@ export interface TCCComputedRow {
 
 /** Color for REMAINING group: Red = Due, Orange = <10%, Yellow = <20%, Green = <40% */
 function getRemainingColorClass(remainingPct: number | null): string {
-  if (remainingPct == null || !Number.isFinite(remainingPct) || remainingPct <= 0) {
+  if (
+    remainingPct == null ||
+    !Number.isFinite(remainingPct) ||
+    remainingPct <= 0
+  ) {
     return "bg-red-100 text-red-800"; // Due
   }
   if (remainingPct < 10) return "bg-orange-100 text-orange-800"; // Less than 10% Remaining
   if (remainingPct < 20) return "bg-yellow-100 text-yellow-800"; // Less than 20% Remaining
-  if (remainingPct < 40) return "bg-green-100 text-green-800";   // Less than 40% Remaining
+  if (remainingPct < 40) return "bg-green-100 text-green-800"; // Less than 40% Remaining
   return "";
 }
 
@@ -117,8 +169,10 @@ function computeTCCRow(
   const hasLastDoneTach = Number.isFinite(lastDoneTach);
   const hasLastDoneAftt = Number.isFinite(lastDoneAftt);
 
-  const nextDueTach = hasLimitHours && hasLastDoneTach ? lastDoneTach + limitHours : null;
-  const nextDueAftt = hasLimitHours && hasLastDoneAftt ? lastDoneAftt + limitHours : null;
+  const nextDueTach =
+    hasLimitHours && hasLastDoneTach ? lastDoneTach + limitHours : null;
+  const nextDueAftt =
+    hasLimitHours && hasLastDoneAftt ? lastDoneAftt + limitHours : null;
 
   let nextDueDate: Date | null = null;
   if (lastDoneDate != null && Number.isFinite(limitYears)) {
@@ -127,10 +181,18 @@ function computeTCCRow(
     nextDueDate = d;
   }
 
-  const remainingYears = nextDueDate != null ? daysBetween(currentDate, nextDueDate) / 365 : null;
-  const remainingDays = nextDueDate != null ? daysBetween(currentDate, nextDueDate) : null;
-  const remainingTach = hasLimitHours && hasLastDoneTach ? limitHours - (currentTach - lastDoneTach) : null;
-  const remainingAftt = hasLimitHours && hasLastDoneAftt ? limitHours - (currentAftt - lastDoneAftt) : null;
+  const remainingYears =
+    nextDueDate != null ? daysBetween(currentDate, nextDueDate) / 365 : null;
+  const remainingDays =
+    nextDueDate != null ? daysBetween(currentDate, nextDueDate) : null;
+  const remainingTach =
+    hasLimitHours && hasLastDoneTach
+      ? limitHours - (currentTach - lastDoneTach)
+      : null;
+  const remainingAftt =
+    hasLimitHours && hasLastDoneAftt
+      ? limitHours - (currentAftt - lastDoneAftt)
+      : null;
 
   return {
     remainingYears: remainingYears != null ? remainingYears : null,
@@ -165,417 +227,197 @@ export function TCCDetailContent({
     "POWERPLANT" | "AIRFRAME" | "PROPELLER"
   >("POWERPLANT");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTCCEntry, setEditingTCCEntry] = useState<ComponentItem | null>(
+    null
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const handleAddComponent = (component: any) => {
-    console.log("New component added:", component);
-  };
+  const aircraftIdNum = useMemo(
+    () => parseInt(aircraftId || "0", 10),
+    [aircraftId]
+  );
+  const [tccItems, setTccItems] = useState<ComponentItem[]>([]);
+  const [tccLoading, setTccLoading] = useState(false);
+  const [tccError, setTccError] = useState<string | null>(null);
+  const [tccTotal, setTccTotal] = useState(0);
+  const [tccPages, setTccPages] = useState(1);
+  const [tccSaving, setTccSaving] = useState(false);
+  const [searchDebounced, setSearchDebounced] = useState("");
 
-  // Sample data for Powerplant
-  const powerplantData: ComponentItem[] = [
-    {
-      id: 1,
-      remaining: "836",
-      date: "0322",
-      when: "2158",
-      aftt: "",
-      partNo: "IO-360-L2A",
-      serialNo: "L-34520-48A",
-      description: "Engine Overhaul",
-      hours: "12",
-      threshold: "2000",
-      methodOfCompliance: "Overhaul",
-      lastDoneDate: "5-Sep-23",
-      lastDoneYear: "20323",
-      lastDoneAftt: "678.0",
-      nextDueDate: "5-Sep-25",
-      nextDueYear: "2025",
-      nextDueAftt: "2158.0",
-      reference: "SID-10835",
-    },
-    {
-      id: 2,
-      remaining: "1.01",
-      date: "0322",
-      when: "2158",
-      aftt: "",
-      partNo: "",
-      serialNo: "ADF00A01",
-      description: "Engine Compartment Firewall Fuel Gaps: Hoe Testing",
-      hours: "12",
-      threshold: "2000",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "5-Sep-23",
-      lastDoneYear: "20323",
-      lastDoneAftt: "678.0",
-      nextDueDate: "5-Sep-25",
-      nextDueYear: "2025",
-      nextDueAftt: "4765.0",
-      reference: "ATL-18822",
-    },
-    {
-      id: 3,
-      remaining: "896",
-      date: "1022",
-      when: "2158",
-      aftt: "",
-      partNo: "",
-      serialNo: "",
-      description: "Engine Oil Contamination Inspect and Replace",
-      hours: "12",
-      threshold: "2000",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "5-Sep-23",
-      lastDoneYear: "20323",
-      lastDoneAftt: "678.0",
-      nextDueDate: "5-Sep-25",
-      nextDueYear: "2025",
-      nextDueAftt: "4765.0",
-      reference: "",
-    },
-    {
-      id: 4,
-      remaining: "1.01",
-      date: "185",
-      when: "1916.0",
-      aftt: "07865",
-      partNo: "",
-      serialNo: "",
-      description: "Air Filter",
-      hours: "12",
-      threshold: "2000",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "30-May-22",
-      lastDoneYear: "20224",
-      lastDoneAftt: "507.0",
-      nextDueDate: "30-May-24",
-      nextDueYear: "2024.4",
-      nextDueAftt: "1916.0",
-      reference: "",
-    },
-    {
-      id: 5,
-      remaining: "86",
-      date: "466",
-      when: "2158",
-      aftt: "",
-      partNo: "6438",
-      serialNo: "6438",
-      description: "Fuel Selector",
-      hours: "16",
-      threshold: "600",
-      methodOfCompliance: "Overhaul",
-      lastDoneDate: "5-Sep-23",
-      lastDoneYear: "20234",
-      lastDoneAftt: "678.0",
-      nextDueDate: "5-Sep-27",
-      nextDueYear: "2027.3",
-      nextDueAftt: "1916.0",
-      reference: "ATL-18232",
-    },
-    {
-      id: 6,
-      remaining: "1.01",
-      date: "0",
-      when: "1000.0",
-      aftt: "07565",
-      partNo: "07565",
-      serialNo: "6738",
-      description: "Vac Check Valve",
-      hours: "10",
-      threshold: "400",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "8-Aug-17",
-      lastDoneYear: "2017.6",
-      lastDoneAftt: "4,833.0",
-      nextDueDate: "8-Aug-19",
-      nextDueYear: "2019.6",
-      nextDueAftt: "2400.0",
-      reference: "ATL-16686",
-    },
-    {
-      id: 7,
-      remaining: "280",
-      date: "1288",
-      when: "2158",
-      aftt: "",
-      partNo: "",
-      serialNo: "6-63576-5",
-      description: "Vacuum Diaphragm Filter",
-      hours: "400",
-      threshold: "800",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "5-Sep-20",
-      lastDoneYear: "2020.7",
-      lastDoneAftt: "1550.0",
-      nextDueDate: "5-Sep-23",
-      nextDueYear: "2023.7",
-      nextDueAftt: "2350.0",
-      reference: "ATL-06240",
-    },
-    {
-      id: 8,
-      remaining: "2.25",
-      date: "569",
-      when: "1000.0",
-      aftt: "64602",
-      partNo: "64602",
-      serialNo: "",
-      description: "Hose and Lines, Nozzl and Pressure",
-      hours: "12",
-      threshold: "400",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "6-Aug-17",
-      lastDoneYear: "7026.2",
-      lastDoneAftt: "7026.2",
-      nextDueDate: "6-Aug-19",
-      nextDueYear: "7026.2",
-      nextDueAftt: "7026.2",
-      reference: "",
-    },
-  ];
+  // Debounce search so we don't hit API on every keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(searchQuery.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
-  // Sample data for Airframe
-  const airframeData: ComponentItem[] = [
-    {
-      id: 1,
-      remaining: "3.99",
-      date: "0",
-      when: "0.0",
-      aftt: "",
-      partNo: "28780",
-      serialNo: "",
-      description: "Retractable Landing Gear (R. Part. MLG with Passenger)",
-      hours: "01",
-      threshold: "2000",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "31-May-04",
-      lastDoneYear: "7387.7",
-      lastDoneAftt: "",
-      nextDueDate: "31-May-10",
-      nextDueYear: "",
-      nextDueAftt: "8927.7",
-      reference: "ATL-17054",
-    },
-    {
-      id: 2,
-      remaining: "3.00",
-      date: "0",
-      when: "0.0",
-      aftt: "",
-      partNo: "25754",
-      serialNo: "",
-      description: "Landing Gear In - Bushing Kit",
-      hours: "8",
-      threshold: "",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "1-May-04",
-      lastDoneYear: "",
-      lastDoneAftt: "",
-      nextDueDate: "",
-      nextDueYear: "",
-      nextDueAftt: "",
-      reference: "",
-    },
-    {
-      id: 3,
-      remaining: "1.81",
-      date: "848",
-      when: "0.0",
-      aftt: "",
-      partNo: "B-00730-8-A",
-      serialNo: "419048",
-      description: "Aileron D - Landing Light Socket",
-      hours: "",
-      threshold: "",
-      methodOfCompliance: "Replacement",
-      lastDoneDate: "10-Aug-90",
-      lastDoneYear: "10-Aug-94",
-      lastDoneAftt: "",
-      nextDueDate: "",
-      nextDueYear: "",
-      nextDueAftt: "",
-      reference: "",
-    },
-    {
-      id: 4,
-      remaining: "2.94",
-      date: "1248",
-      when: "0.0",
-      aftt: "",
-      partNo: "10-00730-2",
-      serialNo: "",
-      description: "Stbd/board Landing Gear (Without skirt Light)",
-      hours: "0",
-      threshold: "",
-      methodOfCompliance: "Servicing",
-      lastDoneDate: "10-Feb-2020",
-      lastDoneYear: "",
-      lastDoneAftt: "",
-      nextDueDate: "10-Feb-2021",
-      nextDueYear: "",
-      nextDueAftt: "",
-      reference: "ATL-AT-55918",
-    },
-  ];
+  const fetchTcc = useCallback(async () => {
+    if (!aircraftIdNum || aircraftIdNum <= 0) {
+      setTccItems([]);
+      setTccTotal(0);
+      setTccPages(1);
+      return;
+    }
+    setTccLoading(true);
+    setTccError(null);
+    try {
+      const res = await getAircraftTccMonitoring(
+        aircraftIdNum,
+        currentPage,
+        itemsPerPage,
+        searchDebounced,
+        activeTab
+      );
+      setTccItems((res.items as ComponentItem[]) ?? []);
+      setTccTotal(res.total ?? 0);
+      setTccPages(res.pages ?? 1);
+    } catch (err: any) {
+      if (err?.response?.status === 404 || err?.response?.status === 405) {
+        setTccItems([]);
+        setTccTotal(0);
+        setTccPages(1);
+      } else {
+        setTccError(
+          err?.response?.data?.detail ??
+            err?.message ??
+            "Failed to load TCC data."
+        );
+        setTccItems([]);
+      }
+    } finally {
+      setTccLoading(false);
+    }
+  }, [aircraftIdNum, activeTab, currentPage, itemsPerPage, searchDebounced]);
 
-  // Sample data for Propeller
-  const propellerData: ComponentItem[] = [
-    {
-      id: 1,
-      remaining: "8.00",
-      date: "995",
-      when: "1994.0",
-      aftt: "",
-      partNo: "HC-C2YK-1BF",
-      serialNo: "89A23354",
-      description: "Propeller Hub Assy (Whhg) Inst",
-      hours: "",
-      threshold: "",
-      methodOfCompliance: "Overhaul",
-      lastDoneDate: "5-Sep-22",
-      lastDoneYear: "",
-      lastDoneAftt: "",
-      nextDueDate: "",
-      nextDueYear: "",
-      nextDueAftt: "",
-      reference: "ATL-C1803",
-    },
-    {
-      id: 2,
-      remaining: "1.04",
-      date: "31",
-      when: "1/4.0",
-      aftt: "54.2",
-      partNo: "",
-      serialNo: "",
-      description: "First Saying Featuring System Spark Wear(Multiple)",
-      hours: "0",
-      threshold: "",
-      methodOfCompliance: "Inspection Test",
-      lastDoneDate: "121-Feb-2019",
-      lastDoneYear: "7028.3",
-      lastDoneAftt: "7028.3",
-      nextDueDate: "121-Feb-20",
-      nextDueYear: "",
-      nextDueAftt: "",
-      reference: "ATL-C1403",
-    },
-    {
-      id: 3,
-      remaining: "1.48",
-      date: "589",
-      when: "1994.0",
-      aftt: "54.2",
-      partNo: "",
-      serialNo: "",
-      description: "Magneto Skive Oil, Drive and coupling Kit",
-      hours: "3",
-      threshold: "1000",
-      methodOfCompliance: "Servicing",
-      lastDoneDate: "8-Apr-2020",
-      lastDoneYear: "7028.4",
-      lastDoneAftt: "7028.4",
-      nextDueDate: "8-Apr-2020",
-      nextDueYear: "8588.2",
-      nextDueAftt: "8588.2",
-      reference: "ATL-C1403",
-    },
-    {
-      id: 4,
-      remaining: "2.10",
-      date: "763",
-      when: "1916.0",
-      aftt: "54.2",
-      partNo: "102-48",
-      serialNo: "102.48",
-      description: "Windshield L - Vent Water Cleaner",
-      hours: "5",
-      threshold: "1000",
-      methodOfCompliance: "Servicing",
-      lastDoneDate: "8-Apr-20",
-      lastDoneYear: "7028.2",
-      lastDoneAftt: "7028.2",
-      nextDueDate: "8-Apr-20",
-      nextDueYear: "8788.2",
-      nextDueAftt: "8788.2",
-      reference: "ATL-C1403",
-    },
-    {
-      id: 5,
-      remaining: "2.94",
-      date: "994",
-      when: "1916.0",
-      aftt: "54.2",
-      partNo: "164-8",
-      serialNo: "164-8",
-      description: "Pilot-arm Kit Variable Damper",
-      hours: "5",
-      threshold: "1000",
-      methodOfCompliance: "Servicing",
-      lastDoneDate: "8-Apr-2020",
-      lastDoneYear: "7028.6",
-      lastDoneAftt: "7028.6",
-      nextDueDate: "8-Apr-2020",
-      nextDueYear: "8788.6",
-      nextDueAftt: "8788.6",
-      reference: "ATL-C1403",
-    },
-    {
-      id: 6,
-      remaining: "2.10",
-      date: "886",
-      when: "1640.0",
-      aftt: "54.03",
-      partNo: "164-8",
-      serialNo: "3-88.02",
-      description: "Cabin Window (HMS)",
-      hours: "8",
-      threshold: "",
-      methodOfCompliance: "Servicing",
-      lastDoneDate: "8-Apr-2020",
-      lastDoneYear: "7028.2",
-      lastDoneAftt: "7028.2",
-      nextDueDate: "8-Apr-2025",
-      nextDueYear: "8788.2",
-      nextDueAftt: "8788.2",
-      reference: "ATL-C1403",
-    },
-  ];
+  useEffect(() => {
+    fetchTcc();
+  }, [fetchTcc]);
 
-  const getCurrentData = () => {
-    switch (activeTab) {
-      case "POWERPLANT":
-        return powerplantData;
-      case "AIRFRAME":
-        return airframeData;
-      case "PROPELLER":
-        return propellerData;
-      default:
-        return [];
+  const handleAddComponent = async (payload: any) => {
+    if (!aircraftIdNum || aircraftIdNum <= 0) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Invalid aircraft",
+        text: "Aircraft ID is required.",
+      });
+      return;
+    }
+    setTccSaving(true);
+    try {
+      await createAircraftTccMonitoring(aircraftIdNum, {
+        category: payload.category || activeTab,
+        partNo: payload.partNo,
+        serialNo: payload.serialNo,
+        description: payload.description,
+        hours: payload.hours,
+        threshold: payload.threshold,
+        methodOfCompliance: payload.methodOfCompliance,
+      });
+      await Swal.fire({
+        icon: "success",
+        title: "Saved!",
+        text: "TCC entry added successfully.",
+      });
+      closeModal();
+      fetchTcc();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ?? err?.message ?? "Failed to add entry.";
+      await Swal.fire({ icon: "error", title: "Error", text: msg });
+    } finally {
+      setTccSaving(false);
     }
   };
 
-  const getFilteredData = () => {
-    const data = getCurrentData();
-    if (!searchQuery.trim()) return data;
-    const q = searchQuery.toLowerCase().trim();
-    return data.filter(
-      (item) =>
-        (item.reference || "").toLowerCase().includes(q) ||
-        (item.partNo || "").toLowerCase().includes(q) ||
-        (item.serialNo || "").toLowerCase().includes(q)
-    );
+  const handleUpdateTCC = async (id: number, payload: any) => {
+    if (!aircraftIdNum || aircraftIdNum <= 0) return;
+    setTccSaving(true);
+    try {
+      await updateAircraftTccMonitoring(aircraftIdNum, id, {
+        partNo: payload.partNo,
+        serialNo: payload.serialNo,
+        description: payload.description,
+        hours: payload.hours,
+        threshold: payload.threshold,
+        methodOfCompliance: payload.methodOfCompliance,
+        reference: payload.reference,
+        lastDoneDate: payload.lastDoneDate,
+        lastDoneYear: payload.lastDoneYear,
+        lastDoneAftt: payload.lastDoneAftt,
+        lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
+      });
+      await Swal.fire({
+        icon: "success",
+        title: "Updated!",
+        text: "TCC entry updated successfully.",
+      });
+      closeModal();
+      fetchTcc();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ??
+        err?.message ??
+        "Failed to update entry.";
+      await Swal.fire({ icon: "error", title: "Error", text: msg });
+    } finally {
+      setTccSaving(false);
+    }
   };
 
-  const filteredData = getFilteredData();
-  const totalItems = filteredData.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const handleDeleteTCC = async (item: ComponentItem) => {
+    const result = await Swal.fire({
+      title: "Delete TCC entry?",
+      text: `"${
+        item.description || item.partNo || item.id
+      }" — This cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete it",
+    });
+    if (!result.isConfirmed) return;
+    if (!aircraftIdNum || aircraftIdNum <= 0) return;
+    try {
+      await deleteAircraftTccMonitoring(aircraftIdNum, item.id);
+      await Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "TCC entry deleted.",
+      });
+      setEditingTCCEntry(null);
+      fetchTcc();
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ??
+        err?.message ??
+        "Failed to delete entry.";
+      await Swal.fire({ icon: "error", title: "Error", text: msg });
+    }
+  };
+
+  const openAddModal = () => {
+    setEditingTCCEntry(null);
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (item: ComponentItem) => {
+    setEditingTCCEntry(item);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingTCCEntry(null);
+  };
+
+  // API returns paged data for current category
+  const totalItems = tccTotal;
+  const totalPages = Math.max(1, tccPages);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
-  const paginatedData = filteredData.slice(startIndex, endIndex);
+  const paginatedData = tccItems;
 
   const currentDate = useMemo(() => new Date(), []);
   const currentTach = 7561;
@@ -599,11 +441,10 @@ export function TCCDetailContent({
   const categoryOptions: {
     value: "POWERPLANT" | "AIRFRAME" | "PROPELLER";
     label: string;
-    count: number;
   }[] = [
-    { value: "POWERPLANT", label: "Powerplant", count: powerplantData.length },
-    { value: "AIRFRAME", label: "Airframe", count: airframeData.length },
-    { value: "PROPELLER", label: "Propeller", count: propellerData.length },
+    { value: "POWERPLANT", label: "Powerplant" },
+    { value: "AIRFRAME", label: "Airframe" },
+    { value: "PROPELLER", label: "Propeller" },
   ];
 
   return (
@@ -660,7 +501,7 @@ export function TCCDetailContent({
             >
               {categoryOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.label} ({opt.count})
+                  {opt.label}
                 </option>
               ))}
             </select>
@@ -668,11 +509,22 @@ export function TCCDetailContent({
         </div>
         {showAddButton && (
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap mt-6"
+            type="button"
+            onClick={openAddModal}
+            disabled={tccSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap mt-6 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Plus className="w-4 h-4" />
-            Add TCC Entry
+            {tccSaving ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4" />
+                Add TCC Entry
+              </>
+            )}
           </button>
         )}
       </div>
@@ -721,208 +573,276 @@ export function TCCDetailContent({
           </span>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th
-                  colSpan={4}
-                  className="px-3 py-2 text-xs text-gray-600"
-                >
-                  REMAINING
-                </th>
-                <th
-                  colSpan={3}
-                  className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
-                >
-                  COMPONENT INFO
-                </th>
-                <th
-                  colSpan={2}
-                  className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
-                >
-                  COMPONENT LIMIT
-                </th>
-                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
-                  METHOD OF COMPLIANCE
-                </th>
-                <th
-                  colSpan={3}
-                  className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
-                >
-                  LAST DONE
-                </th>
-                <th
-                  colSpan={3}
-                  className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
-                >
-                  NEXT DUE
-                </th>
-                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
-                  REFERENCE
-                </th>
-              </tr>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  YEARS
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  DAYS
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  TACH
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  AFTT
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  PART NO.
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  SERIAL NO.
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  DESCRIPTION
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  YEARS
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  HOURS
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  METHOD OF COMPLIANCE
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  DATE
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  TACH
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  AFTT
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  DATE
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  TACH
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
-                  AFTT
-                </th>
-                <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                  ATL-SEC.NO
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {computedRows.map((row) => {
-                const item = row.raw;
-                return (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-gray-50 transition-colors"
+        {tccLoading ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Spinner />
+            <span className="text-sm text-gray-500">Loading...</span>
+          </div>
+        ) : tccError ? (
+          <div className="px-5 py-8 text-center">
+            <p className="text-red-600 text-sm mb-3">{tccError}</p>
+            <button
+              type="button"
+              onClick={() => fetchTcc()}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th colSpan={4} className="px-3 py-2 text-xs text-gray-600">
+                    REMAINING
+                  </th>
+                  <th
+                    colSpan={3}
+                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
                   >
-                    {/* REMAINING: Years — color by % remaining: Red=Due, Orange=<10%, Yellow=<20%, Green=<40% */}
-                    {(() => {
-                      const pctYears = row.limitYears > 0 && row.remainingYears != null
-                        ? (row.remainingYears / row.limitYears) * 100
-                        : null;
-                      const colorYears = getRemainingColorClass(pctYears);
-                      return (
-                        <td className={`px-3 py-3 text-xs ${colorYears || "text-gray-900"}`}>
-                          {row.remainingYears != null ? row.remainingYears.toFixed(2) : item.remaining}
-                        </td>
-                      );
-                    })()}
-                    {/* REMAINING: Days */}
-                    {(() => {
-                      const pctDays = row.limitYears > 0 && row.remainingDays != null
-                        ? (row.remainingDays / (row.limitYears * 365)) * 100
-                        : null;
-                      const colorDays = getRemainingColorClass(pctDays);
-                      return (
-                        <td className={`px-3 py-3 text-xs ${colorDays || "text-gray-900"}`}>
-                          {row.remainingDays != null ? String(row.remainingDays) : item.date}
-                        </td>
-                      );
-                    })()}
-                    {/* REMAINING: TACH */}
-                    {(() => {
-                      const pctTach = row.limitHours > 0 && row.remainingTach != null
-                        ? (row.remainingTach / row.limitHours) * 100
-                        : null;
-                      const colorTach = getRemainingColorClass(pctTach);
-                      return (
-                        <td className={`px-3 py-3 text-xs ${colorTach || "text-gray-900"}`}>
-                          {formatNum(row.remainingTach) || item.when}
-                        </td>
-                      );
-                    })()}
-                    {/* REMAINING: AFTT */}
-                    {(() => {
-                      const pctAftt = row.limitHours > 0 && row.remainingAftt != null
-                        ? (row.remainingAftt / row.limitHours) * 100
-                        : null;
-                      const colorAftt = getRemainingColorClass(pctAftt);
-                      return (
-                        <td className={`px-3 py-3 text-xs ${colorAftt || "text-gray-900"}`}>
-                          {formatNum(row.remainingAftt) || item.aftt}
-                        </td>
-                      );
-                    })()}
-                    {/* COMPONENT INFO: Part No., Serial No., Description (reference) */}
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                      {item.partNo}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs">
-                      {item.serialNo}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                      {item.description}
-                    </td>
-                    {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                      {item.hours}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs">
-                      {item.threshold}
-                    </td>
-                    {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                      {item.methodOfCompliance}
-                    </td>
-                    {/* LAST DONE: Date, TACH, AFTT (reference) */}
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
-                      {item.lastDoneDate}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
-                      {item.lastDoneYear}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
-                      {item.lastDoneAftt}
-                    </td>
-                    {/* NEXT DUE: Date = Last Done + Limit Years; TACH/AFTT = Last Done + Limit Hours */}
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                      {row.nextDueDate ? formatDate(row.nextDueDate) : item.nextDueDate}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs">
-                      {formatNum(row.nextDueTach) || item.nextDueYear}
-                    </td>
-                    <td className="px-3 py-3 text-gray-900 text-xs">
-                      {formatNum(row.nextDueAftt) || item.nextDueAftt}
-                    </td>
-                    {/* REFERENCE: ATL reference (Document) */}
-                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                      {item.reference}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    COMPONENT INFO
+                  </th>
+                  <th
+                    colSpan={2}
+                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                  >
+                    COMPONENT LIMIT
+                  </th>
+                  <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
+                    METHOD OF COMPLIANCE
+                  </th>
+                  <th
+                    colSpan={3}
+                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                  >
+                    LAST DONE
+                  </th>
+                  <th
+                    colSpan={3}
+                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                  >
+                    NEXT DUE
+                  </th>
+                  <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
+                    REFERENCE
+                  </th>
+                  <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200 w-24">
+                    Actions
+                  </th>
+                </tr>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    YEARS
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    DAYS
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    TACH
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    AFTT
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    PART NO.
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    SERIAL NO.
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    DESCRIPTION
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    YEARS
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    HOURS
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    METHOD OF COMPLIANCE
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    DATE
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    TACH
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    AFTT
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    DATE
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    TACH
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                    AFTT
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                    ATL-SEC.NO
+                  </th>
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {computedRows.map((row) => {
+                  const item = row.raw;
+                  return (
+                    <tr
+                      key={item.id}
+                      className="hover:bg-gray-50 transition-colors"
+                    >
+                      {/* REMAINING: Years — color by % remaining: Red=Due, Orange=<10%, Yellow=<20%, Green=<40% */}
+                      {(() => {
+                        const pctYears =
+                          row.limitYears > 0 && row.remainingYears != null
+                            ? (row.remainingYears / row.limitYears) * 100
+                            : null;
+                        const colorYears = getRemainingColorClass(pctYears);
+                        return (
+                          <td
+                            className={`px-3 py-3 text-xs ${
+                              colorYears || "text-gray-900"
+                            }`}
+                          >
+                            {row.remainingYears != null
+                              ? row.remainingYears.toFixed(2)
+                              : item.remaining}
+                          </td>
+                        );
+                      })()}
+                      {/* REMAINING: Days */}
+                      {(() => {
+                        const pctDays =
+                          row.limitYears > 0 && row.remainingDays != null
+                            ? (row.remainingDays / (row.limitYears * 365)) * 100
+                            : null;
+                        const colorDays = getRemainingColorClass(pctDays);
+                        return (
+                          <td
+                            className={`px-3 py-3 text-xs ${
+                              colorDays || "text-gray-900"
+                            }`}
+                          >
+                            {row.remainingDays != null
+                              ? String(row.remainingDays)
+                              : item.date}
+                          </td>
+                        );
+                      })()}
+                      {/* REMAINING: TACH */}
+                      {(() => {
+                        const pctTach =
+                          row.limitHours > 0 && row.remainingTach != null
+                            ? (row.remainingTach / row.limitHours) * 100
+                            : null;
+                        const colorTach = getRemainingColorClass(pctTach);
+                        return (
+                          <td
+                            className={`px-3 py-3 text-xs ${
+                              colorTach || "text-gray-900"
+                            }`}
+                          >
+                            {formatNum(row.remainingTach) || item.when}
+                          </td>
+                        );
+                      })()}
+                      {/* REMAINING: AFTT */}
+                      {(() => {
+                        const pctAftt =
+                          row.limitHours > 0 && row.remainingAftt != null
+                            ? (row.remainingAftt / row.limitHours) * 100
+                            : null;
+                        const colorAftt = getRemainingColorClass(pctAftt);
+                        return (
+                          <td
+                            className={`px-3 py-3 text-xs ${
+                              colorAftt || "text-gray-900"
+                            }`}
+                          >
+                            {formatNum(row.remainingAftt) || item.aftt}
+                          </td>
+                        );
+                      })()}
+                      {/* COMPONENT INFO: Part No., Serial No., Description (reference) */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                        {item.partNo}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs">
+                        {item.serialNo}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                        {item.description}
+                      </td>
+                      {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                        {item.hours}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs">
+                        {item.threshold}
+                      </td>
+                      {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                        {item.methodOfCompliance}
+                      </td>
+                      {/* LAST DONE: Date, TACH, AFTT (reference) */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
+                        {item.lastDoneDate}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
+                        {item.lastDoneYear}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
+                        {item.lastDoneAftt}
+                      </td>
+                      {/* NEXT DUE: Date = Last Done + Limit Years; TACH/AFTT = Last Done + Limit Hours */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                        {row.nextDueDate
+                          ? formatDate(row.nextDueDate)
+                          : item.nextDueDate}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs">
+                        {formatNum(row.nextDueTach) || item.nextDueYear}
+                      </td>
+                      <td className="px-3 py-3 text-gray-900 text-xs">
+                        {formatNum(row.nextDueAftt) || item.nextDueAftt}
+                      </td>
+                      {/* REFERENCE: ATL reference (Document) */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                        {item.reference}
+                      </td>
+                      {/* Actions: Edit, Delete */}
+                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(item)}
+                            className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTCC(item)}
+                            className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Pagination - CPCP Monitoring pattern */}
         <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
@@ -1006,11 +926,15 @@ export function TCCDetailContent({
         </div>
       </div>
 
-      {/* Add TCC Entry Modal */}
+      {/* Add / Edit TCC Entry Modal */}
       <AddTCCModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={closeModal}
         onAdd={handleAddComponent}
+        editingItem={editingTCCEntry}
+        onUpdate={handleUpdateTCC}
+        activeCategory={activeTab}
+        aircraftId={aircraftId}
       />
     </>
   );
