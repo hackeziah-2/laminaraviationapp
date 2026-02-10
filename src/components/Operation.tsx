@@ -11,6 +11,7 @@ import {
   FileText,
   Search,
   Pencil,
+  Eye,
 } from "lucide-react";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
@@ -20,6 +21,7 @@ import {
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
+import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import { toCamel, formatTimeZulu } from "../utility/utils";
@@ -114,6 +116,93 @@ export function Operation() {
       console.error("Download error:", err);
       alert(err?.response?.data?.detail || err?.message || "Failed to download file.");
     }
+  };
+
+  /** Infer MIME from filename when server returns octet-stream (so JPG/PDF are viewable) */
+  const getMimeFromFilename = (path: string): string | null => {
+    const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
+    if (ext === "pdf") return "application/pdf";
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    if (ext === "png") return "image/png";
+    if (ext === "gif") return "image/gif";
+    if (ext === "webp") return "image/webp";
+    return null;
+  };
+
+  /** View file in popup modal */
+  const [showFileViewModal, setShowFileViewModal] = useState(false);
+  const [fileViewBlobUrl, setFileViewBlobUrl] = useState<string | null>(null);
+  const [fileViewMimeType, setFileViewMimeType] = useState<string | null>(null);
+  const [fileViewLoading, setFileViewLoading] = useState(false);
+  const [fileViewError, setFileViewError] = useState<string | null>(null);
+
+  const handleViewFile = async (
+    folder: string,
+    filename: string,
+  ) => {
+    if (!filename || !filename.trim()) return;
+    setFileViewLoading(true);
+    setFileViewError(null);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    let filePath = filename.trim().replace(/^\/+/, "");
+    filePath = filePath.replace(/^api\/v1\//, "");
+    const endpoint = `${folder}/download/${filePath}`;
+    try {
+      const response = await apiClient.get(endpoint, {
+        responseType: "blob",
+        headers: { Accept: "application/octet-stream" },
+      });
+      const blob = response.data as Blob;
+      const url = window.URL.createObjectURL(blob);
+      const serverType = blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream = !serverType || serverType === "application/octet-stream";
+      const mimeType = isOctetStream ? getMimeFromFilename(filePath) : serverType;
+      const isImage =
+        mimeType &&
+        (mimeType.startsWith("image/") ||
+          mimeType === "image/jpeg" ||
+          mimeType === "image/jpg");
+      if (isImage) {
+        setFileViewBlobUrl(url);
+        setFileViewMimeType(mimeType);
+        setShowFileViewModal(true);
+      } else {
+        const result = await Swal.fire({
+          icon: "info",
+          title: "Cannot view file",
+          text: "This File cannot be viewed. Please download the file to see it.",
+          showCancelButton: true,
+          confirmButtonText: "Yes",
+          cancelButtonText: "No",
+        });
+        if (result.isConfirmed) {
+          const downloadName = filePath.split("/").pop() || "download";
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = downloadName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      console.error("View file error:", err);
+      setFileViewError(err?.response?.data?.detail || err?.message || "Failed to open file.");
+    } finally {
+      setFileViewLoading(false);
+    }
+  };
+
+  const closeFileViewModal = () => {
+    if (fileViewBlobUrl) {
+      window.URL.revokeObjectURL(fileViewBlobUrl);
+    }
+    setShowFileViewModal(false);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setFileViewError(null);
   };
 
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
@@ -1057,40 +1146,64 @@ export function Operation() {
                             <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                               {record.whiteAtl &&
                               record.whiteAtl.trim() !== "" ? (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline"
-                                  onClick={() =>
-                                    handleDownloadFile(
-                                      "white_atl",
-                                      record.whiteAtl!,
-                                      record.whiteAtl!.split("/").pop() || "white_atl"
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4" />
-                                  <span className="text-xs">Download</span>
-                                </button>
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                    onClick={() =>
+                                      handleDownloadFile(
+                                        "white_atl",
+                                        record.whiteAtl!,
+                                        record.whiteAtl!.split("/").pop() || "white_atl"
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 flex-shrink-0" />
+                                    <span className="text-xs">Download</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                    onClick={() =>
+                                      handleViewFile("white_atl", record.whiteAtl!)
+                                    }
+                                  >
+                                    <Eye className="w-4 h-4 flex-shrink-0" />
+                                    <span className="text-xs">View</span>
+                                  </button>
+                                </div>
                               ) : (
                                 <span className="text-gray-900">-</span>
                               )}
                             </td>
                             <td className="px-3 py-3 text-sm bg-white">
                               {record.dfp && record.dfp.trim() !== "" ? (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline"
-                                  onClick={() =>
-                                    handleDownloadFile(
-                                      "dfp",
-                                      record.dfp!,
-                                      record.dfp!.split("/").pop() || "dfp"
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4" />
-                                  <span className="text-xs">Download</span>
-                                </button>
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                    onClick={() =>
+                                      handleDownloadFile(
+                                        "dfp",
+                                        record.dfp!,
+                                        record.dfp!.split("/").pop() || "dfp"
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 flex-shrink-0" />
+                                    <span className="text-xs">Download</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                    onClick={() =>
+                                      handleViewFile("dfp", record.dfp!)
+                                    }
+                                  >
+                                    <Eye className="w-4 h-4 flex-shrink-0" />
+                                    <span className="text-xs">View</span>
+                                  </button>
+                                </div>
                               ) : (
                                 <span className="text-gray-900">-</span>
                               )}
@@ -1411,6 +1524,90 @@ export function Operation() {
           fetchRecords();
         }}
       />
+
+      {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}
+      {showFileViewModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+          }}
+          onClick={closeFileViewModal}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <span className="text-sm font-medium text-gray-900">View file</span>
+              <button
+                type="button"
+                onClick={closeFileViewModal}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
+              {fileViewLoading && (
+                <div className="flex flex-col items-center gap-2 text-gray-500">
+                  <Spinner />
+                  <span className="text-sm">Loading file…</span>
+                </div>
+              )}
+              {fileViewError && !fileViewLoading && (
+                <div className="text-center text-red-600 text-sm">
+                  {fileViewError}
+                </div>
+              )}
+              {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
+                <>
+                  {/* JPG, JPEG, PNG, GIF, WebP – image preview */}
+                  {(fileViewMimeType?.startsWith("image/") ||
+                    fileViewMimeType === "image/jpeg" ||
+                    fileViewMimeType === "image/jpg") && (
+                    <img
+                      src={fileViewBlobUrl}
+                      alt="File preview"
+                      className="max-w-full max-h-[70vh] object-contain"
+                    />
+                  )}
+                  {/* PDF – iframe preview */}
+                  {(fileViewMimeType === "application/pdf" ||
+                    fileViewMimeType?.includes("pdf")) && (
+                    <iframe
+                      src={fileViewBlobUrl}
+                      title="File preview"
+                      className="w-full h-[70vh] border-0 rounded"
+                    />
+                  )}
+                  {fileViewBlobUrl &&
+                    !fileViewMimeType?.startsWith("image/") &&
+                    fileViewMimeType !== "image/jpeg" &&
+                    fileViewMimeType !== "image/jpg" &&
+                    fileViewMimeType !== "application/pdf" &&
+                    !fileViewMimeType?.includes("pdf") && (
+                      <div className="text-center text-gray-600 text-sm">
+                        <p className="mb-2">Preview not available for this file type.</p>
+                        <a
+                          href={fileViewBlobUrl}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          Open in new tab / Download
+                        </a>
+                      </div>
+                    )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

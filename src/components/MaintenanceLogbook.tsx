@@ -55,6 +55,8 @@ import {
   AirframeLogbookCreate,
   AvionicsLogbookCreate,
   PropellerLogbookCreate,
+  type ComponentPart,
+  type Mechanic,
 } from "../api/logbooksApi";
 import { Spinner } from "./ui/spinner";
 import { snakeAllKeys } from "../utility/utils";
@@ -118,6 +120,37 @@ interface PropellerLogEntry {
 }
 
 type Category = "AIRFRAME" | "AVIONICS" | "ENGINE" | "PROPELLER";
+
+// Prefer nested mechanic object (json_data pattern), then accountsMap, then flat mechanicName/licenseNumber
+function getMechanicDisplay(
+  entry: {
+    mechanic?: Mechanic;
+    mechanicFk?: number;
+    mechanicName?: string;
+    licenseNumber?: string;
+  },
+  accountsMap?: Map<number, { fullName: string; licenseNo: string }>
+): string {
+  if (entry.mechanic) {
+    const name = [
+      entry.mechanic.firstName,
+      entry.mechanic.middleName,
+      entry.mechanic.lastName,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+    const lic = entry.mechanic.licenseNo || "";
+    return lic ? `${name}-${lic}` : name || "-";
+  }
+  if (entry.mechanicFk && accountsMap?.has(entry.mechanicFk)) {
+    const a = accountsMap.get(entry.mechanicFk)!;
+    return `${a.fullName}-${a.licenseNo}`;
+  }
+  if (entry.mechanicName && entry.licenseNumber)
+    return `${entry.mechanicName}-${entry.licenseNumber}`;
+  return entry.mechanicName || entry.licenseNumber || "-";
+}
 
 export function MaintenanceLogbook() {
   const { id } = useParams<{ id: string }>();
@@ -521,6 +554,50 @@ export function MaintenanceLogbook() {
     null
   );
 
+  // Component records (for Airframe, Avionics, Engine – Create/Update/Read) – matches backend component_parts schema
+  interface ComponentRecordRow {
+    id: string;
+    qty: string;
+    unit: string;
+    nomenclature: string;
+    removedPartNo: string;
+    removedSerialNo: string;
+    installedPartNo: string;
+    installedSerialNo: string;
+    ataChapter: string;
+  }
+  const [componentRecords, setComponentRecords] = useState<
+    ComponentRecordRow[]
+  >([]);
+  const addComponentRecord = () => {
+    setComponentRecords((prev) => [
+      ...prev,
+      {
+        id: `cr-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        qty: "",
+        unit: "",
+        nomenclature: "",
+        removedPartNo: "",
+        removedSerialNo: "",
+        installedPartNo: "",
+        installedSerialNo: "",
+        ataChapter: "",
+      },
+    ]);
+  };
+  const removeComponentRecord = (id: string) => {
+    setComponentRecords((prev) => prev.filter((r) => r.id !== id));
+  };
+  const updateComponentRecord = (
+    id: string,
+    field: keyof ComponentRecordRow,
+    value: string
+  ) => {
+    setComponentRecords((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
+    );
+  };
+
   // Debounce mechanic search
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -754,8 +831,22 @@ export function MaintenanceLogbook() {
           serialNo: (editingEntry as any).serialNo || "",
           description: editingEntry.description || "",
           mechanicFk: editingEntry.mechanicFk?.toString() || "",
-          mechanicName: editingEntry.mechanicName || "",
-          licenseNumber: editingEntry.licenseNumber || "",
+          mechanicName: (
+            editingEntry as AirframeLogbook | AvionicsLogbook | EngineLogbook
+          ).mechanic
+            ? [
+                (editingEntry as any).mechanic?.firstName,
+                (editingEntry as any).mechanic?.middleName,
+                (editingEntry as any).mechanic?.lastName,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .trim()
+            : editingEntry.mechanicName || "",
+          licenseNumber:
+            (editingEntry as any).mechanic?.licenseNo ??
+            editingEntry.licenseNumber ??
+            "",
           signature: editingEntry.signature || "",
         });
         // Set existing file info for editing
@@ -771,6 +862,39 @@ export function MaintenanceLogbook() {
           setUploadFileName("");
         }
         setUploadFile(null); // No new file selected yet
+        const entryWithParts = editingEntry as
+          | AirframeLogbook
+          | AvionicsLogbook
+          | EngineLogbook;
+        const parts = entryWithParts.componentParts;
+        if (Array.isArray(parts) && parts.length > 0) {
+          setComponentRecords(
+            parts.map((p: ComponentPart, i: number) => {
+              const sn = p as unknown as Record<string, unknown>;
+              return {
+                id: `cr-edit-${i}-${p.id ?? i}`,
+                qty: String(p.qty ?? ""),
+                unit: p.unit ?? "",
+                nomenclature: p.nomenclature ?? "",
+                removedPartNo: String(
+                  p.removedPartNo ?? sn.removed_part_no ?? ""
+                ),
+                removedSerialNo: String(
+                  p.removedSerialNo ?? sn.removed_serial_no ?? ""
+                ),
+                installedPartNo: String(
+                  p.installedPartNo ?? sn.installed_part_no ?? ""
+                ),
+                installedSerialNo: String(
+                  p.installedSerialNo ?? sn.installed_serial_no ?? ""
+                ),
+                ataChapter: String(p.ataChapter ?? sn.ata_chapter ?? ""),
+              };
+            })
+          );
+        } else {
+          setComponentRecords([]);
+        }
       } else {
         // Reset form for new entry
         setFormData({
@@ -804,10 +928,12 @@ export function MaintenanceLogbook() {
         setUploadFile(null);
         setUploadFileName("");
         setExistingUploadFile(null);
+        setComponentRecords([]);
       }
     } else {
       // Reset when modal closes
       setMechanicAccounts([]);
+      setComponentRecords([]);
       setMechanicSearchTerm("");
       setIsMechanicDropdownOpen(false);
       setUploadFile(null);
@@ -888,7 +1014,9 @@ export function MaintenanceLogbook() {
       // Include aircraft_fk for both create and update (required by backend)
       baseData.aircraftFk =
         editingEntry != null
-          ? (editingEntry as any).aircraftFk ?? (editingEntry as any).aircraft_fk ?? aircraftId
+          ? (editingEntry as any).aircraftFk ??
+            (editingEntry as any).aircraft_fk ??
+            aircraftId
           : aircraftId;
 
       // Only include date when creating (not updating); backend may not allow date updates
@@ -1000,7 +1128,34 @@ export function MaintenanceLogbook() {
       // Convert to snake_case
       const apiDataSnake = snakeAllKeys(cleanData);
 
-      // For JSON updates (no file), ensure we don't send empty strings except for allowed fields
+      // Build component_parts for Airframe, Avionics, Engine (always send key so backend persists it)
+      const isComponentCategory =
+        activeCategory === "AIRFRAME" ||
+        activeCategory === "AVIONICS" ||
+        activeCategory === "ENGINE";
+      // Backend schema: qty (number), unit, nomenclature, removed_part_no, removed_serial_no, installed_part_no, installed_serial_no, ata_chapter
+      const componentPartsPayload = isComponentCategory
+        ? componentRecords.map((r) => ({
+            qty: (() => {
+              const n = parseFloat(r.qty);
+              return Number.isFinite(n) ? n : 0;
+            })(),
+            unit: r.unit || "",
+            nomenclature: r.nomenclature || "",
+            removed_part_no: r.removedPartNo || "",
+            removed_serial_no: r.removedSerialNo || "",
+            installed_part_no: r.installedPartNo || "",
+            installed_serial_no: r.installedSerialNo || "",
+            ata_chapter: r.ataChapter || "",
+          }))
+        : [];
+
+      if (isComponentCategory) {
+        (apiDataSnake as Record<string, unknown>).component_parts =
+          componentPartsPayload;
+      }
+
+      // For JSON updates (no file), ensure we don't send empty strings except for allowed fields (only top-level; do not touch component_parts)
       if (!uploadFile) {
         const allowedEmptyStringFields = [
           "description",
@@ -1012,6 +1167,7 @@ export function MaintenanceLogbook() {
         ];
         Object.keys(apiDataSnake).forEach((key) => {
           const value = apiDataSnake[key];
+          if (key === "component_parts") return; // keep component_parts as-is
           if (
             typeof value === "string" &&
             value.trim() === "" &&
@@ -1022,59 +1178,56 @@ export function MaintenanceLogbook() {
         });
       }
 
-      // If new file is uploaded, use FormData with json_data field
+      // Backend expects FormData with json_data only (component_parts inside json_data)
+      const formDataObj = new FormData();
+      formDataObj.append("json_data", JSON.stringify(apiDataSnake));
       if (uploadFile) {
-        const formDataObj = new FormData();
-
-        // Append JSON data as stringified json_data field (backend expects this format)
-        formDataObj.append("json_data", JSON.stringify(apiDataSnake));
-
-        // Append file
         formDataObj.append("upload_file", uploadFile);
+      }
 
-        if (editingEntry) {
-          switch (activeCategory) {
-            case "AIRFRAME":
-              await updateAirframeLogbook(editingEntry.id, formDataObj as any);
-              break;
-            case "AVIONICS":
-              await updateAvionicsLogbook(editingEntry.id, formDataObj as any);
-              break;
-            case "ENGINE":
-              await updateEngineLogbook(editingEntry.id, formDataObj as any);
-              break;
-            case "PROPELLER":
-              await updatePropellerLogbook(editingEntry.id, formDataObj as any);
-              break;
-          }
-          Swal.fire(
-            "Success!",
-            `${activeCategory} logbook entry updated successfully.`,
-            "success"
-          );
-        } else {
-          switch (activeCategory) {
-            case "AIRFRAME":
-              await createAirframeLogbook(formDataObj as any);
-              break;
-            case "AVIONICS":
-              await createAvionicsLogbook(formDataObj as any);
-              break;
-            case "ENGINE":
-              await createEngineLogbook(formDataObj as any);
-              break;
-            case "PROPELLER":
-              await createPropellerLogbook(formDataObj as any);
-              break;
-          }
-          Swal.fire(
-            "Success!",
-            `${activeCategory} logbook entry created successfully.`,
-            "success"
-          );
+      if (editingEntry) {
+        switch (activeCategory) {
+          case "AIRFRAME":
+            await updateAirframeLogbook(editingEntry.id, formDataObj as any);
+            break;
+          case "AVIONICS":
+            await updateAvionicsLogbook(editingEntry.id, formDataObj as any);
+            break;
+          case "ENGINE":
+            await updateEngineLogbook(editingEntry.id, formDataObj as any);
+            break;
+          case "PROPELLER":
+            await updatePropellerLogbook(editingEntry.id, formDataObj as any);
+            break;
         }
+        Swal.fire(
+          "Success!",
+          `${activeCategory} logbook entry updated successfully.`,
+          "success"
+        );
+      } else {
+        switch (activeCategory) {
+          case "AIRFRAME":
+            await createAirframeLogbook(formDataObj as any);
+            break;
+          case "AVIONICS":
+            await createAvionicsLogbook(formDataObj as any);
+            break;
+          case "ENGINE":
+            await createEngineLogbook(formDataObj as any);
+            break;
+          case "PROPELLER":
+            await createPropellerLogbook(formDataObj as any);
+            break;
+        }
+        Swal.fire(
+          "Success!",
+          `${activeCategory} logbook entry created successfully.`,
+          "success"
+        );
+      }
 
-        // Reset file input after successful save
+      if (uploadFile) {
         setUploadFile(null);
         setUploadFileName("");
         setExistingUploadFile(null);
@@ -1082,85 +1235,13 @@ export function MaintenanceLogbook() {
           "upload-file-input"
         ) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
-      } else {
-        // No file, send JSON data directly
-        if (editingEntry) {
-          switch (activeCategory) {
-            case "AIRFRAME":
-              await updateAirframeLogbook(editingEntry.id, apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Airframe logbook entry updated successfully.",
-                "success"
-              );
-              break;
-            case "AVIONICS":
-              await updateAvionicsLogbook(editingEntry.id, apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Avionics logbook entry updated successfully.",
-                "success"
-              );
-              break;
-            case "ENGINE":
-              await updateEngineLogbook(editingEntry.id, apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Engine logbook entry updated successfully.",
-                "success"
-              );
-              break;
-            case "PROPELLER":
-              await updatePropellerLogbook(editingEntry.id, apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Propeller logbook entry updated successfully.",
-                "success"
-              );
-              break;
-          }
-        } else {
-          switch (activeCategory) {
-            case "AIRFRAME":
-              await createAirframeLogbook(apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Airframe logbook entry created successfully.",
-                "success"
-              );
-              break;
-            case "AVIONICS":
-              await createAvionicsLogbook(apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Avionics logbook entry created successfully.",
-                "success"
-              );
-              break;
-            case "ENGINE":
-              await createEngineLogbook(apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Engine logbook entry created successfully.",
-                "success"
-              );
-              break;
-            case "PROPELLER":
-              await createPropellerLogbook(apiDataSnake);
-              Swal.fire(
-                "Success!",
-                "Propeller logbook entry created successfully.",
-                "success"
-              );
-              break;
-          }
-        }
       }
 
       // Reset form and close modal after successful save (for all tabs and operations)
       setShowAddEntryModal(false);
       setShowEditEntryModal(false);
       setEditingEntry(null);
+      setComponentRecords([]);
       setUploadFile(null);
       setUploadFileName("");
       setExistingUploadFile(null);
@@ -1349,13 +1430,7 @@ export function MaintenanceLogbook() {
                           {entry.description || "-"}
                         </td>
                         <td className="px-5 py-4 text-gray-600 text-sm">
-                          {entry.mechanicFk && accountsMap.has(entry.mechanicFk)
-                            ? `${accountsMap.get(entry.mechanicFk)!.fullName}-${
-                                accountsMap.get(entry.mechanicFk)!.licenseNo
-                              }`
-                            : entry.mechanicName && entry.licenseNumber
-                            ? `${entry.mechanicName}-${entry.licenseNumber}`
-                            : entry.mechanicName || entry.licenseNumber || "-"}
+                          {getMechanicDisplay(entry, accountsMap)}
                         </td>
 
                         <td className="px-5 py-4">
@@ -1479,14 +1554,18 @@ export function MaintenanceLogbook() {
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const currentIndex = airframeLogEntries.findIndex(
                       (e) => e.id === selectedAirframeEntry.id
                     );
                     if (currentIndex > 0) {
-                      setSelectedAirframeEntry(
-                        airframeLogEntries[currentIndex - 1]
-                      );
+                      const prevEntry = airframeLogEntries[currentIndex - 1];
+                      try {
+                        const full = await getAirframeLogbookById(prevEntry.id);
+                        setSelectedAirframeEntry(full);
+                      } catch {
+                        setSelectedAirframeEntry(prevEntry);
+                      }
                     }
                   }}
                   disabled={
@@ -1499,14 +1578,18 @@ export function MaintenanceLogbook() {
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const currentIndex = airframeLogEntries.findIndex(
                       (e) => e.id === selectedAirframeEntry.id
                     );
                     if (currentIndex < airframeLogEntries.length - 1) {
-                      setSelectedAirframeEntry(
-                        airframeLogEntries[currentIndex + 1]
-                      );
+                      const nextEntry = airframeLogEntries[currentIndex + 1];
+                      try {
+                        const full = await getAirframeLogbookById(nextEntry.id);
+                        setSelectedAirframeEntry(full);
+                      } catch {
+                        setSelectedAirframeEntry(nextEntry);
+                      }
                     }
                   }}
                   disabled={
@@ -1573,6 +1656,118 @@ export function MaintenanceLogbook() {
                   </div>
                 </div>
 
+                {/* COMPONENT RECORD (Read) */}
+                <div className="border-b border-gray-300 p-4">
+                  <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                    <h3 className="text-white font-semibold">
+                      COMPONENT RECORD
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto mt-4">
+                    <table className="w-full border-collapse min-w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            QTY
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            UNIT
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            NOMENCLATURE
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            REMOVED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            REMOVED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            INSTALLED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            INSTALLED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            ATA CHAPTER
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const parts =
+                            selectedAirframeEntry.componentParts ??
+                            (selectedAirframeEntry as any).component_parts ??
+                            [];
+                          return Array.isArray(parts) && parts.length > 0 ? (
+                            parts.map((p: ComponentPart, i: number) => {
+                              const sn = p as unknown as Record<
+                                string,
+                                unknown
+                              >;
+                              return (
+                                <tr key={i} className="hover:bg-gray-50">
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.qty ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.unit ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.nomenclature ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.removedPartNo ??
+                                        sn.removed_part_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.removedSerialNo ??
+                                        sn.removed_serial_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.installedPartNo ??
+                                        sn.installed_part_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.installedSerialNo ??
+                                        sn.installed_serial_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.ataChapter ?? sn.ata_chapter ?? "-"
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={8}
+                                className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
+                              >
+                                No component records.
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 {/* Description Section */}
                 <div className="border-b border-gray-300 p-4">
                   <div className="text-xs text-gray-700 mb-2">
@@ -1594,21 +1789,7 @@ export function MaintenanceLogbook() {
                       Mechanic Name/License Number:
                     </div>
                     <div className="text-gray-900">
-                      {selectedAirframeEntry.mechanicFk &&
-                      accountsMap.has(selectedAirframeEntry.mechanicFk)
-                        ? `${
-                            accountsMap.get(selectedAirframeEntry.mechanicFk)!
-                              .fullName
-                          }-${
-                            accountsMap.get(selectedAirframeEntry.mechanicFk)!
-                              .licenseNo
-                          }`
-                        : selectedAirframeEntry.mechanicName &&
-                          selectedAirframeEntry.licenseNumber
-                        ? `${selectedAirframeEntry.mechanicName}-${selectedAirframeEntry.licenseNumber}`
-                        : selectedAirframeEntry.mechanicName ||
-                          selectedAirframeEntry.licenseNumber ||
-                          "-"}
+                      {getMechanicDisplay(selectedAirframeEntry, accountsMap)}
                     </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
@@ -1663,14 +1844,18 @@ export function MaintenanceLogbook() {
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const currentIndex = avionicsLogEntries.findIndex(
                       (e) => e.id === selectedAvionicsEntry.id
                     );
                     if (currentIndex > 0) {
-                      setSelectedAvionicsEntry(
-                        avionicsLogEntries[currentIndex - 1]
-                      );
+                      const prevEntry = avionicsLogEntries[currentIndex - 1];
+                      try {
+                        const full = await getAvionicsLogbookById(prevEntry.id);
+                        setSelectedAvionicsEntry(full);
+                      } catch {
+                        setSelectedAvionicsEntry(prevEntry);
+                      }
                     }
                   }}
                   disabled={
@@ -1683,14 +1868,18 @@ export function MaintenanceLogbook() {
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const currentIndex = avionicsLogEntries.findIndex(
                       (e) => e.id === selectedAvionicsEntry.id
                     );
                     if (currentIndex < avionicsLogEntries.length - 1) {
-                      setSelectedAvionicsEntry(
-                        avionicsLogEntries[currentIndex + 1]
-                      );
+                      const nextEntry = avionicsLogEntries[currentIndex + 1];
+                      try {
+                        const full = await getAvionicsLogbookById(nextEntry.id);
+                        setSelectedAvionicsEntry(full);
+                      } catch {
+                        setSelectedAvionicsEntry(nextEntry);
+                      }
                     }
                   }}
                   disabled={
@@ -1739,6 +1928,118 @@ export function MaintenanceLogbook() {
                   </div>
                 </div>
 
+                {/* COMPONENT RECORD (Read) */}
+                <div className="border-b border-gray-300 p-4">
+                  <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                    <h3 className="text-white font-semibold">
+                      COMPONENT RECORD
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto mt-4">
+                    <table className="w-full border-collapse min-w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            QTY
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            UNIT
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            NOMENCLATURE
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            REMOVED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            REMOVED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            INSTALLED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            INSTALLED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            ATA CHAPTER
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const parts =
+                            selectedAvionicsEntry.componentParts ??
+                            (selectedAvionicsEntry as any).component_parts ??
+                            [];
+                          return Array.isArray(parts) && parts.length > 0 ? (
+                            parts.map((p: ComponentPart, i: number) => {
+                              const sn = p as unknown as Record<
+                                string,
+                                unknown
+                              >;
+                              return (
+                                <tr key={i} className="hover:bg-gray-50">
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.qty ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.unit ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.nomenclature ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.removedPartNo ??
+                                        sn.removed_part_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.removedSerialNo ??
+                                        sn.removed_serial_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.installedPartNo ??
+                                        sn.installed_part_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.installedSerialNo ??
+                                        sn.installed_serial_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.ataChapter ?? sn.ata_chapter ?? "-"
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={8}
+                                className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
+                              >
+                                No component records.
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 {/* Description Section */}
                 <div className="border-b border-gray-300 p-4">
                   <div className="text-xs text-gray-700 mb-2">
@@ -1760,21 +2061,7 @@ export function MaintenanceLogbook() {
                       Mechanic Name/License Number:
                     </div>
                     <div className="text-gray-900">
-                      {selectedAvionicsEntry.mechanicFk &&
-                      accountsMap.has(selectedAvionicsEntry.mechanicFk)
-                        ? `${
-                            accountsMap.get(selectedAvionicsEntry.mechanicFk)!
-                              .fullName
-                          }-${
-                            accountsMap.get(selectedAvionicsEntry.mechanicFk)!
-                              .licenseNo
-                          }`
-                        : selectedAvionicsEntry.mechanicName &&
-                          selectedAvionicsEntry.licenseNumber
-                        ? `${selectedAvionicsEntry.mechanicName}-${selectedAvionicsEntry.licenseNumber}`
-                        : selectedAvionicsEntry.mechanicName ||
-                          selectedAvionicsEntry.licenseNumber ||
-                          "-"}
+                      {getMechanicDisplay(selectedAvionicsEntry, accountsMap)}
                     </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
@@ -1829,14 +2116,18 @@ export function MaintenanceLogbook() {
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const currentIndex = engineLogEntries.findIndex(
                       (e) => e.id === selectedEngineEntry.id
                     );
                     if (currentIndex > 0) {
-                      setSelectedEngineEntry(
-                        engineLogEntries[currentIndex - 1]
-                      );
+                      const prevEntry = engineLogEntries[currentIndex - 1];
+                      try {
+                        const full = await getEngineLogbookById(prevEntry.id);
+                        setSelectedEngineEntry(full);
+                      } catch {
+                        setSelectedEngineEntry(prevEntry);
+                      }
                     }
                   }}
                   disabled={
@@ -1849,14 +2140,18 @@ export function MaintenanceLogbook() {
                   <ChevronLeft className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const currentIndex = engineLogEntries.findIndex(
                       (e) => e.id === selectedEngineEntry.id
                     );
                     if (currentIndex < engineLogEntries.length - 1) {
-                      setSelectedEngineEntry(
-                        engineLogEntries[currentIndex + 1]
-                      );
+                      const nextEntry = engineLogEntries[currentIndex + 1];
+                      try {
+                        const full = await getEngineLogbookById(nextEntry.id);
+                        setSelectedEngineEntry(full);
+                      } catch {
+                        setSelectedEngineEntry(nextEntry);
+                      }
                     }
                   }}
                   disabled={
@@ -1925,6 +2220,118 @@ export function MaintenanceLogbook() {
                   </div>
                 </div>
 
+                {/* COMPONENT RECORD (Read) */}
+                <div className="border-b border-gray-300 p-4">
+                  <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                    <h3 className="text-white font-semibold">
+                      COMPONENT RECORD
+                    </h3>
+                  </div>
+                  <div className="overflow-x-auto mt-4">
+                    <table className="w-full border-collapse min-w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            QTY
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            UNIT
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            NOMENCLATURE
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            REMOVED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            REMOVED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            INSTALLED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            INSTALLED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            ATA CHAPTER
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const parts =
+                            selectedEngineEntry.componentParts ??
+                            (selectedEngineEntry as any).component_parts ??
+                            [];
+                          return Array.isArray(parts) && parts.length > 0 ? (
+                            parts.map((p: ComponentPart, i: number) => {
+                              const sn = p as unknown as Record<
+                                string,
+                                unknown
+                              >;
+                              return (
+                                <tr key={i} className="hover:bg-gray-50">
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.qty ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.unit ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {p.nomenclature ?? "-"}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.removedPartNo ??
+                                        sn.removed_part_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.removedSerialNo ??
+                                        sn.removed_serial_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.installedPartNo ??
+                                        sn.installed_part_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.installedSerialNo ??
+                                        sn.installed_serial_no ??
+                                        "-"
+                                    )}
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-gray-900">
+                                    {String(
+                                      p.ataChapter ?? sn.ata_chapter ?? "-"
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={8}
+                                className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
+                              >
+                                No component records.
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 {/* Description Section */}
                 <div className="border-b border-gray-300 p-4">
                   <div className="text-xs text-gray-700 mb-2">
@@ -1946,21 +2353,7 @@ export function MaintenanceLogbook() {
                       Mechanic Name/License Number:
                     </div>
                     <div className="text-gray-900">
-                      {selectedEngineEntry.mechanicFk &&
-                      accountsMap.has(selectedEngineEntry.mechanicFk)
-                        ? `${
-                            accountsMap.get(selectedEngineEntry.mechanicFk)!
-                              .fullName
-                          }-${
-                            accountsMap.get(selectedEngineEntry.mechanicFk)!
-                              .licenseNo
-                          }`
-                        : selectedEngineEntry.mechanicName &&
-                          selectedEngineEntry.licenseNumber
-                        ? `${selectedEngineEntry.mechanicName}-${selectedEngineEntry.licenseNumber}`
-                        : selectedEngineEntry.mechanicName ||
-                          selectedEngineEntry.licenseNumber ||
-                          "-"}
+                      {getMechanicDisplay(selectedEngineEntry, accountsMap)}
                     </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
@@ -2124,21 +2517,7 @@ export function MaintenanceLogbook() {
                       Mechanic Name/License Number:
                     </div>
                     <div className="text-gray-900">
-                      {selectedPropellerEntry.mechanicFk &&
-                      accountsMap.has(selectedPropellerEntry.mechanicFk)
-                        ? `${
-                            accountsMap.get(selectedPropellerEntry.mechanicFk)!
-                              .fullName
-                          }-${
-                            accountsMap.get(selectedPropellerEntry.mechanicFk)!
-                              .licenseNo
-                          }`
-                        : selectedPropellerEntry.mechanicName &&
-                          selectedPropellerEntry.licenseNumber
-                        ? `${selectedPropellerEntry.mechanicName}-${selectedPropellerEntry.licenseNumber}`
-                        : selectedPropellerEntry.mechanicName ||
-                          selectedPropellerEntry.licenseNumber ||
-                          "-"}
+                      {getMechanicDisplay(selectedPropellerEntry, accountsMap)}
                     </div>
                   </div>
                   <div className="p-4 flex items-center justify-center">
@@ -2613,6 +2992,209 @@ export function MaintenanceLogbook() {
                       </div>
                     </div>
                   </>
+                )}
+
+                {/* COMPONENT RECORD – Airframe, Avionics, Engine only */}
+                {(activeCategory === "AIRFRAME" ||
+                  activeCategory === "AVIONICS" ||
+                  activeCategory === "ENGINE") && (
+                  <div className="mb-6">
+                    <div className="bg-white p-4 rounded-lg border border-gray-200">
+                      <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                        <h3 className="text-white font-semibold">
+                          COMPONENT RECORD
+                        </h3>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse min-w-full">
+                          <thead>
+                            <tr className="bg-gray-50">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                QTY
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                UNIT
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                NOMENCLATURE
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                REMOVED P/N
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                REMOVED S/N
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                INSTALLED P/N
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                INSTALLED S/N
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                ATA CHAPTER
+                              </th>
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                                DELETE?
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {componentRecords.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={9}
+                                  className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
+                                >
+                                  No component records added. Click &quot;Add
+                                  another Component&quot; to add one.
+                                </td>
+                              </tr>
+                            ) : (
+                              componentRecords.map((record) => (
+                                <tr
+                                  key={record.id}
+                                  className="hover:bg-gray-50"
+                                >
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.qty}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "qty",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.unit}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "unit",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.nomenclature}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "nomenclature",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.removedPartNo}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "removedPartNo",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.removedSerialNo}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "removedSerialNo",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.installedPartNo}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "installedPartNo",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.installedSerialNo}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "installedSerialNo",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2">
+                                    <input
+                                      type="text"
+                                      value={record.ataChapter}
+                                      onChange={(e) =>
+                                        updateComponentRecord(
+                                          record.id,
+                                          "ataChapter",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                    />
+                                  </td>
+                                  <td className="border border-gray-300 px-2 py-2 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        removeComponentRecord(record.id)
+                                      }
+                                      className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                        <button
+                          type="button"
+                          onClick={addComponentRecord}
+                          className="mt-3 flex items-center gap-2 text-green-600 hover:text-green-700 font-medium text-sm transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Add another Component
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
                 {/* Description Section */}

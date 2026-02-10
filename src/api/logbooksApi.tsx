@@ -9,6 +9,33 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+// Mechanic nested object (returned by API with logbook entries)
+export interface Mechanic {
+  id?: number;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  licenseNo?: string;
+}
+
+// Component part record (Avionics, Airframe, Engine logbooks) – matches backend schema
+export interface ComponentPart {
+  id?: number;
+  qty?: number;
+  unit?: string;
+  nomenclature?: string;
+  removedPartNo?: string;
+  removedSerialNo?: string;
+  installedPartNo?: string;
+  installedSerialNo?: string;
+  ataChapter?: string;
+  engineLogFk?: number;
+  airframeLogFk?: number;
+  avionicsLogFk?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // Engine Logbook Interfaces (backend field: aircraft_fk)
 export interface EngineLogbook {
   id: number;
@@ -22,10 +49,12 @@ export interface EngineLogbook {
   engineTbo?: number;
   description?: string;
   mechanicFk?: number;
+  mechanic?: Mechanic;
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -44,6 +73,7 @@ export interface EngineLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  componentParts?: ComponentPart[];
 }
 
 export interface EngineLogbookUpdate {
@@ -60,6 +90,7 @@ export interface EngineLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  componentParts?: ComponentPart[];
 }
 
 // Airframe Logbook Interfaces (backend field: aircraft_fk)
@@ -73,10 +104,12 @@ export interface AirframeLogbook {
   airframeTime?: number;
   description?: string;
   mechanicFk?: number;
+  mechanic?: Mechanic;
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -93,6 +126,7 @@ export interface AirframeLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  componentParts?: ComponentPart[];
 }
 
 export interface AirframeLogbookUpdate {
@@ -107,6 +141,7 @@ export interface AirframeLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  componentParts?: ComponentPart[];
 }
 
 // Avionics Logbook Interfaces (backend field: aircraft_fk)
@@ -122,10 +157,12 @@ export interface AvionicsLogbook {
   serialNo?: string;
   description?: string;
   mechanicFk?: number;
+  mechanic?: Mechanic;
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -144,6 +181,7 @@ export interface AvionicsLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  componentParts?: ComponentPart[];
 }
 
 export interface AvionicsLogbookUpdate {
@@ -160,6 +198,7 @@ export interface AvionicsLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  componentParts?: ComponentPart[];
 }
 
 // Propeller Logbook Interfaces (backend field: aircraft_fk)
@@ -231,7 +270,7 @@ const transformToCamel = (obj: any): any => {
   return obj;
 };
 
-// Ensure aircraft_fk from API is exposed as aircraftFk on logbook items
+// Ensure aircraft_fk from API is exposed as aircraftFk on logbook items (transformToCamel already converts component_parts -> componentParts)
 const normalizeLogbookItem = (item: any): any => {
   const c = transformToCamel(item);
   if (c != null && typeof c === "object") {

@@ -9,6 +9,7 @@ import {
   Printer,
   X,
   FileText,
+  Upload,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -16,7 +17,7 @@ import {
   Trash2,
   Loader,
 } from "lucide-react";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ADWorkOrders } from "./ADWorkOrders";
 import { CPCPMonitoring } from "./CPCPMonitoring";
@@ -35,6 +36,7 @@ import {
   createAircraftAdMonitoring,
   updateAircraftAdMonitoring,
   deleteAircraftAdMonitoring,
+  downloadAdMonitoringFile,
   type ADMonitoring,
 } from "../api/adMonitoringApi";
 import { Spinner } from "./ui/spinner";
@@ -184,6 +186,10 @@ export function Maintenance() {
     inspectionInterval: "",
     compliDate: "",
   });
+  // AD file upload (create/edit): file_path name for display, optional File for upload
+  const [adUploadFile, setAdUploadFile] = useState<File | null>(null);
+  const [adUploadFileName, setAdUploadFileName] = useState("");
+  const adFileInputRef = useRef<HTMLInputElement>(null);
 
   // LDND API state
   const [ldndItems, setLdndItems] = useState<LDNDMonitoring[]>([]);
@@ -431,20 +437,32 @@ export function Maintenance() {
     }
     setAdSaving(true);
     try {
+      const basePayload = {
+        adNumber,
+        subject,
+        inspectionInterval: newADEntry.inspectionInterval ?? "",
+        compliDate: newADEntry.compliDate ?? "",
+      };
       if (editingADEntry) {
-        await updateAircraftAdMonitoring(aircraftId, editingADEntry.id, {
-          adNumber,
-          subject,
-          inspectionInterval: newADEntry.inspectionInterval ?? "",
-          compliDate: newADEntry.compliDate ?? "",
-        });
+        const updatePayload = {
+          ...basePayload,
+          filePath:
+            adUploadFile == null && editingADEntry.filePath
+              ? editingADEntry.filePath
+              : undefined,
+        };
+        await updateAircraftAdMonitoring(
+          aircraftId,
+          editingADEntry.id,
+          updatePayload,
+          adUploadFile ?? undefined
+        );
       } else {
-        await createAircraftAdMonitoring(aircraftId, {
-          adNumber,
-          subject,
-          inspectionInterval: newADEntry.inspectionInterval ?? "",
-          compliDate: newADEntry.compliDate ?? "",
-        });
+        await createAircraftAdMonitoring(
+          aircraftId,
+          basePayload,
+          adUploadFile ?? undefined
+        );
       }
       setShowADModal(false);
       setEditingADEntry(null);
@@ -454,6 +472,8 @@ export function Maintenance() {
         inspectionInterval: "",
         compliDate: "",
       });
+      setAdUploadFile(null);
+      setAdUploadFileName("");
       await fetchAd();
       await Swal.fire({
         icon: "success",
@@ -506,7 +526,80 @@ export function Maintenance() {
       inspectionInterval: item.inspectionInterval || "",
       compliDate: item.compliDate ? item.compliDate.slice(0, 10) : "",
     });
+    setAdUploadFile(null);
+    setAdUploadFileName("");
     setShowADModal(true);
+  };
+
+  const getADFilePath = (item: ADMonitoring | null): string | null => {
+    if (!item?.filePath) return null;
+    return typeof item.filePath === "string" ? item.filePath : null;
+  };
+  const extractADFilename = (filePath: string): string => {
+    const parts = filePath.split("/");
+    const last = parts[parts.length - 1] ?? filePath;
+    return last.split("?")[0] ?? last;
+  };
+  const handleADFileChange = (file: File | null) => {
+    setAdUploadFile(file);
+    setAdUploadFileName(file ? file.name : "");
+  };
+  const handleADRemoveFile = () => {
+    setAdUploadFile(null);
+    setAdUploadFileName("");
+  };
+
+  /** AD file download — same pattern as Fleet Time Monitoring (Operation): folder/download/filename */
+  const handleADDownloadFile = async (filePath: string, displayName?: string) => {
+    if (!filePath?.trim()) {
+      await Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: "File path is not available.",
+      });
+      return;
+    }
+    try {
+      const downloadFileName =
+        displayName || extractADFilename(filePath) || filePath.split("/").pop() || "download";
+      const responseBlob = await downloadAdMonitoringFile(aircraftId, filePath);
+      const blob = new Blob([responseBlob]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = downloadFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      let msg = "Failed to download file.";
+      const data = err?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text();
+          try {
+            const parsed = JSON.parse(text);
+            msg = parsed.detail ?? parsed.message ?? text;
+          } catch {
+            msg = text || msg;
+          }
+        } catch {
+          // keep default msg
+        }
+      } else if (typeof data?.detail === "string") {
+        msg = data.detail;
+      } else if (data?.message) {
+        msg = data.message;
+      } else if (err?.message) {
+        msg = err.message;
+      }
+      await Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: msg,
+      });
+    }
   };
 
   const totalPages = ldndPages;
@@ -1110,6 +1203,8 @@ export function Maintenance() {
                       inspectionInterval: "",
                       compliDate: "",
                     });
+                    setAdUploadFile(null);
+                    setAdUploadFileName("");
                     setShowADModal(true);
                   }}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
@@ -1622,6 +1717,92 @@ export function Maintenance() {
                     />
                   </div>
                 </div>
+              </div>
+
+              {/* File — view, download, re-upload/replace (create/edit) */}
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <div className="text-gray-900 text-sm font-medium mb-2">
+                  File
+                </div>
+                <input
+                  ref={adFileInputRef}
+                  type="file"
+                  id="ad-file-upload"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleADFileChange(e.target.files?.[0] ?? null);
+                    e.target.value = "";
+                  }}
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                />
+                {editingADEntry && getADFilePath(editingADEntry) && !adUploadFile ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                      <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                      <span className="flex-1 text-sm text-gray-900 truncate">
+                        {extractADFilename(getADFilePath(editingADEntry)!)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleADDownloadFile(
+                            getADFilePath(editingADEntry)!,
+                            extractADFilename(getADFilePath(editingADEntry)!)
+                          )
+                        }
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors text-sm font-medium flex-shrink-0"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => adFileInputRef.current?.click()}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Replace file / Re-upload
+                    </button>
+                  </div>
+                ) : adUploadFile || adUploadFileName ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                      <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                      <span className="flex-1 text-sm text-gray-900 truncate">
+                        {adUploadFileName}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleADRemoveFile}
+                        className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
+                        title="Remove"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {editingADEntry && (
+                      <p className="text-xs text-gray-500">
+                        New file will replace the current one when you save.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                    <label
+                      htmlFor="ad-file-upload"
+                      className="cursor-pointer flex flex-col items-center"
+                    >
+                      <Upload className="w-8 h-8 text-gray-400 mb-2" />
+                      <span className="text-sm text-gray-600 mb-1">
+                        Choose file or drag here
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        PDF, DOC, DOCX, JPG, PNG
+                      </span>
+                    </label>
+                  </div>
+                )}
               </div>
             </div>
 
