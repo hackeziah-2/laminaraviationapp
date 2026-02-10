@@ -168,18 +168,23 @@ export function Operation() {
         setFileViewMimeType(mimeType);
         setShowFileViewModal(true);
       } else {
-        await Swal.fire({
+        const result = await Swal.fire({
           icon: "info",
           title: "Cannot view file",
           text: "This File cannot be viewed. Please download the file to see it.",
+          showCancelButton: true,
+          confirmButtonText: "Yes",
+          cancelButtonText: "No",
         });
-        const downloadName = filePath.split("/").pop() || "download";
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = downloadName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        if (result.isConfirmed) {
+          const downloadName = filePath.split("/").pop() || "download";
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = downloadName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
         window.URL.revokeObjectURL(url);
       }
     } catch (err: any) {

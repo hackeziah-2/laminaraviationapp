@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Plus, Search, Filter } from "lucide-react";
 import { AddTCCModal } from "./AddTCCModal";
@@ -12,16 +12,143 @@ interface ComponentItem {
   partNo: string;
   serialNo: string;
   description: string;
-  hours: string;
-  threshold: string;
+  hours: string;       // COMPONENT LIMIT: Years (fixed from AMM/CMM/AD/SB)
+  threshold: string;   // COMPONENT LIMIT: Hours (fixed hour limit)
   methodOfCompliance: string;
   lastDoneDate: string;
-  lastDoneYear: string;
+  lastDoneYear: string;  // LAST DONE TACH (aircraft TACH at maintenance)
   lastDoneAftt: string;
   nextDueDate: string;
   nextDueYear: string;
   nextDueAftt: string;
   reference: string;
+}
+
+/** Parses numeric string to number; returns NaN if invalid */
+function parseNum(s: string | undefined): number {
+  if (s == null || String(s).trim() === "") return NaN;
+  const n = parseFloat(String(s).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Parses date string (DD-Mon-YY, YYYY-MM-DD, or ISO); returns null if invalid */
+function parseDate(s: string | undefined): Date | null {
+  if (s == null || String(s).trim() === "") return null;
+  const str = String(s).trim();
+  const d = new Date(str);
+  if (!Number.isNaN(d.getTime())) return d;
+  const match = str.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+  if (match) {
+    const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const mon = months[match[2]] ?? NaN;
+    if (Number.isFinite(mon)) {
+      const year = match[3].length === 2 ? 2000 + parseInt(match[3], 10) : parseInt(match[3], 10);
+      const day = parseInt(match[1], 10);
+      const d2 = new Date(year, mon, day);
+      if (!Number.isNaN(d2.getTime())) return d2;
+    }
+  }
+  return null;
+}
+
+/** Format date for display (DD-Mon-YY) */
+function formatDate(d: Date | null): string {
+  if (!d) return "";
+  const day = d.getDate();
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()];
+  const y = d.getFullYear();
+  const yy = y >= 2000 ? String(y).slice(-2) : String(y).slice(-2);
+  return `${day}-${mon}-${yy}`;
+}
+
+/** Days between two dates (truncated) */
+function daysBetween(a: Date, b: Date): number {
+  const ms = b.getTime() - a.getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+export interface TCCComputedRow {
+  /** REMAINING: (Next Due Date − Current Date) ÷ 365 */
+  remainingYears: number | null;
+  /** REMAINING: Next Due Date − Current Date (days) */
+  remainingDays: number | null;
+  /** REMAINING: Limit Hours − (Current TACH − Last Done TACH) */
+  remainingTach: number | null;
+  /** REMAINING: Limit Hours − (Current AFTT − Last Done AFTT) */
+  remainingAftt: number | null;
+  /** NEXT DONE: Last Done Date + Limit Years */
+  nextDueDate: Date | null;
+  /** NEXT DUE: Last Done TACH + Limit Hours */
+  nextDueTach: number | null;
+  /** NEXT DUE: Last Done AFTT + Limit Hours */
+  nextDueAftt: number | null;
+  /** Display strings for fallback when no computation */
+  raw: ComponentItem;
+  /** Limit years (for remaining %); from COMPONENT LIMIT Years */
+  limitYears: number;
+  /** Limit hours (for remaining %); from COMPONENT LIMIT Hours */
+  limitHours: number;
+}
+
+/** Color for REMAINING group: Red = Due, Orange = <10%, Yellow = <20%, Green = <40% */
+function getRemainingColorClass(remainingPct: number | null): string {
+  if (remainingPct == null || !Number.isFinite(remainingPct) || remainingPct <= 0) {
+    return "bg-red-100 text-red-800"; // Due
+  }
+  if (remainingPct < 10) return "bg-orange-100 text-orange-800"; // Less than 10% Remaining
+  if (remainingPct < 20) return "bg-yellow-100 text-yellow-800"; // Less than 20% Remaining
+  if (remainingPct < 40) return "bg-green-100 text-green-800";   // Less than 40% Remaining
+  return "";
+}
+
+function computeTCCRow(
+  item: ComponentItem,
+  currentDate: Date,
+  currentTach: number,
+  currentAftt: number
+): TCCComputedRow {
+  const limitYears = parseNum(item.hours);
+  const limitHours = parseNum(item.threshold);
+  const lastDoneDate = parseDate(item.lastDoneDate);
+  const lastDoneTach = parseNum(item.lastDoneYear);
+  const lastDoneAftt = parseNum(item.lastDoneAftt);
+
+  const hasLimitHours = Number.isFinite(limitHours);
+  const hasLastDoneTach = Number.isFinite(lastDoneTach);
+  const hasLastDoneAftt = Number.isFinite(lastDoneAftt);
+
+  const nextDueTach = hasLimitHours && hasLastDoneTach ? lastDoneTach + limitHours : null;
+  const nextDueAftt = hasLimitHours && hasLastDoneAftt ? lastDoneAftt + limitHours : null;
+
+  let nextDueDate: Date | null = null;
+  if (lastDoneDate != null && Number.isFinite(limitYears)) {
+    const d = new Date(lastDoneDate);
+    d.setFullYear(d.getFullYear() + limitYears);
+    nextDueDate = d;
+  }
+
+  const remainingYears = nextDueDate != null ? daysBetween(currentDate, nextDueDate) / 365 : null;
+  const remainingDays = nextDueDate != null ? daysBetween(currentDate, nextDueDate) : null;
+  const remainingTach = hasLimitHours && hasLastDoneTach ? limitHours - (currentTach - lastDoneTach) : null;
+  const remainingAftt = hasLimitHours && hasLastDoneAftt ? limitHours - (currentAftt - lastDoneAftt) : null;
+
+  return {
+    remainingYears: remainingYears != null ? remainingYears : null,
+    remainingDays,
+    remainingTach,
+    remainingAftt,
+    nextDueDate,
+    nextDueTach,
+    nextDueAftt,
+    raw: item,
+    limitYears: Number.isFinite(limitYears) ? limitYears : 0,
+    limitHours: Number.isFinite(limitHours) ? limitHours : 0,
+  };
+}
+
+function formatNum(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "";
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
 export interface TCCDetailContentProps {
@@ -450,6 +577,18 @@ export function TCCDetailContent({
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
   const paginatedData = filteredData.slice(startIndex, endIndex);
 
+  const currentDate = useMemo(() => new Date(), []);
+  const currentTach = 7561;
+  const currentAftt = 11656;
+
+  const computedRows = useMemo(
+    () =>
+      paginatedData.map((item) =>
+        computeTCCRow(item, currentDate, currentTach, currentAftt)
+      ),
+    [paginatedData, currentDate, currentTach, currentAftt]
+  );
+
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, activeTab]);
@@ -472,12 +611,18 @@ export function TCCDetailContent({
       {/* Title + Aircraft - same pattern as CPCP Monitoring */}
       <div className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden mb-6">
         <div className="px-5 py-4 border-b border-gray-100">
-          <h1 className="text-base font-semibold text-gray-900 tracking-tight">TCC Monitoring</h1>
+          <h1 className="text-base font-semibold text-gray-900 tracking-tight">
+            TCC Monitoring
+          </h1>
           <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm text-gray-600">
             <span className="font-medium text-gray-900">MSN</span>
             <span>{aircraftId}</span>
-            <span>TSN <span className="text-gray-900">7561</span></span>
-            <span>CSN <span className="text-gray-900">11656.0</span></span>
+            <span>
+              TSN <span className="text-gray-900">7561</span>
+            </span>
+            <span>
+              CSN <span className="text-gray-900">11656.0</span>
+            </span>
           </div>
         </div>
       </div>
@@ -570,7 +715,10 @@ export function TCCDetailContent({
         <div
           className={`${tccHeaderColor} text-white px-5 py-3.5 text-sm font-medium flex items-center gap-3`}
         >
-          <span>{categoryOptions.find((o) => o.value === activeTab)?.label ?? activeTab}</span>
+          <span>
+            {categoryOptions.find((o) => o.value === activeTab)?.label ??
+              activeTab}
+          </span>
         </div>
 
         <div className="overflow-x-auto">
@@ -580,21 +728,24 @@ export function TCCDetailContent({
                 <th
                   colSpan={4}
                   className="px-3 py-2 text-xs text-gray-600"
-                ></th>
+                >
+                  REMAINING
+                </th>
                 <th
-                  colSpan={2}
+                  colSpan={3}
                   className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
                 >
-                  PART INFO
+                  COMPONENT INFO
                 </th>
-                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"></th>
                 <th
                   colSpan={2}
                   className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
                 >
                   COMPONENT LIMIT
                 </th>
-                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"></th>
+                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
+                  METHOD OF COMPLIANCE
+                </th>
                 <th
                   colSpan={3}
                   className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
@@ -607,7 +758,9 @@ export function TCCDetailContent({
                 >
                   NEXT DUE
                 </th>
-                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"></th>
+                <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
+                  REFERENCE
+                </th>
               </tr>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
@@ -664,64 +817,109 @@ export function TCCDetailContent({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {paginatedData.map((item) => (
-                <tr
-                  key={item.id}
-                  className="hover:bg-gray-50 transition-colors"
-                >
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.remaining}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.date}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.when}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.aftt}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.partNo}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.serialNo}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.description}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.hours}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.threshold}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.methodOfCompliance}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.lastDoneDate}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.lastDoneYear}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.lastDoneAftt}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.nextDueDate}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.nextDueYear}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs">
-                    {item.nextDueAftt}
-                  </td>
-                  <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                    {item.reference}
-                  </td>
-                </tr>
-              ))}
+              {computedRows.map((row) => {
+                const item = row.raw;
+                return (
+                  <tr
+                    key={item.id}
+                    className="hover:bg-gray-50 transition-colors"
+                  >
+                    {/* REMAINING: Years — color by % remaining: Red=Due, Orange=<10%, Yellow=<20%, Green=<40% */}
+                    {(() => {
+                      const pctYears = row.limitYears > 0 && row.remainingYears != null
+                        ? (row.remainingYears / row.limitYears) * 100
+                        : null;
+                      const colorYears = getRemainingColorClass(pctYears);
+                      return (
+                        <td className={`px-3 py-3 text-xs ${colorYears || "text-gray-900"}`}>
+                          {row.remainingYears != null ? row.remainingYears.toFixed(2) : item.remaining}
+                        </td>
+                      );
+                    })()}
+                    {/* REMAINING: Days */}
+                    {(() => {
+                      const pctDays = row.limitYears > 0 && row.remainingDays != null
+                        ? (row.remainingDays / (row.limitYears * 365)) * 100
+                        : null;
+                      const colorDays = getRemainingColorClass(pctDays);
+                      return (
+                        <td className={`px-3 py-3 text-xs ${colorDays || "text-gray-900"}`}>
+                          {row.remainingDays != null ? String(row.remainingDays) : item.date}
+                        </td>
+                      );
+                    })()}
+                    {/* REMAINING: TACH */}
+                    {(() => {
+                      const pctTach = row.limitHours > 0 && row.remainingTach != null
+                        ? (row.remainingTach / row.limitHours) * 100
+                        : null;
+                      const colorTach = getRemainingColorClass(pctTach);
+                      return (
+                        <td className={`px-3 py-3 text-xs ${colorTach || "text-gray-900"}`}>
+                          {formatNum(row.remainingTach) || item.when}
+                        </td>
+                      );
+                    })()}
+                    {/* REMAINING: AFTT */}
+                    {(() => {
+                      const pctAftt = row.limitHours > 0 && row.remainingAftt != null
+                        ? (row.remainingAftt / row.limitHours) * 100
+                        : null;
+                      const colorAftt = getRemainingColorClass(pctAftt);
+                      return (
+                        <td className={`px-3 py-3 text-xs ${colorAftt || "text-gray-900"}`}>
+                          {formatNum(row.remainingAftt) || item.aftt}
+                        </td>
+                      );
+                    })()}
+                    {/* COMPONENT INFO: Part No., Serial No., Description (reference) */}
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                      {item.partNo}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs">
+                      {item.serialNo}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                      {item.description}
+                    </td>
+                    {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                      {item.hours}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs">
+                      {item.threshold}
+                    </td>
+                    {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                      {item.methodOfCompliance}
+                    </td>
+                    {/* LAST DONE: Date, TACH, AFTT (reference) */}
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
+                      {item.lastDoneDate}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
+                      {item.lastDoneYear}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
+                      {item.lastDoneAftt}
+                    </td>
+                    {/* NEXT DUE: Date = Last Done + Limit Years; TACH/AFTT = Last Done + Limit Hours */}
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                      {row.nextDueDate ? formatDate(row.nextDueDate) : item.nextDueDate}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs">
+                      {formatNum(row.nextDueTach) || item.nextDueYear}
+                    </td>
+                    <td className="px-3 py-3 text-gray-900 text-xs">
+                      {formatNum(row.nextDueAftt) || item.nextDueAftt}
+                    </td>
+                    {/* REFERENCE: ATL reference (Document) */}
+                    <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                      {item.reference}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -803,8 +1001,8 @@ export function TCCDetailContent({
           </div>
         </div>
         <div className="text-sm text-gray-600 px-6 py-2">
-          Showing {totalItems === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, totalItems)} of{" "}
-          {totalItems} components
+          Showing {totalItems === 0 ? 0 : startIndex + 1} to{" "}
+          {Math.min(endIndex, totalItems)} of {totalItems} components
         </div>
       </div>
 
