@@ -893,7 +893,13 @@ export function AddTechnicalLogbookEntryModal({
         const hh = parseInt(h, 10);
         const mm = parseInt(m, 10);
         const ss = s != null ? parseInt(s, 10) : null;
-        if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59 && (ss == null || (ss >= 0 && ss <= 59))) {
+        if (
+          hh >= 0 &&
+          hh <= 23 &&
+          mm >= 0 &&
+          mm <= 59 &&
+          (ss == null || (ss >= 0 && ss <= 59))
+        ) {
           return ss != null ? `${h}:${m}:${s}` : `${h}:${m}`;
         }
       }
@@ -1163,7 +1169,7 @@ export function AddTechnicalLogbookEntryModal({
     if (formData.hobbsMeterStart && formData.hobbsMeterEnd) {
       const start = parseFloat(formData.hobbsMeterStart);
       const end = parseFloat(formData.hobbsMeterEnd);
-      if (!isNaN(start) && !isNaN(end) && end <= start) {
+      if (!isNaN(start) && !isNaN(end) && end < start) {
         errors.hobbsMeterEnd = "Hobbs Meter End must be greater than Start";
       }
     }
@@ -1171,7 +1177,7 @@ export function AddTechnicalLogbookEntryModal({
     if (formData.tachometerStart && formData.tachometerEnd) {
       const start = parseFloat(formData.tachometerStart);
       const end = parseFloat(formData.tachometerEnd);
-      if (!isNaN(start) && !isNaN(end) && end <= start) {
+      if (!isNaN(start) && !isNaN(end) && end < start) {
         errors.tachometerEnd = "Tachometer End must be greater than Start";
       }
     }

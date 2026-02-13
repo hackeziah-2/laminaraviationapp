@@ -30,12 +30,13 @@ export interface ComponentItem {
   partNo: string;
   serialNo: string;
   description: string;
-  hours: string; // COMPONENT LIMIT: Years (fixed from AMM/CMM/AD/SB)
-  threshold: string; // COMPONENT LIMIT: Hours (fixed hour limit)
+  hours: string; // COMPONENT LIMIT: Hours (fixed from AMM/CMM/AD/SB)
+  threshold: string; // COMPONENT LIMIT: Years (fixed hour limit)
   methodOfCompliance: string;
   lastDoneDate: string;
   lastDoneYear: string; // LAST DONE TACH (aircraft TACH at maintenance)
   lastDoneAftt: string;
+  lastDoneTach: string;
   lastDoneMethodOfCompliance?: string;
   nextDueDate: string;
   nextDueYear: string;
@@ -159,8 +160,8 @@ function computeTCCRow(
   currentTach: number,
   currentAftt: number
 ): TCCComputedRow {
-  const limitYears = parseNum(item.hours);
-  const limitHours = parseNum(item.threshold);
+  const limitYears = parseNum(item.threshold);
+  const limitHours = parseNum(item.hours);
   const lastDoneDate = parseDate(item.lastDoneDate);
   const lastDoneTach = parseNum(item.lastDoneYear);
   const lastDoneAftt = parseNum(item.lastDoneAftt);
@@ -311,7 +312,7 @@ export function TCCDetailContent({
         serialNo: payload.serialNo,
         description: payload.description,
         hours: payload.hours,
-        threshold: payload.threshold,
+        threshold: payload.years,
         methodOfCompliance: payload.methodOfCompliance,
       });
       await Swal.fire({
@@ -342,6 +343,7 @@ export function TCCDetailContent({
         threshold: payload.threshold,
         methodOfCompliance: payload.methodOfCompliance,
         reference: payload.reference,
+        sequenceNumber: payload.reference,
         lastDoneDate: payload.lastDoneDate,
         lastDoneYear: payload.lastDoneYear,
         lastDoneAftt: payload.lastDoneAftt,
@@ -680,8 +682,8 @@ export function TCCDetailContent({
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
                     AFTT
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
-                    ATL-SEC.NO
+                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200" title="sequence_number">
+                    ATL Reference
                   </th>
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
                     Actions
@@ -794,7 +796,7 @@ export function TCCDetailContent({
                         {item.lastDoneDate}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
-                        {item.lastDoneYear}
+                        {item.lastDoneTach}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
                         {item.lastDoneAftt}
@@ -811,7 +813,7 @@ export function TCCDetailContent({
                       <td className="px-3 py-3 text-gray-900 text-xs">
                         {formatNum(row.nextDueAftt) || item.nextDueAftt}
                       </td>
-                      {/* REFERENCE: ATL reference (Document) */}
+                      {/* ATL Reference: sequence_number */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
                         {item.reference}
                       </td>

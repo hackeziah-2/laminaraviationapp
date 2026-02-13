@@ -16,18 +16,30 @@ function deepToCamel(obj: any): any {
   return obj;
 }
 
+/** Coerce API value to boolean for is_aircraft_certificate (handles 1, 0, "true", "false" from backend) */
+function toBoolean(val: unknown): boolean {
+  if (val === true || val === 1 || val === "1" || val === "true") return true;
+  if (val === false || val === 0 || val === "0" || val === "false") return false;
+  return false;
+}
+
 /** Normalize a document item from API (supports snake_case or camelCase) */
 function normalizeDocumentItem(item: any): DocumentOnBoard {
   if (item == null) {
     throw new Error("Document data is missing");
   }
   const c = deepToCamel(item) ?? {};
-  const filePath = c.filePath ?? c.uploadFile ?? item.file_path ?? item.upload_file ?? null;
+  const filePath =
+    c.filePath ?? c.uploadFile ?? item.file_path ?? item.upload_file ?? null;
   // Support both 'id' and 'document_id' from API
-  const documentId = c.id ?? c.documentId ?? item.document_id ?? item.id ?? null;
+  const documentId =
+    c.id ?? c.documentId ?? item.document_id ?? item.id ?? null;
+  const rawIsCert =
+    c.isAircraftCertificate ?? item.is_aircraft_certificate ?? false;
   return {
     id: documentId,
-    aircraftId: c.aircraftId ?? c.aircraftFk ?? item.aircraft_id ?? item.aircraft_fk,
+    aircraftId:
+      c.aircraftId ?? c.aircraftFk ?? item.aircraft_id ?? item.aircraft_fk,
     aircraft: c.aircraft,
     documentName: c.documentName ?? item.document_name ?? c.document ?? "",
     description: c.description ?? null,
@@ -38,13 +50,19 @@ function normalizeDocumentItem(item: any): DocumentOnBoard {
     status: c.status ?? "Active",
     filePath: filePath,
     uploadFile: filePath,
+    webLink: c.webLink ?? item.web_link ?? null,
+    isAircraftCertificate: toBoolean(rawIsCert),
     createdAt: c.createdAt ?? null,
     updatedAt: c.updatedAt ?? null,
   };
 }
 
 // Status enum type
-export type DocumentStatus = "Active" | "Expired" | "Expiring Soon" | "Inactive";
+export type DocumentStatus =
+  | "Active"
+  | "Expired"
+  | "Expiring Soon"
+  | "Inactive";
 
 // Interfaces
 export interface DocumentOnBoard {
@@ -64,7 +82,9 @@ export interface DocumentOnBoard {
   status: DocumentStatus;
   /** Stored file path from API (e.g. "uploads/ATL.jpg") */
   filePath?: string | null;
+  webLink?: string | null;
   uploadFile?: string | null;
+  isAircraftCertificate?: boolean | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -76,6 +96,8 @@ export interface DocumentOnBoardCreate {
   issueDate?: string | null;
   expiryDate?: string | null;
   warningDays?: number | null;
+  webLink?: string | null;
+  isAircraftCertificate?: boolean | null;
   status: DocumentStatus;
   uploadFile?: File | null;
 }
@@ -87,6 +109,8 @@ export interface DocumentOnBoardUpdate {
   issueDate?: string | null;
   expiryDate?: string | null;
   warningDays?: number | null;
+  webLink?: string | null;
+  isAircraftCertificate?: boolean | null;
   status?: DocumentStatus;
   uploadFile?: File | null;
 }
@@ -118,10 +142,10 @@ export const getDocumentsOnBoard = async (
   statusFilter = "All Status",
   aircraftFk?: number
 ): Promise<PaginatedResponse<DocumentOnBoard>> => {
-  const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
+  const baseURL =
+    import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
 
-  const useAircraftPath =
-    aircraftFk != null && !isNaN(Number(aircraftFk));
+  const useAircraftPath = aircraftFk != null && !isNaN(Number(aircraftFk));
 
   const params = new URLSearchParams();
   params.append("limit", limit.toString());
@@ -145,13 +169,15 @@ export const getDocumentsOnBoard = async (
 
     // Handle different response structures
     let responseData = response.data;
-    
+
     // Support multiple pagination shapes: items, results, data
     const rawItems =
       responseData.items ?? responseData.results ?? responseData.data ?? [];
     const total = responseData.total ?? responseData.count ?? rawItems.length;
     const pageNum = responseData.page ?? page;
-    const pages = responseData.pages ?? Math.max(1, Math.ceil(total / (responseData.limit ?? limit)));
+    const pages =
+      responseData.pages ??
+      Math.max(1, Math.ceil(total / (responseData.limit ?? limit)));
 
     if (Array.isArray(rawItems)) {
       const items = rawItems.map((item: any) => normalizeDocumentItem(item));
@@ -171,7 +197,8 @@ export const getDocumentsOnBoard = async (
     });
 
     if (error.code === "ERR_NETWORK" || error.message === "Network Error") {
-      const errorMsg = `Network error: Unable to connect to ${baseURL}\n\n` +
+      const errorMsg =
+        `Network error: Unable to connect to ${baseURL}\n\n` +
         `Possible causes:\n` +
         `1. Backend server is not running\n` +
         `2. CORS is not configured on the backend\n` +
@@ -182,36 +209,37 @@ export const getDocumentsOnBoard = async (
         `- The endpoint /api/v1/documents-on-board/paged exists`;
       throw new Error(errorMsg);
     }
-    
+
     if (error.response?.status === 500) {
       throw new Error(
         `Server error (500): The documents-on-board endpoint returned an internal server error.\n\n` +
-        `This usually means:\n` +
-        `- The endpoint exists but has a server-side error\n` +
-        `- Check the backend logs for more details\n` +
-        `- Verify the endpoint implementation on the backend`
+          `This usually means:\n` +
+          `- The endpoint exists but has a server-side error\n` +
+          `- Check the backend logs for more details\n` +
+          `- Verify the endpoint implementation on the backend`
       );
     }
-    
+
     if (error.response?.status === 404) {
       throw new Error(
         `Endpoint not found (404): ${fullURL}\n\n` +
-        `The endpoint does not exist. Please verify:\n` +
-        `- The backend route is correctly defined\n` +
-        `- The endpoint path matches: /api/v1/documents-on-board/paged\n` +
-        `- The backend server is running the latest version`
+          `The endpoint does not exist. Please verify:\n` +
+          `- The backend route is correctly defined\n` +
+          `- The endpoint path matches: /api/v1/documents-on-board/paged\n` +
+          `- The backend server is running the latest version`
       );
     }
-    
+
     if (error.response?.status === 403 || error.response?.status === 401) {
       throw new Error(
         `Authentication error (${error.response.status}): Access denied.\n\n` +
-        `Please check if authentication is required for this endpoint.`
+          `Please check if authentication is required for this endpoint.`
       );
     }
-    
+
     // Generic error
-    const errorDetail = error.response?.data?.detail || error.message || "Unknown error";
+    const errorDetail =
+      error.response?.data?.detail || error.message || "Unknown error";
     throw new Error(`Error fetching documents: ${errorDetail}`);
   }
 };
@@ -224,7 +252,9 @@ export const getDocumentOnBoardById = async (
 ): Promise<DocumentOnBoard> => {
   try {
     const response = await apiClient.get(`documents-on-board/${id}`);
-    return normalizeDocumentItem(response.data);
+    const raw = response.data?.data ?? response.data;
+    if (raw == null) throw new Error("Document data is missing");
+    return normalizeDocumentItem(raw);
   } catch (error) {
     throw error;
   }
@@ -240,7 +270,9 @@ export const createDocumentOnBoard = async (
     // Don't set Content-Type for FormData - browser will set it with boundary
     const config = data instanceof FormData ? {} : undefined;
     const response = await apiClient.post("documents-on-board/", data, config);
-    return normalizeDocumentItem(response.data);
+    const raw = response.data?.data ?? response.data;
+    if (raw == null) throw new Error("Document data is missing");
+    return normalizeDocumentItem(raw);
   } catch (error) {
     throw error;
   }
@@ -256,8 +288,14 @@ export const updateDocumentOnBoard = async (
   try {
     // Don't set Content-Type for FormData - browser will set it with boundary
     const config = data instanceof FormData ? {} : undefined;
-    const response = await apiClient.put(`documents-on-board/${id}`, data, config);
-    return normalizeDocumentItem(response.data);
+    const response = await apiClient.put(
+      `documents-on-board/${id}`,
+      data,
+      config
+    );
+    const raw = response.data?.data ?? response.data;
+    if (raw == null) throw new Error("Document data is missing");
+    return normalizeDocumentItem(raw);
   } catch (error) {
     throw error;
   }
@@ -303,10 +341,14 @@ export const getAircraftDocumentsOnBoard = async (
   params.append("limit", limit.toString());
   params.append("page", page.toString());
   if (search.trim() !== "") params.append("search", search);
-  if (statusFilter && statusFilter !== "All Status") params.append("status", statusFilter);
+  if (statusFilter && statusFilter !== "All Status")
+    params.append("status", statusFilter);
 
-  const endpoint = `${AIRCRAFT_DOCUMENTS_PATH(aircraftId)}paged?${params.toString()}`;
-  const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
+  const endpoint = `${AIRCRAFT_DOCUMENTS_PATH(
+    aircraftId
+  )}paged?${params.toString()}`;
+  const baseURL =
+    import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/";
 
   try {
     const response = await apiClient.get(endpoint, {
@@ -315,22 +357,32 @@ export const getAircraftDocumentsOnBoard = async (
     const data = response.data?.data ?? response.data;
     const rawItems = Array.isArray(data)
       ? data
-      : (data?.items ?? data?.results ?? data?.data ?? []);
-    const total = typeof data === "object" && data !== null && !Array.isArray(data)
-      ? (data.total ?? data.count ?? (Array.isArray(rawItems) ? rawItems.length : 0))
-      : (Array.isArray(data) ? data.length : 0);
-    const pageNum = typeof data === "object" && data !== null && !Array.isArray(data)
-      ? (data.page ?? page)
-      : page;
-    const limitUsed = typeof data === "object" && data !== null && !Array.isArray(data)
-      ? (data.limit ?? limit)
-      : limit;
-    const pages = typeof data === "object" && data !== null && !Array.isArray(data)
-      ? (data.pages ?? Math.max(1, Math.ceil(total / limitUsed)))
-      : Math.max(1, Math.ceil(total / limit));
+      : data?.items ?? data?.results ?? data?.data ?? [];
+    const total =
+      typeof data === "object" && data !== null && !Array.isArray(data)
+        ? data.total ??
+          data.count ??
+          (Array.isArray(rawItems) ? rawItems.length : 0)
+        : Array.isArray(data)
+        ? data.length
+        : 0;
+    const pageNum =
+      typeof data === "object" && data !== null && !Array.isArray(data)
+        ? data.page ?? page
+        : page;
+    const limitUsed =
+      typeof data === "object" && data !== null && !Array.isArray(data)
+        ? data.limit ?? limit
+        : limit;
+    const pages =
+      typeof data === "object" && data !== null && !Array.isArray(data)
+        ? data.pages ?? Math.max(1, Math.ceil(total / limitUsed))
+        : Math.max(1, Math.ceil(total / limit));
 
     const items = Array.isArray(rawItems)
-      ? rawItems.filter((item: any) => item != null).map((item: any) => normalizeDocumentItem(item))
+      ? rawItems
+          .filter((item: any) => item != null)
+          .map((item: any) => normalizeDocumentItem(item))
       : [];
 
     return { items, total, page: pageNum, pages };
@@ -345,8 +397,13 @@ export const getAircraftDocumentsOnBoard = async (
         `Endpoint not found. Verify GET /api/v1/aircraft/${aircraftId}/documents-on-board/paged exists.`
       );
     }
-    const detail = error.response?.data?.detail ?? error.message ?? "Failed to load documents.";
-    throw new Error(typeof detail === "string" ? detail : "Failed to load documents.");
+    const detail =
+      error.response?.data?.detail ??
+      error.message ??
+      "Failed to load documents.";
+    throw new Error(
+      typeof detail === "string" ? detail : "Failed to load documents."
+    );
   }
 };
 
@@ -372,7 +429,10 @@ export const getAircraftDocumentOnBoardById = async (
  */
 export const createAircraftDocumentOnBoard = async (
   aircraftId: number,
-  data: Omit<DocumentOnBoardCreate, "aircraftId"> | FormData | Record<string, unknown>
+  data:
+    | Omit<DocumentOnBoardCreate, "aircraftId">
+    | FormData
+    | Record<string, unknown>
 ): Promise<DocumentOnBoard> => {
   const config = data instanceof FormData ? {} : undefined;
   const response = await apiClient.post(
@@ -424,7 +484,9 @@ export const deleteAircraftDocumentOnBoard = async (
  * Download document file - GET api/v1/document_on_board/download/{filePath}
  * Same pattern as logbook: path in URL, blob response, Accept: application/octet-stream
  */
-export const downloadDocumentOnBoardFile = async (filePath: string): Promise<Blob> => {
+export const downloadDocumentOnBoardFile = async (
+  filePath: string
+): Promise<Blob> => {
   let filePathForEndpoint = filePath;
   if (filePath.startsWith("http")) {
     const url = new URL(filePath);

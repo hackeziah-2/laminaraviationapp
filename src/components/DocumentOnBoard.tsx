@@ -42,7 +42,9 @@ export function DocumentOnBoard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sortBy, setSortBy] = useState<"document" | "expiryDate" | "status">("document");
+  const [sortBy, setSortBy] = useState<"document" | "expiryDate" | "status">(
+    "document"
+  );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -68,6 +70,8 @@ export function DocumentOnBoard() {
     issueDate: "",
     expiryDate: "",
     warningDays: "",
+    webLink: "",
+    isAircraftCertificate: false,
     status: "Active" as DocumentStatus,
   });
 
@@ -188,9 +192,12 @@ export function DocumentOnBoard() {
     setLoadingAircrafts(true);
     try {
       const response = await getAircrafts(1, 100, "", "");
-      setAircrafts(response.data.items || []);
+      const data = response?.data ?? response;
+      const list = data?.items ?? data?.data ?? (Array.isArray(data) ? data : []);
+      setAircrafts(Array.isArray(list) ? list : []);
     } catch (error) {
       console.error("Error fetching aircrafts:", error);
+      setAircrafts([]);
     } finally {
       setTimeout(() => setLoadingAircrafts(false), 360);
     }
@@ -325,8 +332,16 @@ export function DocumentOnBoard() {
       const daysLeftB = computeDaysLeft(b.expiryDate);
       const statusA = computeStatus(daysLeftA, a.warningDays);
       const statusB = computeStatus(daysLeftB, b.warningDays);
-      const docNameA = ((a as any).documentName ?? (a as any).document ?? "").toLowerCase();
-      const docNameB = ((b as any).documentName ?? (b as any).document ?? "").toLowerCase();
+      const docNameA = (
+        (a as any).documentName ??
+        (a as any).document ??
+        ""
+      ).toLowerCase();
+      const docNameB = (
+        (b as any).documentName ??
+        (b as any).document ??
+        ""
+      ).toLowerCase();
       const dateA = a.expiryDate ? new Date(a.expiryDate).getTime() : 0;
       const dateB = b.expiryDate ? new Date(b.expiryDate).getTime() : 0;
       let cmp = 0;
@@ -335,7 +350,8 @@ export function DocumentOnBoard() {
       } else if (sortBy === "expiryDate") {
         cmp = dateA - dateB;
       } else {
-        cmp = (STATUS_SORT_ORDER[statusA] ?? 4) - (STATUS_SORT_ORDER[statusB] ?? 4);
+        cmp =
+          (STATUS_SORT_ORDER[statusA] ?? 4) - (STATUS_SORT_ORDER[statusB] ?? 4);
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -518,6 +534,8 @@ export function DocumentOnBoard() {
       description: doc.description ?? "",
       issueDate: doc.issueDate ?? "",
       expiryDate: doc.expiryDate ?? "",
+      webLink: doc.webLink ?? "",
+      isAircraftCertificate: doc.isAircraftCertificate ?? (doc as any).is_aircraft_certificate ?? false,
       warningDays: doc.warningDays != null ? String(doc.warningDays) : "",
       status: doc.status ?? "Active",
     });
@@ -587,6 +605,8 @@ export function DocumentOnBoard() {
       issueDate: "",
       expiryDate: "",
       warningDays: "",
+      webLink: "",
+      isAircraftCertificate: false,
       status: "Active",
     });
     setSelectedAircraftDisplay("");
@@ -635,6 +655,8 @@ export function DocumentOnBoard() {
         description: formData.description?.trim() || null,
         issue_date: formData.issueDate || null,
         expiry_date: formData.expiryDate || null,
+        web_link: formData.webLink?.trim() || null,
+        is_aircraft_certificate: Boolean(formData.isAircraftCertificate),
         warning_days:
           warningDaysVal !== null && !isNaN(warningDaysVal)
             ? warningDaysVal
@@ -650,18 +672,13 @@ export function DocumentOnBoard() {
         payload.file_path = existingFilePath;
       }
 
-      // Prepare request: FormData with upload_file (File) for create/update with file, or JSON body
-      let requestData: FormData | Record<string, unknown>;
-
+      // Always use FormData so backend receives consistent multipart; upload_file is optional (append only when user selected a file)
+      const formDataObj = new FormData();
+      formDataObj.append("json_data", JSON.stringify(payload));
       if (uploadFile) {
-        const formDataObj = new FormData();
-        formDataObj.append("json_data", JSON.stringify(payload));
-        // Backend expects the actual file under "upload_file" (same as logbook)
         formDataObj.append("upload_file", uploadFile);
-        requestData = formDataObj;
-      } else {
-        requestData = payload;
       }
+      const requestData = formDataObj;
 
       // Execute create or update
       if (editingDocument) {
@@ -752,6 +769,8 @@ export function DocumentOnBoard() {
       issueDate: "",
       expiryDate: "",
       warningDays: "",
+      webLink: "",
+      isAircraftCertificate: false,
       status: "Active",
     });
     setSelectedAircraftDisplay("");
@@ -866,32 +885,34 @@ export function DocumentOnBoard() {
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-gray-500 mb-1.5">Searches: Document, Aircraft</p>
+              <p className="text-xs text-gray-500 mb-1.5">
+                Searches: Document, Aircraft
+              </p>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 <input
-                type="text"
-                placeholder="Search by document name or aircraft..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                disabled={loading}
-                title="Searches document name and aircraft (e.g. registration)"
-                aria-label="Search by document name or aircraft"
-                className="w-full h-10 pl-10 pr-9 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
-              />
-              {searchQuery && !loading && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
-                  aria-label="Clear search"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              {loading && (
-                <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
-              )}
+                  type="text"
+                  placeholder="Search by document name or aircraft..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  disabled={loading}
+                  title="Searches document name and aircraft (e.g. registration)"
+                  aria-label="Search by document name or aircraft"
+                  className="w-full h-10 pl-10 pr-9 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
+                />
+                {searchQuery && !loading && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                {loading && (
+                  <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
+                )}
               </div>
             </div>
           </div>
@@ -918,11 +939,13 @@ export function DocumentOnBoard() {
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
                         DOCUMENT
-                        {sortBy === "document"
-                          ? sortDir === "asc"
-                            ? <ArrowUp className="w-3.5 h-3.5" />
-                            : <ArrowDown className="w-3.5 h-3.5" />
-                          : null}
+                        {sortBy === "document" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          )
+                        ) : null}
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -932,11 +955,13 @@ export function DocumentOnBoard() {
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
                         EXPIRY DATE
-                        {sortBy === "expiryDate"
-                          ? sortDir === "asc"
-                            ? <ArrowUp className="w-3.5 h-3.5" />
-                            : <ArrowDown className="w-3.5 h-3.5" />
-                          : null}
+                        {sortBy === "expiryDate" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          )
+                        ) : null}
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -949,11 +974,13 @@ export function DocumentOnBoard() {
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
                         STATUS
-                        {sortBy === "status"
-                          ? sortDir === "asc"
-                            ? <ArrowUp className="w-3.5 h-3.5" />
-                            : <ArrowDown className="w-3.5 h-3.5" />
-                          : null}
+                        {sortBy === "status" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          )
+                        ) : null}
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -1168,7 +1195,6 @@ export function DocumentOnBoard() {
                           setAircraftSearchTerm("");
                         }}
                         className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        required
                         placeholder="Search aircraft..."
                       />
                       <button
@@ -1384,7 +1410,7 @@ export function DocumentOnBoard() {
                 {/* File Upload */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Attach File
+                    Attach File <span className="text-gray-500 font-normal">(optional)</span>
                   </label>
                   {uploadFile || uploadFileName ? (
                     <div className="flex items-center gap-2 p-3 border border-gray-300 rounded-md bg-gray-50">
@@ -1441,6 +1467,39 @@ export function DocumentOnBoard() {
                       </label>
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    Web Link <span className="text-gray-500 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={formData.webLink}
+                    onChange={(e) =>
+                      setFormData({ ...formData, webLink: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                    placeholder="https://example.com"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="is-aircraft-certificate"
+                    checked={formData.isAircraftCertificate}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        isAircraftCertificate: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="is-aircraft-certificate" className="text-sm text-gray-700">
+                    Is aircraft certificate
+                  </label>
                 </div>
               </div>
             </div>
@@ -1592,6 +1651,31 @@ export function DocumentOnBoard() {
                       viewingDocument.warningDays
                     )}
                   </span>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Web Link
+                  </label>
+                  {(viewingDocument.webLink ?? (viewingDocument as any).web_link) ? (
+                    <a
+                      href={(viewingDocument.webLink ?? (viewingDocument as any).web_link) || "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline break-all"
+                    >
+                      {viewingDocument.webLink ?? (viewingDocument as any).web_link}
+                    </a>
+                  ) : (
+                    <p className="text-gray-900">—</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Is aircraft certificate
+                  </label>
+                  <p className="text-gray-900">
+                    {viewingDocument.isAircraftCertificate ?? (viewingDocument as any).is_aircraft_certificate ? "Yes" : "No"}
+                  </p>
                 </div>
                 {getDocumentFilePath(viewingDocument) && (
                   <div>

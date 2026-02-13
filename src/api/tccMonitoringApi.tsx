@@ -54,7 +54,9 @@ export interface TCCMonitoringUpdate {
   nextDueDate?: string;
   nextDueYear?: string;
   nextDueAftt?: string;
+  /** ATL Reference: sequence_number (string) */
   reference?: string;
+  sequenceNumber?: string;
 }
 
 export interface PaginatedTCCResponse {
@@ -64,7 +66,8 @@ export interface PaginatedTCCResponse {
   pages: number;
 }
 
-const TCC_PATH = (aircraftId: number) => `aircraft/${aircraftId}/tcc-maintenance/`;
+const TCC_PATH = (aircraftId: number) =>
+  `aircraft/${aircraftId}/tcc-maintenance/`;
 
 /**
  * TCC Maintenance CRUD field mapping (backend ↔ UI):
@@ -92,15 +95,24 @@ function normalizeItem(raw: any): TCCMonitoring {
     description: numStr(r.description),
     hours: numStr(r.component_limit_years ?? r.hours),
     threshold: numStr(r.component_limit_hours ?? r.threshold),
-    methodOfCompliance: numStr(r.component_method_of_compliance ?? r.method_of_compliance ?? r.methodOfCompliance),
+    methodOfCompliance: numStr(
+      r.component_method_of_compliance ??
+        r.method_of_compliance ??
+        r.methodOfCompliance
+    ),
     lastDoneDate: numStr(r.last_done_date ?? r.lastDoneDate),
-    lastDoneYear: numStr(r.last_done_tach ?? r.last_done_year ?? r.lastDoneYear),
+    lastDoneYear: numStr(
+      r.last_done_tach ?? r.last_done_year ?? r.lastDoneYear
+    ),
     lastDoneAftt: numStr(r.last_done_aftt ?? r.lastDoneAftt),
-    lastDoneMethodOfCompliance: numStr(r.last_done_method_of_compliance ?? r.lastDoneMethodOfCompliance) || undefined,
+    lastDoneMethodOfCompliance:
+      numStr(
+        r.last_done_method_of_compliance ?? r.lastDoneMethodOfCompliance
+      ) || undefined,
     nextDueDate: numStr(r.next_due_date ?? r.nextDueDate),
     nextDueYear: numStr(r.next_due_tach ?? r.next_due_year ?? r.nextDueYear),
     nextDueAftt: numStr(r.next_due_aftt ?? r.nextDueAftt),
-    reference: numStr(r.atl_ref ?? r.reference),
+    reference: numStr(r.atl?.sequence_no ?? r.atl_ref),
     category: r.category ?? undefined,
   };
 }
@@ -122,7 +134,11 @@ export const getAircraftTccMonitoring = async (
   if (search.trim()) params.append("search", search.trim());
   const c = category?.trim();
   if (c) {
-    const categoryMap: Record<string, string> = { POWERPLANT: "Powerplant", AIRFRAME: "Airframe", PROPELLER: "Propeller" };
+    const categoryMap: Record<string, string> = {
+      POWERPLANT: "Powerplant",
+      AIRFRAME: "Airframe",
+      PROPELLER: "Propeller",
+    };
     const value = categoryMap[c.toUpperCase()] ?? c;
     params.append("category", value);
   }
@@ -141,6 +157,7 @@ export const getAircraftTccMonitoring = async (
   }
 
   const data = res.data?.data ?? res.data;
+
   const rawItems = Array.isArray(data)
     ? data
     : data?.items ?? data?.results ?? data?.data ?? [];
@@ -164,7 +181,7 @@ export const getAircraftTccMonitoring = async (
   const total = items.length;
   const pages = Math.max(1, Math.ceil(total / limit));
   return { items, total, page, pages };
-}
+};
 
 /**
  * Create TCC entry (tcc_maintenance).
@@ -180,18 +197,24 @@ export const createAircraftTccMonitoring = async (
     const n = parseFloat(String(v).replace(/,/g, "").trim());
     return Number.isFinite(n) ? n : null;
   };
-  const str = (v: string | undefined) => ((v ?? "").trim() || null);
-  const categoryMap: Record<string, string> = { POWERPLANT: "Powerplant", AIRFRAME: "Airframe", PROPELLER: "Propeller" };
+  const str = (v: string | undefined) => (v ?? "").trim() || null;
+  const categoryMap: Record<string, string> = {
+    POWERPLANT: "Powerplant",
+    AIRFRAME: "Airframe",
+    PROPELLER: "Propeller",
+  };
   const categoryValue = str(data.category);
-  const category = categoryValue ? (categoryMap[categoryValue.toUpperCase()] ?? categoryValue) : null;
+  const category = categoryValue
+    ? categoryMap[categoryValue.toUpperCase()] ?? categoryValue
+    : null;
   const payload = {
     aircraft_fk: aircraftId,
     category,
     part_number: str(data.partNo) ?? null,
     serial_number: str(data.serialNo) ?? null,
     description: str(data.description) ?? null,
-    component_limit_years: num(data.hours) ?? null,
-    component_limit_hours: num(data.threshold) ?? null,
+    component_limit_years: num(data.threshold) ?? null,
+    component_limit_hours: num(data.hours) ?? null,
     component_method_of_compliance: str(data.methodOfCompliance) ?? null,
   };
   const res = await apiClient.post(TCC_PATH(aircraftId), payload, {
@@ -203,7 +226,7 @@ export const createAircraftTccMonitoring = async (
     return normalizeItem({ id: (res.data as any)?.id ?? 0, ...payload });
   }
   throw new Error("Invalid create response");
-}
+};
 
 /**
  * Update TCC entry. PUT api/v1/aircraft/{aircraft_id}/tcc-maintenance/{id}/
@@ -219,8 +242,8 @@ export const updateAircraftTccMonitoring = async (
     const n = parseFloat(String(v).replace(/,/g, "").trim());
     return Number.isFinite(n) ? n : null;
   };
-  const numOrZero = (v: string | undefined) => (num(v) ?? 0);
-  const str = (v: string | undefined) => ((v ?? "").trim() || null);
+  const numOrZero = (v: string | undefined) => num(v) ?? 0;
+  const str = (v: string | undefined) => (v ?? "").trim() || null;
   const payload: Record<string, string | number | null> = {
     part_number: str(data.partNo) ?? null,
     serial_number: str(data.serialNo) ?? null,
@@ -229,18 +252,24 @@ export const updateAircraftTccMonitoring = async (
     component_limit_hours: num(data.threshold) ?? null,
     component_method_of_compliance: str(data.methodOfCompliance) ?? null,
   };
-  if (data.lastDoneDate !== undefined) payload.last_done_date = str(data.lastDoneDate) ?? "";
-  if (data.lastDoneYear !== undefined) payload.last_done_tach = numOrZero(data.lastDoneYear);
-  if (data.lastDoneAftt !== undefined) payload.last_done_aftt = numOrZero(data.lastDoneAftt);
-  if (data.reference !== undefined) payload.atl_ref = numOrZero(data.reference);
-  if (data.lastDoneMethodOfCompliance !== undefined) payload.last_done_method_of_compliance = str(data.lastDoneMethodOfCompliance) ?? "";
+  if (data.lastDoneDate !== undefined)
+    payload.last_done_date = str(data.lastDoneDate) ?? "";
+  if (data.lastDoneYear !== undefined)
+    payload.last_done_tach = numOrZero(data.lastDoneYear);
+  if (data.lastDoneAftt !== undefined)
+    payload.last_done_aftt = numOrZero(data.lastDoneAftt);
+  const seqNum = str(data.sequenceNumber ?? data.reference);
+  if (seqNum !== null) payload.sequence_number = seqNum;
+  if (data.lastDoneMethodOfCompliance !== undefined)
+    payload.last_done_method_of_compliance =
+      str(data.lastDoneMethodOfCompliance) ?? "";
   const res = await apiClient.put(`${TCC_PATH(aircraftId)}${id}/`, payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   });
   const raw = res.data?.data ?? res.data;
   if (raw != null) return normalizeItem(raw);
   return normalizeItem({ id, ...payload });
-}
+};
 
 /**
  * Delete TCC entry.
@@ -251,4 +280,4 @@ export const deleteAircraftTccMonitoring = async (
   id: number
 ): Promise<void> => {
   await apiClient.delete(`${TCC_PATH(aircraftId)}${id}/`);
-}
+};
