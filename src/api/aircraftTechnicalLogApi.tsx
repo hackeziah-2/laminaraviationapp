@@ -197,6 +197,20 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+/** Aircraft summary returned by ATL sequence number search */
+export interface AircraftTechnicalLogSearchAircraft {
+  id: number;
+  registration: string;
+  model: string;
+  type: string;
+}
+
+/** Single result from search by ATL Sequence Number */
+export interface AircraftTechnicalLogSearchResult {
+  sequenceNo: string;
+  aircraft: AircraftTechnicalLogSearchAircraft;
+}
+
 // CRUD Operations
 
 /**
@@ -288,6 +302,53 @@ export const getAircraftTechnicalLogById = async (
     };
 
     return transformToCamel(response.data);
+  } catch (error) {
+    throw error;
+  }
+};
+
+/**
+ * Search Aircraft Technical Log by ATL Sequence Number.
+ * GET /api/v1/aircraft-technical-log/?search=<query>
+ * Returns items with sequence_no and aircraft { id, registration, model, type }.
+ */
+export const searchAircraftTechnicalLogBySequence = async (
+  search: string
+): Promise<AircraftTechnicalLogSearchResult[]> => {
+  try {
+    const params = new URLSearchParams();
+    if (search.trim() !== "") {
+      params.append("search", search.trim());
+    }
+    const response = await apiClient.get(
+      `aircraft-technical-log/?${params.toString()}`,
+      { headers: { Accept: "application/json" } }
+    );
+    const data = response.data?.data ?? response.data;
+    let raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      if (data && typeof data === "object" && !Array.isArray(data) && data.sequence_no != null) {
+        raw = [data];
+      }
+    }
+    const list = Array.isArray(raw) ? raw : [];
+    return list.map((item: any) => {
+      const aircraft = item.aircraft ?? item.aircraft_fk;
+      const aircraftObj =
+        aircraft && typeof aircraft === "object"
+          ? {
+              id: aircraft.id ?? aircraft.pk ?? 0,
+              registration: aircraft.registration ?? "",
+              model: aircraft.model ?? "",
+              type: aircraft.type ?? "",
+            }
+          : { id: 0, registration: "", model: "", type: "" };
+      return {
+        sequenceNo:
+          item.sequence_no ?? item.sequenceNo ?? item.sequence_number ?? "",
+        aircraft: aircraftObj,
+      };
+    });
   } catch (error) {
     throw error;
   }

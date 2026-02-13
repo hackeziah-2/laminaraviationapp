@@ -52,7 +52,9 @@ export function AircraftDocumentOnBoard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sortBy, setSortBy] = useState<"document" | "expiryDate" | "status">("document");
+  const [sortBy, setSortBy] = useState<"document" | "expiryDate" | "status">(
+    "document"
+  );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -75,6 +77,8 @@ export function AircraftDocumentOnBoard() {
     issueDate: "",
     expiryDate: "",
     warningDays: "",
+    webLink: "",
+    isAircraftCertificate: false,
     status: "Active" as DocumentStatus,
   });
 
@@ -131,13 +135,7 @@ export function AircraftDocumentOnBoard() {
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
-  }, [
-    aircraftId,
-    currentPage,
-    itemsPerPage,
-    searchDebounced,
-    isValidAircraft,
-  ]);
+  }, [aircraftId, currentPage, itemsPerPage, searchDebounced, isValidAircraft]);
 
   const refreshDocuments = useCallback(async () => {
     if (!isValidAircraft || aircraftId == null) return;
@@ -157,13 +155,7 @@ export function AircraftDocumentOnBoard() {
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
-  }, [
-    aircraftId,
-    currentPage,
-    itemsPerPage,
-    searchDebounced,
-    isValidAircraft,
-  ]);
+  }, [aircraftId, currentPage, itemsPerPage, searchDebounced, isValidAircraft]);
 
   useEffect(() => {
     if (isValidAircraft) fetchDocuments();
@@ -228,8 +220,16 @@ export function AircraftDocumentOnBoard() {
       const daysLeftB = computeDaysLeft(b.expiryDate);
       const statusA = computeStatus(daysLeftA, a.warningDays);
       const statusB = computeStatus(daysLeftB, b.warningDays);
-      const docNameA = ((a as any).documentName ?? (a as any).document ?? "").toLowerCase();
-      const docNameB = ((b as any).documentName ?? (b as any).document ?? "").toLowerCase();
+      const docNameA = (
+        (a as any).documentName ??
+        (a as any).document ??
+        ""
+      ).toLowerCase();
+      const docNameB = (
+        (b as any).documentName ??
+        (b as any).document ??
+        ""
+      ).toLowerCase();
       const dateA = a.expiryDate ? new Date(a.expiryDate).getTime() : 0;
       const dateB = b.expiryDate ? new Date(b.expiryDate).getTime() : 0;
       let cmp = 0;
@@ -238,7 +238,8 @@ export function AircraftDocumentOnBoard() {
       } else if (sortBy === "expiryDate") {
         cmp = dateA - dateB;
       } else {
-        cmp = (STATUS_SORT_ORDER[statusA] ?? 4) - (STATUS_SORT_ORDER[statusB] ?? 4);
+        cmp =
+          (STATUS_SORT_ORDER[statusA] ?? 4) - (STATUS_SORT_ORDER[statusB] ?? 4);
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -356,6 +357,8 @@ export function AircraftDocumentOnBoard() {
       issueDate: doc.issueDate ?? "",
       expiryDate: doc.expiryDate ?? "",
       warningDays: doc.warningDays != null ? String(doc.warningDays) : "",
+      webLink: doc.webLink ?? "",
+      isAircraftCertificate: doc.isAircraftCertificate ?? (doc as any).is_aircraft_certificate ?? false,
       status: doc.status ?? "Active",
     });
     setUploadFile(null);
@@ -404,6 +407,8 @@ export function AircraftDocumentOnBoard() {
       issueDate: "",
       expiryDate: "",
       warningDays: "",
+      webLink: "",
+      isAircraftCertificate: false,
       status: "Active",
     });
     setUploadFile(null);
@@ -434,6 +439,8 @@ export function AircraftDocumentOnBoard() {
         description: formData.description?.trim() || null,
         issue_date: formData.issueDate || null,
         expiry_date: formData.expiryDate || null,
+        web_link: formData.webLink?.trim() || null,
+        is_aircraft_certificate: Boolean(formData.isAircraftCertificate),
         warning_days:
           warningDaysVal !== null && !isNaN(warningDaysVal)
             ? warningDaysVal
@@ -448,15 +455,13 @@ export function AircraftDocumentOnBoard() {
         payload.file_path = existingFilePath;
       }
 
-      let requestData: FormData | Record<string, unknown>;
+      // Always use FormData so backend receives consistent multipart; upload_file is optional (append only when user selected a file)
+      const fd = new FormData();
+      fd.append("json_data", JSON.stringify(payload));
       if (uploadFile) {
-        const fd = new FormData();
-        fd.append("json_data", JSON.stringify(payload));
         fd.append("upload_file", uploadFile);
-        requestData = fd;
-      } else {
-        requestData = payload;
       }
+      const requestData = fd;
 
       if (editingDocument) {
         const documentId = getDocumentId(editingDocument);
@@ -515,6 +520,8 @@ export function AircraftDocumentOnBoard() {
       issueDate: "",
       expiryDate: "",
       warningDays: "",
+      webLink: "",
+      isAircraftCertificate: false,
       status: "Active",
     });
     setUploadFile(null);
@@ -566,7 +573,7 @@ export function AircraftDocumentOnBoard() {
           <div className="h-6 w-px bg-gray-200" aria-hidden />
           <div>
             <h2 className="text-2xl font-semibold text-gray-900">
-              Aircraft Documents On Boardqq
+              Aircraft Documents On Board
             </h2>
             <p className="text-gray-600 mt-1">
               {aircraftRegistration
@@ -671,19 +678,19 @@ export function AircraftDocumentOnBoard() {
                   aria-label="Search by document name"
                   className="w-full h-10 pl-10 pr-9 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 disabled:opacity-50 bg-white"
                 />
-              {searchQuery && !loading && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
-                  aria-label="Clear search"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              {loading && (
-                <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
-              )}
+                {searchQuery && !loading && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                    aria-label="Clear search"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                {loading && (
+                  <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
+                )}
               </div>
             </div>
           </div>
@@ -706,11 +713,13 @@ export function AircraftDocumentOnBoard() {
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
                         DOCUMENT
-                        {sortBy === "document"
-                          ? sortDir === "asc"
-                            ? <ArrowUp className="w-3.5 h-3.5" />
-                            : <ArrowDown className="w-3.5 h-3.5" />
-                          : null}
+                        {sortBy === "document" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          )
+                        ) : null}
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -720,11 +729,13 @@ export function AircraftDocumentOnBoard() {
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
                         EXPIRY DATE
-                        {sortBy === "expiryDate"
-                          ? sortDir === "asc"
-                            ? <ArrowUp className="w-3.5 h-3.5" />
-                            : <ArrowDown className="w-3.5 h-3.5" />
-                          : null}
+                        {sortBy === "expiryDate" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          )
+                        ) : null}
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -737,11 +748,13 @@ export function AircraftDocumentOnBoard() {
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
                         STATUS
-                        {sortBy === "status"
-                          ? sortDir === "asc"
-                            ? <ArrowUp className="w-3.5 h-3.5" />
-                            : <ArrowDown className="w-3.5 h-3.5" />
-                          : null}
+                        {sortBy === "status" ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          )
+                        ) : null}
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -1032,6 +1045,39 @@ export function AircraftDocumentOnBoard() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Web Link <span className="text-gray-500 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="url"
+                  value={formData.webLink}
+                  onChange={(e) =>
+                    setFormData({ ...formData, webLink: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="https://example.com"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="is-aircraft-certificate-aircraft"
+                  checked={formData.isAircraftCertificate}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      isAircraftCertificate: e.target.checked,
+                    })
+                  }
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="is-aircraft-certificate-aircraft" className="text-sm text-gray-700">
+                  Is aircraft certificate
+                </label>
+              </div>
+
               {showEditModal &&
                 editingDocument &&
                 getDocumentFilePath(editingDocument) && (
@@ -1064,7 +1110,7 @@ export function AircraftDocumentOnBoard() {
 
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
-                  Attach File
+                  Attach File <span className="text-gray-500 font-normal">(optional)</span>
                 </label>
                 {uploadFile || uploadFileName ? (
                   <div className="flex items-center gap-2 p-3 border border-gray-300 rounded-md bg-gray-50">
@@ -1253,6 +1299,31 @@ export function AircraftDocumentOnBoard() {
                     viewingDocument.warningDays
                   )}
                 </span>
+              </div>
+              <div>
+                <label className="block text-gray-600 text-sm mb-1">
+                  Web Link
+                </label>
+                {(viewingDocument.webLink ?? (viewingDocument as any).web_link) ? (
+                  <a
+                    href={(viewingDocument.webLink ?? (viewingDocument as any).web_link) || "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline break-all"
+                  >
+                    {viewingDocument.webLink ?? (viewingDocument as any).web_link}
+                  </a>
+                ) : (
+                  <p className="text-gray-900">—</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-gray-600 text-sm mb-1">
+                  Is aircraft certificate
+                </label>
+                <p className="text-gray-900">
+                  {viewingDocument.isAircraftCertificate ?? (viewingDocument as any).is_aircraft_certificate ? "Yes" : "No"}
+                </p>
               </div>
               {getDocumentFilePath(viewingDocument) && (
                 <div>

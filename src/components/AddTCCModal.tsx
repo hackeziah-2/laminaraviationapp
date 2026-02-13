@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, ChevronDown } from "lucide-react";
+import { X, ChevronDown, Search } from "lucide-react";
 import type { ComponentItem } from "./TCCDetail";
 import { getAtlList, type AtlItem } from "../api/atlApi";
 
@@ -45,7 +45,7 @@ const defaultFormData = {
   serialNumber: "",
   description: "",
   componentLimitHours: "",
-  timeDistance: "",
+  componentLimitYears: "",
   methodOfCompliance: "",
   // Edit-only
   atlReference: "",
@@ -67,9 +67,11 @@ export function AddTCCModal({
   const [formData, setFormData] = useState(defaultFormData);
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
+  const [atlSearchDebounced, setAtlSearchDebounced] = useState("");
   const [atlOpen, setAtlOpen] = useState(false);
   const [atlLoading, setAtlLoading] = useState(false);
   const atlListRef = useRef<HTMLDivElement>(null);
+  const atlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isEdit = Boolean(editingItem);
   const title = isEdit ? "Edit TCC Entry" : "Add TCC Entry";
@@ -77,27 +79,45 @@ export function AddTCCModal({
 
   useEffect(() => {
     if (isOpen && editingItem) {
+      const ref = editingItem.reference ?? "";
       setFormData({
         ...defaultFormData,
         category: activeCategory,
         partNumber: editingItem.partNo ?? "",
         serialNumber: editingItem.serialNo ?? "",
         description: editingItem.description ?? "",
-        componentLimitHours: editingItem.threshold ?? "",
-        timeDistance: editingItem.hours ?? "",
+        componentLimitHours: editingItem.hours ?? "",
+        componentLimitYears: editingItem.hours ?? "",
         methodOfCompliance: editingItem.methodOfCompliance ?? "",
-        atlReference: editingItem.reference ?? "",
+        atlReference: ref,
         lastDoneDate: toDateInputValue(editingItem.lastDoneDate),
-        lastDoneTach: editingItem.lastDoneYear ?? "",
+        lastDoneTach: editingItem.lastDoneTach ?? "",
         lastDoneAftt: editingItem.lastDoneAftt ?? "",
-        lastDoneMethodOfCompliance: editingItem.lastDoneMethodOfCompliance ?? "",
+        lastDoneMethodOfCompliance:
+          editingItem.lastDoneMethodOfCompliance ?? "",
       });
+      setAtlSearch(ref);
+      setAtlSearchDebounced(ref);
     } else if (isOpen && !editingItem) {
       setFormData({ ...defaultFormData, category: activeCategory });
+      setAtlSearch("");
+      setAtlSearchDebounced("");
     }
   }, [isOpen, editingItem, activeCategory]);
 
-  // Fetch ATL list for Edit mode (on open or search change)
+  // Debounce ATL search by sequence_number (400ms)
+  useEffect(() => {
+    if (atlDebounceRef.current) clearTimeout(atlDebounceRef.current);
+    atlDebounceRef.current = setTimeout(() => {
+      setAtlSearchDebounced(atlSearch);
+      atlDebounceRef.current = null;
+    }, 400);
+    return () => {
+      if (atlDebounceRef.current) clearTimeout(atlDebounceRef.current);
+    };
+  }, [atlSearch]);
+
+  // Fetch ATL list for Edit mode (search by sequence_number)
   useEffect(() => {
     if (!isOpen || !isEdit) return;
     const ac = { current: false };
@@ -105,15 +125,17 @@ export function AddTCCModal({
       setAtlLoading(true);
       try {
         const aircraftIdNum = aircraftId ? parseInt(aircraftId, 10) : undefined;
-        const list = await getAtlList(atlSearch.trim(), aircraftIdNum);
+        const list = await getAtlList(atlSearchDebounced.trim(), aircraftIdNum);
         if (!ac.current) setAtlOptions(list);
       } finally {
         if (!ac.current) setAtlLoading(false);
       }
     };
     fetch();
-    return () => { ac.current = true; };
-  }, [isOpen, isEdit, atlSearch, aircraftId]);
+    return () => {
+      ac.current = true;
+    };
+  }, [isOpen, isEdit, atlSearchDebounced, aircraftId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,16 +144,17 @@ export function AddTCCModal({
       partNo: formData.partNumber,
       serialNo: formData.serialNumber,
       description: formData.description,
-      threshold: formData.componentLimitHours,
-      hours: formData.timeDistance,
+      hours: formData.componentLimitHours,
+      years: formData.componentLimitYears,
       methodOfCompliance: formData.methodOfCompliance,
     };
     if (isEdit && editingItem && onUpdate) {
-      payload.reference = formData.atlReference || undefined;
+      payload.reference = formData.atlReference?.trim() || undefined; // sequence_number
       payload.lastDoneDate = formData.lastDoneDate || undefined;
       payload.lastDoneYear = formData.lastDoneTach || undefined;
       payload.lastDoneAftt = formData.lastDoneAftt || undefined;
-      payload.lastDoneMethodOfCompliance = formData.lastDoneMethodOfCompliance || undefined;
+      payload.lastDoneMethodOfCompliance =
+        formData.lastDoneMethodOfCompliance || undefined;
       onUpdate(editingItem.id, payload);
     } else {
       onAdd(payload);
@@ -276,8 +299,8 @@ export function AddTCCModal({
               </label>
               <input
                 type="text"
-                name="timeDistance"
-                value={formData.timeDistance}
+                name="componentLimitYears"
+                value={formData.componentLimitYears}
                 onChange={handleChange}
                 placeholder="e.g. 12"
                 className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -310,53 +333,87 @@ export function AddTCCModal({
             </select>
           </div>
 
-          {/* Edit-only: ATL reference, Last Done Date / TACH / AFTT */}
+          {/* Edit-only: ATL Reference (search by sequence number), Last Done Date / TACH / AFTT */}
           {isEdit && (
             <>
-              {/* ATL Reference: search dropdown */}
+              {/* ATL Reference: search by ATL sequence number */}
               <div className="mb-4">
-                <label className="block text-gray-900 text-sm mb-2">
+                <label className="block text-gray-900 text-sm font-medium mb-1.5">
                   ATL Reference
                 </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Search by ATL sequence number
+                </p>
                 <div className="relative" ref={atlListRef}>
+                  {/* <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none shrink-0" /> */}
                   <input
                     type="text"
-                    value={atlOpen ? atlSearch : (atlOptions.find((o) => String(o.id) === formData.atlReference)?.label ?? formData.atlReference)}
+                    value={
+                      atlOpen
+                        ? atlSearch
+                        : atlOptions.find(
+                            (o) =>
+                              (o.sequenceNo ?? String(o.id)) ===
+                              formData.atlReference
+                          )?.label ?? formData.atlReference
+                    }
                     onChange={(e) => {
                       setAtlSearch(e.target.value);
                       setAtlOpen(true);
                     }}
                     onFocus={() => {
                       setAtlOpen(true);
-                      if (atlSearch === "") setAtlSearch(formData.atlReference);
+                      if (atlSearch === "" && formData.atlReference)
+                        setAtlSearch(formData.atlReference);
                     }}
                     onBlur={() => setTimeout(() => setAtlOpen(false), 200)}
-                    placeholder="Search by sequence number..."
-                    className="w-full px-3 py-2 pr-9 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    // placeholder="Type to search by ATL sequence number..."
+                    className="w-full min-h-[2.75rem] pl-9 pr-9 py-2.5 text-sm leading-normal bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none shrink-0" />
                   {atlOpen && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-auto">
+                    <div className="absolute z-20 w-full mt-1.5 bg-white border border-gray-300 rounded-lg shadow-lg max-h-52 overflow-auto">
                       {atlLoading ? (
-                        <div className="px-3 py-2 text-sm text-gray-500">Loading...</div>
+                        <div className="px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
+                          <span className="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                          Loading ATL...
+                        </div>
                       ) : atlOptions.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-gray-500">No ATL found</div>
+                        <div className="px-3 py-3 text-sm text-gray-500">
+                          No ATL found. Try a different sequence number.
+                        </div>
                       ) : (
-                        atlOptions.map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            className="w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-100"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setFormData((prev) => ({ ...prev, atlReference: String(opt.id) }));
-                              setAtlSearch("");
-                              setAtlOpen(false);
-                            }}
-                          >
-                            {opt.label}
-                          </button>
-                        ))
+                        <ul className="py-1">
+                          {atlOptions.map((opt) => {
+                            const isSelected =
+                              (opt.sequenceNo ?? String(opt.id)) ===
+                              formData.atlReference;
+                            return (
+                              <li key={opt.id}>
+                                <button
+                                  type="button"
+                                  className={`w-full px-3 py-2.5 text-left text-sm transition-colors ${
+                                    isSelected
+                                      ? "bg-blue-50 text-blue-700 font-medium"
+                                      : "text-gray-900 hover:bg-gray-50"
+                                  }`}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      atlReference:
+                                        opt.sequenceNo ?? String(opt.id),
+                                    }));
+                                    setAtlSearch("");
+                                    setAtlOpen(false);
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       )}
                     </div>
                   )}
