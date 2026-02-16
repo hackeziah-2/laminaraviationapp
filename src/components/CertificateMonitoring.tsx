@@ -12,8 +12,6 @@ import {
   XCircle,
   X,
   Loader,
-  ChevronDown,
-  Check,
   Upload,
   ArrowUp,
   ArrowDown,
@@ -21,28 +19,23 @@ import {
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import {
-  getDocumentsOnBoard,
-  createDocumentOnBoard,
-  updateDocumentOnBoard,
-  deleteDocumentOnBoard,
-  downloadDocumentOnBoardFile,
-  DocumentOnBoard as DocumentOnBoardType,
-  DocumentStatus,
-  type DocumentOnBoardCreate,
-  type DocumentOnBoardUpdate,
-} from "../api/documentsOnBoardApi";
+  getCertificatesMonitoring,
+  createCertificateMonitoring,
+  updateCertificateMonitoring,
+  deleteCertificateMonitoring,
+  downloadCertificateFile,
+  CertificateMonitoring as CertificateMonitoringType,
+  CertificateStatus,
+  type CertificateMonitoringCreate,
+  type CertificateMonitoringUpdate,
+} from "../api/certificateMonitoringApi";
 import { Spinner } from "./ui/spinner";
-import { getAircrafts } from "../api/aircraftApi";
 
 /**
- * Document On Board (global): /document-on-board
- * Columns: AIRCRAFT, DOCUMENT, EXPIRY DATE, DAYS LEFT, STATUS, ACTIONS
+ * Certificate Monitoring (global): /certificate-monitoring
+ * Columns: AIRCRAFT, CERTIFICATE, EXPIRY DATE, DAYS LEFT, STATUS, ACTIONS
  */
-interface AircraftComponentProps {
-  viewingDocument: any; // temporary if you don’t know yet
-}
-
-export function DocumentOnBoard() {
+export function CertificateMonitoring() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,7 +45,9 @@ export function DocumentOnBoard() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [documents, setDocuments] = useState<DocumentOnBoardType[]>([]);
+  const [certificates, setCertificates] = useState<CertificateMonitoringType[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -61,22 +56,20 @@ export function DocumentOnBoard() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [editingDocument, setEditingDocument] =
-    useState<DocumentOnBoardType | null>(null);
-  const [viewingDocument, setViewingDocument] =
-    useState<DocumentOnBoardType | null>(null);
+  const [editingCertificate, setEditingCertificate] =
+    useState<CertificateMonitoringType | null>(null);
+  const [viewingCertificate, setViewingCertificate] =
+    useState<CertificateMonitoringType | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
-    aircraftId: "",
-    documentName: "",
+    certificateName: "",
     description: "",
     issueDate: "",
     expiryDate: "",
     warningDays: "",
     webLink: "",
-    isAircraftCertificate: false,
-    status: "Active" as DocumentStatus,
+    status: "Active" as CertificateStatus,
   });
 
   // File upload state
@@ -87,42 +80,30 @@ export function DocumentOnBoard() {
   const [isSaving, setIsSaving] = useState(false);
 
   // Status enum state (static list; API base URL returns 405 for GET)
-  const [statusEnum] = useState<DocumentStatus[]>([
+  const [statusEnum] = useState<CertificateStatus[]>([
     "Active",
     "Expired",
     "Expiring Soon",
     "Inactive",
   ]);
 
-  // Aircraft list for dropdown
-  const [aircrafts, setAircrafts] = useState<any[]>([]);
-  const [loadingAircrafts, setLoadingAircrafts] = useState(false);
-
-  // Aircraft searchable dropdown state
-  const [aircraftSearchTerm, setAircraftSearchTerm] = useState("");
-  const [isAircraftDropdownOpen, setIsAircraftDropdownOpen] = useState(false);
-  const [selectedAircraftDisplay, setSelectedAircraftDisplay] = useState("");
-  const aircraftDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch documents
-  const fetchDocuments = useCallback(async () => {
+  // Fetch certificates
+  const fetchCertificates = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await getDocumentsOnBoard(
+      const response = await getCertificatesMonitoring(
         currentPage,
         itemsPerPage,
-        searchDebounced,
-        undefined,
-        undefined
+        searchDebounced
       );
-      setDocuments(response.items);
+      setCertificates(response.items);
       setTotalRecords(response.total);
       setTotalPages(response.pages);
     } catch (error: any) {
-      console.error("Error fetching documents:", error);
+      console.error("Error fetching certificates:", error);
 
       // Show user-friendly error message
-      let errorMessage = "Failed to load documents. Please try again.";
+      let errorMessage = "Failed to load certificates. Please try again.";
       let errorTitle = "Error!";
       let showFooter = false;
 
@@ -141,7 +122,7 @@ export function DocumentOnBoard() {
       } else if (error.response?.status === 500) {
         errorTitle = "Server Error";
         errorMessage =
-          "Server error: The documents-on-board endpoint may not be implemented yet on the backend.";
+          "Server error: The documents-on-board/certificates endpoint may not be available. Check that GET /api/v1/documents-on-board/certificates/paged exists.";
       } else if (error.code === "ERR_NETWORK") {
         errorTitle = "Network Error";
         errorMessage =
@@ -160,7 +141,7 @@ export function DocumentOnBoard() {
       });
 
       // Set empty state on error
-      setDocuments([]);
+      setCertificates([]);
       setTotalRecords(0);
       setTotalPages(0);
     } finally {
@@ -168,113 +149,30 @@ export function DocumentOnBoard() {
     }
   }, [currentPage, itemsPerPage, searchDebounced]);
 
-  // Refresh documents list after save/edit - shows loading spinner
-  const refreshDocuments = useCallback(async () => {
+  // Refresh certificates list after save/edit - shows loading spinner
+  const refreshCertificates = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await getDocumentsOnBoard(
+      const response = await getCertificatesMonitoring(
         currentPage,
         itemsPerPage,
-        searchDebounced,
-        undefined,
-        undefined
+        searchDebounced
       );
-      setDocuments(response.items);
+      setCertificates(response.items);
       setTotalRecords(response.total);
       setTotalPages(response.pages);
     } catch (error: any) {
-      console.error("Error refreshing documents:", error);
+      console.error("Error refreshing certificates:", error);
       // Don't show error alert on refresh - just log it
-      // The main fetchDocuments will handle errors on initial load
+      // The main fetchCertificates will handle errors on initial load
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
   }, [currentPage, itemsPerPage, searchDebounced]);
 
-  // Fetch aircrafts for dropdown
-  const fetchAircrafts = useCallback(async () => {
-    setLoadingAircrafts(true);
-    try {
-      const response = await getAircrafts(1, 100, "", "");
-      const data = response?.data ?? response;
-      const list =
-        data?.items ?? data?.data ?? (Array.isArray(data) ? data : []);
-      setAircrafts(Array.isArray(list) ? list : []);
-    } catch (error) {
-      console.error("Error fetching aircrafts:", error);
-      setAircrafts([]);
-    } finally {
-      setTimeout(() => setLoadingAircrafts(false), 360);
-    }
-  }, []);
-
-  // Filter aircrafts based on search term
-  const filteredAircrafts = aircrafts.filter((aircraft) => {
-    const searchLower = aircraftSearchTerm.toLowerCase();
-    const registration = aircraft.registration?.toLowerCase() || "";
-    const aircraftType = aircraft.aircraftType?.toLowerCase() || "";
-    return (
-      registration.includes(searchLower) || aircraftType.includes(searchLower)
-    );
-  });
-
-  // Handle aircraft selection
-  const handleAircraftSelect = (
-    id: number,
-    registration: string,
-    aircraftType?: string
-  ) => {
-    setFormData({ ...formData, aircraftId: id.toString() });
-    const displayText = aircraftType
-      ? `${registration} (${aircraftType})`
-      : registration;
-    setSelectedAircraftDisplay(displayText);
-    setAircraftSearchTerm("");
-    setIsAircraftDropdownOpen(false);
-  };
-
-  // Get selected aircraft display text
-  const getSelectedAircraftDisplay = () => {
-    if (formData.aircraftId) {
-      const selectedAircraft = aircrafts.find(
-        (ac) => ac.id.toString() === formData.aircraftId
-      );
-      if (selectedAircraft) {
-        return selectedAircraft.aircraftType
-          ? `${selectedAircraft.registration} (${selectedAircraft.aircraftType})`
-          : selectedAircraft.registration;
-      }
-    }
-    return "";
-  };
-
-  // Close dropdowns when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        aircraftDropdownRef.current &&
-        !aircraftDropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsAircraftDropdownOpen(false);
-      }
-    };
-
-    if (isAircraftDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [isAircraftDropdownOpen]);
-
-  useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
-
-  useEffect(() => {
-    fetchAircrafts();
-  }, [fetchAircrafts]);
+    fetchCertificates();
+  }, [fetchCertificates]);
 
   // Debounce search input (400ms) before applying to API
   useEffect(() => {
@@ -330,28 +228,28 @@ export function DocumentOnBoard() {
     }
   };
 
-  const sortedDocuments = useMemo(() => {
-    const list = [...documents];
+  const sortedCertificates = useMemo(() => {
+    const list = [...certificates];
     list.sort((a, b) => {
       const daysLeftA = computeDaysLeft(a.expiryDate);
       const daysLeftB = computeDaysLeft(b.expiryDate);
       const statusA = computeStatus(daysLeftA, a.warningDays);
       const statusB = computeStatus(daysLeftB, b.warningDays);
-      const docNameA = (
+      const nameA = (
+        (a as any).certificateName ??
         (a as any).documentName ??
-        (a as any).document ??
         ""
       ).toLowerCase();
-      const docNameB = (
+      const nameB = (
+        (b as any).certificateName ??
         (b as any).documentName ??
-        (b as any).document ??
         ""
       ).toLowerCase();
       const dateA = a.expiryDate ? new Date(a.expiryDate).getTime() : 0;
       const dateB = b.expiryDate ? new Date(b.expiryDate).getTime() : 0;
       let cmp = 0;
       if (sortBy === "document") {
-        cmp = docNameA.localeCompare(docNameB);
+        cmp = nameA.localeCompare(nameB);
       } else if (sortBy === "expiryDate") {
         cmp = dateA - dateB;
       } else {
@@ -361,34 +259,19 @@ export function DocumentOnBoard() {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [documents, sortBy, sortDir]);
+  }, [certificates, sortBy, sortDir]);
 
-  // Get aircraft registration for list: from doc.aircraft or lookup from aircrafts by aircraft_id
-  const getAircraftRegistration = (doc: DocumentOnBoardType): string => {
-    if (doc.aircraft) {
-      const reg =
-        doc.aircraft.registration ?? (doc.aircraft as any).registration;
-      if (reg) return reg;
-    }
-    const aircraftId = doc.aircraftId ?? (doc as any).aircraftFk;
-    if (aircraftId != null && aircrafts.length > 0) {
-      const ac = aircrafts.find((a) => a.id === aircraftId);
-      if (ac?.registration) return ac.registration;
-    }
-    return "DOCUMENT FILE";
-  };
-
-  // Calculate statistics from all documents (using computed status)
-  const totalDocuments = totalRecords;
-  const activeCount = documents.filter((d) => {
+  // Calculate statistics from all certificates (using computed status)
+  const totalCertificates = totalRecords;
+  const activeCount = certificates.filter((d) => {
     const days = computeDaysLeft(d.expiryDate);
     return computeStatus(days, d.warningDays) === "Active";
   }).length;
-  const expiringSoonCount = documents.filter((d) => {
+  const expiringSoonCount = certificates.filter((d) => {
     const days = computeDaysLeft(d.expiryDate);
     return computeStatus(days, d.warningDays) === "Expiring Soon";
   }).length;
-  const expiredCount = documents.filter((d) => {
+  const expiredCount = certificates.filter((d) => {
     const days = computeDaysLeft(d.expiryDate);
     return computeStatus(days, d.warningDays) === "Expired";
   }).length;
@@ -420,10 +303,6 @@ export function DocumentOnBoard() {
     return `${daysLeft} days left`;
   };
 
-  const formatAircraft = (doc: DocumentOnBoardType) => {
-    return getAircraftRegistration(doc);
-  };
-
   const handleFileChange = (file: File | null) => {
     setUploadFile(file);
     setUploadFileName(file ? file.name : "");
@@ -434,20 +313,22 @@ export function DocumentOnBoard() {
     setUploadFileName("");
   };
 
-  // Get document ID (supports id, documentId, document_id from API)
-  const getDocumentId = (doc: DocumentOnBoardType | null): number | null => {
-    if (!doc) return null;
-    const id = doc.id ?? (doc as any).documentId ?? (doc as any).document_id;
+  // Get certificate ID (supports id, documentId, document_id from API)
+  const getCertificateId = (
+    cert: CertificateMonitoringType | null
+  ): number | null => {
+    if (!cert) return null;
+    const id = cert.id ?? (cert as any).documentId ?? (cert as any).document_id;
     return id != null && !isNaN(Number(id)) ? Number(id) : null;
   };
 
-  // Get file path from document (supports filePath, uploadFile, upload_file from API)
-  const getDocumentFilePath = (
-    doc: DocumentOnBoardType | null
+  // Get file path from certificate (supports filePath, uploadFile, upload_file from API)
+  const getCertificateFilePath = (
+    cert: CertificateMonitoringType | null
   ): string | null => {
-    if (!doc) return null;
+    if (!cert) return null;
     const path =
-      (doc as any).filePath ?? doc.uploadFile ?? (doc as any).upload_file;
+      (cert as any).filePath ?? cert.uploadFile ?? (cert as any).upload_file;
     return path && typeof path === "string" ? path : null;
   };
 
@@ -479,7 +360,7 @@ export function DocumentOnBoard() {
       const downloadFileName =
         fileName || extractFilenameFromPath(filePath) || "download";
 
-      const blob = await downloadDocumentOnBoardFile(filePath);
+      const blob = await downloadCertificateFile(filePath);
       const blobUrl = window.URL.createObjectURL(new Blob([blob]));
       const link = document.createElement("a");
       link.href = blobUrl;
@@ -512,57 +393,38 @@ export function DocumentOnBoard() {
 
   const handleView = async (id: number) => {
     try {
-      const doc = documents.find((d) => getDocumentId(d) === id);
-      if (doc) {
-        setViewingDocument(doc);
+      const cert = certificates.find((d) => getCertificateId(d) === id);
+      if (cert) {
+        setViewingCertificate(cert);
         setShowViewModal(true);
       }
     } catch (error) {
-      console.error("Error viewing document:", error);
+      console.error("Error viewing certificate:", error);
     }
   };
 
   const handleEdit = (id: number) => {
-    const doc = documents.find((d) => getDocumentId(d) === id);
-    if (!doc) return;
+    const cert = certificates.find((d) => getCertificateId(d) === id);
+    if (!cert) return;
 
-    setEditingDocument(doc);
-
-    // Extract aircraft ID (support multiple field names)
-    const aircraftId =
-      doc.aircraftId ?? (doc as any).aircraftFk ?? doc.aircraft?.id;
+    setEditingCertificate(cert);
 
     // Populate form data
     setFormData({
-      aircraftId: aircraftId != null ? String(aircraftId) : "",
-      documentName: doc.documentName ?? (doc as any).document ?? "",
-      description: doc.description ?? "",
-      issueDate: doc.issueDate ?? "",
-      expiryDate: doc.expiryDate ?? "",
-      webLink: doc.webLink ?? "",
-      isAircraftCertificate:
-        doc.isAircraftCertificate ??
-        (doc as any).is_aircraft_certificate ??
-        false,
-      warningDays: doc.warningDays != null ? String(doc.warningDays) : "",
-      status: doc.status ?? "Active",
+      certificateName:
+        cert.certificateName ??
+        (cert as any).documentName ??
+        (cert as any).document ??
+        "",
+      description: cert.description ?? "",
+      issueDate: cert.issueDate ?? "",
+      expiryDate: cert.expiryDate ?? "",
+      webLink: cert.webLink ?? "",
+      warningDays: cert.warningDays != null ? String(cert.warningDays) : "",
+      status: cert.status ?? "Active",
     });
 
-    // Set selected aircraft display
-    if (doc.aircraft) {
-      const type =
-        doc.aircraft.aircraftType ?? (doc.aircraft as any).aircraft_type;
-      const reg = doc.aircraft.registration;
-      setSelectedAircraftDisplay(type ? `${reg} (${type})` : reg);
-    } else {
-      setSelectedAircraftDisplay("");
-    }
-
-    setAircraftSearchTerm("");
-    setIsAircraftDropdownOpen(false);
     setUploadFile(null);
-    // Don't set uploadFileName here - let "Existing File" section show the existing file
-    // uploadFileName will be set when user selects a new file to replace
     setUploadFileName("");
     setShowEditModal(true);
   };
@@ -581,22 +443,22 @@ export function DocumentOnBoard() {
     if (!result.isConfirmed) return;
 
     try {
-      await deleteDocumentOnBoard(id);
+      await deleteCertificateMonitoring(id);
       Swal.fire({
         icon: "success",
         title: "Deleted!",
-        text: "The document has been deleted.",
+        text: "The certificate has been deleted.",
         timer: 1500,
         showConfirmButton: false,
       });
-      fetchDocuments();
+      fetchCertificates();
     } catch (error: any) {
-      console.error("Error deleting document:", error);
+      console.error("Error deleting certificate:", error);
       const errorMessage =
         error.response?.data?.detail ||
         error.response?.data?.message ||
         error.message ||
-        "Failed to delete document.";
+        "Failed to delete certificate.";
       Swal.fire({
         icon: "error",
         title: "Error!",
@@ -605,24 +467,19 @@ export function DocumentOnBoard() {
     }
   };
 
-  const handleAddDocument = () => {
+  const handleAddCertificate = () => {
     setFormData({
-      aircraftId: "",
-      documentName: "",
+      certificateName: "",
       description: "",
       issueDate: "",
       expiryDate: "",
       warningDays: "",
       webLink: "",
-      isAircraftCertificate: false,
       status: "Active",
     });
-    setSelectedAircraftDisplay("");
-    setAircraftSearchTerm("");
-    setIsAircraftDropdownOpen(false);
     setUploadFile(null);
     setUploadFileName("");
-    setEditingDocument(null);
+    setEditingCertificate(null);
     setShowEditModal(false);
     setShowAddModal(true);
   };
@@ -631,56 +488,29 @@ export function DocumentOnBoard() {
     setIsSaving(true);
     try {
       // Validation
-      if (!formData.documentName?.trim()) {
+      if (!formData.certificateName?.trim()) {
         Swal.fire({
           icon: "error",
           title: "Validation Error",
-          text: "Document Name is required.",
+          text: "Please enter Certificate Name.",
         });
         setTimeout(() => setIsSaving(false), 360);
         return;
       }
 
-      // If isAircraftCertificate is true, aircraftId must be selected
-      if (formData.isAircraftCertificate && !formData.aircraftId) {
-        Swal.fire({
-          icon: "error",
-          title: "Validation Error",
-          text: "Please select an aircraft for aircraft certificates.",
-        });
-        setTimeout(() => setIsSaving(false), 360);
-        return;
-      }
-
-      // Build API payload matching endpoint /api/v1/documents-on-board/
-      const aircraftIdNum = formData.aircraftId
-        ? Number(formData.aircraftId)
-        : null;
-      if (
-        formData.isAircraftCertificate &&
-        (aircraftIdNum === null || isNaN(aircraftIdNum))
-      ) {
-        Swal.fire({
-          icon: "error",
-          title: "Validation Error",
-          text: "Please select a valid aircraft.",
-        });
-        setTimeout(() => setIsSaving(false), 360);
-        return;
-      }
-
+      // Build API payload for /api/v1/documents-on-board/
       const warningDaysVal =
         formData.warningDays?.trim() !== ""
           ? Number(formData.warningDays)
           : null;
+      const name = formData.certificateName.trim();
       const payload: Record<string, unknown> = {
-        aircraft_id: aircraftIdNum,
-        document_name: formData.documentName.trim(),
+        document_name: name,
+        certificate_name: name,
         description: formData.description?.trim() || null,
         issue_date: formData.issueDate || null,
         expiry_date: formData.expiryDate || null,
         web_link: formData.webLink?.trim() || null,
-        is_aircraft_certificate: Boolean(formData.isAircraftCertificate),
         warning_days:
           warningDaysVal !== null && !isNaN(warningDaysVal)
             ? warningDaysVal
@@ -689,8 +519,8 @@ export function DocumentOnBoard() {
       };
 
       // When editing and not uploading a new file, send existing file_path (string) so backend keeps it
-      const existingFilePath = editingDocument
-        ? getDocumentFilePath(editingDocument)
+      const existingFilePath = editingCertificate
+        ? getCertificateFilePath(editingCertificate)
         : null;
       if (!uploadFile && existingFilePath) {
         payload.file_path = existingFilePath;
@@ -705,37 +535,37 @@ export function DocumentOnBoard() {
       const requestData = formDataObj;
 
       // Execute create or update
-      if (editingDocument) {
+      if (editingCertificate) {
         // Ensure we have a valid ID (support both 'id' and 'document_id' from API)
-        const documentId = getDocumentId(editingDocument);
-        if (!documentId) {
+        const certificateId = getCertificateId(editingCertificate);
+        if (!certificateId) {
           Swal.fire({
             icon: "error",
             title: "Validation Error",
-            text: "Document ID is missing or invalid. Cannot update document.",
+            text: "Certificate ID is missing or invalid. Cannot update certificate.",
           });
           setTimeout(() => setIsSaving(false), 360);
           return;
         }
-        await updateDocumentOnBoard(
-          documentId,
-          requestData as FormData | DocumentOnBoardUpdate
+        await updateCertificateMonitoring(
+          certificateId,
+          requestData as FormData | CertificateMonitoringUpdate
         );
         Swal.fire({
           icon: "success",
           title: "Success!",
-          text: "Document updated successfully.",
+          text: "Certificate updated successfully.",
           timer: 1500,
           showConfirmButton: false,
         });
       } else {
-        await createDocumentOnBoard(
-          requestData as FormData | DocumentOnBoardCreate
+        await createCertificateMonitoring(
+          requestData as FormData | CertificateMonitoringCreate
         );
         Swal.fire({
           icon: "success",
           title: "Success!",
-          text: "Document created successfully.",
+          text: "Certificate created successfully.",
           timer: 1500,
           showConfirmButton: false,
         });
@@ -744,12 +574,12 @@ export function DocumentOnBoard() {
       // Reset form and close modals
       resetForm();
       // Refresh list with loading spinner
-      await refreshDocuments();
+      await refreshCertificates();
     } catch (error: any) {
-      console.error("Error saving document:", error);
+      console.error("Error saving certificate:", error);
 
       // Extract error message
-      let errorMessage = "Failed to save document. Please try again.";
+      let errorMessage = "Failed to save certificate. Please try again.";
       const detail = error.response?.data?.detail;
 
       if (detail) {
@@ -787,44 +617,20 @@ export function DocumentOnBoard() {
   // Reset form state
   const resetForm = () => {
     setFormData({
-      aircraftId: "",
-      documentName: "",
+      certificateName: "",
       description: "",
       issueDate: "",
       expiryDate: "",
       warningDays: "",
       webLink: "",
-      isAircraftCertificate: false,
       status: "Active",
     });
-    setSelectedAircraftDisplay("");
-    setAircraftSearchTerm("");
-    setIsAircraftDropdownOpen(false);
     setUploadFile(null);
     setUploadFileName("");
-    setEditingDocument(null);
+    setEditingCertificate(null);
     setShowAddModal(false);
     setShowEditModal(false);
   };
-
-  function AircraftComponent({ viewingDocument }: AircraftComponentProps) {
-    if (viewingDocument.aircraft_fk) {
-      return (
-        <div>
-          <label className="block text-gray-600 text-sm mb-1">Aircraft</label>
-          <p className="text-gray-900">{formatAircraft(viewingDocument)}</p>
-        </div>
-      );
-    } else {
-      return (
-        <div>
-          <label className="block text-gray-600 text-sm mb-1">
-            <b>Document File</b>
-          </label>
-        </div>
-      );
-    }
-  }
 
   return (
     <div className="space-y-6">
@@ -832,10 +638,10 @@ export function DocumentOnBoard() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-gray-900">
-            Document On Board
+            Certificate Monitoring
           </h2>
           <p className="text-gray-600 mt-1">
-            Comprehensive aircraft document management
+            Aircraft certificate tracking and expiry management
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -849,11 +655,11 @@ export function DocumentOnBoard() {
           </button>
           <button
             type="button"
-            onClick={handleAddDocument}
+            onClick={handleAddCertificate}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
-            Add Document
+            Add Certificate
           </button>
         </div>
       </div>
@@ -863,9 +669,9 @@ export function DocumentOnBoard() {
         <div className="bg-blue-50 rounded-lg p-5 border border-blue-100">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-gray-600 mb-2">Total Documents</p>
+              <p className="text-sm text-gray-600 mb-2">Total Certificates</p>
               <p className="text-3xl font-semibold text-gray-900">
-                {totalDocuments}
+                {totalCertificates}
               </p>
             </div>
             <div className="bg-blue-100 p-3 rounded-lg">
@@ -917,30 +723,32 @@ export function DocumentOnBoard() {
         </div>
       </div>
 
-      {/* Document Records Section */}
+      {/* Certificate Records Section */}
       <div className="bg-white rounded-lg border border-gray-200">
         {/* Section Header */}
         <div className="bg-blue-600 px-6 py-4 rounded-t-lg">
-          <h3 className="text-lg font-semibold text-white">Document Records</h3>
+          <h3 className="text-lg font-semibold text-white">
+            Certificate Records
+          </h3>
         </div>
 
-        {/* Search: Document, Aircraft */}
+        {/* Search: Certificate */}
         <div className="px-6 py-4 border-b border-gray-200">
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500 mb-1.5">
-                Searches: Document, Aircraft
+                Searches: Certificate name
               </p>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Search by document name or aircraft..."
+                  placeholder="Search by certificate name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   disabled={loading}
-                  title="Searches document name and aircraft (e.g. registration)"
-                  aria-label="Search by document name or aircraft"
+                  title="Search by certificate name"
+                  aria-label="Search by certificate name"
                   className="w-full h-10 pl-10 pr-9 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed bg-white"
                 />
                 {searchQuery && !loading && (
@@ -973,15 +781,12 @@ export function DocumentOnBoard() {
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      AIRCRAFT
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       <button
                         type="button"
                         onClick={() => toggleSort("document")}
                         className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
                       >
-                        DOCUMENT
+                        CERTIFICATE
                         {sortBy === "document" ? (
                           sortDir === "asc" ? (
                             <ArrowUp className="w-3.5 h-3.5" />
@@ -1032,35 +837,33 @@ export function DocumentOnBoard() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {sortedDocuments.length === 0 ? (
+                  {sortedCertificates.length === 0 ? (
                     <tr key="empty">
                       <td
-                        colSpan={6}
+                        colSpan={5}
                         className="px-6 py-12 text-center text-gray-500 text-sm"
                       >
-                        No documents found
+                        No certificates found
                       </td>
                     </tr>
                   ) : (
-                    sortedDocuments.map((doc, index) => {
-                      const daysLeft = computeDaysLeft(doc.expiryDate);
-                      const status = computeStatus(daysLeft, doc.warningDays);
-                      const docId = getDocumentId(doc);
+                    sortedCertificates.map((cert, index) => {
+                      const daysLeft = computeDaysLeft(cert.expiryDate);
+                      const status = computeStatus(daysLeft, cert.warningDays);
+                      const certId = getCertificateId(cert);
                       return (
                         <tr
-                          key={docId ?? `doc-${index}`}
+                          key={certId ?? `cert-${index}`}
                           className="hover:bg-gray-50"
                         >
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {getAircraftRegistration(doc)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {(doc as any).documentName ??
-                              (doc as any).document ??
+                            {(cert as any).certificateName ??
+                              (cert as any).documentName ??
+                              (cert as any).document ??
                               "-"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {doc.expiryDate || "-"}
+                            {cert.expiryDate || "-"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {formatDaysLeft(daysLeft, status)}
@@ -1077,26 +880,26 @@ export function DocumentOnBoard() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => docId && handleView(docId)}
+                                onClick={() => certId && handleView(certId)}
                                 className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
                                 title="View"
-                                disabled={!docId}
+                                disabled={!certId}
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => docId && handleEdit(docId)}
+                                onClick={() => certId && handleEdit(certId)}
                                 className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
                                 title="Edit"
-                                disabled={!docId}
+                                disabled={!certId}
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => docId && handleDelete(docId)}
+                                onClick={() => certId && handleDelete(certId)}
                                 className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                                 title="Delete"
-                                disabled={!docId}
+                                disabled={!certId}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1132,7 +935,7 @@ export function DocumentOnBoard() {
                 </div>
                 <div className="text-sm text-gray-700">
                   Showing{" "}
-                  {documents.length > 0
+                  {certificates.length > 0
                     ? (currentPage - 1) * itemsPerPage + 1
                     : 0}{" "}
                   to {Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
@@ -1194,7 +997,7 @@ export function DocumentOnBoard() {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">
-                {editingDocument ? "Edit Document" : "Add New Entry"}
+                {editingCertificate ? "Edit Certificate" : "Add New Entry"}
               </h2>
               <button
                 onClick={resetForm}
@@ -1207,143 +1010,26 @@ export function DocumentOnBoard() {
             {/* Form Content */}
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="space-y-6">
-                {/* DOCUMENT ON BOARD Header */}
+                {/* CERTIFICATE MONITORING Header */}
                 <div>
                   <h3 className="text-sm font-bold text-gray-900 uppercase mb-4">
-                    DOCUMENT ON BOARD
+                    CERTIFICATE MONITORING
                   </h3>
                 </div>
 
-                {/* Is Aircraft Certificate Checkbox - Moved to Top */}
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="checkbox"
-                    id="is-aircraft-certificate"
-                    checked={formData.isAircraftCertificate}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        isAircraftCertificate: e.target.checked,
-                        // Clear aircraft selection if unchecked (optional, but cleaner)
-                        aircraftId: !e.target.checked
-                          ? ""
-                          : formData.aircraftId,
-                      })
-                    }
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                  />
-                  <label
-                    htmlFor="is-aircraft-certificate"
-                    className="text-sm font-medium text-gray-700 cursor-pointer select-none"
-                  >
-                    Is aircraft certificate
-                  </label>
-                </div>
-
-                {/* Aircraft - Searchable Dropdown - Conditional */}
-                {formData.isAircraftCertificate && (
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Aircraft <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative" ref={aircraftDropdownRef}>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={
-                            isAircraftDropdownOpen
-                              ? aircraftSearchTerm
-                              : selectedAircraftDisplay ||
-                                getSelectedAircraftDisplay()
-                          }
-                          onChange={(e) => {
-                            setAircraftSearchTerm(e.target.value);
-                            setIsAircraftDropdownOpen(true);
-                          }}
-                          onFocus={() => {
-                            setIsAircraftDropdownOpen(true);
-                            setAircraftSearchTerm("");
-                          }}
-                          className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                          placeholder="Search aircraft..."
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
-                          }
-                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                        >
-                          <ChevronDown
-                            className={`w-4 h-4 transition-transform ${
-                              isAircraftDropdownOpen ? "rotate-180" : ""
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {isAircraftDropdownOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                          {loadingAircrafts ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              Loading aircrafts...
-                            </div>
-                          ) : filteredAircrafts.length === 0 ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              {aircraftSearchTerm
-                                ? "No aircrafts found"
-                                : "No aircrafts available"}
-                            </div>
-                          ) : (
-                            <ul className="py-1">
-                              {filteredAircrafts.map((aircraft) => {
-                                const displayText = aircraft.aircraftType
-                                  ? `${aircraft.registration} (${aircraft.aircraftType})`
-                                  : aircraft.registration;
-                                const isSelected =
-                                  formData.aircraftId ===
-                                  aircraft.id.toString();
-                                return (
-                                  <li
-                                    key={aircraft.id}
-                                    onClick={() =>
-                                      handleAircraftSelect(
-                                        aircraft.id,
-                                        aircraft.registration,
-                                        aircraft.aircraftType
-                                      )
-                                    }
-                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      isSelected ? "bg-blue-50" : ""
-                                    }`}
-                                  >
-                                    <span className="text-gray-900">
-                                      {displayText}
-                                    </span>
-                                    {isSelected && (
-                                      <Check className="w-4 h-4 text-blue-600" />
-                                    )}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Document Name - Full Width */}
+                {/* Certificate Name - Full Width */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Document Name <span className="text-red-500">*</span>
+                    Certificate Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    value={formData.documentName}
+                    value={formData.certificateName}
                     onChange={(e) =>
-                      setFormData({ ...formData, documentName: e.target.value })
+                      setFormData({
+                        ...formData,
+                        certificateName: e.target.value,
+                      })
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                     placeholder="e.g. Certificate of Airworthiness"
@@ -1432,7 +1118,7 @@ export function DocumentOnBoard() {
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          status: e.target.value as DocumentStatus,
+                          status: e.target.value as CertificateStatus,
                         })
                       }
                       disabled={false}
@@ -1450,8 +1136,8 @@ export function DocumentOnBoard() {
 
                 {/* Existing file + Download (Edit only, when upload_file / filePath exists) */}
                 {showEditModal &&
-                  editingDocument &&
-                  getDocumentFilePath(editingDocument) && (
+                  editingCertificate &&
+                  getCertificateFilePath(editingCertificate) && (
                     <div>
                       <label className="block text-gray-700 text-sm mb-1.5">
                         Existing File
@@ -1460,14 +1146,14 @@ export function DocumentOnBoard() {
                         <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
                         <span className="flex-1 text-sm text-gray-900 truncate">
                           {extractFilenameFromPath(
-                            getDocumentFilePath(editingDocument)!
+                            getCertificateFilePath(editingCertificate)!
                           )}
                         </span>
                         <button
                           type="button"
                           onClick={() =>
                             handleDownloadFile(
-                              getDocumentFilePath(editingDocument)
+                              getCertificateFilePath(editingCertificate)
                             )
                           }
                           className="px-3 py-1.5 border border-gray-300 rounded-md bg-white text-green-600 hover:bg-green-50 transition-colors text-sm font-medium flex items-center gap-2 flex-shrink-0"
@@ -1493,13 +1179,13 @@ export function DocumentOnBoard() {
                       <span className="flex-1 text-sm text-gray-900 truncate">
                         {uploadFileName}
                       </span>
-                      {editingDocument &&
-                        getDocumentFilePath(editingDocument) && (
+                      {editingCertificate &&
+                        getCertificateFilePath(editingCertificate) && (
                           <button
                             type="button"
                             onClick={() =>
                               handleDownloadFile(
-                                getDocumentFilePath(editingDocument)
+                                getCertificateFilePath(editingCertificate)
                               )
                             }
                             className="px-3 py-1.5 border border-gray-300 rounded-md bg-white text-green-600 hover:bg-green-50 transition-colors text-sm font-medium flex items-center gap-2 flex-shrink-0"
@@ -1586,22 +1272,22 @@ export function DocumentOnBoard() {
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSaving && <Loader className="w-4 h-4 animate-spin" />}
-                {editingDocument ? "Update Entry" : "Save Entry"}
+                {editingCertificate ? "Update Entry" : "Save Entry"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* View Modal - same design as Add Document modal */}
-      {showViewModal && viewingDocument && (
+      {/* View Modal - same design as Add Certificate modal */}
+      {showViewModal && viewingCertificate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Overlay with blur - same as Add Document */}
+          {/* Overlay with blur - same as Add Certificate */}
           <div
             className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
             onClick={() => {
               setShowViewModal(false);
-              setViewingDocument(null);
+              setViewingCertificate(null);
             }}
           />
           {/* Modal */}
@@ -1609,13 +1295,13 @@ export function DocumentOnBoard() {
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">
-                View Document
+                View Certificate
               </h2>
               <button
                 type="button"
                 onClick={() => {
                   setShowViewModal(false);
-                  setViewingDocument(null);
+                  setViewingCertificate(null);
                 }}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
@@ -1625,13 +1311,14 @@ export function DocumentOnBoard() {
             {/* Content */}
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="space-y-4">
-                <AircraftComponent viewingDocument={viewingDocument} />
                 <div>
                   <label className="block text-gray-600 text-sm mb-1">
-                    Document Name
+                    Certificate Name
                   </label>
                   <p className="text-gray-900">
-                    {viewingDocument.documentName || "-"}
+                    {(viewingCertificate.certificateName ??
+                      (viewingCertificate as any).documentName) ||
+                      "-"}
                   </p>
                 </div>
                 <div>
@@ -1639,7 +1326,7 @@ export function DocumentOnBoard() {
                     Description
                   </label>
                   <p className="text-gray-900">
-                    {viewingDocument.description || "-"}
+                    {viewingCertificate.description || "-"}
                   </p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1648,7 +1335,7 @@ export function DocumentOnBoard() {
                       Issue Date
                     </label>
                     <p className="text-gray-900">
-                      {viewingDocument.issueDate || "-"}
+                      {viewingCertificate.issueDate || "-"}
                     </p>
                   </div>
                   <div>
@@ -1656,7 +1343,7 @@ export function DocumentOnBoard() {
                       Expiry Date
                     </label>
                     <p className="text-gray-900">
-                      {viewingDocument.expiryDate || "-"}
+                      {viewingCertificate.expiryDate || "-"}
                     </p>
                   </div>
                 </div>
@@ -1666,9 +1353,9 @@ export function DocumentOnBoard() {
                       Warning Days
                     </label>
                     <p className="text-gray-900">
-                      {viewingDocument.warningDays !== null &&
-                      viewingDocument.warningDays !== undefined
-                        ? viewingDocument.warningDays
+                      {viewingCertificate.warningDays !== null &&
+                      viewingCertificate.warningDays !== undefined
+                        ? viewingCertificate.warningDays
                         : "-"}
                     </p>
                   </div>
@@ -1678,10 +1365,10 @@ export function DocumentOnBoard() {
                     </label>
                     <p className="text-gray-900">
                       {formatDaysLeft(
-                        computeDaysLeft(viewingDocument.expiryDate),
+                        computeDaysLeft(viewingCertificate.expiryDate),
                         computeStatus(
-                          computeDaysLeft(viewingDocument.expiryDate),
-                          viewingDocument.warningDays
+                          computeDaysLeft(viewingCertificate.expiryDate),
+                          viewingCertificate.warningDays
                         )
                       )}
                     </p>
@@ -1694,14 +1381,14 @@ export function DocumentOnBoard() {
                   <span
                     className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadgeClass(
                       computeStatus(
-                        computeDaysLeft(viewingDocument.expiryDate),
-                        viewingDocument.warningDays
+                        computeDaysLeft(viewingCertificate.expiryDate),
+                        viewingCertificate.warningDays
                       )
                     )}`}
                   >
                     {computeStatus(
-                      computeDaysLeft(viewingDocument.expiryDate),
-                      viewingDocument.warningDays
+                      computeDaysLeft(viewingCertificate.expiryDate),
+                      viewingCertificate.warningDays
                     )}
                   </span>
                 </div>
@@ -1709,37 +1396,27 @@ export function DocumentOnBoard() {
                   <label className="block text-gray-600 text-sm mb-1">
                     Web Link
                   </label>
-                  {viewingDocument.webLink ??
-                  (viewingDocument as any).web_link ? (
+                  {viewingCertificate.webLink ??
+                  (viewingCertificate as any).web_link ? (
                     <a
                       href={
-                        (viewingDocument.webLink ??
-                          (viewingDocument as any).web_link) ||
+                        (viewingCertificate.webLink ??
+                          (viewingCertificate as any).web_link) ||
                         "#"
                       }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline break-all"
                     >
-                      {viewingDocument.webLink ??
-                        (viewingDocument as any).web_link}
+                      {viewingCertificate.webLink ??
+                        (viewingCertificate as any).web_link}
                     </a>
                   ) : (
                     <p className="text-gray-900">—</p>
                   )}
                 </div>
-                <div>
-                  <label className="block text-gray-600 text-sm mb-1">
-                    Is aircraft certificate
-                  </label>
-                  <p className="text-gray-900">
-                    {viewingDocument.isAircraftCertificate ??
-                    (viewingDocument as any).is_aircraft_certificate
-                      ? "Yes"
-                      : "No"}
-                  </p>
-                </div>
-                {getDocumentFilePath(viewingDocument) && (
+
+                {getCertificateFilePath(viewingCertificate) && (
                   <div>
                     <label className="block text-gray-600 text-sm mb-1">
                       File
@@ -1748,14 +1425,14 @@ export function DocumentOnBoard() {
                       <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
                       <span className="text-sm text-gray-900 truncate flex-1">
                         {extractFilenameFromPath(
-                          getDocumentFilePath(viewingDocument)!
+                          getCertificateFilePath(viewingCertificate)!
                         )}
                       </span>
                       <button
                         type="button"
                         onClick={() =>
                           handleDownloadFile(
-                            getDocumentFilePath(viewingDocument)
+                            getCertificateFilePath(viewingCertificate)
                           )
                         }
                         className="px-3 py-1.5 border border-gray-300 rounded-md bg-white text-green-600 hover:bg-green-50 transition-colors text-sm font-medium flex items-center gap-2 flex-shrink-0"
@@ -1768,13 +1445,13 @@ export function DocumentOnBoard() {
                 )}
               </div>
             </div>
-            {/* Footer - same pattern as Add Document modal */}
+            {/* Footer - same pattern as Add Certificate modal */}
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => {
                   setShowViewModal(false);
-                  setViewingDocument(null);
+                  setViewingCertificate(null);
                 }}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm"
               >

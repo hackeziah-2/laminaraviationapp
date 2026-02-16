@@ -9,8 +9,8 @@ export interface TCCMonitoring {
   partNo: string;
   serialNo: string;
   description: string;
-  hours: string;
-  threshold: string;
+  limitHours: string; // COMPONENT LIMIT: Hours
+  limitYears: string; // COMPONENT LIMIT: Years
   methodOfCompliance: string;
   lastDoneDate: string;
   lastDoneYear: string;
@@ -28,24 +28,28 @@ export interface TCCMonitoringCreate {
   partNo?: string;
   serialNo?: string;
   description?: string;
-  hours?: string;
-  threshold?: string;
+  limitHours?: string;
+  limitYears?: string;
   methodOfCompliance?: string;
   lastDoneDate?: string;
   lastDoneYear?: string;
   lastDoneAftt?: string;
+  lastDoneMethodOfCompliance?: string;
   nextDueDate?: string;
   nextDueYear?: string;
   nextDueAftt?: string;
   reference?: string;
+  sequenceNumber?: string;
+  atlId?: number;
 }
 
 export interface TCCMonitoringUpdate {
+  category?: string;
   partNo?: string;
   serialNo?: string;
   description?: string;
-  hours?: string;
-  threshold?: string;
+  limitHours?: string;
+  limitYears?: string;
   methodOfCompliance?: string;
   lastDoneDate?: string;
   lastDoneYear?: string;
@@ -57,6 +61,8 @@ export interface TCCMonitoringUpdate {
   /** ATL Reference: sequence_number (string) */
   reference?: string;
   sequenceNumber?: string;
+  /** ATL Reference ID: Use this for atl_ref if updating the relationship */
+  atlId?: number;
 }
 
 export interface PaginatedTCCResponse {
@@ -76,11 +82,10 @@ const TCC_PATH = (aircraftId: number) =>
  *   part_number     ← Form "Part Number" → partNo
  *   serial_number   ← Form "Serial Number" → serialNo
  *   description     ← Form "Description"
- *   component_limit_years  ← Form "Time/Distance (Years)" → hours (numeric)
- *   component_limit_hours   ← Form "Component Limit (Hours)" → threshold (numeric)
+ *   component_limit_years  ← Form "Time/Distance (Years)" → limitYears
+ *   component_limit_hours   ← Form "Component Limit (Hours)" → limitHours
  *   component_method_of_compliance ← Form "Method of Compliance"
  */
-/** Backend → UI: part_number→partNo, serial_number→serialNo, component_limit_years→hours, component_limit_hours→threshold, component_method_of_compliance→methodOfCompliance */
 function normalizeItem(raw: any): TCCMonitoring {
   const r = raw ?? {};
   const numStr = (v: any) => (v != null && v !== "" ? String(v) : "");
@@ -93,8 +98,8 @@ function normalizeItem(raw: any): TCCMonitoring {
     partNo: numStr(r.part_number ?? r.part_no ?? r.partNo),
     serialNo: numStr(r.serial_number ?? r.serial_no ?? r.serialNo),
     description: numStr(r.description),
-    hours: numStr(r.component_limit_years ?? r.hours),
-    threshold: numStr(r.component_limit_hours ?? r.threshold),
+    limitHours: numStr(r.component_limit_hours ?? r.limitHours ?? r.hours),
+    limitYears: numStr(r.component_limit_years ?? r.limitYears ?? r.threshold),
     methodOfCompliance: numStr(
       r.component_method_of_compliance ??
         r.method_of_compliance ??
@@ -138,6 +143,7 @@ export const getAircraftTccMonitoring = async (
       POWERPLANT: "Powerplant",
       AIRFRAME: "Airframe",
       PROPELLER: "Propeller",
+      INSPECTION_SERVICING: "Inspection Servicing",
     };
     const value = categoryMap[c.toUpperCase()] ?? c;
     params.append("category", value);
@@ -198,25 +204,45 @@ export const createAircraftTccMonitoring = async (
     return Number.isFinite(n) ? n : null;
   };
   const str = (v: string | undefined) => (v ?? "").trim() || null;
+  const numOrZero = (v: string | undefined) => num(v) ?? 0;
   const categoryMap: Record<string, string> = {
     POWERPLANT: "Powerplant",
     AIRFRAME: "Airframe",
     PROPELLER: "Propeller",
+    INSPECTION_SERVICING: "Inspection Servicing",
   };
   const categoryValue = str(data.category);
   const category = categoryValue
     ? categoryMap[categoryValue.toUpperCase()] ?? categoryValue
     : null;
-  const payload = {
+  const payload: any = {
     aircraft_fk: aircraftId,
     category,
     part_number: str(data.partNo) ?? null,
     serial_number: str(data.serialNo) ?? null,
     description: str(data.description) ?? null,
-    component_limit_years: num(data.threshold) ?? null,
-    component_limit_hours: num(data.hours) ?? null,
+    component_limit_years: num(data.limitYears) ?? null,
+    component_limit_hours: num(data.limitHours) ?? null,
     component_method_of_compliance: str(data.methodOfCompliance) ?? null,
   };
+
+  if (data.lastDoneDate) payload.last_done_date = str(data.lastDoneDate);
+  if (data.lastDoneYear) payload.last_done_tach = numOrZero(data.lastDoneYear);
+  if (data.lastDoneAftt) payload.last_done_aftt = numOrZero(data.lastDoneAftt);
+  if (data.lastDoneMethodOfCompliance) 
+    payload.last_done_method_of_compliance = str(data.lastDoneMethodOfCompliance);
+
+  if (data.atlId !== undefined) {
+    payload.atl_ref = data.atlId;
+  } else {
+     const seqNum = str(data.sequenceNumber ?? data.reference);
+     if (seqNum !== null) {
+       payload.sequence_number = seqNum;
+     }
+  }
+   const seqNum = str(data.sequenceNumber ?? data.reference);
+   if (seqNum !== null) payload.sequence_number = seqNum;
+
   const res = await apiClient.post(TCC_PATH(aircraftId), payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   });
@@ -244,22 +270,56 @@ export const updateAircraftTccMonitoring = async (
   };
   const numOrZero = (v: string | undefined) => num(v) ?? 0;
   const str = (v: string | undefined) => (v ?? "").trim() || null;
+  const categoryMap: Record<string, string> = {
+    POWERPLANT: "Powerplant",
+    AIRFRAME: "Airframe",
+    PROPELLER: "Propeller",
+    INSPECTION_SERVICING: "Inspection Servicing",
+  };
+  let category: string | null = null;
+  if (data.category) {
+      const c = str(data.category);
+      if (c) category = categoryMap[c.toUpperCase()] ?? c;
+  }
+
   const payload: Record<string, string | number | null> = {
     part_number: str(data.partNo) ?? null,
     serial_number: str(data.serialNo) ?? null,
     description: str(data.description) ?? null,
-    component_limit_years: num(data.hours) ?? null,
-    component_limit_hours: num(data.threshold) ?? null,
+    component_limit_years: num(data.limitYears) ?? null,
+    component_limit_hours: num(data.limitHours) ?? null,
     component_method_of_compliance: str(data.methodOfCompliance) ?? null,
   };
+  
+  if (category) payload.category = category;
   if (data.lastDoneDate !== undefined)
     payload.last_done_date = str(data.lastDoneDate) ?? "";
   if (data.lastDoneYear !== undefined)
     payload.last_done_tach = numOrZero(data.lastDoneYear);
   if (data.lastDoneAftt !== undefined)
     payload.last_done_aftt = numOrZero(data.lastDoneAftt);
+
+  if (data.atlId !== undefined) {
+    // If atlId provided, use it for atl_ref (Foreign Key)
+    payload.atl_ref = data.atlId;
+  } else {
+      const seqNum = str(data.sequenceNumber ?? data.reference);
+      if (seqNum !== null) {
+        payload.sequence_number = seqNum;
+        // If no ID, maybe we still send sequence string? Or user wants ID mostly.
+        // Let's keep sequence_number as string for display/search, but atl_ref should be ID if possible.
+        // If atlId is missing, we don't force atl_ref to be string if it expects ID.
+        // But let's follow the previous logic as fallback:
+        // payload.atl_ref = seqNum; // CAREFUL: strict typing might fail if backend expects Int.
+        // User said: "apply value to be a id of atl_ref".
+        // Use atlId if available. If not, maybe avoid sending atl_ref as string if it expects ID.
+        // I will assume if atlId is not provided, we don't update atl_ref via ID.
+      }
+  }
+  // Also send sequence_number string if available (for display fallback?)
   const seqNum = str(data.sequenceNumber ?? data.reference);
   if (seqNum !== null) payload.sequence_number = seqNum;
+
   if (data.lastDoneMethodOfCompliance !== undefined)
     payload.last_done_method_of_compliance =
       str(data.lastDoneMethodOfCompliance) ?? "";

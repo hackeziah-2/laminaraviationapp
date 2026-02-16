@@ -30,8 +30,8 @@ export interface ComponentItem {
   partNo: string;
   serialNo: string;
   description: string;
-  hours: string; // COMPONENT LIMIT: Hours (fixed from AMM/CMM/AD/SB)
-  threshold: string; // COMPONENT LIMIT: Years (fixed hour limit)
+  limitHours: string; // COMPONENT LIMIT: Hours
+  limitYears: string; // COMPONENT LIMIT: Years
   methodOfCompliance: string;
   lastDoneDate: string;
   lastDoneYear: string; // LAST DONE TACH (aircraft TACH at maintenance)
@@ -160,8 +160,8 @@ function computeTCCRow(
   currentTach: number,
   currentAftt: number
 ): TCCComputedRow {
-  const limitYears = parseNum(item.threshold);
-  const limitHours = parseNum(item.hours);
+  const limitYears = parseNum(item.limitYears);
+  const limitHours = parseNum(item.limitHours);
   const lastDoneDate = parseDate(item.lastDoneDate);
   const lastDoneTach = parseNum(item.lastDoneYear);
   const lastDoneAftt = parseNum(item.lastDoneAftt);
@@ -178,7 +178,14 @@ function computeTCCRow(
   let nextDueDate: Date | null = null;
   if (lastDoneDate != null && Number.isFinite(limitYears)) {
     const d = new Date(lastDoneDate);
-    d.setFullYear(d.getFullYear() + limitYears);
+    // Add integer years first to handle leap years correctly
+    const wholeYears = Math.floor(limitYears);
+    const fractionalYear = limitYears - wholeYears;
+    d.setFullYear(d.getFullYear() + wholeYears);
+    // Add fractional part as days (approx 365.25 days/year)
+    if (fractionalYear > 0) {
+      d.setDate(d.getDate() + Math.ceil(fractionalYear * 365.25));
+    }
     nextDueDate = d;
   }
 
@@ -211,7 +218,7 @@ function computeTCCRow(
 
 function formatNum(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "";
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  return parseFloat(n.toFixed(2)).toString();
 }
 
 export interface TCCDetailContentProps {
@@ -224,9 +231,8 @@ export function TCCDetailContent({
   aircraftId,
   showAddButton = true,
 }: TCCDetailContentProps) {
-  const [activeTab, setActiveTab] = useState<
-    "POWERPLANT" | "AIRFRAME" | "PROPELLER"
-  >("POWERPLANT");
+  /* Filter state: default to empty (All) or specific category */
+  const [activeTab, setActiveTab] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTCCEntry, setEditingTCCEntry] = useState<ComponentItem | null>(
     null
@@ -311,9 +317,16 @@ export function TCCDetailContent({
         partNo: payload.partNo,
         serialNo: payload.serialNo,
         description: payload.description,
-        hours: payload.hours,
-        threshold: payload.years,
+        limitHours: payload.hours,
+        limitYears: payload.years,
         methodOfCompliance: payload.methodOfCompliance,
+        reference: payload.reference,
+        sequenceNumber: payload.reference,
+        atlId: payload.atlId,
+        lastDoneDate: payload.lastDoneDate,
+        lastDoneYear: payload.lastDoneYear,
+        lastDoneAftt: payload.lastDoneAftt,
+        lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
       });
       await Swal.fire({
         icon: "success",
@@ -339,11 +352,13 @@ export function TCCDetailContent({
         partNo: payload.partNo,
         serialNo: payload.serialNo,
         description: payload.description,
-        hours: payload.hours,
-        threshold: payload.threshold,
+        limitHours: payload.hours,
+        limitYears: payload.years,
         methodOfCompliance: payload.methodOfCompliance,
+        category: payload.category, // Added category
         reference: payload.reference,
         sequenceNumber: payload.reference,
+        atlId: payload.atlId,
         lastDoneDate: payload.lastDoneDate,
         lastDoneYear: payload.lastDoneYear,
         lastDoneAftt: payload.lastDoneAftt,
@@ -441,12 +456,13 @@ export function TCCDetailContent({
   const tccHeaderColor = "bg-blue-600";
 
   const categoryOptions: {
-    value: "POWERPLANT" | "AIRFRAME" | "PROPELLER";
+    value: string;
     label: string;
   }[] = [
+    { value: "", label: "All" },
     { value: "POWERPLANT", label: "Powerplant" },
     { value: "AIRFRAME", label: "Airframe" },
-    { value: "PROPELLER", label: "Propeller" },
+    { value: "INSPECTION_SERVICING", label: "Inspection Servicing" },
   ];
 
   return (
@@ -492,15 +508,11 @@ export function TCCDetailContent({
           </label>
           <div className="relative">
             <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
-            <select
-              value={activeTab}
-              onChange={(e) =>
-                setActiveTab(
-                  e.target.value as "POWERPLANT" | "AIRFRAME" | "PROPELLER"
-                )
-              }
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
-            >
+              <select
+                value={activeTab}
+                onChange={(e) => setActiveTab(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+              >
               {categoryOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -683,7 +695,7 @@ export function TCCDetailContent({
                     AFTT
                   </th>
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200" title="sequence_number">
-                    ATL Reference
+                    Sequence No
                   </th>
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
                     Actions
@@ -782,10 +794,10 @@ export function TCCDetailContent({
                       </td>
                       {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {item.hours}
+                        {formatNum(parseNum(item.limitYears))}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs">
-                        {item.threshold}
+                        {formatNum(parseNum(item.limitHours))}
                       </td>
                       {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
