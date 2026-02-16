@@ -92,7 +92,7 @@ export function AddTCCModal({
         methodOfCompliance: editingItem.methodOfCompliance ?? "",
         atlReference: ref,
         lastDoneDate: toDateInputValue(editingItem.lastDoneDate),
-        lastDoneTach: editingItem.lastDoneTach ?? "",
+        lastDoneTach: editingItem.lastDoneTach ?? editingItem.lastDoneYear ?? "",
         lastDoneAftt: editingItem.lastDoneAftt ?? "",
         lastDoneMethodOfCompliance:
           editingItem.lastDoneMethodOfCompliance ?? "",
