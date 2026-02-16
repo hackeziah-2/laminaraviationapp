@@ -13,7 +13,9 @@ export interface TCCMonitoring {
   limitYears: string; // COMPONENT LIMIT: Years
   methodOfCompliance: string;
   lastDoneDate: string;
+  /** LAST DONE TACH - from API last_done_tach */
   lastDoneYear: string;
+  lastDoneTach?: string;
   lastDoneAftt: string;
   lastDoneMethodOfCompliance?: string;
   nextDueDate: string;
@@ -109,6 +111,9 @@ function normalizeItem(raw: any): TCCMonitoring {
     lastDoneYear: numStr(
       r.last_done_tach ?? r.last_done_year ?? r.lastDoneYear
     ),
+    lastDoneTach: numStr(
+      r.last_done_tach ?? r.lastDoneTach ?? r.last_done_year ?? r.lastDoneYear
+    ) || undefined,
     lastDoneAftt: numStr(r.last_done_aftt ?? r.lastDoneAftt),
     lastDoneMethodOfCompliance:
       numStr(
@@ -227,7 +232,9 @@ export const createAircraftTccMonitoring = async (
   };
 
   if (data.lastDoneDate) payload.last_done_date = str(data.lastDoneDate);
-  if (data.lastDoneYear) payload.last_done_tach = numOrZero(data.lastDoneYear);
+  const lastDoneTachVal = (data as any).lastDoneTach ?? data.lastDoneYear;
+  if (lastDoneTachVal !== undefined && lastDoneTachVal !== null && String(lastDoneTachVal).trim() !== "")
+    payload.last_done_tach = numOrZero(String(lastDoneTachVal));
   if (data.lastDoneAftt) payload.last_done_aftt = numOrZero(data.lastDoneAftt);
   if (data.lastDoneMethodOfCompliance) 
     payload.last_done_method_of_compliance = str(data.lastDoneMethodOfCompliance);
@@ -294,8 +301,9 @@ export const updateAircraftTccMonitoring = async (
   if (category) payload.category = category;
   if (data.lastDoneDate !== undefined)
     payload.last_done_date = str(data.lastDoneDate) ?? "";
-  if (data.lastDoneYear !== undefined)
-    payload.last_done_tach = numOrZero(data.lastDoneYear);
+  const lastDoneTachVal = (data as any).lastDoneTach ?? data.lastDoneYear;
+  if (lastDoneTachVal !== undefined && lastDoneTachVal !== null && String(lastDoneTachVal).trim() !== "")
+    payload.last_done_tach = numOrZero(String(lastDoneTachVal));
   if (data.lastDoneAftt !== undefined)
     payload.last_done_aftt = numOrZero(data.lastDoneAftt);
 

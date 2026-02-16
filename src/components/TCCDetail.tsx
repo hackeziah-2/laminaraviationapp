@@ -508,11 +508,11 @@ export function TCCDetailContent({
           </label>
           <div className="relative">
             <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none z-10" />
-              <select
-                value={activeTab}
-                onChange={(e) => setActiveTab(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
-              >
+            <select
+              value={activeTab}
+              onChange={(e) => setActiveTab(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+            >
               {categoryOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -694,7 +694,10 @@ export function TCCDetailContent({
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
                     AFTT
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200" title="sequence_number">
+                  <th
+                    className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200"
+                    title="sequence_number"
+                  >
                     Sequence No
                   </th>
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
@@ -808,7 +811,7 @@ export function TCCDetailContent({
                         {item.lastDoneDate}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
-                        {item.lastDoneTach}
+                        {item.lastDoneTach ?? item.lastDoneYear}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
                         {item.lastDoneAftt}
