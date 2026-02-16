@@ -114,11 +114,12 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
-const BASE_PATH = "certificate-monitoring";
+const BASE_PATH = "documents-on-board";
+const LIST_PATH = "documents-on-board/certificates";
 
 /**
- * Get paginated list of Certificate Monitoring.
- * GET /api/v1/certificate-monitoring/paged?page=&limit=&search=&status=
+ * Get paginated list of certificates.
+ * GET /api/v1/documents-on-board/certificates/paged?page=&limit=&search=&status=
  */
 export const getCertificatesMonitoring = async (
   page = 1,
@@ -133,23 +134,24 @@ export const getCertificatesMonitoring = async (
   if (statusFilter && statusFilter !== "All Status")
     params.append("status", statusFilter);
 
-  const endpoint = `${BASE_PATH}/paged?${params.toString()}`;
+  const endpoint = `${LIST_PATH}/paged?${params.toString()}`;
   try {
     const response = await apiClient.get(endpoint);
-    const responseData = response.data ?? {};
-    const rawItems =
-      responseData.items ?? responseData.results ?? responseData.data ?? [];
+    const res = response.data;
+    if (res == null) return { items: [], total: 0, page: 1, pages: 0 };
+    const responseData = typeof res === "object" && !Array.isArray(res) ? res : {};
+    const directArray = Array.isArray(res) ? res : null;
+    let rawItems = directArray ?? responseData.items ?? responseData.results ?? responseData.data;
+    if (!Array.isArray(rawItems)) rawItems = [];
     const total = responseData.total ?? responseData.count ?? rawItems.length;
     const pageNum = responseData.page ?? page;
+    const limitNum = responseData.limit ?? limit;
     const pages =
       responseData.pages ??
-      Math.max(1, Math.ceil(total / (responseData.limit ?? limit)));
+      Math.max(1, Math.ceil(Number(total) / (limitNum || 1)));
 
-    if (Array.isArray(rawItems)) {
-      const items = rawItems.map((item: any) => normalizeCertificateItem(item));
-      return { items, total, page: pageNum, pages };
-    }
-    return { items: [], total: 0, page: pageNum, pages: 0 };
+    const items = rawItems.map((item: any) => normalizeCertificateItem(item));
+    return { items, total: Number(total), page: pageNum, pages };
   } catch (error: any) {
     console.error("Certificate Monitoring API Error:", error?.message, error?.response?.data);
     const detail =
@@ -169,12 +171,19 @@ export const getCertificateMonitoringById = async (
   return normalizeCertificateItem(raw);
 };
 
+function getRawFromResponse(response: { data?: any }): any {
+  const d = response.data;
+  if (d == null) return null;
+  if (typeof d === "object" && !Array.isArray(d)) return d.data ?? d;
+  return d;
+}
+
 export const createCertificateMonitoring = async (
   data: CertificateMonitoringCreate | FormData | Record<string, unknown>
 ): Promise<CertificateMonitoring> => {
   const config = data instanceof FormData ? {} : undefined;
   const response = await apiClient.post(`${BASE_PATH}/`, data, config);
-  const raw = response.data?.data ?? response.data;
+  const raw = getRawFromResponse(response);
   if (raw == null) throw new Error("Certificate data is missing");
   return normalizeCertificateItem(raw);
 };
@@ -185,7 +194,7 @@ export const updateCertificateMonitoring = async (
 ): Promise<CertificateMonitoring> => {
   const config = data instanceof FormData ? {} : undefined;
   const response = await apiClient.put(`${BASE_PATH}/${id}`, data, config);
-  const raw = response.data?.data ?? response.data;
+  const raw = getRawFromResponse(response);
   if (raw == null) throw new Error("Certificate data is missing");
   return normalizeCertificateItem(raw);
 };
@@ -195,8 +204,8 @@ export const deleteCertificateMonitoring = async (id: number): Promise<void> => 
 };
 
 /**
- * Download certificate file - GET api/v1/certificate_monitoring/download/{filePath}
- * Same pattern as document_on_board: path in URL, blob response.
+ * Download certificate file - uses same document_on_board download as documents.
+ * GET api/v1/document_on_board/download/{filePath}
  */
 export const downloadCertificateFile = async (filePath: string): Promise<Blob> => {
   let pathForEndpoint = filePath;
@@ -209,7 +218,7 @@ export const downloadCertificateFile = async (filePath: string): Promise<Blob> =
     }
   }
   pathForEndpoint = pathForEndpoint.replace(/^\/+/, "").replace(/^api\/v1\//, "").replace(/^uploads\//, "");
-  const endpoint = `certificate_monitoring/download/${pathForEndpoint}`;
+  const endpoint = `document_on_board/download/${pathForEndpoint}`;
   const response = await apiClient.get(endpoint, {
     responseType: "blob",
     headers: { Accept: "application/octet-stream" },

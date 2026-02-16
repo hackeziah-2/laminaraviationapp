@@ -45,7 +45,9 @@ export function CertificateMonitoring() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [certificates, setCertificates] = useState<CertificateMonitoringType[]>([]);
+  const [certificates, setCertificates] = useState<CertificateMonitoringType[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -67,7 +69,6 @@ export function CertificateMonitoring() {
     expiryDate: "",
     warningDays: "",
     webLink: "",
-    isAircraftCertificate: false,
     status: "Active" as CertificateStatus,
   });
 
@@ -121,7 +122,7 @@ export function CertificateMonitoring() {
       } else if (error.response?.status === 500) {
         errorTitle = "Server Error";
         errorMessage =
-          "Server error: The certificate-monitoring endpoint may not be implemented yet on the backend.";
+          "Server error: The documents-on-board/certificates endpoint may not be available. Check that GET /api/v1/documents-on-board/certificates/paged exists.";
       } else if (error.code === "ERR_NETWORK") {
         errorTitle = "Network Error";
         errorMessage =
@@ -313,7 +314,9 @@ export function CertificateMonitoring() {
   };
 
   // Get certificate ID (supports id, documentId, document_id from API)
-  const getCertificateId = (cert: CertificateMonitoringType | null): number | null => {
+  const getCertificateId = (
+    cert: CertificateMonitoringType | null
+  ): number | null => {
     if (!cert) return null;
     const id = cert.id ?? (cert as any).documentId ?? (cert as any).document_id;
     return id != null && !isNaN(Number(id)) ? Number(id) : null;
@@ -408,12 +411,15 @@ export function CertificateMonitoring() {
 
     // Populate form data
     setFormData({
-      certificateName: cert.certificateName ?? (cert as any).documentName ?? (cert as any).document ?? "",
+      certificateName:
+        cert.certificateName ??
+        (cert as any).documentName ??
+        (cert as any).document ??
+        "",
       description: cert.description ?? "",
       issueDate: cert.issueDate ?? "",
       expiryDate: cert.expiryDate ?? "",
       webLink: cert.webLink ?? "",
-      isAircraftCertificate: cert.isAircraftCertificate ?? (cert as any).is_aircraft_certificate ?? false,
       warningDays: cert.warningDays != null ? String(cert.warningDays) : "",
       status: cert.status ?? "Active",
     });
@@ -469,7 +475,6 @@ export function CertificateMonitoring() {
       expiryDate: "",
       warningDays: "",
       webLink: "",
-      isAircraftCertificate: false,
       status: "Active",
     });
     setUploadFile(null);
@@ -493,18 +498,19 @@ export function CertificateMonitoring() {
         return;
       }
 
-      // Build API payload matching endpoint /api/v1/certificate-monitoring/
+      // Build API payload for /api/v1/documents-on-board/
       const warningDaysVal =
         formData.warningDays?.trim() !== ""
           ? Number(formData.warningDays)
           : null;
+      const name = formData.certificateName.trim();
       const payload: Record<string, unknown> = {
-        certificate_name: formData.certificateName.trim(),
+        document_name: name,
+        certificate_name: name,
         description: formData.description?.trim() || null,
         issue_date: formData.issueDate || null,
         expiry_date: formData.expiryDate || null,
         web_link: formData.webLink?.trim() || null,
-        is_aircraft_certificate: Boolean(formData.isAircraftCertificate),
         warning_days:
           warningDaysVal !== null && !isNaN(warningDaysVal)
             ? warningDaysVal
@@ -617,7 +623,6 @@ export function CertificateMonitoring() {
       expiryDate: "",
       warningDays: "",
       webLink: "",
-      isAircraftCertificate: false,
       status: "Active",
     });
     setUploadFile(null);
@@ -722,7 +727,9 @@ export function CertificateMonitoring() {
       <div className="bg-white rounded-lg border border-gray-200">
         {/* Section Header */}
         <div className="bg-blue-600 px-6 py-4 rounded-t-lg">
-          <h3 className="text-lg font-semibold text-white">Certificate Records</h3>
+          <h3 className="text-lg font-semibold text-white">
+            Certificate Records
+          </h3>
         </div>
 
         {/* Search: Certificate */}
@@ -1019,7 +1026,10 @@ export function CertificateMonitoring() {
                     type="text"
                     value={formData.certificateName}
                     onChange={(e) =>
-                      setFormData({ ...formData, certificateName: e.target.value })
+                      setFormData({
+                        ...formData,
+                        certificateName: e.target.value,
+                      })
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                     placeholder="e.g. Certificate of Airworthiness"
@@ -1158,7 +1168,10 @@ export function CertificateMonitoring() {
                 {/* File Upload */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Attach File <span className="text-gray-500 font-normal">(optional)</span>
+                    Attach File{" "}
+                    <span className="text-gray-500 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   {uploadFile || uploadFileName ? (
                     <div className="flex items-center gap-2 p-3 border border-gray-300 rounded-md bg-gray-50">
@@ -1219,7 +1232,10 @@ export function CertificateMonitoring() {
 
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Web Link <span className="text-gray-500 font-normal">(optional)</span>
+                    Web Link{" "}
+                    <span className="text-gray-500 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   <input
                     type="url"
@@ -1230,24 +1246,6 @@ export function CertificateMonitoring() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                     placeholder="https://example.com"
                   />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="is-aircraft-certificate"
-                    checked={formData.isAircraftCertificate}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        isAircraftCertificate: e.target.checked,
-                      })
-                    }
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="is-aircraft-certificate" className="text-sm text-gray-700">
-                    Is aircraft certificate
-                  </label>
                 </div>
               </div>
             </div>
@@ -1318,7 +1316,9 @@ export function CertificateMonitoring() {
                     Certificate Name
                   </label>
                   <p className="text-gray-900">
-                    {(viewingCertificate.certificateName ?? (viewingCertificate as any).documentName) || "-"}
+                    {(viewingCertificate.certificateName ??
+                      (viewingCertificate as any).documentName) ||
+                      "-"}
                   </p>
                 </div>
                 <div>
@@ -1396,27 +1396,26 @@ export function CertificateMonitoring() {
                   <label className="block text-gray-600 text-sm mb-1">
                     Web Link
                   </label>
-                  {(viewingCertificate.webLink ?? (viewingCertificate as any).web_link) ? (
+                  {viewingCertificate.webLink ??
+                  (viewingCertificate as any).web_link ? (
                     <a
-                      href={(viewingCertificate.webLink ?? (viewingCertificate as any).web_link) || "#"}
+                      href={
+                        (viewingCertificate.webLink ??
+                          (viewingCertificate as any).web_link) ||
+                        "#"
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline break-all"
                     >
-                      {viewingCertificate.webLink ?? (viewingCertificate as any).web_link}
+                      {viewingCertificate.webLink ??
+                        (viewingCertificate as any).web_link}
                     </a>
                   ) : (
                     <p className="text-gray-900">—</p>
                   )}
                 </div>
-                <div>
-                  <label className="block text-gray-600 text-sm mb-1">
-                    Is aircraft certificate
-                  </label>
-                  <p className="text-gray-900">
-                    {viewingCertificate.isAircraftCertificate ?? (viewingCertificate as any).is_aircraft_certificate ? "Yes" : "No"}
-                  </p>
-                </div>
+
                 {getCertificateFilePath(viewingCertificate) && (
                   <div>
                     <label className="block text-gray-600 text-sm mb-1">
