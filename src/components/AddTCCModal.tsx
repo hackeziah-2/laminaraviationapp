@@ -49,6 +49,7 @@ const defaultFormData = {
   methodOfCompliance: "",
   // Edit-only
   atlReference: "",
+  atlId: null as number | null,
   lastDoneDate: "",
   lastDoneTach: "",
   lastDoneAftt: "",
@@ -86,8 +87,8 @@ export function AddTCCModal({
         partNumber: editingItem.partNo ?? "",
         serialNumber: editingItem.serialNo ?? "",
         description: editingItem.description ?? "",
-        componentLimitHours: editingItem.hours ?? "",
-        componentLimitYears: editingItem.hours ?? "",
+        componentLimitHours: editingItem.limitHours ?? "",
+        componentLimitYears: editingItem.limitYears ?? "",
         methodOfCompliance: editingItem.methodOfCompliance ?? "",
         atlReference: ref,
         lastDoneDate: toDateInputValue(editingItem.lastDoneDate),
@@ -147,14 +148,14 @@ export function AddTCCModal({
       hours: formData.componentLimitHours,
       years: formData.componentLimitYears,
       methodOfCompliance: formData.methodOfCompliance,
+      reference: formData.atlReference?.trim() || undefined, // sequence_number
+      atlId: formData.atlId,
+      lastDoneDate: formData.lastDoneDate || undefined,
+      lastDoneYear: formData.lastDoneTach || undefined,
+      lastDoneAftt: formData.lastDoneAftt || undefined,
+      lastDoneMethodOfCompliance: formData.lastDoneMethodOfCompliance || undefined,
     };
     if (isEdit && editingItem && onUpdate) {
-      payload.reference = formData.atlReference?.trim() || undefined; // sequence_number
-      payload.lastDoneDate = formData.lastDoneDate || undefined;
-      payload.lastDoneYear = formData.lastDoneTach || undefined;
-      payload.lastDoneAftt = formData.lastDoneAftt || undefined;
-      payload.lastDoneMethodOfCompliance =
-        formData.lastDoneMethodOfCompliance || undefined;
       onUpdate(editingItem.id, payload);
     } else {
       onAdd(payload);
@@ -229,7 +230,7 @@ export function AddTCCModal({
               <option value="">Select category</option>
               <option value="POWERPLANT">POWERPLANT</option>
               <option value="AIRFRAME">AIRFRAME</option>
-              <option value="PROPELLER">PROPELLER</option>
+              <option value="INSPECTION_SERVICING">INSPECTION_SERVICING</option>
             </select>
           </div>
 
@@ -345,7 +346,6 @@ export function AddTCCModal({
                   Search by ATL sequence number
                 </p>
                 <div className="relative" ref={atlListRef}>
-                  {/* <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none shrink-0" /> */}
                   <input
                     type="text"
                     value={
@@ -358,17 +358,26 @@ export function AddTCCModal({
                           )?.label ?? formData.atlReference
                     }
                     onChange={(e) => {
-                      setAtlSearch(e.target.value);
+                      const val = e.target.value;
+                      setAtlSearch(val);
+                      setFormData((prev) => ({ ...prev, atlReference: val, atlId: null }));
                       setAtlOpen(true);
                     }}
                     onFocus={() => {
                       setAtlOpen(true);
-                      if (atlSearch === "" && formData.atlReference)
+                      // If input is empty but we have a value, prepopulate search?
+                      // Actually, if we are syncing them, atlSearch should already be correct?
+                      // But we clear atlSearch on select.
+                      // Let's NOT clear atlSearch on select if we want to allow editing it later?
+                      // If we clear it, then on subsequent focus `atlSearch` is empty.
+                      // If atlSearch is empty, we set it to current reference:
+                      if (!atlSearch && formData.atlReference) {
                         setAtlSearch(formData.atlReference);
+                      }
                     }}
                     onBlur={() => setTimeout(() => setAtlOpen(false), 200)}
-                    // placeholder="Type to search by ATL sequence number..."
-                    className="w-full min-h-[2.75rem] pl-9 pr-9 py-2.5 text-sm leading-normal bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Type or search ATL sequence number..."
+                    className="w-full min-h-[2.75rem] pl-3 pr-9 py-2.5 text-sm leading-normal bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none shrink-0" />
                   {atlOpen && (
@@ -403,8 +412,11 @@ export function AddTCCModal({
                                       ...prev,
                                       atlReference:
                                         opt.sequenceNo ?? String(opt.id),
+                                      atlId: opt.id,
                                     }));
-                                    setAtlSearch("");
+                                    setAtlSearch(
+                                      opt.sequenceNo ?? String(opt.id)
+                                    );
                                     setAtlOpen(false);
                                   }}
                                 >

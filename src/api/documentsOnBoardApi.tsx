@@ -90,7 +90,7 @@ export interface DocumentOnBoard {
 }
 
 export interface DocumentOnBoardCreate {
-  aircraftId: number;
+  aircraftId?: number | null;
   documentName: string;
   description?: string | null;
   issueDate?: string | null;
@@ -103,7 +103,7 @@ export interface DocumentOnBoardCreate {
 }
 
 export interface DocumentOnBoardUpdate {
-  aircraftId?: number;
+  aircraftId?: number | null;
   documentName?: string;
   description?: string | null;
   issueDate?: string | null;

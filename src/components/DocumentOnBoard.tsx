@@ -193,7 +193,8 @@ export function DocumentOnBoard() {
     try {
       const response = await getAircrafts(1, 100, "", "");
       const data = response?.data ?? response;
-      const list = data?.items ?? data?.data ?? (Array.isArray(data) ? data : []);
+      const list =
+        data?.items ?? data?.data ?? (Array.isArray(data) ? data : []);
       setAircrafts(Array.isArray(list) ? list : []);
     } catch (error) {
       console.error("Error fetching aircrafts:", error);
@@ -370,7 +371,7 @@ export function DocumentOnBoard() {
       const ac = aircrafts.find((a) => a.id === aircraftId);
       if (ac?.registration) return ac.registration;
     }
-    return "N/A";
+    return "DOCUMENT FILE";
   };
 
   // Calculate statistics from all documents (using computed status)
@@ -535,7 +536,10 @@ export function DocumentOnBoard() {
       issueDate: doc.issueDate ?? "",
       expiryDate: doc.expiryDate ?? "",
       webLink: doc.webLink ?? "",
-      isAircraftCertificate: doc.isAircraftCertificate ?? (doc as any).is_aircraft_certificate ?? false,
+      isAircraftCertificate:
+        doc.isAircraftCertificate ??
+        (doc as any).is_aircraft_certificate ??
+        false,
       warningDays: doc.warningDays != null ? String(doc.warningDays) : "",
       status: doc.status ?? "Active",
     });
@@ -623,19 +627,35 @@ export function DocumentOnBoard() {
     setIsSaving(true);
     try {
       // Validation
-      if (!formData.aircraftId || !formData.documentName?.trim()) {
+      if (!formData.documentName?.trim()) {
         Swal.fire({
           icon: "error",
           title: "Validation Error",
-          text: "Please fill in all required fields (Aircraft and Document Name).",
+          text: "Document Name is required.",
+        });
+        setTimeout(() => setIsSaving(false), 360);
+        return;
+      }
+
+      // If isAircraftCertificate is true, aircraftId must be selected
+      if (formData.isAircraftCertificate && !formData.aircraftId) {
+        Swal.fire({
+          icon: "error",
+          title: "Validation Error",
+          text: "Please select an aircraft for aircraft certificates.",
         });
         setTimeout(() => setIsSaving(false), 360);
         return;
       }
 
       // Build API payload matching endpoint /api/v1/documents-on-board/
-      const aircraftIdNum = Number(formData.aircraftId);
-      if (isNaN(aircraftIdNum)) {
+      const aircraftIdNum = formData.aircraftId
+        ? Number(formData.aircraftId)
+        : null;
+      if (
+        formData.isAircraftCertificate &&
+        (aircraftIdNum === null || isNaN(aircraftIdNum))
+      ) {
         Swal.fire({
           icon: "error",
           title: "Validation Error",
@@ -1171,96 +1191,125 @@ export function DocumentOnBoard() {
                   </h3>
                 </div>
 
-                {/* Aircraft - Searchable Dropdown - Full Width */}
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Aircraft <span className="text-red-500">*</span>
+                {/* Is Aircraft Certificate Checkbox - Moved to Top */}
+                <div className="flex items-center gap-2 mb-4">
+                  <input
+                    type="checkbox"
+                    id="is-aircraft-certificate"
+                    checked={formData.isAircraftCertificate}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        isAircraftCertificate: e.target.checked,
+                        // Clear aircraft selection if unchecked (optional, but cleaner)
+                        aircraftId: !e.target.checked
+                          ? ""
+                          : formData.aircraftId,
+                      })
+                    }
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label
+                    htmlFor="is-aircraft-certificate"
+                    className="text-sm font-medium text-gray-700 cursor-pointer select-none"
+                  >
+                    Is aircraft certificate
                   </label>
-                  <div className="relative" ref={aircraftDropdownRef}>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={
-                          isAircraftDropdownOpen
-                            ? aircraftSearchTerm
-                            : selectedAircraftDisplay ||
-                              getSelectedAircraftDisplay()
-                        }
-                        onChange={(e) => {
-                          setAircraftSearchTerm(e.target.value);
-                          setIsAircraftDropdownOpen(true);
-                        }}
-                        onFocus={() => {
-                          setIsAircraftDropdownOpen(true);
-                          setAircraftSearchTerm("");
-                        }}
-                        className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        placeholder="Search aircraft..."
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
-                        }
-                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            isAircraftDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {isAircraftDropdownOpen && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                        {loadingAircrafts ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            Loading aircrafts...
-                          </div>
-                        ) : filteredAircrafts.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            {aircraftSearchTerm
-                              ? "No aircrafts found"
-                              : "No aircrafts available"}
-                          </div>
-                        ) : (
-                          <ul className="py-1">
-                            {filteredAircrafts.map((aircraft) => {
-                              const displayText = aircraft.aircraftType
-                                ? `${aircraft.registration} (${aircraft.aircraftType})`
-                                : aircraft.registration;
-                              const isSelected =
-                                formData.aircraftId === aircraft.id.toString();
-                              return (
-                                <li
-                                  key={aircraft.id}
-                                  onClick={() =>
-                                    handleAircraftSelect(
-                                      aircraft.id,
-                                      aircraft.registration,
-                                      aircraft.aircraftType
-                                    )
-                                  }
-                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                    isSelected ? "bg-blue-50" : ""
-                                  }`}
-                                >
-                                  <span className="text-gray-900">
-                                    {displayText}
-                                  </span>
-                                  {isSelected && (
-                                    <Check className="w-4 h-4 text-blue-600" />
-                                  )}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
                 </div>
+
+                {/* Aircraft - Searchable Dropdown - Conditional */}
+                {formData.isAircraftCertificate && (
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Aircraft <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative" ref={aircraftDropdownRef}>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={
+                            isAircraftDropdownOpen
+                              ? aircraftSearchTerm
+                              : selectedAircraftDisplay ||
+                                getSelectedAircraftDisplay()
+                          }
+                          onChange={(e) => {
+                            setAircraftSearchTerm(e.target.value);
+                            setIsAircraftDropdownOpen(true);
+                          }}
+                          onFocus={() => {
+                            setIsAircraftDropdownOpen(true);
+                            setAircraftSearchTerm("");
+                          }}
+                          className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          placeholder="Search aircraft..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
+                          }
+                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                        >
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform ${
+                              isAircraftDropdownOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {isAircraftDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {loadingAircrafts ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              Loading aircrafts...
+                            </div>
+                          ) : filteredAircrafts.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {aircraftSearchTerm
+                                ? "No aircrafts found"
+                                : "No aircrafts available"}
+                            </div>
+                          ) : (
+                            <ul className="py-1">
+                              {filteredAircrafts.map((aircraft) => {
+                                const displayText = aircraft.aircraftType
+                                  ? `${aircraft.registration} (${aircraft.aircraftType})`
+                                  : aircraft.registration;
+                                const isSelected =
+                                  formData.aircraftId ===
+                                  aircraft.id.toString();
+                                return (
+                                  <li
+                                    key={aircraft.id}
+                                    onClick={() =>
+                                      handleAircraftSelect(
+                                        aircraft.id,
+                                        aircraft.registration,
+                                        aircraft.aircraftType
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      isSelected ? "bg-blue-50" : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900">
+                                      {displayText}
+                                    </span>
+                                    {isSelected && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Document Name - Full Width */}
                 <div>
@@ -1410,7 +1459,10 @@ export function DocumentOnBoard() {
                 {/* File Upload */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Attach File <span className="text-gray-500 font-normal">(optional)</span>
+                    Attach File{" "}
+                    <span className="text-gray-500 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   {uploadFile || uploadFileName ? (
                     <div className="flex items-center gap-2 p-3 border border-gray-300 rounded-md bg-gray-50">
@@ -1471,7 +1523,10 @@ export function DocumentOnBoard() {
 
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Web Link <span className="text-gray-500 font-normal">(optional)</span>
+                    Web Link{" "}
+                    <span className="text-gray-500 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   <input
                     type="url"
@@ -1482,24 +1537,6 @@ export function DocumentOnBoard() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                     placeholder="https://example.com"
                   />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="is-aircraft-certificate"
-                    checked={formData.isAircraftCertificate}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        isAircraftCertificate: e.target.checked,
-                      })
-                    }
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <label htmlFor="is-aircraft-certificate" className="text-sm text-gray-700">
-                    Is aircraft certificate
-                  </label>
                 </div>
               </div>
             </div>
@@ -1656,14 +1693,20 @@ export function DocumentOnBoard() {
                   <label className="block text-gray-600 text-sm mb-1">
                     Web Link
                   </label>
-                  {(viewingDocument.webLink ?? (viewingDocument as any).web_link) ? (
+                  {viewingDocument.webLink ??
+                  (viewingDocument as any).web_link ? (
                     <a
-                      href={(viewingDocument.webLink ?? (viewingDocument as any).web_link) || "#"}
+                      href={
+                        (viewingDocument.webLink ??
+                          (viewingDocument as any).web_link) ||
+                        "#"
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline break-all"
                     >
-                      {viewingDocument.webLink ?? (viewingDocument as any).web_link}
+                      {viewingDocument.webLink ??
+                        (viewingDocument as any).web_link}
                     </a>
                   ) : (
                     <p className="text-gray-900">—</p>
@@ -1674,7 +1717,10 @@ export function DocumentOnBoard() {
                     Is aircraft certificate
                   </label>
                   <p className="text-gray-900">
-                    {viewingDocument.isAircraftCertificate ?? (viewingDocument as any).is_aircraft_certificate ? "Yes" : "No"}
+                    {viewingDocument.isAircraftCertificate ??
+                    (viewingDocument as any).is_aircraft_certificate
+                      ? "Yes"
+                      : "No"}
                   </p>
                 </div>
                 {getDocumentFilePath(viewingDocument) && (
