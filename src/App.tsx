@@ -7,6 +7,7 @@ import { AircraftFleetDailyUpdate } from './components/AircraftFleetDailyUpdate'
 import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook';
 import { DocumentOnBoard } from './components/DocumentOnBoard';
 import { AircraftDocumentOnBoard } from './components/AircraftDocumentOnBoard';
+import { CertificateMonitoring } from './components/CertificateMonitoring';
 import { AircraftDetail } from './components/AircraftDetail';
 import { MaintenanceLogbook } from './components/MaintenanceLogbook';
 import { Maintenance } from './components/Maintenance';
@@ -88,6 +89,7 @@ function AppContent() {
           <Route path="/daily-update" element={<AircraftFleetDailyUpdate />} />
           <Route path="/technical-logbook" element={<AircraftTechnicalLogbook />} />
           <Route path="/document-on-board" element={<DocumentOnBoard />} />
+          <Route path="/certificate-monitoring" element={<CertificateMonitoring />} />
         </Routes>
       </div>
     </div>
