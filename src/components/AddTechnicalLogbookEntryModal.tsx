@@ -176,6 +176,9 @@ export function AddTechnicalLogbookEntryModal({
     Record<string, string>
   >({});
 
+  // Latest entry sequence number (for format validation: must match e.g. ATL-00013, not ATL-0016)
+  const [latestSequenceNo, setLatestSequenceNo] = useState<string | null>(null);
+
   // Fetch aircrafts when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -202,6 +205,7 @@ export function AddTechnicalLogbookEntryModal({
             // Fetch latest technical log for auto-population
             const latestEntry = await getLatestAircraftTechnicalLog(aircraftId);
             if (latestEntry) {
+              setLatestSequenceNo(latestEntry.sequenceNo ?? null);
               setFormData((prev) => ({
                 ...prev,
                 hobbsMeterStart:
@@ -218,10 +222,12 @@ export function AddTechnicalLogbookEntryModal({
                 propellerPrevTime:
                   latestEntry.propellerTotalTime?.toString() ||
                   prev.enginePrevTime,
-              }));
-            }
-          } catch (error) {
-            console.error("Error fetching aircraft by ID:", error);
+                  }));
+                } else {
+                  setLatestSequenceNo(null);
+                }
+              } catch (error) {
+                console.error("Error fetching aircraft by ID:", error);
             // Fallback: try to find in aircrafts list
             if (aircrafts.length > 0) {
               const aircraft = aircrafts.find((ac) => ac.id === aircraftId);
@@ -238,6 +244,7 @@ export function AddTechnicalLogbookEntryModal({
                     aircraftId
                   );
                   if (latestEntry) {
+                    setLatestSequenceNo(latestEntry.sequenceNo ?? null);
                     setFormData((prev) => ({
                       ...prev,
                       hobbsMeterStart:
@@ -257,6 +264,8 @@ export function AddTechnicalLogbookEntryModal({
                         latestEntry.propellerTotalTime?.toString() ||
                         prev.enginePrevTime,
                     }));
+                  } else {
+                    setLatestSequenceNo(null);
                   }
                 } catch (error) {
                   console.error("Error fetching latest technical log:", error);
@@ -276,6 +285,7 @@ export function AddTechnicalLogbookEntryModal({
   // Populate form when editEntry is provided
   useEffect(() => {
     if (editEntry && isOpen) {
+      setLatestSequenceNo(null); // No format validation when editing
       // Populate form data from editEntry
       setFormData({
         seqNo: editEntry.sequenceNo || "",
@@ -473,6 +483,7 @@ export function AddTechnicalLogbookEntryModal({
           selectedAircraftId
         );
         if (latestEntry) {
+          setLatestSequenceNo(latestEntry.sequenceNo ?? null);
           setFormData((prev) => ({
             ...prev,
             hobbsMeterStart:
@@ -503,6 +514,8 @@ export function AddTechnicalLogbookEntryModal({
             // propellerPrevTime:
             //   latestEntry.propellerPrevTime?.toString() || prev.propellerPrevTime,
           }));
+        } else {
+          setLatestSequenceNo(null);
         }
       }
     } catch (error) {
@@ -666,6 +679,7 @@ export function AddTechnicalLogbookEntryModal({
       try {
         const latestEntry = await getLatestAircraftTechnicalLog(id);
         if (latestEntry) {
+          setLatestSequenceNo(latestEntry.sequenceNo ?? null);
           setFormData((prev) => ({
             ...prev,
             hobbsMeterStart:
@@ -682,6 +696,7 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.propellerTotalTime?.toString() || prev.enginePrevTime,
           }));
         } else {
+          setLatestSequenceNo(null);
           // If no latest entry exists, clear the start values
           setFormData((prev) => ({
             ...prev,
@@ -1073,6 +1088,17 @@ export function AddTechnicalLogbookEntryModal({
 
   if (!isOpen) return null;
 
+  // Parse sequence number format: e.g. "ATL-00013" → { prefix: "ATL-", numericLength: 5 }
+  const parseSequenceFormat = (
+    seq: string
+  ): { prefix: string; numericLength: number } | null => {
+    const trimmed = (seq || "").trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/^(.+?)(\d+)$/);
+    if (!match) return null;
+    return { prefix: match[1], numericLength: match[2].length };
+  };
+
   // Validation function
   const validateForm = (): {
     isValid: boolean;
@@ -1083,6 +1109,26 @@ export function AddTechnicalLogbookEntryModal({
     // Required fields validation
     if (!formData.seqNo || formData.seqNo.trim() === "") {
       errors.seqNo = "Sequence No. is required";
+    }
+
+    // Sequence No. must match format of latest entry (e.g. ATL-00013, not ATL-0016)
+    if (
+      !editEntry &&
+      latestSequenceNo &&
+      formData.seqNo &&
+      formData.seqNo.trim() !== ""
+    ) {
+      const latestFormat = parseSequenceFormat(latestSequenceNo);
+      const enteredFormat = parseSequenceFormat(formData.seqNo.trim());
+      if (latestFormat && enteredFormat) {
+        if (
+          latestFormat.prefix !== enteredFormat.prefix ||
+          latestFormat.numericLength !== enteredFormat.numericLength
+        ) {
+          errors.seqNo =
+            `Sequence No. must be the same format as the latest entry (e.g. ${latestSequenceNo}). Format like ATL-0016 is not accepted when the latest is ${latestSequenceNo}.`;
+        }
+      }
     }
 
     // Only validate A/C Registration if aircraftId prop is not provided
@@ -1217,16 +1263,9 @@ export function AddTechnicalLogbookEntryModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate form (for both create and update)
+    // Validate form (for both create and update) – errors shown on fields only, no SweetAlert
     const validationResult = validateForm();
     if (!validationResult.isValid) {
-      const errorMessages = Object.values(validationResult.errors).join("\n");
-      Swal.fire({
-        title: "Validation Error",
-        text: errorMessages || "Please fill in all required fields correctly.",
-        icon: "error",
-        confirmButtonColor: "#dc2626",
-      });
       return;
     }
 
