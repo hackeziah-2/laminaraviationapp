@@ -8,6 +8,7 @@ import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook'
 import { DocumentOnBoard } from './components/DocumentOnBoard';
 import { AircraftDocumentOnBoard } from './components/AircraftDocumentOnBoard';
 import { CertificateMonitoring } from './components/CertificateMonitoring';
+import { Settings } from './components/Settings';
 import { AircraftDetail } from './components/AircraftDetail';
 import { MaintenanceLogbook } from './components/MaintenanceLogbook';
 import { Maintenance } from './components/Maintenance';
@@ -90,6 +91,7 @@ function AppContent() {
           <Route path="/technical-logbook" element={<AircraftTechnicalLogbook />} />
           <Route path="/document-on-board" element={<DocumentOnBoard />} />
           <Route path="/certificate-monitoring" element={<CertificateMonitoring />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </div>
     </div>

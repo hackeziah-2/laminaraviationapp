@@ -1,4 +1,4 @@
-import { LayoutGrid, Plane, Calendar, Bell, ChevronLeft, ChevronRight, X, FileText, FolderOpen, Award } from 'lucide-react';
+import { LayoutGrid, Plane, Calendar, Bell, ChevronLeft, ChevronRight, X, FileText, FolderOpen, Award, Settings } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface SidebarProps {
@@ -18,6 +18,7 @@ export function Sidebar({ isCollapsed, onToggle, isMobileMenuOpen = false, onMob
     { id: 'technical-logbook', label: 'Aircraft Technical Logbook', icon: FileText, path: '/technical-logbook' },
     { id: 'document-on-board', label: 'Document On Board', icon: FolderOpen, path: '/document-on-board' },
     { id: 'certificate-monitoring', label: 'Certificate Monitoring', icon: Award, path: '/certificate-monitoring' },
+    { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   const isActive = (path: string) => {
