@@ -1,23 +1,32 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 
+const defaultFormData = {
+  inspectionType: '',
+  zoneArea: '',
+  inspectionDate: '',
+  inspector: '',
+  nextDueDate: '',
+  status: 'Current',
+  findings: '',
+  correctiveAction: '',
+  referenceDocNo: ''
+};
+
 interface AddInspectionModalProps {
   onClose: () => void;
   onSubmit: (data: any) => void;
+  /** Optional initial values for edit mode */
+  initialData?: Record<string, string>;
+  /** When true, show "Edit" instead of "Add" in title */
+  isEdit?: boolean;
 }
 
-export function AddInspectionModal({ onClose, onSubmit }: AddInspectionModalProps) {
-  const [formData, setFormData] = useState({
-    inspectionType: '',
-    zoneArea: '',
-    inspectionDate: '',
-    inspector: '',
-    nextDueDate: '',
-    status: 'Current',
-    findings: '',
-    correctiveAction: '',
-    referenceDocNo: ''
-  });
+export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: AddInspectionModalProps) {
+  const [formData, setFormData] = useState(() => ({
+    ...defaultFormData,
+    ...(initialData && typeof initialData === 'object' ? initialData : {}),
+  }));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,7 +240,7 @@ export function AddInspectionModal({ onClose, onSubmit }: AddInspectionModalProp
               type="submit"
               className="px-4 py-2 text-sm bg-gray-900 text-white hover:bg-gray-800 rounded-lg transition-colors"
             >
-              Add Inspection
+              {isEdit ? "Update Entry" : "Add Inspection"}
             </button>
           </div>
         </form>

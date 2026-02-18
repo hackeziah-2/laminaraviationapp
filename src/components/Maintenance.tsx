@@ -1380,13 +1380,14 @@ export function Maintenance() {
           </div>
         )}
 
-        {/* CPCP Forecasting */}
+        {/* CPCP Forecasting - connected to /api/v1/cpcp-monitoring/ */}
         {activeCategory === "CPCP" && (
           <div className="p-5">
             <CPCPMonitoring
               msn={String(id ?? "")}
               registration={`Aircraft ${id}`}
               embedded
+              aircraftId={id}
             />
           </div>
         )}
