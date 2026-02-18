@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   Printer,
@@ -7,8 +7,24 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
+  Eye,
+  Pencil,
+  Trash2,
+  X,
+  Loader,
 } from "lucide-react";
-import { AddInspectionModal } from "./AddInspectionModal";
+import { CPCPEntryModal } from "./CPCPEntryModal";
+import {
+  getCpcpMonitoringPaged,
+  getCpcpMonitoringById,
+  createCpcpMonitoring,
+  updateCpcpMonitoring,
+  deleteCpcpMonitoring,
+  type CPCPEntry,
+} from "../api/cpcpMonitoringApi";
+import { computeCpcpRow } from "../utils/cpcpFormulas";
+import Swal from "sweetalert2";
+import { Spinner } from "./ui/spinner";
 
 interface CPCPMonitoringProps {
   onBack?: () => void;
@@ -19,14 +35,17 @@ interface CPCPMonitoringProps {
   date?: string;
   /** When true, hide the top header (back, print, export, add) for use inside Maintenance CPCP tab */
   embedded?: boolean;
+  /** Optional aircraft ID for API scope */
+  aircraftId?: string | number;
 }
 
+/** Table row shape (compatible with CPCPEntry from API) */
 interface InspectionItem {
   id: number;
   remaining: {
     months: number | string;
     days: number | string;
-    tech: number | string;
+    tach: number | string;
     aftf: number | string;
   };
   inspectionCode: string;
@@ -34,17 +53,15 @@ interface InspectionItem {
   interval: {
     hours: number | string;
     months: number | string;
-    tech: number | string;
-    aftf: number | string;
   };
   lastDone: {
     date: string;
-    tech: number | string;
+    tach: number | string;
     aftf: number | string;
   };
   nextDue: {
     date: string;
-    tech: number | string;
+    tach: number | string;
     aftf: number | string;
   };
   reference: string;
@@ -59,126 +76,175 @@ export function CPCPMonitoring({
   tach = "7894.8",
   date = "20-Sep-25",
   embedded = false,
+  aircraftId,
 }: CPCPMonitoringProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
+  const [items, setItems] = useState<CPCPEntry[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [viewEntry, setViewEntry] = useState<CPCPEntry | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<CPCPEntry | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sample inspection data
-  const inspectionData: InspectionItem[] = [
-    {
-      id: 1,
-      remaining: { months: "70.97", days: "214", tech: "95.7", aftf: "95.7" },
-      inspectionCode: "IO 1",
-      description: "Records Inspection",
-      interval: { hours: "100", months: "12", tech: "7955.5", aftf: "7691.1" },
-      lastDone: { date: "7-September-2024", tech: "7955.5", aftf: "7691.1" },
-      nextDue: { date: "16-Sep-2026", tech: "7955.5", aftf: "7691.1" },
-      reference: "ATL-2902323",
-      status: "white",
+  const fetchList = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getCpcpMonitoringPaged(
+        currentPage,
+        itemsPerPage,
+        searchDebounced,
+        aircraftId
+      );
+      setItems(res.items);
+      setTotalItems(res.total);
+      setTotalPages(Math.max(1, res.pages));
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ??
+        err?.message ??
+        "Failed to load CPCP list.";
+      Swal.fire({ icon: "error", title: "Error!", text: msg });
+      setItems([]);
+      setTotalItems(0);
+      setTotalPages(1);
+    } finally {
+      setTimeout(() => setLoading(false), 360);
+    }
+  }, [currentPage, itemsPerPage, searchDebounced, aircraftId]);
+
+  useEffect(() => {
+    fetchList();
+  }, [fetchList]);
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchDebounced(searchQuery);
+      setCurrentPage(1);
+      searchDebounceRef.current = null;
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
+
+  const handleView = useCallback(async (entry: CPCPEntry) => {
+    setViewEntry(null);
+    setViewLoading(true);
+    try {
+      const one = await getCpcpMonitoringById(entry.id);
+      setViewEntry(one);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ?? err?.message ?? "Failed to load entry.";
+      Swal.fire({ icon: "error", title: "Error!", text: msg });
+    } finally {
+      setTimeout(() => setViewLoading(false), 360);
+    }
+  }, []);
+
+  const handleDelete = useCallback(
+    async (entry: CPCPEntry) => {
+const result = await Swal.fire({
+      title: "Are you sure?",
+      text: "You won't be able to revert this!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Yes, delete it!",
+    });
+      if (!result.isConfirmed) return;
+      try {
+        await deleteCpcpMonitoring(entry.id);
+        Swal.fire({
+          icon: "success",
+          title: "Deleted!",
+          text: "The CPCP entry has been deleted.",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+        fetchList();
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.detail ?? err?.message ?? "Failed to delete.";
+        Swal.fire({ icon: "error", title: "Error!", text: msg });
+      }
     },
-    {
-      id: 2,
-      remaining: { months: "2.25", days: "216", tech: "-", aftf: "-" },
-      inspectionCode: "IO 2",
-      description: "Baseline Program",
-      interval: { hours: "-", months: "12", tech: "-", aftf: "7684.1" },
-      lastDone: { date: "29-May-2024", tech: "-", aftf: "7684.1" },
-      nextDue: { date: "29-May-2026", tech: "-", aftf: "-" },
-      reference: "ATL-1882217",
-      status: "white",
+    [fetchList]
+  );
+
+  const handleAddSubmit = useCallback(
+    async (data: any) => {
+      setSaving(true);
+      try {
+        const payload = { ...data };
+        if (aircraftId != null && String(aircraftId).trim() !== "") {
+          const aid =
+            typeof aircraftId === "number"
+              ? aircraftId
+              : parseInt(String(aircraftId), 10);
+          if (!isNaN(aid)) payload.aircraft_id = aid;
+        }
+        await createCpcpMonitoring(payload);
+        Swal.fire({
+          icon: "success",
+          title: "Created!",
+          text: "The CPCP entry has been added.",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+        setShowAddModal(false);
+        fetchList();
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.detail ?? err?.message ?? "Failed to create.";
+        Swal.fire({ icon: "error", title: "Error!", text: msg });
+      } finally {
+        setTimeout(() => setSaving(false), 360);
+      }
     },
-    {
-      id: 3,
-      remaining: { months: "-", days: "-", tech: "-", aftf: "-" },
-      inspectionCode: "IO 3",
-      description: "Baseline Program",
-      interval: { hours: "-", months: "24", tech: "-", aftf: "-" },
-      lastDone: { date: "31-Jan-2025", tech: "-", aftf: "-" },
-      nextDue: { date: "31-Jan-2027", tech: "-", aftf: "-" },
-      reference: "ATL-4105621",
-      status: "white",
+    [fetchList, aircraftId]
+  );
+
+  const handleEditSubmit = useCallback(
+    async (id: number, data: any) => {
+      if (!editingEntry) return;
+      setSaving(true);
+      try {
+        await updateCpcpMonitoring(id, data);
+        Swal.fire({
+          icon: "success",
+          title: "Updated!",
+          text: "The CPCP entry has been updated.",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+        setShowAddModal(false);
+        setEditingEntry(null);
+        fetchList();
+      } catch (err: any) {
+        const msg =
+          err?.response?.data?.detail ?? err?.message ?? "Failed to update.";
+        Swal.fire({ icon: "error", title: "Error!", text: msg });
+      } finally {
+        setTimeout(() => setSaving(false), 360);
+      }
     },
-    {
-      id: 4,
-      remaining: { months: "-", days: "-", tech: "-", aftf: "-" },
-      inspectionCode: "IO 4",
-      description: "Baseline Program",
-      interval: { hours: "-", months: "36", tech: "-", aftf: "6098.4" },
-      lastDone: { date: "31-Jan-2025", tech: "-", aftf: "-" },
-      nextDue: { date: "1-Jan-2028", tech: "-", aftf: "-" },
-      reference: "ATL-1668644",
-      status: "red",
-    },
-    {
-      id: 5,
-      remaining: { months: "-", days: "-", tech: "-", aftf: "-" },
-      inspectionCode: "IO 5",
-      description: "Baseline Program",
-      interval: { hours: "-", months: "48", tech: "-", aftf: "6098.4" },
-      lastDone: { date: "31-Jan-2025", tech: "-", aftf: "-" },
-      nextDue: { date: "1-Jan-2029", tech: "-", aftf: "-" },
-      reference: "ATL-0624098",
-      status: "red",
-    },
-    {
-      id: 6,
-      remaining: { months: "-31.37", days: "905", tech: "-", aftf: "-" },
-      inspectionCode: "IO 6",
-      description: "Baseline Program",
-      interval: { hours: "-", months: "60", tech: "-", aftf: "6098.4" },
-      lastDone: { date: "31-Jan-2025", tech: "-", aftf: "-" },
-      nextDue: { date: "1-Jan-2030", tech: "-", aftf: "-" },
-      reference: "ATL-7712033",
-      status: "green",
-    },
-    {
-      id: 7,
-      remaining: { months: "-", days: "-", tech: "1165.6", aftf: "1165.6" },
-      inspectionCode: "IO 7",
-      description:
-        "Baseline Program (to find un/intentionally removed)\n1. Protective Finish - Damaged or Deteriorated\n2. Improper Bonding - Brackets and skin attachments inspection\n3. Protective Finish - Damage to protective finish elements inspection",
-      interval: { hours: "1000", months: "-", tech: "-", aftf: "6098.4" },
-      lastDone: { date: "31-Jan-2025", tech: "7055.0", aftf: "7055.0" },
-      nextDue: { date: "1-Jan-2026", tech: "-", aftf: "-" },
-      reference: "ATL-5591842",
-      status: "white",
-    },
-    {
-      id: 8,
-      remaining: { months: "4.23", days: "128", tech: "169.6", aftf: "1892.6" },
-      inspectionCode: "IO 8",
-      description: "Wing Inspection - Detailed",
-      interval: { hours: "500", months: "12", tech: "-", aftf: "7069.4" },
-      lastDone: { date: "16-Mar-2025", tech: "7589.4", aftf: "7589.4" },
-      nextDue: { date: "16-Mar-2026", tech: "8089.4", aftf: "8089.4" },
-      reference: "ATL-1823291",
-      status: "yellow",
-    },
-    {
-      id: 9,
-      remaining: { months: "7.67", days: "233", tech: "-", aftf: "-" },
-      inspectionCode: "IO 9",
-      description: "Fuselage Inspection",
-      interval: { hours: "-", months: "24", tech: "-", aftf: "6359.4" },
-      lastDone: { date: "20-Jun-2024", tech: "-", aftf: "-" },
-      nextDue: { date: "20-Jun-2026", tech: "-", aftf: "-" },
-      reference: "ATL-3015672",
-      status: "white",
-    },
-    {
-      id: 10,
-      remaining: { months: "3.87", days: "117", tech: "169.6", aftf: "1892.6" },
-      inspectionCode: "IO 10",
-      description: "Landing Gear Inspection",
-      interval: { hours: "200", months: "6", tech: "-", aftf: "7789.4" },
-      lastDone: { date: "5-Sep-2025", tech: "7889.4", aftf: "7789.4" },
-      nextDue: { date: "5-Mar-2026", tech: "8089.4", aftf: "8089.4" },
-      reference: "ATL-2902323",
-      status: "yellow",
-    },
-  ];
+    [editingEntry, fetchList]
+  );
+
+  const openEdit = useCallback((entry: CPCPEntry) => {
+    setEditingEntry(entry);
+    setShowAddModal(true);
+  }, []);
 
   const getRowBackgroundColor = (status: string) => {
     switch (status) {
@@ -195,28 +261,10 @@ export function CPCPMonitoring({
     }
   };
 
-  // Search: filter by inspection code, description, or ATL-SEC.NO (reference)
-  const filteredData = React.useMemo(() => {
-    if (!searchQuery.trim()) return inspectionData;
-    const q = searchQuery.toLowerCase().trim();
-    return inspectionData.filter(
-      (item) =>
-        (item.inspectionCode || "").toLowerCase().includes(q) ||
-        (item.description || "").toLowerCase().includes(q) ||
-        (item.reference || "").toLowerCase().includes(q)
-    );
-  }, [searchQuery]);
-
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
-
-  // Pagination logic
-  const totalItems = filteredData.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
-  const currentItems = filteredData.slice(startIndex, endIndex);
+  const startIndex =
+    totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const endIndex = Math.min(currentPage * itemsPerPage, totalItems);
+  const currentItems = items;
 
   const contentPadding = embedded ? "p-0" : "p-6";
 
@@ -331,8 +379,14 @@ export function CPCPMonitoring({
             </button>
           </div>
 
-          {/* Inspections table card - blue header like TCC */}
+          {/* CPCP table: REMAINING | INSPECTION OPERATION | DESCRIPTION | INTERVAL | LAST DONE | NEXT DUE | REFERENCE | ACTIONS */}
           <div className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Spinner />
+              </div>
+            ) : (
+              <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -341,57 +395,57 @@ export function CPCPMonitoring({
                       colSpan={4}
                       className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
                     >
-                      Remaining
+                      REMAINING
                     </th>
                     <th
                       rowSpan={2}
                       className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
                     >
-                      Description
+                      INSPECTION OPERATION
                     </th>
                     <th
-                      colSpan={4}
+                      rowSpan={2}
                       className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
                     >
-                      Interval
+                      DESCRIPTION
+                    </th>
+                    <th
+                      colSpan={2}
+                      className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
+                    >
+                      INTERVAL
                     </th>
                     <th
                       colSpan={3}
                       className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
                     >
-                      Last done
+                      LAST DONE
                     </th>
                     <th
                       colSpan={3}
                       className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
                     >
-                      Next due
+                      NEXT DUE
+                    </th>
+                    <th
+                      rowSpan={2}
+                      className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95 border-r border-white/20"
+                    >
+                      REFERENCE
                     </th>
                     <th
                       rowSpan={2}
                       className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-white/95"
                     >
-                      ATL-SEC.NO
+                      ACTIONS
                     </th>
                   </tr>
                   <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      Months
+                      MONTHS
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      Days
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      TACH
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-normal text-white/90 border-r border-white/20">
-                      AFTT
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      Hours
-                    </th>
-                    <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      Months
+                      DAYS
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
                       TACH
@@ -400,7 +454,13 @@ export function CPCPMonitoring({
                       AFTT
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      Date
+                      HOURS
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-normal text-white/90 border-r border-white/20">
+                      MONTHS
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
+                      DATE
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
                       TACH
@@ -409,7 +469,7 @@ export function CPCPMonitoring({
                       AFTT
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
-                      Date
+                      DATE
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-normal text-white/90">
                       TACH
@@ -420,65 +480,115 @@ export function CPCPMonitoring({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {currentItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      className={`${getRowBackgroundColor(
-                        item.status
-                      )} transition-colors`}
-                    >
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.remaining.months}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.remaining.days}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.remaining.tech}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                        {item.remaining.aftf}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100 max-w-[280px]">
-                        <div className="whitespace-pre-line text-gray-600 leading-snug">
-                          {item.description}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.interval.hours}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.interval.months}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.interval.tech}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                        {item.interval.aftf}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.lastDone.date}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.lastDone.tech}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                        {item.lastDone.aftf}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.nextDue.date}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                        {item.nextDue.tech}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                        {item.nextDue.aftf}
-                      </td>
-                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
-                        {item.reference}
+                  {currentItems.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={16}
+                        className="px-6 py-12 text-center text-gray-500 text-sm"
+                      >
+                        No CPCP entries found.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    currentItems.map((item) => {
+                      const computed = computeCpcpRow(item, tach, aftf);
+                      return (
+                        <tr key={item.id} className="transition-colors">
+                          <td
+                            className={`px-3 py-2.5 text-gray-700 whitespace-nowrap ${getRowBackgroundColor(
+                              computed.status
+                            )}`}
+                          >
+                            {computed.remaining.months}
+                          </td>
+                          <td
+                            className={`px-3 py-2.5 text-gray-700 whitespace-nowrap ${getRowBackgroundColor(
+                              computed.status
+                            )}`}
+                          >
+                            {computed.remaining.days}
+                          </td>
+                          <td
+                            className={`px-3 py-2.5 text-gray-700 whitespace-nowrap ${getRowBackgroundColor(
+                              computed.status
+                            )}`}
+                          >
+                            {computed.remaining.tach}
+                          </td>
+                          <td
+                            className={`px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100 ${getRowBackgroundColor(
+                              computed.status
+                            )}`}
+                          >
+                            {computed.remaining.aftf}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                            {item.inspectionCode ?? "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100 max-w-[240px]">
+                            <div className="whitespace-pre-line text-gray-600 leading-snug">
+                              {item.description ?? "-"}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                            {item.interval?.hours ?? "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                            {item.interval?.months ?? "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                            {item.lastDone?.date ?? "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                            {item.lastDone?.tach ?? "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                            {item.lastDone?.aftf ?? "-"}
+                          </td>
+<td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                          {computed.nextDue.date}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                          {computed.nextDue.tach}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                          {computed.nextDue.aftf}
+                        </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
+                            {item.reference ?? "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleView(item)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                title="View"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(item)}
+                                className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(item)}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -508,7 +618,7 @@ export function CPCPMonitoring({
                   onClick={() =>
                     setCurrentPage((prev) => Math.max(prev - 1, 1))
                   }
-                  disabled={currentPage === 1}
+                  disabled={currentPage === 1 || loading}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -553,7 +663,7 @@ export function CPCPMonitoring({
                   onClick={() =>
                     setCurrentPage((prev) => Math.min(prev + 1, totalPages))
                   }
-                  disabled={currentPage === totalPages}
+                  disabled={currentPage === totalPages || loading}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                 >
                   <span>Next</span>
@@ -565,19 +675,179 @@ export function CPCPMonitoring({
               Showing {totalItems === 0 ? 0 : startIndex + 1} to{" "}
               {Math.min(endIndex, totalItems)} of {totalItems} inspections
             </div>
+            </>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Add Inspection Modal */}
+      {/* Add / Edit Entry Modal */}
       {showAddModal && (
-        <AddInspectionModal
-          onClose={() => setShowAddModal(false)}
+        <CPCPEntryModal
+          isOpen={true}
+          isEdit={!!editingEntry}
+          initialData={
+            editingEntry
+              ? {
+                  inspection_operation: editingEntry.inspectionCode ?? "",
+                  inspectionCode: editingEntry.inspectionCode ?? "",
+                  description: editingEntry.description ?? "",
+                  interval_hours: editingEntry.interval?.hours ?? "",
+                  interval_months: editingEntry.interval?.months ?? "",
+                  last_done_tach: editingEntry.lastDone?.tach ?? "",
+                  last_done_aftt: editingEntry.lastDone?.aftf ?? "",
+                  last_done_date: editingEntry.lastDone?.date ?? "",
+                  lastDone: editingEntry.lastDone,
+                  reference: editingEntry.reference ?? "",
+                  atl_ref_display: editingEntry.reference ?? "",
+                  atlId:
+                    typeof (editingEntry as any).atl_ref === "number"
+                      ? (editingEntry as any).atl_ref
+                      : null,
+                  atl_ref: (editingEntry as any).atl_ref,
+                }
+              : undefined
+          }
+          aircraftId={aircraftId}
+          onClose={() => {
+            setShowAddModal(false);
+            setEditingEntry(null);
+          }}
           onSubmit={(data) => {
-            console.log("New inspection data:", data);
-            // Handle the inspection data submission here
+            if (editingEntry) {
+              handleEditSubmit(editingEntry.id, data);
+            } else {
+              handleAddSubmit(data);
+            }
           }}
         />
+      )}
+
+      {/* View Modal */}
+      {(viewLoading || viewEntry) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm">
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">
+                View CPCP Entry
+              </h2>
+              <button
+                type="button"
+                onClick={() => setViewEntry(null)}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {viewLoading ? (
+                <div className="flex justify-center py-12">
+                  <Spinner />
+                </div>
+              ) : viewEntry ? (
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <span className="text-gray-500 block mb-0.5">
+                      Inspection operation
+                    </span>
+                    <p className="text-gray-900">
+                      {viewEntry.inspectionCode ?? "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block mb-0.5">
+                      Description
+                    </span>
+                    <p className="text-gray-900 whitespace-pre-line">
+                      {viewEntry.description ?? "-"}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Interval Hours
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.interval?.hours ?? "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Interval Months
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.interval?.months ?? "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Last Done TACH
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.lastDone?.tach ?? "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Last Done AFTT
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.lastDone?.aftf ?? "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Last Done Date
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.lastDone?.date ?? "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block mb-0.5">
+                      ATL Ref (sequence_no)
+                    </span>
+                    <p className="text-gray-900">
+                      {viewEntry.reference ?? "-"}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-gray-100">
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Next due date
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.nextDue?.date ?? "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Next due TACH
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.nextDue?.tach ?? "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block mb-0.5">
+                        Next due AFTT
+                      </span>
+                      <p className="text-gray-900">
+                        {viewEntry.nextDue?.aftf ?? "-"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
