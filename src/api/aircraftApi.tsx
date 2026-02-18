@@ -93,3 +93,16 @@ export const createReportPDFAircraft = async (
     throw error;
   }
 };
+
+/**
+ * Import aircraft from Excel file.
+ * POST api/v1/excel-data/aircraft/import
+ */
+export const importAircraftExcel = async (file: File): Promise<{ data?: unknown }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiClient.post("excel-data/aircraft/import", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data ?? response;
+};

@@ -15,9 +15,10 @@ import {
   ChevronUp,
   ChevronDown,
   Upload,
+  Loader,
 } from "lucide-react";
 import Swal from "sweetalert2";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Spinner } from "../components/ui/spinner";
 import { useAircrafts } from "../hooks/useAircrafts";
@@ -26,6 +27,7 @@ import {
   createAircraft,
   createReportAircraft,
   createReportPDFAircraft,
+  importAircraftExcel,
 } from "../api/aircraftApi";
 import { dateToday, snakeAllKeys } from "../utility/utils";
 
@@ -115,6 +117,37 @@ export function AircraftFleetProfile() {
       filterStatus,
       sortParam
     );
+
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+  const [importLoading, setImportLoading] = useState(false);
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportLoading(true);
+    try {
+      await importAircraftExcel(file);
+      Swal.fire({
+        icon: "success",
+        title: "Import Successful!",
+        text: "Aircraft data has been imported from the Excel file.",
+        showConfirmButton: false,
+        timer: 2000,
+      });
+      refresh();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail ?? err?.response?.data?.message ?? err?.message ?? "Import failed. Please try again.";
+      Swal.fire({
+        icon: "error",
+        title: "Import Failed",
+        text: msg,
+        confirmButtonText: "OK",
+      });
+    } finally {
+      setImportLoading(false);
+      e.target.value = "";
+    }
+  };
 
   const handleViewAircraft = (aircraftId: number, view: string = "detail") => {
     switch (view) {
@@ -368,6 +401,26 @@ export function AircraftFleetProfile() {
           >
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export EXCEL</span>
+          </button>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={handleImportExcel}
+          />
+          <button
+            type="button"
+            onClick={() => importFileInputRef.current?.click()}
+            disabled={importLoading}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importLoading ? (
+              <Loader className="w-4 h-4 text-gray-600 animate-spin" />
+            ) : (
+              <Upload className="w-4 h-4 text-gray-600" />
+            )}
+            <span className="text-gray-700 hidden sm:inline">Import</span>
           </button>
           <button
             onClick={() => setShowAddAircraftModal(true)}
