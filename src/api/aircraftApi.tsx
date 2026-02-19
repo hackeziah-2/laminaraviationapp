@@ -55,7 +55,7 @@ export const updateAircraft = async (id: number, formData: FormData) => {
 export const getAircraftById = (id: number) => apiClient.get(`/aircraft/${id}`);
 // export const createAircraft = (data: any) => apiClient.post("/aircrafts", data);
 export const deleteAircraft = (id: number) =>
-  apiClient.delete(`/aircrafts/${id}`);
+  apiClient.delete(`aircraft/${id}`);
 
 export const createAircraft = async (formData: FormData) => {
   try {

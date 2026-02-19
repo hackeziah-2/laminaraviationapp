@@ -86,8 +86,20 @@ export interface AircraftTechnicalLog {
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
   airframeTotalTime?: number;
+  airframeRunTime?: number;
+  airframeAftt?: number;
   engineTotalTime?: number;
+  engineRunTime?: number;
+  engineTsn?: string;
+  engineTso?: number;
+  engineTbo?: number;
   propellerTotalTime?: number;
+  propellerRunTime?: number;
+  propellerTsn?: string;
+  propellerTso?: number;
+  propellerTbo?: number;
+  lifeTimeLimitEngine?: number;
+  lifeTimeLimitPropeller?: number;
   rtsSignedBy?: number;
   rtsDate?: string;
   rtsTime?: string;
@@ -139,6 +151,18 @@ export interface AircraftTechnicalLogCreate {
   pilotAcceptedBy?: number;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
+  airframeRunTime?: number;
+  airframeAftt?: number;
+  engineRunTime?: number;
+  engineTsn?: string;
+  engineTso?: number;
+  engineTbo?: number;
+  propellerRunTime?: number;
+  propellerTsn?: string;
+  propellerTso?: number;
+  propellerTbo?: number;
+  lifeTimeLimitEngine?: number;
+  lifeTimeLimitPropeller?: number;
   rtsSignedBy?: number;
   rtsDate?: string;
   rtsTime?: string;
@@ -182,6 +206,18 @@ export interface AircraftTechnicalLogUpdate {
   pilotAcceptedBy?: number;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
+  airframeRunTime?: number;
+  airframeAftt?: number;
+  engineRunTime?: number;
+  engineTsn?: string;
+  engineTso?: number;
+  engineTbo?: number;
+  propellerRunTime?: number;
+  propellerTsn?: string;
+  propellerTso?: number;
+  propellerTbo?: number;
+  lifeTimeLimitEngine?: number;
+  lifeTimeLimitPropeller?: number;
   rtsSignedBy?: number;
   rtsDate?: string;
   rtsTime?: string;
@@ -355,7 +391,9 @@ export const searchAircraftTechnicalLogBySequence = async (
 };
 
 /**
- * Create a new Aircraft Technical Log entry
+ * Create a new Aircraft Technical Log entry.
+ * Persists to database via POST /api/v1/aircraft-technical-log/
+ * ATL table fields (airframe_run_time, airframe_aftt, engine_*, propeller_*, life_time_limit_engine, life_time_limit_propeller) are stored when sent in the payload.
  */
 export const createAircraftTechnicalLog = async (
   data: AircraftTechnicalLogCreate
@@ -369,7 +407,9 @@ export const createAircraftTechnicalLog = async (
 };
 
 /**
- * Update an Aircraft Technical Log entry
+ * Update an Aircraft Technical Log entry.
+ * Persists to database via PUT /api/v1/aircraft-technical-log/{id}
+ * ATL table fields are updated when sent in the payload.
  */
 export const updateAircraftTechnicalLog = async (
   logId: number,

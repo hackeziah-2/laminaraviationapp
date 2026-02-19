@@ -6,6 +6,7 @@ import {
   Printer,
   Download,
   ChevronDown,
+  ChevronUp,
   X,
   Upload,
   FileText,
@@ -17,6 +18,7 @@ import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import {
   getAircraftTechnicalLogs,
+  deleteAircraftTechnicalLog,
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
@@ -208,6 +210,7 @@ export function Operation() {
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [selectedEntry, setSelectedEntry] =
     useState<AircraftTechnicalLog | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -225,47 +228,48 @@ export function Operation() {
     new Map()
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
+  const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
 
-  // Helpers for airframe/engine/propeller from nested or flat API
+  // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
   const getAirframeDisplay = (r: AircraftTechnicalLog) => {
     const nested = (r as any).airframe;
     if (nested && (nested.hrsTime != null || nested.run != null || nested.aptt != null || nested.aftt != null)) {
-      const run = nested.hrsTime ?? nested.run ?? r.airframeTotalTime ?? "-";
-      const aftt = nested.aptt ?? nested.aftt ?? "-";
+      const run = nested.hrsTime ?? nested.run ?? r.airframeRunTime ?? r.airframeTotalTime ?? "-";
+      const aftt = nested.aptt ?? nested.aftt ?? r.airframeAftt ?? "-";
       return `${run} / ${aftt}`;
     }
-    const run = r.airframeTotalTime ?? (r as any).airframeRun ?? "-";
-    const aftt = (r as any).airframeAftt ?? (r as any).airframeTotalTime ?? "-";
+    const run = r.airframeRunTime ?? r.airframeTotalTime ?? (r as any).airframeRun ?? "-";
+    const aftt = r.airframeAftt ?? (r as any).airframeTotalTime ?? "-";
     return `${run} / ${aftt}`;
   };
   const getEngineDisplay = (r: AircraftTechnicalLog) => {
     const nested = (r as any).engine;
     if (nested) {
-      const run = nested.hrsTime ?? nested.run ?? r.engineTotalTime ?? "-";
-      const tsn = nested.tsn ?? "-";
-      const tso = nested.tso ?? "-";
-      const tbo = nested.tbo ?? "-";
+      const run = nested.hrsTime ?? nested.run ?? r.engineRunTime ?? r.engineTotalTime ?? "-";
+      const tsn = nested.tsn ?? r.engineTsn ?? "-";
+      const tso = nested.tso ?? r.engineTso ?? "-";
+      const tbo = nested.tbo ?? r.engineTbo ?? "-";
       return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
     }
-    const run = r.engineTotalTime ?? (r as any).engineRun ?? "-";
-    const tsn = (r as any).engineTsn ?? "-";
-    const tso = (r as any).engineTso ?? "-";
-    const tbo = (r as any).engineTbo ?? "-";
+    const run = r.engineRunTime ?? r.engineTotalTime ?? (r as any).engineRun ?? "-";
+    const tsn = r.engineTsn ?? "-";
+    const tso = r.engineTso ?? "-";
+    const tbo = r.engineTbo ?? "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
   const getPropellerDisplay = (r: AircraftTechnicalLog) => {
     const nested = (r as any).propeller;
     if (nested) {
-      const run = nested.hrsTime ?? nested.run ?? r.propellerTotalTime ?? "-";
-      const tsn = nested.tsn ?? "-";
-      const tso = nested.tso ?? "-";
-      const tbo = nested.tbo ?? "-";
+      const run = nested.hrsTime ?? nested.run ?? r.propellerRunTime ?? r.propellerTotalTime ?? "-";
+      const tsn = nested.tsn ?? r.propellerTsn ?? "-";
+      const tso = nested.tso ?? r.propellerTso ?? "-";
+      const tbo = nested.tbo ?? r.propellerTbo ?? "-";
       return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
     }
-    const run = r.propellerTotalTime ?? (r as any).propellerRun ?? "-";
-    const tsn = (r as any).propellerTsn ?? "-";
-    const tso = (r as any).propellerTso ?? "-";
-    const tbo = (r as any).propellerTbo ?? "-";
+    const run = r.propellerRunTime ?? r.propellerTotalTime ?? (r as any).propellerRun ?? "-";
+    const tsn = r.propellerTsn ?? "-";
+    const tso = r.propellerTso ?? "-";
+    const tbo = r.propellerTbo ?? "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
 
@@ -309,11 +313,13 @@ export function Operation() {
       setLoading(true);
       setError(null);
       try {
+        const sortParam = sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
         const response = await getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
           searchQuery,
-          aircraftId
+          aircraftId,
+          sortParam
         );
         setFleetTimeRecords(response.items);
         setTotalRecords(response.total);
@@ -328,7 +334,7 @@ export function Operation() {
     };
 
     fetchRecords();
-  }, [aircraftId, currentPage, itemsPerPage, searchQuery]);
+  }, [aircraftId, currentPage, itemsPerPage, searchQuery, refreshKey, sequenceSort]);
 
   // Reset to page 1 when search query changes
   useEffect(() => {
@@ -345,6 +351,39 @@ export function Operation() {
 
   const handleSeeReliability = (record: FleetTimeRecord) => {
     handleViewReliability(record.id);
+  };
+
+  const handleDeleteAtl = async (record: FleetTimeRecord) => {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Delete ATL Entry",
+      html: `Are you sure you want to delete entry <strong>${record.sequenceNo ?? record.id}</strong>? This action cannot be undone.`,
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await deleteAircraftTechnicalLog(record.id);
+      await Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "ATL entry has been deleted.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to delete entry.";
+      Swal.fire({
+        icon: "error",
+        title: "Delete Failed",
+        text: msg,
+      });
+    }
   };
 
   return (
@@ -533,9 +572,21 @@ export function Operation() {
                       <tr>
                         <th
                           rowSpan={2}
-                          className={STICKY_SEQ_CLASS}
+                          className={`${STICKY_SEQ_CLASS} cursor-pointer select-none hover:bg-gray-300 transition-colors`}
+                          onClick={() => {
+                            setSequenceSort((s) => (s === "asc" ? "desc" : "asc"));
+                            setCurrentPage(1);
+                          }}
+                          title={sequenceSort === "asc" ? "Sort descending" : "Sort ascending"}
                         >
-                          <b>SEQUENCE NO</b>
+                          <span className="flex items-center gap-1">
+                            <b>SEQUENCE NO</b>
+                            {sequenceSort === "asc" ? (
+                              <ChevronUp className="w-4 h-4 inline" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 inline" />
+                            )}
+                          </span>
                         </th>
                         <th
                           rowSpan={2}
@@ -888,6 +939,14 @@ export function Operation() {
                                   >
                                     Edit
                                   </button>
+                                  <span className="text-gray-400">|</span>
+                                  <button
+                                    onClick={() => handleDeleteAtl(record)}
+                                    className="text-red-600 hover:underline text-xs"
+                                    title="Delete"
+                                  >
+                                    Delete
+                                  </button>
                                 </div>
                               </div>
                             </td>
@@ -968,32 +1027,35 @@ export function Operation() {
                                 ? record.tachometerTotal.toFixed(1)
                                 : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.airframeRunTime != null ? String(record.airframeRunTime) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.airframeAftt != null ? String(record.airframeAftt) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.engineRunTime != null ? String(record.engineRunTime) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.engineTsn ?? "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.engineTso != null ? String(record.engineTso) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.engineTbo != null ? String(record.engineTbo) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.propellerRunTime != null ? String(record.propellerRunTime) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.propellerTsn != null ? String(record.propellerTsn) : "-"}
                             </td>
-                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                              -
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.propellerTso != null ? String(record.propellerTso) : "-"}
+                            </td>
+                            <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                              {record.propellerTbo != null ? String(record.propellerTbo) : "-"}
                             </td>
                             <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                               {record.fuelQtyLeftUpliftQty || "-"}
@@ -1247,6 +1309,8 @@ export function Operation() {
                                     <button onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline text-xs">View</button>
                                     <span className="text-gray-400">|</span>
                                     <button onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline text-xs">Edit</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button onClick={() => handleDeleteAtl(record)} className="text-red-600 hover:underline text-xs">Delete</button>
                                   </div>
                                 </div>
                               </td>
@@ -1299,6 +1363,8 @@ export function Operation() {
                                     <button onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline text-xs">View</button>
                                     <span className="text-gray-400">|</span>
                                     <button onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline text-xs">Edit</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button onClick={() => handleDeleteAtl(record)} className="text-red-600 hover:underline text-xs">Delete</button>
                                   </div>
                                 </div>
                               </td>
@@ -1349,6 +1415,8 @@ export function Operation() {
                                     <button onClick={() => { setSelectedEntry(record); setShowViewModal(true); }} className="hover:underline text-xs">View</button>
                                     <span className="text-gray-400">|</span>
                                     <button onClick={() => { setSelectedEntry(record); setShowEditModal(true); }} className="hover:underline text-xs">Edit</button>
+                                    <span className="text-gray-400">|</span>
+                                    <button onClick={() => handleDeleteAtl(record)} className="text-red-600 hover:underline text-xs">Delete</button>
                                   </div>
                                 </div>
                               </td>

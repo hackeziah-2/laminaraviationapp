@@ -28,6 +28,7 @@ import {
   createReportAircraft,
   createReportPDFAircraft,
   importAircraftExcel,
+  deleteAircraft,
 } from "../api/aircraftApi";
 import { dateToday, snakeAllKeys } from "../utility/utils";
 
@@ -183,6 +184,39 @@ export function AircraftFleetProfile() {
   const handleFilterChange = (value: string) => {
     setFilterStatus(value);
     setCurrentPage(1);
+  };
+
+  const handleDeleteAircraft = async (ac: { id: number; registration?: string }) => {
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Delete Aircraft",
+      html: `Are you sure you want to delete aircraft <strong>${ac.registration ?? ac.id}</strong>? This action cannot be undone.`,
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+    try {
+      await deleteAircraft(ac.id);
+      await Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "Aircraft has been deleted.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      refresh();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string; message?: string } }; message?: string };
+      const msg = e?.response?.data?.detail ?? e?.response?.data?.message ?? e?.message ?? "Failed to delete aircraft.";
+      Swal.fire({
+        icon: "error",
+        title: "Delete Failed",
+        text: msg,
+      });
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -579,12 +613,13 @@ export function AircraftFleetProfile() {
                                 Documents On Board
                               </option>
                             </select>
-                            {/* <button
-                              className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            <button
+                              onClick={() => handleDeleteAircraft(ac)}
+                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
-                            </button> */}
+                            </button>
                           </div>
                         </td>
                       </tr>
