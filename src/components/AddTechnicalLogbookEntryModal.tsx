@@ -88,15 +88,29 @@ export function AddTechnicalLogbookEntryModal({
     whiteAtl: null as File | null,
     dfp: null as File | null,
     // Airframe & Component Times
+
     airframePrevTime: "",
     airframeFlightTime: "",
     airframeTotalTime: "",
+    airframeRunTime: "",
+    airframeAftt: "",
+
     enginePrevTime: "",
     engineFlightTime: "",
     engineTotalTime: "",
+    engineRunTime: "",
+    engineTsn: "",
+    engineTso: "",
+    engineTbo: "",
     propellerPrevTime: "",
     propellerFlightTime: "",
     propellerTotalTime: "",
+    propellerRunTime: "",
+    propellerTsn: "",
+    propellerTso: "",
+    propellerTbo: "",
+    lifeTimeLimitEngine: "",
+    lifeTimeLimitPropeller: "",
   });
 
   // Component Records state
@@ -115,6 +129,11 @@ export function AddTechnicalLogbookEntryModal({
   const [componentRecords, setComponentRecords] = useState<ComponentRecord[]>(
     []
   );
+
+  // Previous values for ATL auto-compute (set when loading latest or edit)
+  const [previousEngineTso, setPreviousEngineTso] = useState<number>(0);
+  const [previousPropellerTsn, setPreviousPropellerTsn] = useState<number>(0);
+  const [previousPropellerTso, setPreviousPropellerTso] = useState<number>(0);
 
   // Aircraft searchable dropdown state
   const [aircrafts, setAircrafts] = useState<
@@ -176,6 +195,9 @@ export function AddTechnicalLogbookEntryModal({
     Record<string, string>
   >({});
 
+  // Latest entry sequence number (for format validation: must match e.g. ATL-00013, not ATL-0016)
+  const [latestSequenceNo, setLatestSequenceNo] = useState<string | null>(null);
+
   // Fetch aircrafts when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -202,6 +224,7 @@ export function AddTechnicalLogbookEntryModal({
             // Fetch latest technical log for auto-population
             const latestEntry = await getLatestAircraftTechnicalLog(aircraftId);
             if (latestEntry) {
+              setLatestSequenceNo(latestEntry.sequenceNo ?? null);
               setFormData((prev) => ({
                 ...prev,
                 hobbsMeterStart:
@@ -219,6 +242,8 @@ export function AddTechnicalLogbookEntryModal({
                   latestEntry.propellerTotalTime?.toString() ||
                   prev.enginePrevTime,
               }));
+            } else {
+              setLatestSequenceNo(null);
             }
           } catch (error) {
             console.error("Error fetching aircraft by ID:", error);
@@ -238,6 +263,7 @@ export function AddTechnicalLogbookEntryModal({
                     aircraftId
                   );
                   if (latestEntry) {
+                    setLatestSequenceNo(latestEntry.sequenceNo ?? null);
                     setFormData((prev) => ({
                       ...prev,
                       hobbsMeterStart:
@@ -257,6 +283,8 @@ export function AddTechnicalLogbookEntryModal({
                         latestEntry.propellerTotalTime?.toString() ||
                         prev.enginePrevTime,
                     }));
+                  } else {
+                    setLatestSequenceNo(null);
                   }
                 } catch (error) {
                   console.error("Error fetching latest technical log:", error);
@@ -276,6 +304,19 @@ export function AddTechnicalLogbookEntryModal({
   // Populate form when editEntry is provided
   useEffect(() => {
     if (editEntry && isOpen) {
+      setLatestSequenceNo(null); // No format validation when editing
+      const tachStart = Number(editEntry.tachometerStart) || 0;
+      const tachEnd = Number(editEntry.tachometerEnd) || 0;
+      const run = tachEnd - tachStart;
+      setPreviousEngineTso(
+        Math.max(0, (Number(editEntry.engineTso) || 0) - run)
+      );
+      setPreviousPropellerTsn(
+        Math.max(0, (parseFloat(String(editEntry.propellerTsn)) || 0) - run)
+      );
+      setPreviousPropellerTso(
+        Math.max(0, (Number(editEntry.propellerTso) || 0) - run)
+      );
       // Populate form data from editEntry
       setFormData({
         seqNo: editEntry.sequenceNo || "",
@@ -340,15 +381,28 @@ export function AddTechnicalLogbookEntryModal({
           (editEntry as any).airframeFlightTime?.toString() || "",
         airframeTotalTime:
           (editEntry as any).airframeTotalTime?.toString() || "",
+        airframeRunTime: editEntry.airframeRunTime?.toString() || "",
+        airframeAftt: editEntry.airframeAftt?.toString() || "",
         enginePrevTime: (editEntry as any).enginePrevTime?.toString() || "",
         engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
         engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
+        engineRunTime: editEntry.engineRunTime?.toString() || "",
+        engineTsn: editEntry.engineTsn ?? "",
+        engineTso: editEntry.engineTso?.toString() || "",
+        engineTbo: editEntry.engineTbo?.toString() || "",
         propellerPrevTime:
           (editEntry as any).propellerPrevTime?.toString() || "",
         propellerFlightTime:
           (editEntry as any).propellerFlightTime?.toString() || "",
         propellerTotalTime:
           (editEntry as any).propellerTotalTime?.toString() || "",
+        propellerRunTime: editEntry.propellerRunTime?.toString() || "",
+        propellerTsn: editEntry.propellerTsn?.toString() ?? "",
+        propellerTso: editEntry.propellerTso?.toString() || "",
+        propellerTbo: editEntry.propellerTbo?.toString() || "",
+        lifeTimeLimitEngine: editEntry.lifeTimeLimitEngine?.toString() || "",
+        lifeTimeLimitPropeller:
+          editEntry.lifeTimeLimitPropeller?.toString() || "",
       });
 
       // Set selected aircraft ID
@@ -387,6 +441,9 @@ export function AddTechnicalLogbookEntryModal({
       }
     } else if (!editEntry && isOpen) {
       // Reset form when creating new entry
+      setPreviousEngineTso(0);
+      setPreviousPropellerTsn(0);
+      setPreviousPropellerTso(0);
       setFormData({
         seqNo: "ATL-",
         acReg: "",
@@ -440,12 +497,24 @@ export function AddTechnicalLogbookEntryModal({
         airframePrevTime: "",
         airframeFlightTime: "",
         airframeTotalTime: "",
+        airframeRunTime: "",
+        airframeAftt: "",
         enginePrevTime: "",
         engineFlightTime: "",
         engineTotalTime: "",
+        engineRunTime: "",
+        engineTsn: "",
+        engineTso: "",
+        engineTbo: "",
         propellerPrevTime: "",
         propellerFlightTime: "",
         propellerTotalTime: "",
+        propellerRunTime: "",
+        propellerTsn: "",
+        propellerTso: "",
+        propellerTbo: "",
+        lifeTimeLimitEngine: "",
+        lifeTimeLimitPropeller: "",
       });
       setComponentRecords([]);
     }
@@ -473,6 +542,12 @@ export function AddTechnicalLogbookEntryModal({
           selectedAircraftId
         );
         if (latestEntry) {
+          setLatestSequenceNo(latestEntry.sequenceNo ?? null);
+          setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
+          setPreviousPropellerTsn(
+            parseFloat(String(latestEntry.propellerTsn)) || 0
+          );
+          setPreviousPropellerTso(Number(latestEntry.propellerTso) || 0);
           setFormData((prev) => ({
             ...prev,
             hobbsMeterStart:
@@ -482,11 +557,42 @@ export function AddTechnicalLogbookEntryModal({
 
             airframePrevTime:
               latestEntry.airframeTotalTime?.toString() ||
+              latestEntry.airframeAftt?.toString() ||
               prev.airframePrevTime,
             enginePrevTime:
               latestEntry.engineTotalTime?.toString() || prev.enginePrevTime,
             propellerPrevTime:
-              latestEntry.propellerTotalTime?.toString() || prev.enginePrevTime,
+              latestEntry.propellerTotalTime?.toString() ||
+              prev.propellerPrevTime,
+            airframeRunTime:
+              latestEntry.airframeRunTime?.toString() ??
+              latestEntry.airframeTotalTime?.toString() ??
+              prev.airframeRunTime,
+            airframeAftt:
+              latestEntry.airframeAftt?.toString() ?? prev.airframeAftt,
+            engineRunTime:
+              latestEntry.engineRunTime?.toString() ??
+              latestEntry.engineTotalTime?.toString() ??
+              prev.engineRunTime,
+            engineTsn: latestEntry.engineTsn ?? prev.engineTsn,
+            engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
+            engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
+            propellerRunTime:
+              latestEntry.propellerRunTime?.toString() ??
+              latestEntry.propellerTotalTime?.toString() ??
+              prev.propellerRunTime,
+            propellerTsn:
+              latestEntry.propellerTsn?.toString() ?? prev.propellerTsn,
+            propellerTso:
+              latestEntry.propellerTso?.toString() ?? prev.propellerTso,
+            propellerTbo:
+              latestEntry.propellerTbo?.toString() ?? prev.propellerTbo,
+            lifeTimeLimitEngine:
+              latestEntry.lifeTimeLimitEngine?.toString() ??
+              prev.lifeTimeLimitEngine,
+            lifeTimeLimitPropeller:
+              latestEntry.lifeTimeLimitPropeller?.toString() ??
+              prev.lifeTimeLimitPropeller,
 
             // airframeFlightTime: "",
             // engineFlightTime: "",
@@ -503,6 +609,8 @@ export function AddTechnicalLogbookEntryModal({
             // propellerPrevTime:
             //   latestEntry.propellerPrevTime?.toString() || prev.propellerPrevTime,
           }));
+        } else {
+          setLatestSequenceNo(null);
         }
       }
     } catch (error) {
@@ -666,6 +774,12 @@ export function AddTechnicalLogbookEntryModal({
       try {
         const latestEntry = await getLatestAircraftTechnicalLog(id);
         if (latestEntry) {
+          setLatestSequenceNo(latestEntry.sequenceNo ?? null);
+          setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
+          setPreviousPropellerTsn(
+            parseFloat(String(latestEntry.propellerTsn)) || 0
+          );
+          setPreviousPropellerTso(Number(latestEntry.propellerTso) || 0);
           setFormData((prev) => ({
             ...prev,
             hobbsMeterStart:
@@ -675,13 +789,45 @@ export function AddTechnicalLogbookEntryModal({
 
             airframePrevTime:
               latestEntry.airframeTotalTime?.toString() ||
+              latestEntry.airframeAftt?.toString() ||
               prev.airframePrevTime,
             enginePrevTime:
               latestEntry.engineTotalTime?.toString() || prev.enginePrevTime,
             propellerPrevTime:
-              latestEntry.propellerTotalTime?.toString() || prev.enginePrevTime,
+              latestEntry.propellerTotalTime?.toString() ||
+              prev.propellerPrevTime,
+            airframeRunTime:
+              latestEntry.airframeRunTime?.toString() ??
+              latestEntry.airframeTotalTime?.toString() ??
+              prev.airframeRunTime,
+            airframeAftt:
+              latestEntry.airframeAftt?.toString() ?? prev.airframeAftt,
+            engineRunTime:
+              latestEntry.engineRunTime?.toString() ??
+              latestEntry.engineTotalTime?.toString() ??
+              prev.engineRunTime,
+            engineTsn: latestEntry.engineTsn ?? prev.engineTsn,
+            engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
+            engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
+            propellerRunTime:
+              latestEntry.propellerRunTime?.toString() ??
+              latestEntry.propellerTotalTime?.toString() ??
+              prev.propellerRunTime,
+            propellerTsn:
+              latestEntry.propellerTsn?.toString() ?? prev.propellerTsn,
+            propellerTso:
+              latestEntry.propellerTso?.toString() ?? prev.propellerTso,
+            propellerTbo:
+              latestEntry.propellerTbo?.toString() ?? prev.propellerTbo,
+            lifeTimeLimitEngine:
+              latestEntry.lifeTimeLimitEngine?.toString() ??
+              prev.lifeTimeLimitEngine,
+            lifeTimeLimitPropeller:
+              latestEntry.lifeTimeLimitPropeller?.toString() ??
+              prev.lifeTimeLimitPropeller,
           }));
         } else {
+          setLatestSequenceNo(null);
           // If no latest entry exists, clear the start values
           setFormData((prev) => ({
             ...prev,
@@ -1071,7 +1217,78 @@ export function AddTechnicalLogbookEntryModal({
     }));
   }, [formData.tachometerStart, formData.tachometerEnd]);
 
+  // ATL table auto-compute: Airframe Run, AFTT; Engine Run, TSN, TSO, TBO; Propeller Run, TSN, TSO, TBO
+  // If no previous time: use existing data else 0 for previous in formulas
+  useEffect(() => {
+    const tachStart = parseFloat(formData.tachometerStart) || 0;
+    const tachEnd = parseFloat(formData.tachometerEnd) || 0;
+    const airframeRunTime = tachEnd >= tachStart ? tachEnd - tachStart : 0;
+    const prevAftt = parseFloat(formData.airframePrevTime) || 0;
+    const airframeAftt = prevAftt + airframeRunTime;
+    const engineRunTime = airframeRunTime;
+    const prevEngineTso = previousEngineTso || 0;
+    const engineTso = prevEngineTso + engineRunTime;
+    const lifeEngine = parseFloat(formData.lifeTimeLimitEngine) || 0;
+    const engineTbo = lifeEngine > 0 ? Math.max(0, lifeEngine - engineTso) : 0;
+    const propellerRunTime = airframeRunTime;
+    const prevPropTsn = previousPropellerTsn || 0;
+    const propellerTsn = prevPropTsn + propellerRunTime;
+    const prevPropTso = previousPropellerTso || 0;
+    const propellerTso = prevPropTso + propellerRunTime;
+    const lifeProp = parseFloat(formData.lifeTimeLimitPropeller) || 0;
+    const propellerTbo =
+      lifeProp > 0 ? Math.max(0, lifeProp - propellerTso) : 0;
+
+    setFormData((prev) => {
+      const hasPrevAftt = prevAftt > 0;
+      const hasPrevEngineTso = previousEngineTso > 0;
+      const hasPrevPropTsn = previousPropellerTsn > 0;
+      const hasPrevPropTso = previousPropellerTso > 0;
+      return {
+        ...prev,
+        airframeRunTime: airframeRunTime.toFixed(2),
+        airframeAftt: hasPrevAftt
+          ? airframeAftt.toFixed(2)
+          : (parseFloat(prev.airframeAftt) || airframeRunTime).toFixed(2),
+        engineRunTime: engineRunTime.toFixed(2),
+        engineTsn: "UNK",
+        engineTso: hasPrevEngineTso
+          ? engineTso.toFixed(2)
+          : prev.engineTso || engineRunTime.toFixed(2),
+        engineTbo: engineTbo.toFixed(2),
+        propellerRunTime: propellerRunTime.toFixed(2),
+        propellerTsn: hasPrevPropTsn
+          ? propellerTsn.toFixed(2)
+          : prev.propellerTsn || propellerRunTime.toFixed(2),
+        propellerTso: hasPrevPropTso
+          ? propellerTso.toFixed(2)
+          : prev.propellerTso || propellerRunTime.toFixed(2),
+        propellerTbo: propellerTbo.toFixed(2),
+      };
+    });
+  }, [
+    formData.tachometerStart,
+    formData.tachometerEnd,
+    formData.airframePrevTime,
+    formData.lifeTimeLimitEngine,
+    formData.lifeTimeLimitPropeller,
+    previousEngineTso,
+    previousPropellerTsn,
+    previousPropellerTso,
+  ]);
+
   if (!isOpen) return null;
+
+  // Parse sequence number format: e.g. "ATL-00013" → { prefix: "ATL-", numericLength: 5 }
+  const parseSequenceFormat = (
+    seq: string
+  ): { prefix: string; numericLength: number } | null => {
+    const trimmed = (seq || "").trim();
+    if (!trimmed) return null;
+    const match = trimmed.match(/^(.+?)(\d+)$/);
+    if (!match) return null;
+    return { prefix: match[1], numericLength: match[2].length };
+  };
 
   // Validation function
   const validateForm = (): {
@@ -1083,6 +1300,25 @@ export function AddTechnicalLogbookEntryModal({
     // Required fields validation
     if (!formData.seqNo || formData.seqNo.trim() === "") {
       errors.seqNo = "Sequence No. is required";
+    }
+
+    // Sequence No. must match format of latest entry (e.g. ATL-00013, not ATL-0016)
+    if (
+      !editEntry &&
+      latestSequenceNo &&
+      formData.seqNo &&
+      formData.seqNo.trim() !== ""
+    ) {
+      const latestFormat = parseSequenceFormat(latestSequenceNo);
+      const enteredFormat = parseSequenceFormat(formData.seqNo.trim());
+      if (latestFormat && enteredFormat) {
+        if (
+          latestFormat.prefix !== enteredFormat.prefix ||
+          latestFormat.numericLength !== enteredFormat.numericLength
+        ) {
+          errors.seqNo = `Sequence No. must be the same format as the latest entry (e.g. ${latestSequenceNo}). Format like ATL-0016 is not accepted when the latest is ${latestSequenceNo}.`;
+        }
+      }
     }
 
     // Only validate A/C Registration if aircraftId prop is not provided
@@ -1217,21 +1453,14 @@ export function AddTechnicalLogbookEntryModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate form (for both create and update)
+    // Validate form (for both create and update) – errors shown on fields only, no SweetAlert
     const validationResult = validateForm();
     if (!validationResult.isValid) {
-      const errorMessages = Object.values(validationResult.errors).join("\n");
-      Swal.fire({
-        title: "Validation Error",
-        text: errorMessages || "Please fill in all required fields correctly.",
-        icon: "error",
-        confirmButtonColor: "#dc2626",
-      });
       return;
     }
 
     try {
-      // Transform formData to API format (camelCase)
+      // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const apiDataCamel: any = {
         aircraftFk: aircraftId || selectedAircraftId!, // Use aircraftId from prop if provided, otherwise use selectedAircraftId
         sequenceNo: formData.seqNo,
@@ -1279,6 +1508,44 @@ export function AddTechnicalLogbookEntryModal({
           : undefined,
         propellerTotalTime: formData.propellerTotalTime
           ? parseFloat(formData.propellerTotalTime)
+          : undefined,
+        airframeRunTime: formData.airframeRunTime
+          ? parseFloat(formData.airframeRunTime)
+          : formData.airframeTotalTime
+          ? parseFloat(formData.airframeTotalTime)
+          : undefined,
+        airframeAftt: formData.airframeAftt
+          ? parseFloat(formData.airframeAftt)
+          : undefined,
+        engineRunTime: formData.engineRunTime
+          ? parseFloat(formData.engineRunTime)
+          : formData.engineTotalTime
+          ? parseFloat(formData.engineTotalTime)
+          : undefined,
+        engineTsn: formData.engineTsn || undefined,
+        engineTso: formData.engineTso
+          ? parseFloat(formData.engineTso)
+          : undefined,
+        engineTbo: formData.engineTbo
+          ? parseFloat(formData.engineTbo)
+          : undefined,
+        propellerRunTime: formData.propellerRunTime
+          ? parseFloat(formData.propellerRunTime)
+          : formData.propellerTotalTime
+          ? parseFloat(formData.propellerTotalTime)
+          : undefined,
+        propellerTsn: formData.propellerTsn || undefined,
+        propellerTso: formData.propellerTso
+          ? parseFloat(formData.propellerTso)
+          : undefined,
+        propellerTbo: formData.propellerTbo
+          ? parseFloat(formData.propellerTbo)
+          : undefined,
+        lifeTimeLimitEngine: formData.lifeTimeLimitEngine
+          ? parseFloat(formData.lifeTimeLimitEngine)
+          : undefined,
+        lifeTimeLimitPropeller: formData.lifeTimeLimitPropeller
+          ? parseFloat(formData.lifeTimeLimitPropeller)
           : undefined,
         fuelQtyLeftUpliftQty: formData.fuelQtyLeftUpliftQty
           ? parseFloat(formData.fuelQtyLeftUpliftQty)
@@ -1449,12 +1716,24 @@ export function AddTechnicalLogbookEntryModal({
         airframePrevTime: "",
         airframeFlightTime: "",
         airframeTotalTime: "",
+        airframeRunTime: "",
+        airframeAftt: "",
         enginePrevTime: "",
         engineFlightTime: "",
         engineTotalTime: "",
+        engineRunTime: "",
+        engineTsn: "",
+        engineTso: "",
+        engineTbo: "",
         propellerPrevTime: "",
         propellerFlightTime: "",
         propellerTotalTime: "",
+        propellerRunTime: "",
+        propellerTsn: "",
+        propellerTso: "",
+        propellerTbo: "",
+        lifeTimeLimitEngine: "",
+        lifeTimeLimitPropeller: "",
       });
       setComponentRecords([]);
       setSelectedAircraftId(null);
@@ -2636,8 +2915,6 @@ export function AddTechnicalLogbookEntryModal({
                         <input
                           type="text"
                           value={formData.airframePrevTime}
-                          readOnly
-                          disabled
                           onChange={(e) =>
                             handleTimeFieldChange(
                               "airframePrevTime",
@@ -2645,15 +2922,13 @@ export function AddTechnicalLogbookEntryModal({
                               "airframe"
                             )
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
                         />
                       </td>
                       <td className="border border-gray-300 px-3 py-2">
                         <input
                           type="text"
                           value={formData.enginePrevTime}
-                          readOnly
-                          disabled
                           onChange={(e) =>
                             handleTimeFieldChange(
                               "enginePrevTime",
@@ -2661,15 +2936,13 @@ export function AddTechnicalLogbookEntryModal({
                               "engine"
                             )
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
                         />
                       </td>
                       <td className="border border-gray-300 px-3 py-2">
                         <input
                           type="text"
                           value={formData.propellerPrevTime}
-                          readOnly
-                          disabled
                           onChange={(e) =>
                             handleTimeFieldChange(
                               "propellerPrevTime",
@@ -2677,7 +2950,7 @@ export function AddTechnicalLogbookEntryModal({
                               "propeller"
                             )
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
                         />
                       </td>
                     </tr>
@@ -2757,6 +3030,262 @@ export function AddTechnicalLogbookEntryModal({
                           disabled
                           readOnly
                           className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ATL component times: RUN TIME / AFTT / TSN / TSO / TBO — connected to ATL endpoint */}
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-300">
+                  <thead>
+                    <tr>
+                      <th
+                        colSpan={2}
+                        className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                      >
+                        AIRFRAME
+                      </th>
+                      <th
+                        colSpan={4}
+                        className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                      >
+                        ENGINE
+                      </th>
+                      <th
+                        colSpan={4}
+                        className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                      >
+                        PROPELLER
+                      </th>
+                    </tr>
+                    <tr>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        RUN TIME
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        AFTT
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        RUN TIME
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        TSN
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        TSO
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        TBO
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        RUN TIME
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        TSN
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        TSO
+                      </th>
+                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        TBO
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-300">
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.airframeRunTime}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              airframeRunTime: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="0"
+                          title="Auto: tach end − tach start"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.airframeAftt}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              airframeAftt: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="AFTT"
+                          title="Auto: Prev AFTT + Airframe Run"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.engineRunTime}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineRunTime: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="0"
+                          title="Auto: = Airframe Run Time"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.engineTsn}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineTsn: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="UNK"
+                          title="Auto: UNK"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.engineTso}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineTso: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TSO"
+                          title="Auto: Prev TSO + Engine Run"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.engineTbo}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              engineTbo: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TBO"
+                          title="Auto: life limit − TSO"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.propellerRunTime}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerRunTime: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="0"
+                          title="Auto: = Airframe Run Time"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.propellerTsn}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerTsn: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TSN"
+                          title="Auto: Prev TSN + Prop Run"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.propellerTso}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerTso: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TSO"
+                          title="Auto: Prev TSO + Prop Run"
+                        />
+                      </td>
+                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <input
+                          type="text"
+                          value={formData.propellerTbo}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              propellerTbo: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TBO"
+                          title="Auto: life limit − TSO"
+                        />
+                      </td>
+                    </tr>
+                    <tr>
+                      <td
+                        className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100"
+                        colSpan={2}
+                      >
+                        Life time limit
+                      </td>
+                      <td
+                        className="border border-gray-300 px-2 py-1.5 bg-white"
+                        colSpan={4}
+                      >
+                        <input
+                          type="text"
+                          value={formData.lifeTimeLimitEngine}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              lifeTimeLimitEngine: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+                          placeholder="Engine"
+                        />
+                      </td>
+                      <td
+                        className="border border-gray-300 px-2 py-1.5 bg-white"
+                        colSpan={4}
+                      >
+                        <input
+                          type="text"
+                          value={formData.lifeTimeLimitPropeller}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              lifeTimeLimitPropeller: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+                          placeholder="Propeller"
                         />
                       </td>
                     </tr>
