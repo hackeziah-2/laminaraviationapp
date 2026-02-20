@@ -3,7 +3,6 @@ export interface Aircraft {
   registration: string;
   manufacturer: string;
   reportDescription: string;
-  type: string;
   model: string;
   msn: string;
   base: string;
@@ -11,19 +10,19 @@ export interface Aircraft {
   status: "Active" | "Inactive" | "Maintenance";
 
   // Airframe Information
-  airframeModel: string;
   airframeServiceManual: string;
-  airframeSerialNumber: string;
   airframeIpc: string;
 
   // Engine Information
   engineModel: string;
   engineSerialNumber: string;
+  engineLifeTimeLimit: number;
   engineArc: string;
 
   //  Propeller Information
   propellerModel: string;
   propellerSerialNumber: string;
+  propellerLifeTimeLimit: number;
   propellerArc: string;
 }
 
@@ -31,7 +30,6 @@ export interface AircraftForm {
   registration: string;
   manufacturer: string;
   reportDescription: string;
-  type: string;
   model: string;
   msn: string;
   base: string;
@@ -39,18 +37,18 @@ export interface AircraftForm {
   status: "Active" | "Inactive" | "Maintenance";
 
   // Airframe Information
-  airframe_model: string;
   airframeServiceManual: string;
-  airframeSerialNumber: string;
   airframeIpc: string;
 
   // Engine Information
   engineModel: string;
   engineSerialNumber: string;
+  engineLifeTimeLimit: string;
 
   //  Propeller Information
   propellerModel: string;
   propellerSerialNumber: string;
+  propellerLifeTimeLimit: string;
 
   engineArc?: File | null;
   propellerArc?: File | null;

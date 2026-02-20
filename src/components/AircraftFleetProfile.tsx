@@ -236,7 +236,6 @@ export function AircraftFleetProfile() {
     registration: "",
     manufacturer: "",
     reportDescription: "",
-    type: "",
     model: "",
     msn: "",
     base: "",
@@ -244,18 +243,18 @@ export function AircraftFleetProfile() {
     status: "Active",
 
     // Airframe Information
-    airframe_model: "",
     airframeServiceManual: "",
-    airframeSerialNumber: "",
     airframeIpc: "",
 
     // Engine Information
     engineModel: "",
     engineSerialNumber: "",
+    engineLifeTimeLimit: "",
 
     //  Propeller Information
     propellerModel: "",
     propellerSerialNumber: "",
+    propellerLifeTimeLimit: "",
 
     engineArc: null,
     propellerArc: null,
@@ -284,7 +283,6 @@ export function AircraftFleetProfile() {
   const validate = (): boolean => {
     if (!form.registration.trim())
       newErrors.registration = "Registration is required";
-    if (!form.type.trim()) newErrors.type = "Type is required";
     if (!form.model.trim()) newErrors.model = "Model is required";
     if (!form.msn.trim()) newErrors.msn = "MSN is required";
     if (!form.base.trim()) newErrors.base = "Base location is required";
@@ -299,9 +297,20 @@ export function AircraftFleetProfile() {
 
     if (!validate()) return;
     const formData = new FormData();
+    const payload = snakeAllKeys({
+      ...form,
+      engineLifeTimeLimit:
+        form.engineLifeTimeLimit === ""
+          ? null
+          : parseFloat(form.engineLifeTimeLimit),
+      propellerLifeTimeLimit:
+        form.propellerLifeTimeLimit === ""
+          ? null
+          : parseFloat(form.propellerLifeTimeLimit),
+    });
 
     // Append JSON data as string
-    formData.append("json_data", JSON.stringify(snakeAllKeys(form)));
+    formData.append("json_data", JSON.stringify(payload));
     // Append files if they exist
 
     if (engineARCFile) formData.append("engine_arc_file", engineARCFile);
@@ -323,20 +332,19 @@ export function AircraftFleetProfile() {
         registration: "",
         manufacturer: "",
         reportDescription: "",
-        type: "",
         model: "",
         msn: "",
         base: "",
         ownership: "",
         status: "Active",
-        airframe_model: "",
         airframeServiceManual: "",
-        airframeSerialNumber: "",
         airframeIpc: "",
         engineModel: "",
         engineSerialNumber: "",
+        engineLifeTimeLimit: "",
         propellerModel: "",
         propellerSerialNumber: "",
+        propellerLifeTimeLimit: "",
         engineArc: null,
         propellerArc: null,
       });
@@ -532,9 +540,6 @@ export function AircraftFleetProfile() {
                     </th>
 
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      Aircraft Type
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                       Model
                     </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
@@ -568,7 +573,6 @@ export function AircraftFleetProfile() {
                         <td className="px-6 py-3.5 text-gray-900">
                           {ac.registration}
                         </td>
-                        <td className="px-6 py-3.5 text-gray-900">{ac.type}</td>
                         <td className="px-6 py-3.5 text-gray-900">
                           {ac.model}
                         </td>
@@ -627,7 +631,7 @@ export function AircraftFleetProfile() {
                   ) : (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={6}
                         className="px-6 py-12 text-center text-gray-500"
                       >
                         No aircraft found matching your search criteria
@@ -799,24 +803,7 @@ export function AircraftFleetProfile() {
 
                 {/* MSN & Registration Number */}
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-5">
-                    <div>
-                      <label className="block text-gray-600 text-sm mb-2">
-                        Aircraft Type (Required)
-                      </label>
-                      <input
-                        placeholder="e.g., Boeing, Airbus, Cessna"
-                        value={form.type}
-                        type="text"
-                        maxLength={20}
-                        inputMode="numeric"
-                        onChange={(e) => handleChange("type", e.target.value)}
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
-                      />
-                      {errors.type && (
-                        <p className="text-red-500 text-sm">{errors.type}</p>
-                      )}
-                    </div>
+                  <div className="grid grid-cols-1 gap-5">
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
                         MSN (Required)
@@ -948,6 +935,22 @@ export function AircraftFleetProfile() {
                         className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
                       />
                     </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Engine Life Time Limit
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.engineLifeTimeLimit}
+                        onChange={(e) =>
+                          handleChange("engineLifeTimeLimit", e.target.value)
+                        }
+                        placeholder="e.g., 12000.50"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-gray-600 text-sm mb-2">
@@ -1017,6 +1020,22 @@ export function AircraftFleetProfile() {
                           handleChange("propellerSerialNumber", e.target.value)
                         }
                         placeholder="e.g., PROP-987654 or N/A"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Propeller Life Time Limit
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.propellerLifeTimeLimit}
+                        onChange={(e) =>
+                          handleChange("propellerLifeTimeLimit", e.target.value)
+                        }
+                        placeholder="e.g., 8000.00"
                         className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
                       />
                     </div>

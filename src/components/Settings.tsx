@@ -1,13 +1,23 @@
-import React, { useState } from 'react';
-import { Users, Shield, Grid3x3, Plus, Search, Edit2, Lock, UserX, ChevronDown, ChevronUp, Check, X, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Users, Shield, Grid3x3, Plus, Search, Edit2, Lock, UserX, ChevronDown, ChevronUp, Check, X, AlertTriangle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import * as authApi from '../api/authApi';
+import * as rolesApi from '../api/rolesApi';
+import * as accountApi from '../api/accountApi';
 
 interface User {
   id: number;
   name: string;
   email: string;
+  designation: string;
+  firstName?: string;
+  lastName?: string;
+  middleName?: string;
+  username?: string;
+  licenseNo?: string;
+  roleId?: number;
   role: string;
   status: 'active' | 'inactive';
-  lastLogin: string;
+  lastDone: string;
   createdDate: string;
 }
 
@@ -28,28 +38,42 @@ interface Permission {
 interface AddUserModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (user: any) => void;
+  roles: Role[];
+  onAdd: (user: {
+    first_name: string;
+    last_name: string;
+    middle_name: string;
+    username: string;
+    email: string;
+    designation: string;
+    license_no: string;
+    role_id: number;
+    status: boolean;
+    password: string;
+    confirmPassword: string;
+  }) => void | Promise<void>;
 }
 
 interface EditUserModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
-  onUpdate: (user: User) => void;
+  roles: Role[];
+  onUpdate: (user: User) => void | Promise<void>;
 }
 
 interface DeactivateUserModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 interface ResetPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
-  onReset: (forceChange: boolean) => void;
+  onReset: (newPassword: string, forceChange: boolean) => void | Promise<void>;
 }
 
 interface EditRoleModalProps {
@@ -57,35 +81,50 @@ interface EditRoleModalProps {
   onClose: () => void;
   role: Role | null;
   permissions: Permission[];
-  onUpdate: (role: Role, permissions: Permission[]) => void;
+  onUpdate: (role: Role, permissions: Permission[]) => void | Promise<void>;
 }
 
 interface CreateRoleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (role: Role, permissions: Permission[]) => void;
+  onCreate: (role: Role, permissions: Permission[]) => void | Promise<void>;
 }
 
+const SELECT_BASE_CLASS =
+  "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-9 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat";
+
 // Add User Modal
-function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
+function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
   const [formData, setFormData] = useState({
-    name: '',
+    first_name: '',
+    last_name: '',
+    middle_name: '',
+    username: '',
     email: '',
-    role: 'Viewer',
+    designation: '',
+    license_no: '',
+    role_id: 0,
+    status: true,
     password: '',
     confirmPassword: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
     
-    if (!formData.name.trim()) newErrors.name = 'Name is required';
+    if (!formData.first_name.trim()) newErrors.first_name = 'First name is required';
+    if (!formData.last_name.trim()) newErrors.last_name = 'Last name is required';
+    if (!formData.username.trim()) newErrors.username = 'Username is required';
     if (!formData.email.trim()) newErrors.email = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) newErrors.email = 'Invalid email format';
+    if (!formData.designation.trim()) newErrors.designation = 'Designation is required';
+    if (!formData.license_no.trim()) newErrors.license_no = 'License number is required';
+    if (!formData.role_id) newErrors.role_id = 'Role is required';
     if (!formData.password) newErrors.password = 'Password is required';
     else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
     if (formData.password !== formData.confirmPassword) newErrors.confirmPassword = 'Passwords do not match';
@@ -94,13 +133,31 @@ function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validate()) {
-      onAdd(formData);
-      setFormData({ name: '', email: '', role: 'Viewer', password: '', confirmPassword: '' });
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onAdd(formData));
+      setFormData({
+        first_name: '',
+        last_name: '',
+        middle_name: '',
+        username: '',
+        email: '',
+        designation: '',
+        license_no: '',
+        role_id: 0,
+        status: true,
+        password: '',
+        confirmPassword: ''
+      });
       setErrors({});
       onClose();
+    } catch {
+      // Stay open on error
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -114,15 +171,50 @@ function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
         
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
             <input
               type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className={`w-full px-3 py-2 border ${errors.name ? 'border-red-500' : 'border-gray-300'} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              placeholder="Enter full name"
+              value={formData.first_name}
+              onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+              className={`w-full px-3 py-2 border ${errors.first_name ? 'border-red-500' : 'border-gray-300'} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              placeholder="Enter first name"
             />
-            {errors.name && <p className="text-xs text-red-600 mt-1">{errors.name}</p>}
+            {errors.first_name && <p className="text-xs text-red-600 mt-1">{errors.first_name}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+            <input
+              type="text"
+              value={formData.last_name}
+              onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+              className={`w-full px-3 py-2 border ${errors.last_name ? 'border-red-500' : 'border-gray-300'} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              placeholder="Enter last name"
+            />
+            {errors.last_name && <p className="text-xs text-red-600 mt-1">{errors.last_name}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
+            <input
+              type="text"
+              value={formData.middle_name}
+              onChange={(e) => setFormData({ ...formData, middle_name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter middle name"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username *</label>
+            <input
+              type="text"
+              value={formData.username}
+              onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+              className={`w-full px-3 py-2 border ${errors.username ? 'border-red-500' : 'border-gray-300'} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              placeholder="Enter username"
+            />
+            {errors.username && <p className="text-xs text-red-600 mt-1">{errors.username}</p>}
           </div>
 
           <div>
@@ -138,18 +230,42 @@ function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Designation *</label>
+            <input
+              type="text"
+              value={formData.designation}
+              onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+              className={`w-full px-3 py-2 border ${errors.designation ? 'border-red-500' : 'border-gray-300'} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              placeholder="Enter designation"
+            />
+            {errors.designation && <p className="text-xs text-red-600 mt-1">{errors.designation}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">License No *</label>
+            <input
+              type="text"
+              value={formData.license_no}
+              onChange={(e) => setFormData({ ...formData, license_no: e.target.value })}
+              className={`w-full px-3 py-2 border ${errors.license_no ? 'border-red-500' : 'border-gray-300'} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              placeholder="Enter license number"
+            />
+            {errors.license_no && <p className="text-xs text-red-600 mt-1">{errors.license_no}</p>}
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
             <select
-              value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              value={formData.role_id}
+              onChange={(e) => setFormData({ ...formData, role_id: Number(e.target.value) })}
+              className={`${SELECT_BASE_CLASS} ${errors.role_id ? 'border-red-500' : 'border-gray-300'}`}
             >
-              <option value="Admin">Admin</option>
-              <option value="Planner">Planner</option>
-              <option value="Mechanic">Mechanic</option>
-              <option value="Viewer">Viewer</option>
-              <option value="Auditor">Auditor</option>
+              <option value={0}>Select role</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>{role.name}</option>
+              ))}
             </select>
+            {errors.role_id && <p className="text-xs text-red-600 mt-1">{errors.role_id}</p>}
           </div>
 
           <div>
@@ -196,7 +312,19 @@ function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
               type="button"
               onClick={() => {
                 onClose();
-                setFormData({ name: '', email: '', role: 'Viewer', password: '', confirmPassword: '' });
+                setFormData({
+                  first_name: '',
+                  last_name: '',
+                  middle_name: '',
+                  username: '',
+                  email: '',
+                  designation: '',
+                  license_no: '',
+                  role_id: 0,
+                  status: true,
+                  password: '',
+                  confirmPassword: ''
+                });
                 setErrors({});
               }}
               className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -205,9 +333,10 @@ function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={submitting}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Add User
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null} Add User
             </button>
           </div>
         </form>
@@ -217,57 +346,113 @@ function AddUserModal({ isOpen, onClose, onAdd }: AddUserModalProps) {
 }
 
 // Edit User Modal
-function EditUserModal({ isOpen, onClose, user, onUpdate }: EditUserModalProps) {
+function EditUserModal({ isOpen, onClose, user, onUpdate, roles }: EditUserModalProps) {
   const [formData, setFormData] = useState({
-    name: user?.name || '',
+    first_name: user?.firstName || '',
+    last_name: user?.lastName || '',
+    middle_name: user?.middleName || '',
+    username: user?.username || '',
     email: user?.email || '',
-    role: user?.role || 'Viewer',
-    status: user?.status || 'active'
+    designation: user?.designation || '',
+    license_no: user?.licenseNo || '',
+    role_id: user?.roleId || 0,
+    status: user?.status || 'active',
   });
+  const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
     if (user) {
       setFormData({
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        status: user.status
+        first_name: user.firstName || '',
+        last_name: user.lastName || '',
+        middle_name: user.middleName || '',
+        username: user.username || '',
+        email: user.email || '',
+        designation: user.designation || '',
+        license_no: user.licenseNo || '',
+        role_id: user.roleId || 0,
+        status: user.status || 'active',
       });
     }
   }, [user]);
 
   if (!isOpen || !user) return null;
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdate({
-      ...user,
-      ...formData
-    });
-    onClose();
+    setSubmitting(true);
+    try {
+      const resolvedRole = roles.find((r) => r.id === formData.role_id)?.name || user.role;
+      await Promise.resolve(
+        onUpdate({
+          ...user,
+          name: `${formData.first_name} ${formData.middle_name} ${formData.last_name}`.replace(/\s+/g, ' ').trim(),
+          firstName: formData.first_name,
+          lastName: formData.last_name,
+          middleName: formData.middle_name,
+          username: formData.username,
+          email: formData.email,
+          designation: formData.designation,
+          licenseNo: formData.license_no,
+          roleId: formData.role_id,
+          role: resolvedRole,
+          status: formData.status as 'active' | 'inactive',
+        })
+      );
+      onClose();
+    } catch {
+      // Stay open on error
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-md w-full">
+      <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Edit User</h2>
-          <p className="text-sm text-gray-600 mt-1">Update user information and permissions</p>
+          <p className="text-sm text-gray-600 mt-1">Update user account information and role assignment</p>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
             <input
               type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              value={formData.first_name}
+              onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+            <input
+              type="text"
+              value={formData.last_name}
+              onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
+            <input
+              type="text"
+              value={formData.middle_name}
+              onChange={(e) => setFormData({ ...formData, middle_name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Username *</label>
+            <input
+              type="text"
+              value={formData.username}
+              onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
             <input
               type="email"
               value={formData.email}
@@ -275,28 +460,43 @@ function EditUserModal({ isOpen, onClose, user, onUpdate }: EditUserModalProps) 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Designation *</label>
+            <input
+              type="text"
+              value={formData.designation}
+              onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">License No *</label>
+            <input
+              type="text"
+              value={formData.license_no}
+              onChange={(e) => setFormData({ ...formData, license_no: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
             <select
-              value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              value={formData.role_id}
+              onChange={(e) => setFormData({ ...formData, role_id: Number(e.target.value) })}
+              className={SELECT_BASE_CLASS}
             >
-              <option value="Admin">Admin</option>
-              <option value="Planner">Planner</option>
-              <option value="Mechanic">Mechanic</option>
-              <option value="Viewer">Viewer</option>
-              <option value="Auditor">Auditor</option>
+              <option value={0}>Select role</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>{role.name}</option>
+              ))}
             </select>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <select
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'inactive' })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={SELECT_BASE_CLASS}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
@@ -313,9 +513,10 @@ function EditUserModal({ isOpen, onClose, user, onUpdate }: EditUserModalProps) 
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={submitting}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Update User
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null} Update User
             </button>
           </div>
         </form>
@@ -326,7 +527,21 @@ function EditUserModal({ isOpen, onClose, user, onUpdate }: EditUserModalProps) 
 
 // Deactivate User Modal
 function DeactivateUserModal({ isOpen, onClose, user, onConfirm }: DeactivateUserModalProps) {
+  const [submitting, setSubmitting] = useState(false);
+
   if (!isOpen || !user) return null;
+
+  const handleConfirm = async () => {
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onConfirm());
+      onClose();
+    } catch {
+      // Stay open on error
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -368,11 +583,9 @@ function DeactivateUserModal({ isOpen, onClose, user, onConfirm }: DeactivateUse
               Cancel
             </button>
             <button
-              onClick={() => {
-                onConfirm();
-                onClose();
-              }}
-              className={`flex-1 px-4 py-2 ${
+              onClick={handleConfirm}
+              disabled={submitting}
+              className={`flex-1 px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                 user.status === 'active' 
                   ? 'bg-red-600 hover:bg-red-700' 
                   : 'bg-green-600 hover:bg-green-700'
@@ -392,8 +605,21 @@ function ResetPasswordModal({ isOpen, onClose, user, onReset }: ResetPasswordMod
   const [forceChange, setForceChange] = useState(true);
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   if (!isOpen || !user) return null;
+
+  const handleReset = async () => {
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onReset(newPassword, forceChange));
+      onClose();
+    } catch {
+      // Stay open on error
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const generatePassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
@@ -470,15 +696,12 @@ function ResetPasswordModal({ isOpen, onClose, user, onReset }: ResetPasswordMod
               Cancel
             </button>
             <button
-              onClick={() => {
-                onReset(forceChange);
-                onClose();
-              }}
-              disabled={!newPassword}
+              onClick={handleReset}
+              disabled={!newPassword || submitting}
               type="button"
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Reset Password
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null} Reset Password
             </button>
           </div>
         </div>
@@ -494,6 +717,7 @@ function EditRoleModal({ isOpen, onClose, role, permissions, onUpdate }: EditRol
     description: role?.description || ''
   });
   const [rolePermissions, setRolePermissions] = useState<Permission[]>(permissions);
+  const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
     if (role) {
@@ -506,6 +730,18 @@ function EditRoleModal({ isOpen, onClose, role, permissions, onUpdate }: EditRol
   }, [role, permissions]);
 
   if (!isOpen || !role) return null;
+
+  const handleUpdate = async () => {
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onUpdate({ ...role, ...formData }, rolePermissions));
+      onClose();
+    } catch {
+      // Stay open on error
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const togglePermission = (index: number, field: 'read' | 'write' | 'approve') => {
     const updated = [...rolePermissions];
@@ -609,14 +845,12 @@ function EditRoleModal({ isOpen, onClose, role, permissions, onUpdate }: EditRol
               Cancel
             </button>
             <button
-              onClick={() => {
-                onUpdate({ ...role, ...formData }, rolePermissions);
-                onClose();
-              }}
+              onClick={handleUpdate}
+              disabled={submitting}
               type="button"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Update Role
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null} Update Role
             </button>
           </div>
         </div>
@@ -643,6 +877,8 @@ function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
     { module: 'System Settings', read: false, write: false, approve: false }
   ]);
 
+  const [submitting, setSubmitting] = useState(false);
+
   if (!isOpen) return null;
 
   const togglePermission = (index: number, field: 'read' | 'write' | 'approve') => {
@@ -651,17 +887,24 @@ function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
     setPermissions(updated);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onCreate({
-      id: Date.now(),
-      name: formData.name,
-      description: formData.description,
-      userCount: 0
-    }, permissions);
-    setFormData({ name: '', description: '' });
-    setPermissions(permissions.map(p => ({ ...p, read: false, write: false, approve: false })));
-    onClose();
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onCreate({
+        id: Date.now(),
+        name: formData.name,
+        description: formData.description,
+        userCount: 0
+      }, permissions));
+      setFormData({ name: '', description: '' });
+      setPermissions(permissions.map(p => ({ ...p, read: false, write: false, approve: false })));
+      onClose();
+    } catch {
+      // Stay open on error
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -759,9 +1002,10 @@ function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={submitting}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create Role
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin inline" /> : null} Create Role
             </button>
           </div>
         </form>
@@ -773,6 +1017,8 @@ function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
 export function Settings() {
   const [activeSection, setActiveSection] = useState<'users' | 'roles' | 'matrix'>('users');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>('Admin');
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
@@ -784,63 +1030,161 @@ export function Settings() {
   const [selectedRoleForEdit, setSelectedRoleForEdit] = useState<Role | null>(null);
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
   const [customPermissions, setCustomPermissions] = useState<Record<string, Permission[]>>({});
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalUsers, setTotalUsers] = useState(0);
 
-  // Mock data
   const [users, setUsers] = useState<User[]>([
     {
       id: 1,
       name: 'John Smith',
       email: 'john.smith@aviation.com',
+      designation: 'Admin',
       role: 'Admin',
       status: 'active',
-      lastLogin: '2 hours ago',
+      lastDone: '2 hours ago',
       createdDate: '15-Jan-2024'
     },
     {
       id: 2,
       name: 'Sarah Johnson',
       email: 'sarah.johnson@aviation.com',
+      designation: 'Planner',
       role: 'Planner',
       status: 'active',
-      lastLogin: '1 day ago',
+      lastDone: '1 day ago',
       createdDate: '10-Jan-2024'
     },
     {
       id: 3,
       name: 'Michael Chen',
       email: 'michael.chen@aviation.com',
+      designation: 'Mechanic',
       role: 'Mechanic',
       status: 'active',
-      lastLogin: '3 hours ago',
+      lastDone: '3 hours ago',
       createdDate: '08-Jan-2024'
     },
     {
       id: 4,
       name: 'Emily Davis',
       email: 'emily.davis@aviation.com',
+      designation: 'Viewer',
       role: 'Viewer',
       status: 'active',
-      lastLogin: '5 days ago',
+      lastDone: '5 days ago',
       createdDate: '05-Jan-2024'
     },
     {
       id: 5,
       name: 'Robert Wilson',
       email: 'robert.wilson@aviation.com',
+      designation: 'Auditor',
       role: 'Auditor',
       status: 'inactive',
-      lastLogin: '2 weeks ago',
+      lastDone: '2 weeks ago',
       createdDate: '01-Dec-2023'
     }
   ]);
 
-  const [roles, setRoles] = useState<Role[]>([
+  const defaultRoles: Role[] = [
     { id: 1, name: 'Admin', description: 'Full system access with all privileges', userCount: 2 },
     { id: 2, name: 'Planner', description: 'Plan and schedule maintenance activities', userCount: 5 },
     { id: 3, name: 'Mechanic', description: 'Execute maintenance tasks and update logs', userCount: 12 },
     { id: 4, name: 'Viewer', description: 'Read-only access to system data', userCount: 8 },
     { id: 5, name: 'Auditor', description: 'Review and audit compliance records', userCount: 3 }
-  ]);
+  ];
+
+  const [roles, setRoles] = useState<Role[]>(defaultRoles);
+
+  const formatReadableDateTime = useCallback((value?: string) => {
+    if (!value) return 'Never';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchDebounced(searchQuery);
+      setCurrentPage(1);
+      searchDebounceRef.current = null;
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
+
+  const mapAccountToUser = useCallback((acc: accountApi.Account): User => {
+    const roleLabel = roles.find((r) => r.id === acc.roleId)?.name || '-';
+    return {
+      id: acc.id,
+      name: acc.fullName || `${acc.firstName} ${acc.lastName}`.trim(),
+      email: acc.email || `${(acc.username || 'user').toLowerCase()}@aviation.com`,
+      designation: acc.designation || '-',
+      firstName: acc.firstName || '',
+      lastName: acc.lastName || '',
+      middleName: acc.middleName || '',
+      username: acc.username || '',
+      licenseNo: acc.licenseNo || '',
+      roleId: acc.roleId || 0,
+      role: roleLabel,
+      status: acc.status ? 'active' : 'inactive',
+      lastDone: formatReadableDateTime(acc.lastLogin),
+      createdDate: acc.createdAt
+        ? new Date(acc.createdAt).toLocaleDateString()
+        : '-',
+    };
+  }, [roles, formatReadableDateTime]);
+
+  const fetchUsersList = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const res = await accountApi.getAccountsPaged(currentPage, itemsPerPage, searchDebounced);
+      setUsers(res.items.map(mapAccountToUser));
+      setTotalUsers(res.total);
+      setTotalPages(Math.max(1, res.pages));
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string; detail?: string } }; message?: string })?.response?.data?.message
+        ?? (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? (err as Error)?.message
+        ?? 'Failed to load users';
+      setUsersError(msg);
+      setUsers((prev) => {
+        setTotalUsers(prev.length);
+        setTotalPages(Math.max(1, Math.ceil(prev.length / itemsPerPage)));
+        return prev;
+      });
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [currentPage, itemsPerPage, searchDebounced, mapAccountToUser]);
+
+  useEffect(() => {
+    fetchUsersList();
+  }, [fetchUsersList]);
+
+  useEffect(() => {
+    setRolesLoading(true);
+    setRolesError(null);
+    rolesApi.getRoles()
+      .then((data) => setRoles(data.length ? data : defaultRoles))
+      .catch(() => setRoles(defaultRoles))
+      .finally(() => setRolesLoading(false));
+  }, []);
 
   const permissionsByRole: Record<string, Permission[]> = {
     Admin: [
@@ -897,11 +1241,7 @@ export function Settings() {
 
   const matrixPermissions = customPermissions[selectedRole] ?? permissionsByRole[selectedRole] ?? [];
 
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredUsers = users;
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -917,6 +1257,22 @@ export function Settings() {
         return 'bg-teal-100 text-teal-700';
       default:
         return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    const ok = window.confirm(`Delete ${user.name}? This action cannot be undone.`);
+    if (!ok) return;
+    try {
+      await accountApi.deleteAccount(user.id);
+      fetchUsersList();
+      alert(`User ${user.name} has been deleted.`);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string; detail?: string } } })?.response?.data?.message
+        || (err as { response?: { data?: { message?: string; detail?: string } } })?.response?.data?.detail
+        || (err as Error)?.message
+        || 'Failed to delete user';
+      alert(msg);
     }
   };
 
@@ -1000,15 +1356,27 @@ export function Settings() {
               </div>
             </div>
 
+            {usersError && (
+              <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                {usersError}
+              </div>
+            )}
+
             {/* Users Table */}
             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              {usersLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                </div>
+              ) : (
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">User</th>
+                    <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Designation</th>
                     <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Role</th>
                     <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Last Login</th>
+                    <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Last Done</th>
                     <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Created</th>
                     <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">Actions</th>
                   </tr>
@@ -1024,6 +1392,9 @@ export function Settings() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
+                          <span className="text-sm text-gray-700">{user.designation || '-'}</span>
+                        </td>
+                        <td className="px-6 py-4">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(user.role)}`}>
                             {user.role}
                           </span>
@@ -1037,7 +1408,7 @@ export function Settings() {
                             {user.status === 'active' ? 'Active' : 'Inactive'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{user.lastLogin}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">{user.lastDone}</td>
                         <td className="px-6 py-4 text-sm text-gray-600">{user.createdDate}</td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
@@ -1091,7 +1462,7 @@ export function Settings() {
                       </tr>
                       {expandedUser === user.id && (
                         <tr>
-                          <td colSpan={6} className="px-6 py-4 bg-gray-50">
+                          <td colSpan={7} className="px-6 py-4 bg-gray-50">
                             <div className="space-y-3">
                               <div className="flex gap-3">
                                 <button type="button" className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm">
@@ -1103,6 +1474,13 @@ export function Settings() {
                                 <button type="button" className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm">
                                   View Audit Trail
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteUser(user)}
+                                  className="px-4 py-2 bg-white border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors text-sm"
+                                >
+                                  Delete Account
+                                </button>
                               </div>
                             </div>
                           </td>
@@ -1112,6 +1490,91 @@ export function Settings() {
                   ))}
                 </tbody>
               </table>
+              )}
+              {!usersLoading && (filteredUsers.length > 0 || totalUsers > 0) && (
+                <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm text-gray-600">
+                        {totalUsers > 0
+                          ? `Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(currentPage * itemsPerPage, totalUsers)} of ${totalUsers}`
+                          : 'No users found'}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">Items per page:</span>
+                        <select
+                          value={itemsPerPage}
+                          onChange={(e) => {
+                            setItemsPerPage(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-7 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat"
+                        >
+                          <option value={10}>10</option>
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Previous
+                      </button>
+
+                      {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                        let pageNum = currentPage;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`min-w-[2rem] px-3 py-1.5 rounded text-sm transition-colors ${
+                              currentPage === pageNum
+                                ? 'bg-blue-600 text-white'
+                                : 'text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+
+                      {totalPages > 5 && currentPage < totalPages - 2 && (
+                        <>
+                          <span className="px-1 text-gray-500">...</span>
+                          <button
+                            onClick={() => setCurrentPage(totalPages)}
+                            className="min-w-[2rem] px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                          >
+                            {totalPages}
+                          </button>
+                        </>
+                      )}
+
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1181,7 +1644,7 @@ export function Settings() {
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
-                className="w-full max-w-md px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-9 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat"
               >
                 {roles.map((role) => (
                   <option key={role.id} value={role.name}>{role.name}</option>
@@ -1263,18 +1726,32 @@ export function Settings() {
       <AddUserModal
         isOpen={showAddUserModal}
         onClose={() => setShowAddUserModal(false)}
-        onAdd={(newUser) => {
-          const user: User = {
-            id: users.length + 1,
-            name: newUser.name,
-            email: newUser.email,
-            role: newUser.role,
-            status: 'active',
-            lastLogin: 'Never',
-            createdDate: new Date().toLocaleDateString()
-          };
-          setUsers([...users, user]);
-          alert(`User ${newUser.name} has been added successfully!`);
+        roles={roles}
+        onAdd={async (newUser) => {
+          try {
+            await accountApi.createAccount({
+              firstName: newUser.first_name,
+              lastName: newUser.last_name,
+              middleName: newUser.middle_name,
+              username: newUser.username,
+              email: newUser.email,
+              designation:
+                newUser.designation ||
+                roles.find((r) => r.id === newUser.role_id)?.name ||
+                '',
+              licenseNo: newUser.license_no,
+              roleId: newUser.role_id,
+              status: true,
+              password: newUser.password,
+            });
+            setShowAddUserModal(false);
+            fetchUsersList();
+            alert(`User ${newUser.first_name} ${newUser.last_name} has been added successfully!`);
+          } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || (err as Error)?.message || 'Failed to add user';
+            alert(msg);
+            throw err;
+          }
         }}
       />
 
@@ -1285,9 +1762,29 @@ export function Settings() {
           setSelectedUser(null);
         }}
         user={selectedUser}
-        onUpdate={(updatedUser) => {
-          setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
-          alert(`User ${updatedUser.name} has been updated successfully!`);
+        roles={roles}
+        onUpdate={async (updatedUser) => {
+          try {
+            await accountApi.updateAccount(updatedUser.id, {
+              firstName: updatedUser.firstName || '',
+              middleName: updatedUser.middleName || '',
+              lastName: updatedUser.lastName || '',
+              username: updatedUser.username || '',
+              email: updatedUser.email,
+              designation: updatedUser.designation || updatedUser.role,
+              licenseNo: updatedUser.licenseNo || '',
+              roleId: updatedUser.roleId,
+              status: updatedUser.status === 'active',
+            });
+            setShowEditUserModal(false);
+            setSelectedUser(null);
+            fetchUsersList();
+            alert(`User ${updatedUser.name} has been updated successfully!`);
+          } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || (err as Error)?.message || 'Failed to update user';
+            alert(msg);
+            throw err;
+          }
         }}
       />
 
@@ -1298,14 +1795,21 @@ export function Settings() {
           setSelectedUser(null);
         }}
         user={selectedUser}
-        onConfirm={() => {
-          if (selectedUser) {
-            setUsers(users.map(u => 
-              u.id === selectedUser.id 
-                ? { ...u, status: u.status === 'active' ? 'inactive' : 'active' }
-                : u
-            ));
-            alert(`User ${selectedUser.name} has been ${selectedUser.status === 'active' ? 'deactivated' : 'activated'}!`);
+        onConfirm={async () => {
+          if (!selectedUser) return;
+          try {
+            const newStatus = selectedUser.status === 'active' ? 'inactive' : 'active';
+            await accountApi.updateAccount(selectedUser.id, {
+              status: newStatus === 'active',
+            });
+            setShowDeactivateModal(false);
+            setSelectedUser(null);
+            fetchUsersList();
+            alert(`User ${selectedUser.name} has been ${newStatus === 'active' ? 'activated' : 'deactivated'}!`);
+          } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || (err as Error)?.message || 'Failed to update user status';
+            alert(msg);
+            throw err;
           }
         }}
       />
@@ -1317,9 +1821,17 @@ export function Settings() {
           setSelectedUser(null);
         }}
         user={selectedUser}
-        onReset={(forceChange) => {
-          if (selectedUser) {
+        onReset={async (newPassword, forceChange) => {
+          if (!selectedUser) return;
+          try {
+            await authApi.resetUserPassword(selectedUser.id, newPassword, forceChange);
+            setShowResetPasswordModal(false);
+            setSelectedUser(null);
             alert(`Password reset email sent to ${selectedUser.name}. Force change on next login: ${forceChange ? 'Yes' : 'No'}`);
+          } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || (err as Error)?.message || 'Failed to reset password';
+            alert(msg);
+            throw err;
           }
         }}
       />
@@ -1332,20 +1844,37 @@ export function Settings() {
         }}
         role={selectedRoleForEdit}
         permissions={selectedRoleForEdit ? (customPermissions[selectedRoleForEdit.name] ?? permissionsByRole[selectedRoleForEdit.name] ?? []) : []}
-        onUpdate={(updatedRole, updatedPermissions) => {
-          setRoles(roles.map(r => r.id === updatedRole.id ? updatedRole : r));
-          setCustomPermissions(prev => ({ ...prev, [updatedRole.name]: updatedPermissions }));
-          alert(`Role ${updatedRole.name} has been updated successfully!`);
+        onUpdate={async (updatedRole, updatedPermissions) => {
+          try {
+            const result = await rolesApi.updateRole(updatedRole.id, { name: updatedRole.name, description: updatedRole.description }, updatedPermissions);
+            setRoles((prev) => prev.map(r => r.id === updatedRole.id ? result : r));
+            setCustomPermissions(prev => ({ ...prev, [updatedRole.name]: updatedPermissions }));
+            setShowEditRoleModal(false);
+            setSelectedRoleForEdit(null);
+            alert(`Role ${updatedRole.name} has been updated successfully!`);
+          } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || (err as Error)?.message || 'Failed to update role';
+            alert(msg);
+            throw err;
+          }
         }}
       />
 
       <CreateRoleModal
         isOpen={showCreateRoleModal}
         onClose={() => setShowCreateRoleModal(false)}
-        onCreate={(newRole, permissions) => {
-          setRoles([...roles, newRole]);
-          setCustomPermissions(prev => ({ ...prev, [newRole.name]: permissions }));
-          alert(`Role ${newRole.name} has been created successfully!`);
+        onCreate={async (newRole, permissions) => {
+          try {
+            const created = await rolesApi.createRole({ name: newRole.name, description: newRole.description }, permissions);
+            setRoles((prev) => [...prev, created]);
+            setCustomPermissions(prev => ({ ...prev, [created.name]: permissions }));
+            setShowCreateRoleModal(false);
+            alert(`Role ${newRole.name} has been created successfully!`);
+          } catch (err: unknown) {
+            const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || (err as Error)?.message || 'Failed to create role';
+            alert(msg);
+            throw err;
+          }
         }}
       />
     </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
+import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { AircraftFleetProfile } from './components/AircraftFleetProfile';
 import { AircraftFleetDailyUpdate } from './components/AircraftFleetDailyUpdate';
@@ -27,11 +28,34 @@ function RedirectToMaintenanceLdnd() {
 function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
+    () => Boolean(localStorage.getItem("access_token"))
+  );
   const location = useLocation();
+  const isLoginPage = location.pathname === "/login";
 
   // Determine if we're on a special page that hides the header
   const isSpecialPage = location.pathname.includes('/reliability/') ||
                         location.pathname.includes('/maintenance-ad-work-orders/');
+
+  if (!isAuthenticated && !isLoginPage) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (isLoginPage && isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (isLoginPage) {
+    return (
+      <Login
+        onLogin={(username) => {
+          localStorage.setItem("auth_username", username);
+          setIsAuthenticated(true);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -46,6 +70,12 @@ function AppContent() {
       <Sidebar 
         isCollapsed={isSidebarCollapsed}
         onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onLogout={() => {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          localStorage.removeItem("auth_username");
+          setIsAuthenticated(false);
+        }}
         isMobileMenuOpen={isMobileMenuOpen}
         onMobileMenuClose={() => setIsMobileMenuOpen(false)}
       />
@@ -74,6 +104,7 @@ function AppContent() {
       >
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/login" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/profile" element={<AircraftFleetProfile />} />
           <Route path="/profile/:id" element={<AircraftDetail />} />
