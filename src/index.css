@@ -2644,6 +2644,36 @@ html {
   background: #ffffff26;
 }
 
+/* Calendar input styling to match the desired native design */
+input[type="date"] {
+  color-scheme: light;
+  min-height: 42px;
+  padding-inline: .75rem;
+  padding-right: 2.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background-color: #fff;
+  color: #111827;
+  line-height: 1.25rem;
+}
+
+input[type="date"]:focus {
+  outline: none !important;
+  border-color: #9ca3af !important;
+  box-shadow: 0 0 0 2px #9ca3af40 !important;
+}
+
+input[type="date"]::-webkit-datetime-edit {
+  color: inherit;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 1;
+  padding: 2px;
+  margin-right: -2px;
+}
+
 @property --tw-translate-x {
   syntax: "*";
   inherits: false;
