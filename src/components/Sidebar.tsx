@@ -1,14 +1,15 @@
-import { LayoutGrid, Plane, Calendar, Bell, ChevronLeft, ChevronRight, X, FileText, FolderOpen, Award, Settings } from 'lucide-react';
+import { LayoutGrid, Plane, Calendar, Bell, ChevronLeft, ChevronRight, X, FileText, FolderOpen, Award, Settings, LogOut } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
+  onLogout?: () => void;
   isMobileMenuOpen?: boolean;
   onMobileMenuClose?: () => void;
 }
 
-export function Sidebar({ isCollapsed, onToggle, isMobileMenuOpen = false, onMobileMenuClose }: SidebarProps) {
+export function Sidebar({ isCollapsed, onToggle, onLogout, isMobileMenuOpen = false, onMobileMenuClose }: SidebarProps) {
   const location = useLocation();
 
   const menuItems = [
@@ -101,6 +102,15 @@ export function Sidebar({ isCollapsed, onToggle, isMobileMenuOpen = false, onMob
 
       {/* Toggle Button - Hidden on Mobile */}
       <div className="p-4 border-t border-gray-100 hidden lg:block">
+        <button
+          onClick={onLogout}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-red-600 hover:bg-red-50 transition-all mb-2`}
+          title={isCollapsed ? 'Logout' : undefined}
+        >
+          <LogOut className="w-[18px] h-[18px]" />
+          {!isCollapsed && <span className="text-sm">Logout</span>}
+        </button>
+
         <button
           onClick={onToggle}
           className={`w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-gray-700 hover:bg-gray-50 transition-all`}

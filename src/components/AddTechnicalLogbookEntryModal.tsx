@@ -2236,10 +2236,10 @@ export function AddTechnicalLogbookEntryModal({
                             });
                           }
                         }}
-                        className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                        className={`w-full px-3 py-2 border rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 ${
                           validationErrors.offBlocksDate
                             ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                            : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            : "border-gray-300 focus:ring-blue-500 focus:border-transparent"
                         }`}
                       />
                       {validationErrors.offBlocksDate && (
@@ -2316,7 +2316,7 @@ export function AddTechnicalLogbookEntryModal({
                             onBlocksDate: e.target.value,
                           })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                     <div>
@@ -3619,7 +3619,7 @@ export function AddTechnicalLogbookEntryModal({
                           pilotAcceptDate: e.target.value,
                         })
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
@@ -3781,7 +3781,7 @@ export function AddTechnicalLogbookEntryModal({
                           rtsDate: e.target.value,
                         })
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>

@@ -397,7 +397,7 @@ export function ADWorkOrders() {
                   </div>
                   <div>
                     <label className="block text-gray-700 text-xs mb-1.5">Date</label>
-                    <input type="date" value={formData.lastDoneDate} onChange={(e) => setFormData({ ...formData, lastDoneDate: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input type="date" value={formData.lastDoneDate} onChange={(e) => setFormData({ ...formData, lastDoneDate: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
                   </div>
                 </div>
               </div>

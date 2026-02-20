@@ -50,7 +50,6 @@ export function AircraftDetail() {
         const mappedAircraft: Aircraft = {
           id: data.id,
           registration: data.registration,
-          type: data.type,
           model: data.model,
           msn: data.msn,
           base: data.base,
@@ -58,16 +57,20 @@ export function AircraftDetail() {
           status: data.status,
           manufacturer: data.manufacturer,
           reportDescription: data.report_description,
-          airframeModel: data.airframe_model,
           airframeServiceManual: data.airframe_service_manual,
-          airframeSerialNumber: data.engine_serial_number,
           airframeIpc: data.airframe_ipc,
 
           engineModel: data.engine_model,
           engineSerialNumber: data.engine_serial_number,
+          engineLifeTimeLimit: Number(
+            data.engine_life_time_limit ?? data.life_time_limit_engine ?? 0
+          ),
           engineArc: data?.engine_arc?.replace("uploads/", ""),
           propellerModel: data.propeller_model,
           propellerSerialNumber: data.propeller_serial_number,
+          propellerLifeTimeLimit: Number(
+            data.propeller_life_time_limit ?? data.life_time_limit_propeller ?? 0
+          ),
           propellerArc: data?.propeller_arc?.replace("uploads/", ""),
         };
         setEngineARCFileName(data?.engine_arc?.replace("uploads/", ""));
@@ -88,28 +91,35 @@ export function AircraftDetail() {
   };
 
   const handleSaveEdit = async () => {
+    const toOptionalFloat = (value: unknown): number | null => {
+      if (value === null || value === undefined || value === "") return null;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    };
+
     const updatedData = {
       registration: editAircraft?.registration,
       manufacturer: editAircraft?.manufacturer,
       report_description: editAircraft?.reportDescription,
-      type: editAircraft?.type,
       model: editAircraft?.model,
       msn: editAircraft?.msn,
       base: editAircraft?.base,
       ownership: editAircraft?.ownership,
       status: editAircraft?.status,
 
-      airframe_model: editAircraft?.airframeModel,
       airframe_service_manual: editAircraft?.airframeServiceManual,
-      airframe_serial_number: editAircraft?.airframeSerialNumber,
       airframe_ipc: editAircraft?.airframeIpc,
 
       engine_model: editAircraft?.engineModel,
       engine_serial_number: editAircraft?.engineSerialNumber,
+      engine_life_time_limit: toOptionalFloat(editAircraft?.engineLifeTimeLimit),
       // engine_arc: editAircraft?.engineArc,
 
       propeller_model: editAircraft?.propellerModel,
       propeller_serial_number: editAircraft?.propellerSerialNumber,
+      propeller_life_time_limit: toOptionalFloat(
+        editAircraft?.propellerLifeTimeLimit
+      ),
       // propeller_arc: editAircraft?.propellerArc,
     };
 
@@ -267,23 +277,6 @@ export function AircraftDetail() {
                 Aircraft Information
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 sm:gap-x-8 gap-y-4 sm:gap-y-5">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1.5">Aircraft Type</p>
-                  {isEditMode ? (
-                    <input
-                      type="text"
-                      value={editAircraft?.type ?? ""}
-                      onChange={(e) =>
-                        handleInputChange("type", e.target.value)
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  ) : (
-                    <p className="text-gray-900">
-                      {aircraft.type ? aircraft.type : "N/A"}
-                    </p>
-                  )}
-                </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Model</p>
                   {isEditMode ? (
@@ -487,6 +480,29 @@ export function AircraftDetail() {
                   )}
                 </div>
                 <div>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Engine Life Time Limit
+                  </p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editAircraft?.engineLifeTimeLimit ?? 0}
+                      onChange={(e) =>
+                        handleInputChange("engineLifeTimeLimit", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.engineLifeTimeLimit || aircraft.engineLifeTimeLimit === 0
+                        ? aircraft.engineLifeTimeLimit
+                        : "N/A"}
+                    </p>
+                  )}
+                </div>
+                <div>
                   <p className="text-xs text-gray-500 mb-1.5">Engine ARC</p>
                   <div>
                     <div className="relative">
@@ -574,6 +590,33 @@ export function AircraftDetail() {
                     <p className="text-gray-900">
                       {aircraft.propellerSerialNumber
                         ? aircraft.propellerSerialNumber
+                        : "N/A"}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Propeller Life Time Limit
+                  </p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editAircraft?.propellerLifeTimeLimit ?? 0}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "propellerLifeTimeLimit",
+                          e.target.value
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.propellerLifeTimeLimit ||
+                      aircraft.propellerLifeTimeLimit === 0
+                        ? aircraft.propellerLifeTimeLimit
                         : "N/A"}
                     </p>
                   )}
