@@ -17,12 +17,12 @@ import { useState, useEffect, useRef } from "react";
 import Swal from "sweetalert2";
 import { Spinner } from "../components/ui/spinner";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
+import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import {
   getAircraftTechnicalLogs,
   getAircraftTechnicalLogById,
   createAircraftTechnicalLog,
-  updateAircraftTechnicalLog,
   deleteAircraftTechnicalLog,
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
@@ -256,20 +256,10 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
-  // Handle edit entry - fetch full details
-  const handleEditEntry = async (entry: LogbookEntry) => {
-    try {
-      const fullEntry = await getAircraftTechnicalLogById(entry.id);
-      setSelectedFullEntry(fullEntry);
-      setSelectedEntry(entry);
-      setIsEditModalOpen(true);
-    } catch (err: any) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "Failed to fetch entry details"
-      );
-    }
+  // Handle edit entry – Edit modal fetches full details via READ
+  const handleEditEntry = (entry: LogbookEntry) => {
+    setSelectedEntry(entry);
+    setIsEditModalOpen(true);
   };
 
   // Handle delete entry
@@ -641,24 +631,26 @@ export function AircraftTechnicalLogbook() {
         </>
       )}
 
-      {/* Add Entry Modal */}
+      {/* Add Entry Modal – CREATE */}
       <AddTechnicalLogbookEntryModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleCreateSuccess}
       />
 
-      {/* Edit Entry Modal */}
-      <AddTechnicalLogbookEntryModal
-        isOpen={isEditModalOpen}
-        onClose={() => {
-          setIsEditModalOpen(false);
-          setSelectedEntry(null);
-          setSelectedFullEntry(null);
-        }}
-        onSuccess={handleUpdateSuccess}
-        editEntry={selectedFullEntry}
-      />
+      {/* Edit Entry Modal – READ + UPDATE */}
+      {selectedEntry && (
+        <EditTechnicalLogbookEntryModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setSelectedEntry(null);
+            setSelectedFullEntry(null);
+          }}
+          onSuccess={handleUpdateSuccess}
+          entryId={selectedEntry.id}
+        />
+      )}
 
       {/* View Entry Modal */}
       <ViewTechnicalLogbookEntryModal

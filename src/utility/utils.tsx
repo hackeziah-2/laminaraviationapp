@@ -85,3 +85,30 @@ export function formatTimeZuluMilitary(timeStr: string | undefined | null): stri
   if (formatted === "-") return "-";
   return formatted.replace(":", "");
 }
+
+/**
+ * Compute total block time from origin and destination times (HHMM format).
+ * @returns Time in H:MM format or "0" if invalid/empty
+ */
+export function computeTotalBlockTime(
+  originTime: string | undefined,
+  destinationTime: string | undefined
+): string {
+  if (!originTime || !destinationTime) return "0";
+  const parseMinutes = (t: string): number => {
+    const cleaned = String(t).replace(/[: ]/g, "");
+    if (cleaned.length !== 4 || !/^\d{4}$/.test(cleaned)) return -1;
+    const h = parseInt(cleaned.substring(0, 2), 10);
+    const m = parseInt(cleaned.substring(2, 4), 10);
+    if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+    return h * 60 + m;
+  };
+  const start = parseMinutes(originTime);
+  const end = parseMinutes(destinationTime);
+  if (start === -1 || end === -1) return "0";
+  let diff = end - start;
+  if (diff < 0) diff += 1440;
+  const hrs = Math.floor(diff / 60);
+  const mins = diff % 60;
+  return `${hrs}:${mins.toString().padStart(2, "0")}`;
+}

@@ -289,6 +289,7 @@ export const getAircraftTechnicalLogs = async (
         const result: any = {};
         for (const key in obj) {
           const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          console.log(camel, "camelcamelcamelcamel");
           result[camel] = transformToCamel(obj[key]);
         }
         return result;
@@ -363,7 +364,12 @@ export const searchAircraftTechnicalLogBySequence = async (
     const data = response.data?.data ?? response.data;
     let raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
     if (!Array.isArray(raw) || raw.length === 0) {
-      if (data && typeof data === "object" && !Array.isArray(data) && data.sequence_no != null) {
+      if (
+        data &&
+        typeof data === "object" &&
+        !Array.isArray(data) &&
+        data.sequence_no != null
+      ) {
         raw = [data];
       }
     }

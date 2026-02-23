@@ -129,6 +129,30 @@ export function ViewTechnicalLogbookEntryModal({
     return result === "-" ? "N/A" : result;
   };
 
+  // Total Flight hours = Destination - Origin (else 0)
+  const computeTotalBlockTime = (
+    originTime: string | undefined,
+    destinationTime: string | undefined
+  ): string => {
+    if (!originTime || !destinationTime) return "0";
+    const parseMinutes = (t: string): number => {
+      const cleaned = String(t).replace(/[: ]/g, "");
+      if (cleaned.length !== 4 || !/^\d{4}$/.test(cleaned)) return -1;
+      const h = parseInt(cleaned.substring(0, 2), 10);
+      const m = parseInt(cleaned.substring(2, 4), 10);
+      if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
+      return h * 60 + m;
+    };
+    const start = parseMinutes(originTime);
+    const end = parseMinutes(destinationTime);
+    if (start === -1 || end === -1) return "0";
+    let diff = end - start;
+    if (diff < 0) diff += 1440;
+    const hrs = Math.floor(diff / 60);
+    const mins = diff % 60;
+    return `${hrs}:${mins.toString().padStart(2, "0")}`;
+  };
+
   // Format airframe/engine/propeller time (number or string) for display
   const formatComponentTime = (value: number | string | undefined | null): string => {
     if (value == null || value === "") return "-";
@@ -174,10 +198,10 @@ export function ViewTechnicalLogbookEntryModal({
           ? formatTimeZulu(entryData.destinationTime)
           : "N/A",
         onBlocksStation: displayValue(entryData.destinationStation),
-        totalFlightTime:
-          entryData.hobbsMeterTotal || entryData.tachometerTotal
-            ? `${entryData.hobbsMeterTotal || entryData.tachometerTotal || 0}h`
-            : "N/A",
+        totalFlightTime: computeTotalBlockTime(
+          entryData.originTime,
+          entryData.destinationTime
+        ),
         numberOfLandings: displayValue(entryData.numberOfLandings),
         // Fuel
         fuelQtyLeftUpliftQty: displayValue(entryData.fuelQtyLeftUpliftQty),
@@ -494,30 +518,38 @@ export function ViewTechnicalLogbookEntryModal({
                 </div>
               </div>
 
-              {/* Route & Total Flight Time & Landings */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-gray-600 text-sm mb-1">
-                    Route
-                  </label>
-                  <p className="text-gray-900">{displayValue(entry.route)}</p>
-                </div>
-                <div>
-                  <label className="block text-gray-600 text-sm mb-1">
-                    Total Flight Time
-                  </label>
-                  <p className="text-gray-900">
-                    {displayValue(detailData.totalFlightTime)}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-gray-600 text-sm mb-1">
-                    Number of Landings
-                  </label>
-                  <p className="text-gray-900">
-                    {displayValue(detailData.numberOfLandings)}
-                  </p>
-                </div>
+              {/* Route */}
+              <div className="mb-4">
+                <label className="block text-gray-600 text-sm mb-1">
+                  Route
+                </label>
+                <p className="text-gray-900">{displayValue(entry.route)}</p>
+              </div>
+
+              {/* Total Flight hours (Destination - Origin, else 0) & Number of Landings */}
+              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white mb-6">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="bg-gray-100 border-b border-gray-300">
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        Total Flight hours
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-gray-900">
+                        Number of Landings
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-4 py-2 border-r border-gray-300 text-gray-900">
+                        {displayValue(detailData.totalFlightTime)}
+                      </td>
+                      <td className="px-4 py-2 text-gray-900">
+                        {displayValue(detailData.numberOfLandings)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
 
               {/* Fuel & Oil Section - Table Format */}
@@ -563,7 +595,29 @@ export function ViewTechnicalLogbookEntryModal({
                   </thead>
                   <tbody>
                     <tr>
-                      {/* Row label */}
+                      {/* Row label - LEFT first (aviation convention) */}
+                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                        LEFT
+                      </td>
+                      {/* FUEL - UPLIFT QTY LEFT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyLeftUpliftQty)}
+                      </td>
+                      {/* FUEL - PRIOR DEPARTURE LEFT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyLeftPriorDeparture)}
+                      </td>
+                      {/* FUEL - AFTER ON-BLKS LEFT */}
+                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
+                        {displayValue(detailData.fuelQtyLeftAfterOnBlks)}
+                      </td>
+                      {/* OIL - Empty cells for alignment */}
+                      <td className="px-3 py-2 border-r border-gray-300"></td>
+                      <td className="px-3 py-2 border-r border-gray-300"></td>
+                      <td className="px-3 py-2"></td>
+                    </tr>
+                    <tr>
+                      {/* Row label - RIGHT */}
                       <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
                         RIGHT
                       </td>
@@ -591,28 +645,6 @@ export function ViewTechnicalLogbookEntryModal({
                       <td className="px-3 py-2 text-center text-gray-900">
                         {displayValue(detailData.oilQtyAfterOnBlks)}
                       </td>
-                    </tr>
-                    <tr>
-                      {/* Row label */}
-                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
-                        LEFT
-                      </td>
-                      {/* FUEL - UPLIFT QTY LEFT */}
-                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
-                        {displayValue(detailData.fuelQtyLeftUpliftQty)}
-                      </td>
-                      {/* FUEL - PRIOR DEPARTURE LEFT */}
-                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
-                        {displayValue(detailData.fuelQtyLeftPriorDeparture)}
-                      </td>
-                      {/* FUEL - AFTER ON-BLKS LEFT */}
-                      <td className="px-3 py-2 text-center text-gray-900 border-r border-gray-300">
-                        {displayValue(detailData.fuelQtyLeftAfterOnBlks)}
-                      </td>
-                      {/* OIL - Empty cells for alignment */}
-                      <td className="px-3 py-2 border-r border-gray-300"></td>
-                      <td className="px-3 py-2 border-r border-gray-300"></td>
-                      <td className="px-3 py-2"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -869,11 +901,6 @@ export function ViewTechnicalLogbookEntryModal({
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerTsn ?? "-"}</td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerTso ?? "-"}</td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerTbo ?? "-"}</td>
-                      </tr>
-                      <tr>
-                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100" colSpan={2}>Life time limit</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900" colSpan={4}>{detailData.lifeTimeLimitEngine ?? "-"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900" colSpan={4}>{detailData.lifeTimeLimitPropeller ?? "-"}</td>
                       </tr>
                     </tbody>
                   </table>
