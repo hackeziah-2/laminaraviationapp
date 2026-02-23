@@ -50,7 +50,12 @@ export function formatTimeZulu(timeStr: string | undefined | null): string {
       // Validate hours (0-23) and minutes (0-59)
       const hoursNum = parseInt(hours, 10);
       const minutesNum = parseInt(minutes, 10);
-      if (hoursNum >= 0 && hoursNum <= 23 && minutesNum >= 0 && minutesNum <= 59) {
+      if (
+        hoursNum >= 0 &&
+        hoursNum <= 23 &&
+        minutesNum >= 0 &&
+        minutesNum <= 59
+      ) {
         return `${hours}:${minutes}`;
       }
     }
@@ -64,7 +69,12 @@ export function formatTimeZulu(timeStr: string | undefined | null): string {
         // Validate hours (0-23) and minutes (0-59)
         const hoursNum = parseInt(hours, 10);
         const minutesNum = parseInt(minutes, 10);
-        if (hoursNum >= 0 && hoursNum <= 23 && minutesNum >= 0 && minutesNum <= 59) {
+        if (
+          hoursNum >= 0 &&
+          hoursNum <= 23 &&
+          minutesNum >= 0 &&
+          minutesNum <= 59
+        ) {
           return `${hours}:${minutes}`;
         }
       }
@@ -80,14 +90,66 @@ export function formatTimeZulu(timeStr: string | undefined | null): string {
  * Format time for VIEW as military time (24-hour, 4 digits HHMM, no colon)
  * e.g. "14:30" -> "1430", "23:17" -> "2317"
  */
-export function formatTimeZuluMilitary(timeStr: string | undefined | null): string {
+export function formatTimeZuluMilitary(
+  timeStr: string | undefined | null
+): string {
   const formatted = formatTimeZulu(timeStr);
   if (formatted === "-") return "-";
   return formatted.replace(":", "");
 }
 
 /**
- * Compute total block time from origin and destination times (HHMM format).
+ * Parse Zulu time to minutes since midnight.
+ * Supports: HH:MM, HHMM, HH:MM:SS, HHMMSS, full ISO (YYYY-MM-DDTHH:MM:SS).
+ */
+function parseZuluTimeToMinutes(t: string): number {
+  const s = String(t || "").trim();
+  if (!s) return -1;
+
+  // Full ISO or datetime: extract time part
+  const isoMatch = s.match(/T(\d{1,2}):?(\d{2})(?::?(\d{2}))?/);
+  if (isoMatch) {
+    const h = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+  }
+
+  // Time-only: HH:MM, HH:MM:SS, HHMM, HHMMSS
+  const cleaned = s.replace(/[Z\s]/g, "").replace(/:/g, "");
+  const digits = cleaned.replace(/\D/g, "");
+  if (digits.length >= 4) {
+    const h = parseInt(digits.slice(0, 2), 10);
+    const m = parseInt(digits.slice(2, 4), 10);
+    if (h >= 0 && h <= 23 && m >= 0 && m <= 59) return h * 60 + m;
+  }
+
+  return -1;
+}
+
+/**
+ * Compute total flight time (decimal hours) from origin and destination Zulu times.
+ * Formula: DESTINATION TIME - ORIGIN TIME
+ * @returns Decimal hours (e.g. 2.25) or 0 if invalid/empty
+ */
+export function computeTotalFlightHoursDecimal(
+  originTime?: string,
+  destinationTime?: string
+): number {
+  if (!originTime || !destinationTime) return 0;
+
+  const start = parseZuluTimeToMinutes(originTime);
+  const end = parseZuluTimeToMinutes(destinationTime);
+  if (start === -1 || end === -1) return 0;
+
+  let diff = end - start;
+  if (diff < 0) diff += 1440;
+
+  return Math.round((diff / 60) * 100) / 100;
+}
+
+/**
+ * Compute total block time from origin and destination Zulu times.
+ * Formula: DESTINATION TIME - ORIGIN TIME
  * @returns Time in H:MM format or "0" if invalid/empty
  */
 export function computeTotalBlockTime(
@@ -95,19 +157,14 @@ export function computeTotalBlockTime(
   destinationTime: string | undefined
 ): string {
   if (!originTime || !destinationTime) return "0";
-  const parseMinutes = (t: string): number => {
-    const cleaned = String(t).replace(/[: ]/g, "");
-    if (cleaned.length !== 4 || !/^\d{4}$/.test(cleaned)) return -1;
-    const h = parseInt(cleaned.substring(0, 2), 10);
-    const m = parseInt(cleaned.substring(2, 4), 10);
-    if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
-    return h * 60 + m;
-  };
-  const start = parseMinutes(originTime);
-  const end = parseMinutes(destinationTime);
+
+  const start = parseZuluTimeToMinutes(originTime);
+  const end = parseZuluTimeToMinutes(destinationTime);
   if (start === -1 || end === -1) return "0";
+
   let diff = end - start;
   if (diff < 0) diff += 1440;
+
   const hrs = Math.floor(diff / 60);
   const mins = diff % 60;
   return `${hrs}:${mins.toString().padStart(2, "0")}`;

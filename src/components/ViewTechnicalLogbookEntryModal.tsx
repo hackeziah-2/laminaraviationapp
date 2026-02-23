@@ -5,7 +5,10 @@ import {
   getAircraftTechnicalLogById,
 } from "../api/aircraftTechnicalLogApi";
 import { Spinner } from "./ui/spinner";
-import { formatTimeZuluMilitary } from "../utility/utils";
+import {
+  formatTimeZuluMilitary,
+  computeTotalBlockTime,
+} from "../utility/utils";
 
 interface LogbookEntry {
   id: number;
@@ -129,30 +132,6 @@ export function ViewTechnicalLogbookEntryModal({
     return result === "-" ? "N/A" : result;
   };
 
-  // Total Flight hours = Destination - Origin (else 0)
-  const computeTotalBlockTime = (
-    originTime: string | undefined,
-    destinationTime: string | undefined
-  ): string => {
-    if (!originTime || !destinationTime) return "0";
-    const parseMinutes = (t: string): number => {
-      const cleaned = String(t).replace(/[: ]/g, "");
-      if (cleaned.length !== 4 || !/^\d{4}$/.test(cleaned)) return -1;
-      const h = parseInt(cleaned.substring(0, 2), 10);
-      const m = parseInt(cleaned.substring(2, 4), 10);
-      if (h < 0 || h > 23 || m < 0 || m > 59) return -1;
-      return h * 60 + m;
-    };
-    const start = parseMinutes(originTime);
-    const end = parseMinutes(destinationTime);
-    if (start === -1 || end === -1) return "0";
-    let diff = end - start;
-    if (diff < 0) diff += 1440;
-    const hrs = Math.floor(diff / 60);
-    const mins = diff % 60;
-    return `${hrs}:${mins.toString().padStart(2, "0")}`;
-  };
-
   // Format airframe/engine/propeller time (number or string) for display
   const formatComponentTime = (value: number | string | undefined | null): string => {
     if (value == null || value === "") return "-";
@@ -220,13 +199,21 @@ export function ViewTechnicalLogbookEntryModal({
         oilQtyUpliftQty: displayValue(entryData.oilQtyUpliftQty),
         oilQtyPriorDeparture: displayValue(entryData.oilQtyPriorDeparture),
         oilQtyAfterOnBlks: displayValue(entryData.oilQtyAfterOnBlks),
-        // Tachometer & Hobbs
+        // Tachometer & Hobbs (tachometerTotal = end - start; hobbsMeterTotal = end - start)
         tachometerStart: displayValue(entryData.tachometerStart),
         tachometerEnd: displayValue(entryData.tachometerEnd),
-        tachometerTotal: displayValue(entryData.tachometerTotal),
+        tachometerTotal: displayValue(
+          entryData.tachometerStart != null && entryData.tachometerEnd != null
+            ? entryData.tachometerEnd - entryData.tachometerStart
+            : entryData.tachometerTotal
+        ),
         hobbsMeterStart: displayValue(entryData.hobbsMeterStart),
         hobbsMeterEnd: displayValue(entryData.hobbsMeterEnd),
-        hobbsMeterTotal: displayValue(entryData.hobbsMeterTotal),
+        hobbsMeterTotal: displayValue(
+          entryData.hobbsMeterStart != null && entryData.hobbsMeterEnd != null
+            ? entryData.hobbsMeterEnd - entryData.hobbsMeterStart
+            : entryData.hobbsMeterTotal
+        ),
         // Inspection & Service
         nextInspectionDue: displayValue(entryData.nextInspectionDue),
         returnToServiceHrs: displayValue(entryData.tachTimeDue),

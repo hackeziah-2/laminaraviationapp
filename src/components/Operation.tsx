@@ -31,6 +31,7 @@ import {
   toCamel,
   formatTimeZulu,
   computeTotalBlockTime,
+  computeTotalFlightHoursDecimal,
 } from "../utility/utils";
 import { getAllAccounts, Account } from "../api/accountApi";
 
@@ -1028,34 +1029,46 @@ export function Operation() {
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterStart
+                                  {record.hobbsMeterStart != null
                                     ? record.hobbsMeterStart.toFixed(1)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterEnd
+                                  {record.hobbsMeterEnd != null
                                     ? record.hobbsMeterEnd.toFixed(1)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterTotal
-                                    ? record.hobbsMeterTotal.toFixed(1)
-                                    : "-"}
+                                  {record.hobbsMeterStart != null &&
+                                  record.hobbsMeterEnd != null
+                                    ? (
+                                        record.hobbsMeterEnd -
+                                        record.hobbsMeterStart
+                                      ).toFixed(1)
+                                    : record.hobbsMeterTotal != null
+                                      ? record.hobbsMeterTotal.toFixed(1)
+                                      : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerStart
+                                  {record.tachometerStart != null
                                     ? record.tachometerStart.toFixed(1)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerEnd
+                                  {record.tachometerEnd != null
                                     ? record.tachometerEnd.toFixed(1)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerTotal
-                                    ? record.tachometerTotal.toFixed(1)
-                                    : "-"}
+                                  {record.tachometerStart != null &&
+                                  record.tachometerEnd != null
+                                    ? (
+                                        record.tachometerEnd -
+                                        record.tachometerStart
+                                      ).toFixed(1)
+                                    : record.tachometerTotal != null
+                                      ? record.tachometerTotal.toFixed(1)
+                                      : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.airframeRunTime != null
@@ -1894,10 +1907,9 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: `${(
-              selectedEntry.hobbsMeterTotal ||
-              selectedEntry.tachometerTotal ||
-              0
+            fltTime: `${computeTotalFlightHoursDecimal(
+              selectedEntry.originTime,
+              selectedEntry.destinationTime
             ).toFixed(2)}h`,
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
             status: "Serviceable",
