@@ -396,15 +396,41 @@ export const searchAircraftTechnicalLogBySequence = async (
   }
 };
 
+/** Optional file uploads for WHITE ATL and DFP (multipart) */
+export interface AircraftTechnicalLogFiles {
+  whiteAtl?: File | null;
+  dfp?: File | null;
+}
+
 /**
  * Create a new Aircraft Technical Log entry.
  * Persists to database via POST /api/v1/aircraft-technical-log/
+ * When files are provided, sends multipart/form-data with json_data + white_atl and dfp file fields.
  * ATL table fields (airframe_run_time, airframe_aftt, engine_*, propeller_*, life_time_limit_engine, life_time_limit_propeller) are stored when sent in the payload.
  */
 export const createAircraftTechnicalLog = async (
-  data: AircraftTechnicalLogCreate
+  data: AircraftTechnicalLogCreate | Record<string, unknown>,
+  files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
+    const hasFiles =
+      files &&
+      (files.whiteAtl instanceof File || files.dfp instanceof File);
+    if (hasFiles) {
+      const formData = new FormData();
+      formData.append("json_data", JSON.stringify(data));
+      if (files.whiteAtl instanceof File) {
+        formData.append("white_atl", files.whiteAtl);
+      }
+      if (files.dfp instanceof File) {
+        formData.append("dfp", files.dfp);
+      }
+      const response = await apiClient.post("aircraft-technical-log/", formData, {
+        headers: { Accept: "application/json" },
+        // Do not set Content-Type — browser sets multipart/form-data with boundary
+      });
+      return toCamel(response.data);
+    }
     const response = await apiClient.post("aircraft-technical-log/", data);
     return toCamel(response.data);
   } catch (error) {
@@ -415,14 +441,15 @@ export const createAircraftTechnicalLog = async (
 /**
  * Update an Aircraft Technical Log entry.
  * Persists to database via PUT /api/v1/aircraft-technical-log/{id}
+ * When files are provided, sends multipart/form-data with json_data + white_atl and dfp file fields.
  * ATL table fields are updated when sent in the payload.
  */
 export const updateAircraftTechnicalLog = async (
   logId: number,
-  data: AircraftTechnicalLogUpdate
+  data: AircraftTechnicalLogUpdate | Record<string, unknown>,
+  files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    // Transform the response to camelCase (recursively handle nested objects and arrays)
     const transformToCamel = (obj: any): any => {
       if (Array.isArray(obj)) {
         return obj.map(transformToCamel);
@@ -437,6 +464,28 @@ export const updateAircraftTechnicalLog = async (
       }
       return obj;
     };
+
+    const hasFiles =
+      files &&
+      (files.whiteAtl instanceof File || files.dfp instanceof File);
+    if (hasFiles) {
+      const formData = new FormData();
+      formData.append("json_data", JSON.stringify(data));
+      if (files.whiteAtl instanceof File) {
+        formData.append("white_atl", files.whiteAtl);
+      }
+      if (files.dfp instanceof File) {
+        formData.append("dfp", files.dfp);
+      }
+      const response = await apiClient.put(
+        `aircraft-technical-log/${logId}`,
+        formData,
+        {
+          headers: { Accept: "application/json" },
+        }
+      );
+      return transformToCamel(response.data);
+    }
 
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,

@@ -117,6 +117,7 @@ export function Operation() {
     setFileViewError(null);
     setFileViewBlobUrl(null);
     setFileViewMimeType(null);
+    setShowFileViewModal(true);
     let filePath = filename.trim().replace(/^\/+/, "");
     filePath = filePath.replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${filePath}`;
@@ -134,40 +135,16 @@ export function Operation() {
       const mimeType = isOctetStream
         ? getMimeFromFilename(filePath)
         : serverType;
-      const isImage =
-        mimeType &&
-        (mimeType.startsWith("image/") ||
-          mimeType === "image/jpeg" ||
-          mimeType === "image/jpg");
-      if (isImage) {
-        setFileViewBlobUrl(url);
-        setFileViewMimeType(mimeType);
-        setShowFileViewModal(true);
-      } else {
-        const result = await Swal.fire({
-          icon: "info",
-          title: "Cannot view file",
-          text: "This File cannot be viewed. Please download the file to see it.",
-          showCancelButton: true,
-          confirmButtonText: "Yes",
-          cancelButtonText: "No",
-        });
-        if (result.isConfirmed) {
-          const downloadName = filePath.split("/").pop() || "download";
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = downloadName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }
-        window.URL.revokeObjectURL(url);
-      }
+      setFileViewBlobUrl(url);
+      setFileViewMimeType(mimeType ?? null);
+      setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
       setFileViewError(
         err?.response?.data?.detail || err?.message || "Failed to open file."
       );
+      setFileViewBlobUrl(null);
+      setFileViewMimeType(null);
     } finally {
       setFileViewLoading(false);
     }
@@ -677,7 +654,7 @@ export function Operation() {
                               HOBBS METER
                             </th>
                             <th
-                              colSpan={2}
+                              colSpan={3}
                               className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
                               TACHOMETER
@@ -773,13 +750,11 @@ export function Operation() {
                               RETURN TO SERVICE
                             </th>
                             <th
-                              colSpan={3}
+                              colSpan={5}
                               className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
                               PILOT'S ACCEPTANCE
                             </th>
-                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"></th>
-                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 bg-gray-200 whitespace-nowrap"></th>
                           </tr>
                           <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -808,6 +783,9 @@ export function Operation() {
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               TACH END
+                            </th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                              TOTAL
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               HRS
@@ -1046,8 +1024,8 @@ export function Operation() {
                                         record.hobbsMeterStart
                                       ).toFixed(1)
                                     : record.hobbsMeterTotal != null
-                                      ? record.hobbsMeterTotal.toFixed(1)
-                                      : "-"}
+                                    ? record.hobbsMeterTotal.toFixed(1)
+                                    : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.tachometerStart != null
@@ -1067,8 +1045,8 @@ export function Operation() {
                                         record.tachometerStart
                                       ).toFixed(1)
                                     : record.tachometerTotal != null
-                                      ? record.tachometerTotal.toFixed(1)
-                                      : "-"}
+                                    ? record.tachometerTotal.toFixed(1)
+                                    : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.airframeRunTime != null
@@ -1244,28 +1222,30 @@ export function Operation() {
                                   {formatTimeZulu(record.rtsTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.pilotAcceptedBy &&
-                                  accountsMap.has(record.pilotAcceptedBy) ? (
-                                    <>
-                                      {
-                                        accountsMap.get(record.pilotAcceptedBy)!
-                                          .fullName
-                                      }
-                                      <br />
-                                      {
-                                        accountsMap.get(record.pilotAcceptedBy)!
-                                          .licenseNo
-                                      }
-                                    </>
-                                  ) : (
-                                    "-"
-                                  )}
+                                  {(() => {
+                                    const pilotId =
+                                      record.pilotAcceptedBy ?? record.pilotFk;
+                                    return pilotId &&
+                                      accountsMap.has(pilotId) ? (
+                                      <>
+                                        {accountsMap.get(pilotId)!.fullName}
+                                        <br />
+                                        {accountsMap.get(pilotId)!.licenseNo}
+                                      </>
+                                    ) : (
+                                      "-"
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.pilotAcceptDate || "-"}
+                                  {record.pilotAcceptDate?.trim()
+                                    ? record.pilotAcceptDate
+                                    : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.pilotAcceptTime)}
+                                  {record.pilotAcceptTime?.trim()
+                                    ? formatTimeZulu(record.pilotAcceptTime)
+                                    : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {record.whiteAtl &&

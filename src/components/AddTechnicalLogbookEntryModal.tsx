@@ -1550,8 +1550,15 @@ export function AddTechnicalLogbookEntryModal({
         rtsTime: formData.rtsTime
           ? convertTimeToAPIFormat(formData.rtsTime)
           : undefined,
-        whiteAtl: formData.whiteAtl ? formData.whiteAtl.name : undefined,
-        dfp: formData.dfp ? formData.dfp.name : undefined,
+        // When uploading new file: omit from JSON (sent via multipart). When editing without new file: keep existing path.
+        whiteAtl:
+          formData.whiteAtl instanceof File
+            ? undefined
+            : (editEntry?.whiteAtl ?? undefined),
+        dfp:
+          formData.dfp instanceof File
+            ? undefined
+            : (editEntry?.dfp ?? undefined),
         componentParts: componentRecords.map((record) => ({
           qty: parseFloat(record.qty) || 0,
           unit: record.unit,
@@ -1567,11 +1574,20 @@ export function AddTechnicalLogbookEntryModal({
       // Convert camelCase to snake_case before sending to API
       const apiDataSnake = snakeAllKeys(apiDataCamel);
 
+      const files =
+        formData.whiteAtl instanceof File || formData.dfp instanceof File
+          ? {
+              whiteAtl: formData.whiteAtl instanceof File ? formData.whiteAtl : null,
+              dfp: formData.dfp instanceof File ? formData.dfp : null,
+            }
+          : undefined;
+
       if (editEntry) {
         // Update existing entry
         const updatedEntry = await updateAircraftTechnicalLog(
           editEntry.id,
-          apiDataSnake as AircraftTechnicalLogUpdate
+          apiDataSnake as AircraftTechnicalLogUpdate,
+          files
         );
 
         // Show success message
@@ -1597,7 +1613,8 @@ export function AddTechnicalLogbookEntryModal({
 
       // Create new entry
       const createdEntry = await createAircraftTechnicalLog(
-        apiDataSnake as any
+        apiDataSnake as any,
+        files
       );
 
       // Show success message
@@ -3737,7 +3754,7 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("whiteAtl", e.target.files?.[0] || null)
                     }
                     className="hidden"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
                     htmlFor="white-atl-file"
@@ -3773,7 +3790,7 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("dfp", e.target.files?.[0] || null)
                     }
                     className="hidden"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
                     htmlFor="dfp-file"
