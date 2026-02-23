@@ -718,30 +718,11 @@ export function Operation() {
                               PERSON
                             </th>
                             <th
-                              colSpan={2}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              PARTS REMOVED
-                            </th>
-                            <th
-                              colSpan={2}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              PARTS INSTALLED
-                            </th>
-                            <th
+                              colSpan={6}
                               rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                              className="px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
                             >
-                              NOMENCLATURE
-                            </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              ATA
-                              <br />
-                              CHAPTER
+                              COMPONENT RECORD
                             </th>
                             <th
                               colSpan={3}
@@ -862,18 +843,7 @@ export function Operation() {
                               <br />
                               ON-BLKS
                             </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              P/N
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              S/N
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              P/N
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              S/N
-                            </th>
+
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               NAME
                             </th>
@@ -1153,49 +1123,101 @@ export function Operation() {
                                       }`
                                     : "-"}
                                 </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.componentParts &&
-                                  record.componentParts.length > 0
-                                    ? (record.componentParts[0] as any)
-                                        .removedPartNo || "-"
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.componentParts &&
-                                  record.componentParts.length > 0
-                                    ? (record.componentParts[0] as any)
-                                        .removedSerialNo || "-"
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.componentParts &&
-                                  record.componentParts.length > 0
-                                    ? (record.componentParts[0] as any)
-                                        .installedPartNo || "-"
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.componentParts &&
-                                  record.componentParts.length > 0
-                                    ? (record.componentParts[0] as any)
-                                        .installedSerialNo || "-"
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.componentParts &&
-                                  record.componentParts.length > 0
-                                    ? record.componentParts[0].nomenclature ||
-                                      "-"
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.componentParts &&
-                                  record.componentParts.length > 0
-                                    ? record.componentParts[0].ataChapter ||
-                                      (record.componentParts[0] as any)
-                                        .ata_chapter ||
-                                      "-"
-                                    : "-"}
+                                <td
+                                  colSpan={6}
+                                  className="px-0 py-0 align-top border-r border-gray-200 bg-white"
+                                >
+                                  <table className="w-full border-collapse min-w-full">
+                                    <thead>
+                                      <tr className="bg-gray-200">
+                                        <th
+                                          colSpan={2}
+                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
+                                        >
+                                          PARTS REMOVED
+                                        </th>
+                                        <th
+                                          colSpan={2}
+                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
+                                        >
+                                          PARTS INSTALLED
+                                        </th>
+                                        <th
+                                          rowSpan={2}
+                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
+                                        >
+                                          NOMENCLATURE
+                                        </th>
+                                        <th
+                                          rowSpan={2}
+                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
+                                        >
+                                          ATA CHAPTER
+                                        </th>
+                                      </tr>
+                                      <tr className="bg-white">
+                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                          P/N
+                                        </th>
+                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                          S/N
+                                        </th>
+                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                          P/N
+                                        </th>
+                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                          S/N
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {record.componentParts &&
+                                      record.componentParts.length > 0 ? (
+                                        record.componentParts.map(
+                                          (part: any, idx: number) => (
+                                            <tr
+                                              key={idx}
+                                              className={
+                                                idx % 2 === 0
+                                                  ? "bg-white"
+                                                  : "bg-gray-50"
+                                              }
+                                            >
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {part.removedPartNo ?? "-"}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {part.removedSerialNo ?? "-"}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {part.installedPartNo ?? "-"}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {part.installedSerialNo ?? "-"}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {part.nomenclature ?? "-"}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {part.ataChapter ??
+                                                  part.ata_chapter ??
+                                                  "-"}
+                                              </td>
+                                            </tr>
+                                          )
+                                        )
+                                      ) : (
+                                        <tr>
+                                          <td
+                                            colSpan={6}
+                                            className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
+                                          >
+                                            -
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.rtsSignedBy &&
