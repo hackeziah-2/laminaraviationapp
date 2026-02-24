@@ -277,15 +277,18 @@ export function AircraftFleetProfile() {
     setPropellerARCFile(file);
   };
 
-  const newErrors: { [key: string]: string } = {};
-
   // validate form
   const validate = (): boolean => {
+    const newErrors: { [key: string]: string } = {};
     if (!form.registration.trim())
       newErrors.registration = "Registration is required";
     if (!form.model.trim()) newErrors.model = "Model is required";
     if (!form.msn.trim()) newErrors.msn = "MSN is required";
     if (!form.base.trim()) newErrors.base = "Base location is required";
+    if (form.engineLifeTimeLimit.trim() === "" || form.engineLifeTimeLimit == null)
+      newErrors.engineLifeTimeLimit = "Engine Life Time Limit (life_time_limit_engine) is required";
+    if (form.propellerLifeTimeLimit.trim() === "" || form.propellerLifeTimeLimit == null)
+      newErrors.propellerLifeTimeLimit = "Propeller Life Time Limit (life_time_limit_propeller) is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -937,7 +940,7 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Engine Life Time Limit
+                        Engine Life Time Limit <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -948,8 +951,11 @@ export function AircraftFleetProfile() {
                           handleChange("engineLifeTimeLimit", e.target.value)
                         }
                         placeholder="e.g., 12000.50"
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${errors.engineLifeTimeLimit ? "border-red-500" : "border-gray-200"}`}
                       />
+                      {errors.engineLifeTimeLimit && (
+                        <p className="text-red-500 text-xs mt-1">{errors.engineLifeTimeLimit}</p>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -1025,7 +1031,7 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Propeller Life Time Limit
+                        Propeller Life Time Limit <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -1036,8 +1042,11 @@ export function AircraftFleetProfile() {
                           handleChange("propellerLifeTimeLimit", e.target.value)
                         }
                         placeholder="e.g., 8000.00"
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${errors.propellerLifeTimeLimit ? "border-red-500" : "border-gray-200"}`}
                       />
+                      {errors.propellerLifeTimeLimit && (
+                        <p className="text-red-500 text-xs mt-1">{errors.propellerLifeTimeLimit}</p>
+                      )}
                     </div>
                   </div>
                   <div>

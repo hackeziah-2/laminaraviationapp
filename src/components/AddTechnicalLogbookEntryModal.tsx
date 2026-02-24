@@ -31,7 +31,7 @@ export function AddTechnicalLogbookEntryModal({
   const [formData, setFormData] = useState({
     seqNo: "ATL-",
     acReg: "",
-    natureOfFlight: "TR",
+    natureOfFlight: "",
     // Off-blocks/Origin
     offBlocksDate: "",
     offBlocksTime: "",
@@ -331,7 +331,11 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: editEntry.sequenceNo || "",
         acReg: editEntry.aircraft?.registration || "",
-        natureOfFlight: editEntry.natureOfFlight || "TR",
+        // null/empty from API -> "" (-); VOID from API -> "VOID"
+        natureOfFlight:
+          editEntry.natureOfFlight === "VOID"
+            ? "VOID"
+            : editEntry.natureOfFlight?.trim() || "",
         offBlocksDate: editEntry.originDate || "",
         offBlocksTime: formatTimeFromAPI(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
@@ -457,7 +461,7 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: "ATL-",
         acReg: "",
-        natureOfFlight: "TR",
+        natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
         offBlocksStation: "",
@@ -1264,13 +1268,22 @@ export function AddTechnicalLogbookEntryModal({
   } => {
     const errors: Record<string, string> = {};
 
-    // Required fields validation
-    if (!formData.seqNo || formData.seqNo.trim() === "") {
+    // Required: Sequence No. must be set and the part after "ATL-" must be a number
+    const seqTrim = formData.seqNo?.trim() ?? "";
+    if (!seqTrim) {
       errors.seqNo = "Sequence No. is required";
+    } else {
+      const afterPrefix = seqTrim.startsWith("ATL-") ? seqTrim.slice(4) : seqTrim;
+      if (afterPrefix === "") {
+        errors.seqNo = "Sequence No. must include a number after ATL- (e.g. ATL-1 or ATL-001)";
+      } else if (!/^\d+$/.test(afterPrefix)) {
+        errors.seqNo = "Sequence No. must be a number after ATL- (e.g. ATL-1 or ATL-001)";
+      }
     }
 
-    // Sequence No. must match format of latest entry (e.g. ATL-00013, not ATL-0016)
+    // Sequence No. must match format of latest entry (e.g. ATL-00013, not ATL-0016) — only when numeric check passed
     if (
+      !errors.seqNo &&
       !editEntry &&
       latestSequenceNo &&
       formData.seqNo &&
@@ -1286,6 +1299,18 @@ export function AddTechnicalLogbookEntryModal({
           errors.seqNo = `Sequence No. must be the same format as the latest entry (e.g. ${latestSequenceNo}). Format like ATL-0016 is not accepted when the latest is ${latestSequenceNo}.`;
         }
       }
+
+      // GAP limit 15 upon creation: new sequence no must not exceed latest + 15
+      const latestNumMatch = (latestSequenceNo || "").trim().match(/(\d+)$/);
+      const enteredNumMatch = (formData.seqNo || "").trim().match(/(\d+)$/);
+      const latestNum = latestNumMatch ? parseInt(latestNumMatch[1], 10) : null;
+      const enteredNum = enteredNumMatch ? parseInt(enteredNumMatch[1], 10) : null;
+      if (latestNum != null && enteredNum != null && enteredNum > latestNum + 15) {
+        const maxNum = latestNum + 15;
+        const padLen = (latestNumMatch[1] || "").length;
+        const maxSeq = (latestSequenceNo || "").replace(/\d+$/, String(maxNum).padStart(padLen, "0"));
+        errors.seqNo = `Sequence No. gap must not exceed 15 from the latest entry. Latest: ${latestSequenceNo}, max allowed: ${maxSeq}.`;
+      }
     }
 
     // Only validate A/C Registration if aircraftId prop is not provided
@@ -1293,9 +1318,7 @@ export function AddTechnicalLogbookEntryModal({
       errors.acReg = "A/C Registration is required";
     }
 
-    if (!formData.natureOfFlight) {
-      errors.natureOfFlight = "Nature of Flight is required";
-    }
+    // Nature of Flight can be blank/empty; when blank we send VOID to the endpoint (no validation error)
 
     // Off-Blocks / Origin and On-Blocks / Destination: optional (format validation only when provided)
     if (formData.offBlocksTime && formData.offBlocksTime.trim() !== "") {
@@ -1393,12 +1416,54 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
 
+    // Before creating/editing ATL: ensure aircraft has life_time_limit_engine and life_time_limit_propeller set (not 0 or empty)
+    const aid = aircraftId ?? selectedAircraftId ?? null;
+    if (aid != null) {
+      try {
+        const res = await getAircraftById(aid);
+        const data = res.data || {};
+        const engineLimit = data.engine_life_time_limit ?? data.life_time_limit_engine;
+        const propellerLimit = data.propeller_life_time_limit ?? data.life_time_limit_propeller;
+        const engineMissing =
+          engineLimit == null || engineLimit === "" || Number(engineLimit) === 0;
+        const propellerMissing =
+          propellerLimit == null || propellerLimit === "" || Number(propellerLimit) === 0;
+        if (engineMissing || propellerMissing) {
+          Swal.fire({
+            icon: "warning",
+            title: "Aircraft limits required",
+            html:
+              "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating or editing an ATL entry.<br/><br/>" +
+              (engineMissing ? "• Set <strong>Engine Life Time Limit</strong> (life_time_limit_engine)<br/>" : "") +
+              (propellerMissing ? "• Set <strong>Propeller Life Time Limit</strong> (life_time_limit_propeller)" : ""),
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to validate aircraft limits:", err);
+        Swal.fire({
+          icon: "error",
+          title: "Validation error",
+          text: "Could not load aircraft information. Please try again.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+    }
+
     try {
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const apiDataCamel: any = {
         aircraftFk: aircraftId || selectedAircraftId!, // Use aircraftId from prop if provided, otherwise use selectedAircraftId
         sequenceNo: formData.seqNo,
-        natureOfFlight: formData.natureOfFlight as any,
+        // "-" (blank) -> null; "VOID" -> VOID
+        natureOfFlight:
+          formData.natureOfFlight === "VOID"
+            ? "VOID"
+            : formData.natureOfFlight?.trim()
+              ? (formData.natureOfFlight as any)
+              : null,
         nextInspectionDue: formData.nextInspectionDue || undefined,
         tachTimeDue: formData.tachTimeDue
           ? parseFloat(formData.tachTimeDue)
@@ -1415,11 +1480,11 @@ export function AddTechnicalLogbookEntryModal({
           formData.hobbsMeterStart === "" ||
           formData.hobbsMeterStart === undefined
             ? 0
-            : (parseFloat(formData.hobbsMeterStart) || 0),
+            : parseFloat(formData.hobbsMeterStart) || 0,
         hobbsMeterEnd:
           formData.hobbsMeterEnd === "" || formData.hobbsMeterEnd === undefined
             ? 0
-            : (parseFloat(formData.hobbsMeterEnd) || 0),
+            : parseFloat(formData.hobbsMeterEnd) || 0,
         hobbsMeterTotal:
           (parseFloat(formData.hobbsMeterEnd) || 0) -
           (parseFloat(formData.hobbsMeterStart) || 0),
@@ -1427,12 +1492,11 @@ export function AddTechnicalLogbookEntryModal({
           formData.tachometerStart === "" ||
           formData.tachometerStart === undefined
             ? 0
-            : (parseFloat(formData.tachometerStart) || 0),
+            : parseFloat(formData.tachometerStart) || 0,
         tachometerEnd:
-          formData.tachometerEnd === "" ||
-          formData.tachometerEnd === undefined
+          formData.tachometerEnd === "" || formData.tachometerEnd === undefined
             ? 0
-            : (parseFloat(formData.tachometerEnd) || 0),
+            : parseFloat(formData.tachometerEnd) || 0,
         tachometerTotal:
           (parseFloat(formData.tachometerEnd) || 0) -
           (parseFloat(formData.tachometerStart) || 0),
@@ -1554,11 +1618,11 @@ export function AddTechnicalLogbookEntryModal({
         whiteAtl:
           formData.whiteAtl instanceof File
             ? undefined
-            : (editEntry?.whiteAtl ?? undefined),
+            : editEntry?.whiteAtl ?? undefined,
         dfp:
           formData.dfp instanceof File
             ? undefined
-            : (editEntry?.dfp ?? undefined),
+            : editEntry?.dfp ?? undefined,
         componentParts: componentRecords.map((record) => ({
           qty: parseFloat(record.qty) || 0,
           unit: record.unit,
@@ -1577,7 +1641,8 @@ export function AddTechnicalLogbookEntryModal({
       const files =
         formData.whiteAtl instanceof File || formData.dfp instanceof File
           ? {
-              whiteAtl: formData.whiteAtl instanceof File ? formData.whiteAtl : null,
+              whiteAtl:
+                formData.whiteAtl instanceof File ? formData.whiteAtl : null,
               dfp: formData.dfp instanceof File ? formData.dfp : null,
             }
           : undefined;
@@ -1637,7 +1702,7 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: "ATL-",
         acReg: "",
-        natureOfFlight: "TR",
+        natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
         offBlocksStation: "",
@@ -1963,23 +2028,37 @@ export function AddTechnicalLogbookEntryModal({
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Sequence No. *
                 </label>
-                <input
-                  type="text"
-                  value={formData.seqNo}
-                  onChange={(e) => {
-                    setFormData({ ...formData, seqNo: e.target.value });
-                    // Clear error when user starts typing
-                    if (validationErrors.seqNo) {
-                      setValidationErrors({ ...validationErrors, seqNo: "" });
-                    }
-                  }}
-                  className={`w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                <div
+                  className={`flex items-stretch w-full border rounded overflow-hidden ${
                     validationErrors.seqNo
-                      ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                      : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                      ? "border-red-500 ring-1 ring-red-400"
+                      : "border-gray-300"
                   }`}
-                  required
-                />
+                >
+                  <div className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-200 border-r border-gray-300 shrink-0">
+                    ATL-
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={
+                      formData.seqNo.startsWith("ATL-")
+                        ? formData.seqNo.slice(4)
+                        : formData.seqNo
+                    }
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      setFormData({ ...formData, seqNo: "ATL-" + digits });
+                      if (validationErrors.seqNo) {
+                        setValidationErrors({ ...validationErrors, seqNo: "" });
+                      }
+                    }}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border-0 rounded-none focus:outline-none focus:ring-0 bg-white text-gray-900 placeholder:text-gray-400"
+                    placeholder="001"
+                    required
+                  />
+                </div>
                 {validationErrors.seqNo && (
                   <p className="mt-1 text-xs text-red-600">
                     {validationErrors.seqNo}
@@ -2093,7 +2172,7 @@ export function AddTechnicalLogbookEntryModal({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
-                  Nature of Flight *
+                  Nature of Flight
                 </label>
                 <select
                   value={formData.natureOfFlight}
@@ -2104,8 +2183,8 @@ export function AddTechnicalLogbookEntryModal({
                     })
                   }
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-                  required
                 >
+                  <option value="">-</option>
                   <option value="TR">TR - Training Flight</option>
                   <option value="PSF">PSF - Post Flight Inspection</option>
                   <option value="PRF">PRF - Pre Flight Inspection</option>
@@ -2114,6 +2193,7 @@ export function AddTechnicalLogbookEntryModal({
                   <option value="TR W/ PIREM">
                     TR W/ PIREM - Training Flight with Pilot Remarks VOID
                   </option>
+                  <option value="VOID">VOID - Void</option>
                 </select>
               </div>
               <div>

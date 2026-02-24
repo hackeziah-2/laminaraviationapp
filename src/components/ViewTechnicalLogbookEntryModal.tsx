@@ -140,9 +140,10 @@ export function ViewTechnicalLogbookEntryModal({
     return String(num);
   };
 
-  // Format nature of flight
+  // Format nature of flight: VOID shows "VOID"; empty/n/a shows "-" (n/a is not equal to void)
   const formatNatureOfFlight = (nature: string | undefined) => {
-    if (!nature) return "N/A";
+    if (!nature || nature.trim() === "") return "-";
+    if (nature === "VOID") return "VOID";
     const mapping: Record<string, string> = {
       TR: "TR - Training Flight",
       PSF: "PSF - Post Flight Inspection",
@@ -155,7 +156,7 @@ export function ViewTechnicalLogbookEntryModal({
       EOR: "EOR - End of Run",
       OTHER: "OTHER",
     };
-    return mapping[nature] || nature || "N/A";
+    return mapping[nature] || nature || "-";
   };
 
   // Use fetchedEntry (from API) first, then fullEntry (from prop), otherwise use entry data with defaults

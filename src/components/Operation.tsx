@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -184,72 +184,91 @@ export function Operation() {
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
 
   // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
-  const getAirframeDisplay = (r: AircraftTechnicalLog) => {
-    const nested = (r as any).airframe;
-    if (
-      nested &&
-      (nested.hrsTime != null ||
-        nested.run != null ||
-        nested.aptt != null ||
-        nested.aftt != null)
-    ) {
-      const run =
-        nested.hrsTime ??
-        nested.run ??
-        r.airframeRunTime ??
-        r.airframeTotalTime ??
-        "-";
-      const aftt = nested.aptt ?? nested.aftt ?? r.airframeAftt ?? "-";
-      return `${run} / ${aftt}`;
-    }
+  type ComputedRow =
+    | {
+        airframeRunTime: number | null;
+        airframeAftt: number | null;
+        engineRunTime: number | null;
+        engineTsn: number | null;
+        engineTso: number | null;
+        engineTbo: number | null;
+        propellerRunTime: number | null;
+        propellerTsn: number | null;
+        propellerTso: number | null;
+        propellerTbo: number | null;
+      }
+    | undefined;
+  const getAirframeDisplay = (
+    r: AircraftTechnicalLog,
+    computed?: ComputedRow
+  ) => {
     const run =
-      r.airframeRunTime ?? r.airframeTotalTime ?? (r as any).airframeRun ?? "-";
-    const aftt = r.airframeAftt ?? (r as any).airframeTotalTime ?? "-";
+      computed?.airframeRunTime != null
+        ? String(computed.airframeRunTime)
+        : (r as any).airframe?.hrsTime ??
+          (r as any).airframe?.run ??
+          r.airframeRunTime ??
+          r.airframeTotalTime ??
+          (r as any).airframeRun ??
+          "-";
+    const aftt =
+      computed?.airframeAftt != null
+        ? String(computed.airframeAftt)
+        : r.airframeAftt ?? (r as any).airframeTotalTime ?? "-";
     return `${run} / ${aftt}`;
   };
-  const getEngineDisplay = (r: AircraftTechnicalLog) => {
-    const nested = (r as any).engine;
-    if (nested) {
-      const run =
-        nested.hrsTime ??
-        nested.run ??
-        r.engineRunTime ??
-        r.engineTotalTime ??
-        "-";
-      const tsn = nested.tsn ?? r.engineTsn ?? "-";
-      const tso = nested.tso ?? r.engineTso ?? "-";
-      const tbo = nested.tbo ?? r.engineTbo ?? "-";
-      return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
-    }
+  const getEngineDisplay = (
+    r: AircraftTechnicalLog,
+    computed?: ComputedRow
+  ) => {
     const run =
-      r.engineRunTime ?? r.engineTotalTime ?? (r as any).engineRun ?? "-";
-    const tsn = r.engineTsn ?? "-";
-    const tso = r.engineTso ?? "-";
-    const tbo = r.engineTbo ?? "-";
+      computed?.engineRunTime != null
+        ? String(computed.engineRunTime)
+        : (r as any).engine?.hrsTime ??
+          (r as any).engine?.run ??
+          r.engineRunTime ??
+          r.engineTotalTime ??
+          (r as any).engineRun ??
+          "-";
+    const tsn =
+      computed?.engineTsn != null
+        ? Number(computed.engineTsn).toFixed(2)
+        : (r as any).engine?.tsn ?? r.engineTsn ?? "-";
+    const tso =
+      computed?.engineTso != null
+        ? Number(computed.engineTso).toFixed(2)
+        : (r as any).engine?.tso ?? r.engineTso ?? "-";
+    const tbo =
+      computed?.engineTbo != null
+        ? Number(computed.engineTbo).toFixed(2)
+        : (r as any).engine?.tbo ?? r.engineTbo ?? "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
-  const getPropellerDisplay = (r: AircraftTechnicalLog) => {
-    const nested = (r as any).propeller;
-    if (nested) {
-      const run =
-        nested.hrsTime ??
-        nested.run ??
-        r.propellerRunTime ??
-        r.propellerTotalTime ??
-        "-";
-      const tsn = nested.tsn ?? r.propellerTsn ?? "-";
-      const tso = nested.tso ?? r.propellerTso ?? "-";
-      const tbo = nested.tbo ?? r.propellerTbo ?? "-";
-      return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
-    }
+  const getPropellerDisplay = (
+    r: AircraftTechnicalLog,
+    computed?: ComputedRow
+  ) => {
     const run =
-      r.propellerRunTime ??
-      r.propellerTotalTime ??
-      (r as any).propellerRun ??
-      "-";
-    const tsn = r.propellerTsn ?? "-";
-    const tso = r.propellerTso ?? "-";
-    const tbo = r.propellerTbo ?? "-";
+      computed?.propellerRunTime != null
+        ? String(computed.propellerRunTime)
+        : (r as any).propeller?.hrsTime ??
+          (r as any).propeller?.run ??
+          r.propellerRunTime ??
+          r.propellerTotalTime ??
+          (r as any).propellerRun ??
+          "-";
+    const tsn =
+      computed?.propellerTsn != null
+        ? String(computed.propellerTsn)
+        : (r as any).propeller?.tsn ?? r.propellerTsn ?? "-";
+    const tso =
+      computed?.propellerTso != null
+        ? String(computed.propellerTso)
+        : (r as any).propeller?.tso ?? r.propellerTso ?? "-";
+    const tbo =
+      computed?.propellerTbo != null
+        ? String(computed.propellerTbo)
+        : (r as any).propeller?.tbo ?? r.propellerTbo ?? "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
 
@@ -330,6 +349,128 @@ export function Operation() {
   }, [searchQuery]);
 
   const paginatedRecords = fleetTimeRecords;
+
+  // List view computations: Engine Run = Airframe Run; TSN/TSO = Previous + Run; TBO = limit - current TSO (same for propeller)
+  const toNum = (v: unknown): number | null => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const computedEnginePropellerList = useMemo(() => {
+    const list: Array<{
+      airframeRunTime: number | null;
+      airframeAftt: number | null;
+      engineRunTime: number | null;
+      engineTsn: number | null;
+      engineTso: number | null;
+      engineTbo: number | null;
+      propellerRunTime: number | null;
+      propellerTsn: number | null;
+      propellerTso: number | null;
+      propellerTbo: number | null;
+    }> = [];
+    const engineLimit =
+      aircraft != null
+        ? toNum(
+            (aircraft as any).engineLifeTimeLimit ??
+              (aircraft as any).life_time_limit_engine
+          ) ?? null
+        : null;
+    const propellerLimit =
+      aircraft != null
+        ? toNum(
+            (aircraft as any).propellerLifeTimeLimit ??
+              (aircraft as any).life_time_limit_propeller
+          ) ?? null
+        : null;
+
+    for (let i = 0; i < paginatedRecords.length; i++) {
+      const r = paginatedRecords[i];
+      const airframeRun =
+        toNum(r.airframeRunTime) ??
+        toNum(r.airframeTotalTime) ??
+        (r.tachometerStart != null && r.tachometerEnd != null
+          ? r.tachometerEnd - r.tachometerStart
+          : null);
+      const engineRunTime = airframeRun;
+      const propellerRunTime = airframeRun;
+
+      // Airframe AFTT = Previous Airframe AFTT + Airframe current run time
+      let airframeAftt: number | null;
+      if (i === 0) {
+        airframeAftt =
+          toNum(r.airframeAftt) ??
+          (airframeRun != null ? airframeRun : null);
+      } else {
+        const prev = list[i - 1];
+        airframeAftt =
+          prev.airframeAftt != null && airframeRun != null
+            ? prev.airframeAftt + airframeRun
+            : prev.airframeAftt ?? toNum(r.airframeAftt);
+      }
+
+      let engineTsn: number | null;
+      let engineTso: number | null;
+      let propellerTsn: number | null;
+      let propellerTso: number | null;
+
+      if (i === 0) {
+        engineTsn =
+          toNum(r.engineTsn) ?? (engineRunTime != null ? engineRunTime : null);
+        engineTso =
+          toNum(r.engineTso) ?? (engineRunTime != null ? engineRunTime : null);
+        propellerTsn =
+          toNum(r.propellerTsn) ??
+          (propellerRunTime != null ? propellerRunTime : null);
+        propellerTso =
+          toNum(r.propellerTso) ??
+          (propellerRunTime != null ? propellerRunTime : null);
+      } else {
+        const prev = list[i - 1];
+        engineTsn =
+          prev.engineTsn != null && engineRunTime != null
+            ? prev.engineTsn + engineRunTime
+            : prev.engineTsn ?? toNum(r.engineTsn);
+        engineTso =
+          prev.engineTso != null && engineRunTime != null
+            ? prev.engineTso + engineRunTime
+            : prev.engineTso ?? toNum(r.engineTso);
+        propellerTsn =
+          prev.propellerTsn != null && propellerRunTime != null
+            ? prev.propellerTsn + propellerRunTime
+            : prev.propellerTsn ?? toNum(r.propellerTsn);
+        propellerTso =
+          prev.propellerTso != null && propellerRunTime != null
+            ? prev.propellerTso + propellerRunTime
+            : prev.propellerTso ?? toNum(r.propellerTso);
+      }
+
+      // Engine TBO = life_time_limit_engine - ENGINE CURRENT TSO
+      const engineTbo =
+        engineLimit != null && engineTso != null
+          ? engineLimit - engineTso
+          : toNum(r.engineTbo) ?? null;
+      // Propeller TBO = life_time_limit_propeller - Propeller current TSO
+      const propellerTbo =
+        propellerLimit != null && propellerTso != null
+          ? propellerLimit - propellerTso
+          : toNum(r.propellerTbo) ?? null;
+
+      list.push({
+        airframeRunTime: airframeRun,
+        airframeAftt,
+        engineRunTime,
+        engineTsn,
+        engineTso,
+        engineTbo,
+        propellerRunTime,
+        propellerTsn,
+        propellerTso,
+        propellerTbo,
+      });
+    }
+    return list;
+  }, [paginatedRecords, aircraft]);
 
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
@@ -417,6 +558,30 @@ export function Operation() {
                   ? `${aircraft.model || ""}`
                   : "Loading aircraft details..."}
               </p>
+              {aircraft && (
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-gray-500 text-sm mt-1.5">
+                  <span>
+                    Engine Life Time Limit:{" "}
+                    {(aircraft as any).engineLifeTimeLimit != null ||
+                    (aircraft as any).life_time_limit_engine != null
+                      ? String(
+                          (aircraft as any).engineLifeTimeLimit ??
+                            (aircraft as any).life_time_limit_engine
+                        )
+                      : "-"}
+                  </span>
+                  <span>
+                    Propeller Life Time Limit:{" "}
+                    {(aircraft as any).propellerLifeTimeLimit != null ||
+                    (aircraft as any).life_time_limit_propeller != null
+                      ? String(
+                          (aircraft as any).propellerLifeTimeLimit ??
+                            (aircraft as any).life_time_limit_propeller
+                        )
+                      : "-"}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
@@ -428,7 +593,32 @@ export function Operation() {
                 <span className="hidden sm:inline">Export</span>
               </button>
               <button
-                onClick={() => setShowAddRecordModal(true)}
+                onClick={() => {
+                  const engineLimit =
+                    aircraft?.engineLifeTimeLimit ??
+                    (aircraft as any)?.life_time_limit_engine;
+                  const propellerLimit =
+                    aircraft?.propellerLifeTimeLimit ??
+                    (aircraft as any)?.life_time_limit_propeller;
+                  const engineMissing =
+                    engineLimit == null ||
+                    engineLimit === "" ||
+                    Number(engineLimit) === 0;
+                  const propellerMissing =
+                    propellerLimit == null ||
+                    propellerLimit === "" ||
+                    Number(propellerLimit) === 0;
+                  if (engineMissing || propellerMissing) {
+                    Swal.fire({
+                      icon: "warning",
+                      title: "Aircraft limits required",
+                      html: "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating an ATL entry.<br/><br/>",
+                      confirmButtonColor: "#2563eb",
+                    });
+                    return;
+                  }
+                  setShowAddRecordModal(true);
+                }}
                 className="px-3 sm:px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm"
               >
                 <Plus className="w-4 h-4" />
@@ -883,7 +1073,7 @@ export function Operation() {
                               </td>
                             </tr>
                           ) : (
-                            paginatedRecords.map((record) => (
+                            paginatedRecords.map((record, rowIndex) => (
                               <tr
                                 key={record.id}
                                 className="hover:bg-gray-50/50 transition-colors"
@@ -927,7 +1117,11 @@ export function Operation() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.natureOfFlight || "-"}
+                                  {record.natureOfFlight === "VOID"
+                                    ? "VOID"
+                                    : record.natureOfFlight?.trim()
+                                    ? record.natureOfFlight
+                                    : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.nextInspectionDue || "-"}
@@ -1019,50 +1213,112 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.airframeRunTime != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.airframeRunTime != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .airframeRunTime
+                                      )
+                                    : record.airframeRunTime != null
                                     ? String(record.airframeRunTime)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.airframeAftt != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.airframeAftt != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .airframeAftt
+                                      )
+                                    : record.airframeAftt != null
                                     ? String(record.airframeAftt)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.engineRunTime != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.engineRunTime != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .engineRunTime
+                                      )
+                                    : record.engineRunTime != null
                                     ? String(record.engineRunTime)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.engineTsn ?? "-"}
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.engineTsn != null
+                                    ? Number(
+                                        computedEnginePropellerList[rowIndex]
+                                          .engineTsn
+                                      ).toFixed(2)
+                                    : record.engineTsn != null
+                                    ? Number(record.engineTsn).toFixed(2)
+                                    : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.engineTso != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.engineTso != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .engineTso
+                                      )
+                                    : record.engineTso != null
                                     ? String(record.engineTso)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.engineTbo != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.engineTbo != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .engineTbo
+                                      )
+                                    : record.engineTbo != null
                                     ? String(record.engineTbo)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.propellerRunTime != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.propellerRunTime != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .propellerRunTime
+                                      )
+                                    : record.propellerRunTime != null
                                     ? String(record.propellerRunTime)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.propellerTsn != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.propellerTsn != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .propellerTsn
+                                      )
+                                    : record.propellerTsn != null
                                     ? String(record.propellerTsn)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.propellerTso != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.propellerTso != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .propellerTso
+                                      )
+                                    : record.propellerTso != null
                                     ? String(record.propellerTso)
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.propellerTbo != null
+                                  {computedEnginePropellerList[rowIndex]
+                                    ?.propellerTbo != null
+                                    ? String(
+                                        computedEnginePropellerList[rowIndex]
+                                          .propellerTbo
+                                      )
+                                    : record.propellerTbo != null
                                     ? String(record.propellerTbo)
                                     : "-"}
                                 </td>
@@ -1434,7 +1690,11 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight || "-"}
+                                {record.natureOfFlight === "VOID"
+                                  ? "VOID"
+                                  : record.natureOfFlight?.trim()
+                                  ? record.natureOfFlight
+                                  : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.originDate
@@ -1535,7 +1795,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, rowIndex) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
@@ -1573,7 +1833,11 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight || "-"}
+                                {record.natureOfFlight === "VOID"
+                                  ? "VOID"
+                                  : record.natureOfFlight?.trim()
+                                  ? record.natureOfFlight
+                                  : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.originDate
@@ -1597,13 +1861,22 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)}
+                                {getAirframeDisplay(
+                                  record,
+                                  computedEnginePropellerList[rowIndex]
+                                )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getEngineDisplay(record)}
+                                {getEngineDisplay(
+                                  record,
+                                  computedEnginePropellerList[rowIndex]
+                                )}
                               </td>
                               <td className="px-3 py-2 text-sm">
-                                {getPropellerDisplay(record)}
+                                {getPropellerDisplay(
+                                  record,
+                                  computedEnginePropellerList[rowIndex]
+                                )}
                               </td>
                             </tr>
                           ))
@@ -1654,7 +1927,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, rowIndex) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
@@ -1692,10 +1965,17 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight || "-"}
+                                {record.natureOfFlight === "VOID"
+                                  ? "VOID"
+                                  : record.natureOfFlight?.trim()
+                                  ? record.natureOfFlight
+                                  : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)}
+                                {getAirframeDisplay(
+                                  record,
+                                  computedEnginePropellerList[rowIndex]
+                                )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {computeTotalBlockTime(

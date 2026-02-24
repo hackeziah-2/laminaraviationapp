@@ -79,25 +79,29 @@ export function AircraftDetail() {
           engineLifeTimeLimit: Number(
             data.engine_life_time_limit ?? data.life_time_limit_engine ?? 0
           ),
-          engineArc: (data?.engine_arc && String(data.engine_arc).trim())
-            ? stripArcPathPrefix(String(data.engine_arc))
-            : "",
+          engineArc:
+            data?.engine_arc && String(data.engine_arc).trim()
+              ? stripArcPathPrefix(String(data.engine_arc))
+              : "",
           propellerModel: data.propeller_model,
           propellerSerialNumber: data.propeller_serial_number,
           propellerLifeTimeLimit: Number(
-            data.propeller_life_time_limit ?? data.life_time_limit_propeller ?? 0
+            data.propeller_life_time_limit ??
+              data.life_time_limit_propeller ??
+              0
           ),
-          propellerArc: (data?.propeller_arc && String(data.propeller_arc).trim())
-            ? stripArcPathPrefix(String(data.propeller_arc))
-            : "",
+          propellerArc:
+            data?.propeller_arc && String(data.propeller_arc).trim()
+              ? stripArcPathPrefix(String(data.propeller_arc))
+              : "",
         };
         setEngineARCFileName(
-          (data?.engine_arc && String(data.engine_arc).trim())
+          data?.engine_arc && String(data.engine_arc).trim()
             ? stripArcPathPrefix(String(data.engine_arc))
             : ""
         );
         setPropellerARCFileName(
-          (data?.propeller_arc && String(data.propeller_arc).trim())
+          data?.propeller_arc && String(data.propeller_arc).trim()
             ? stripArcPathPrefix(String(data.propeller_arc))
             : ""
         );
@@ -123,6 +127,30 @@ export function AircraftDetail() {
       return Number.isFinite(num) ? num : null;
     };
 
+    // Required: life_time_limit_engine and life_time_limit_propeller must be set
+    const engineLimit = toOptionalFloat(editAircraft?.engineLifeTimeLimit);
+    const propellerLimit = toOptionalFloat(
+      editAircraft?.propellerLifeTimeLimit
+    );
+    if (engineLimit == null) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required field",
+        text: "Engine Life Time Limit (life_time_limit_engine) is required. Please set it before saving.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+    if (propellerLimit == null) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required field",
+        text: "Propeller Life Time Limit (life_time_limit_propeller) is required. Please set it before saving.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+
     const updatedData = {
       registration: editAircraft?.registration,
       manufacturer: editAircraft?.manufacturer,
@@ -138,7 +166,9 @@ export function AircraftDetail() {
 
       engine_model: editAircraft?.engineModel,
       engine_serial_number: editAircraft?.engineSerialNumber,
-      engine_life_time_limit: toOptionalFloat(editAircraft?.engineLifeTimeLimit),
+      engine_life_time_limit: toOptionalFloat(
+        editAircraft?.engineLifeTimeLimit
+      ),
       // engine_arc: editAircraft?.engineArc,
 
       propeller_model: editAircraft?.propellerModel,
@@ -170,10 +200,20 @@ export function AircraftDetail() {
       setIsEditMode(false);
       setEngineARCFile(null);
       setPropellerARCFile(null);
-      const enginePath = (updatedAircraft as any).engineArc ?? (updatedAircraft as any).engine_arc ?? "";
-      const propellerPath = (updatedAircraft as any).propellerArc ?? (updatedAircraft as any).propeller_arc ?? "";
-      setEngineARCFileName(enginePath ? stripArcPathPrefix(String(enginePath)) : "");
-      setPropellerARCFileName(propellerPath ? stripArcPathPrefix(String(propellerPath)) : "");
+      const enginePath =
+        (updatedAircraft as any).engineArc ??
+        (updatedAircraft as any).engine_arc ??
+        "";
+      const propellerPath =
+        (updatedAircraft as any).propellerArc ??
+        (updatedAircraft as any).propeller_arc ??
+        "";
+      setEngineARCFileName(
+        enginePath ? stripArcPathPrefix(String(enginePath)) : ""
+      );
+      setPropellerARCFileName(
+        propellerPath ? stripArcPathPrefix(String(propellerPath)) : ""
+      );
 
       Swal.fire({
         icon: "success",
@@ -249,7 +289,10 @@ export function AircraftDetail() {
       Swal.fire({
         icon: "error",
         title: "Download failed",
-        text: err?.response?.data?.detail || err?.message || "Failed to download file.",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to download file.",
       });
     }
   };
@@ -297,15 +340,21 @@ export function AircraftDetail() {
       });
       const blob = response.data as Blob;
       const url = window.URL.createObjectURL(blob);
-      const serverType = blob.type || (response as any).headers?.["content-type"] || null;
-      const isOctetStream = !serverType || serverType === "application/octet-stream";
-      const mimeType = isOctetStream ? getMimeFromFilename(filePath) : serverType;
+      const serverType =
+        blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream =
+        !serverType || serverType === "application/octet-stream";
+      const mimeType = isOctetStream
+        ? getMimeFromFilename(filePath)
+        : serverType;
       setFileViewBlobUrl(url);
       setFileViewMimeType(mimeType ?? null);
       setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
-      setFileViewError(err?.response?.data?.detail || err?.message || "Failed to open file.");
+      setFileViewError(
+        err?.response?.data?.detail || err?.message || "Failed to open file."
+      );
       setFileViewBlobUrl(null);
       setFileViewMimeType(null);
     } finally {
@@ -523,6 +572,53 @@ export function AircraftDetail() {
                     <p className="text-gray-900">{aircraft.status || "N/A"}</p>
                   )}
                 </div>
+                {/* <div>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Engine Life Time Limit <span className="text-red-500">*</span>
+                  </p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      min={0}
+                      value={editAircraft?.engineLifeTimeLimit ?? ""}
+                      onChange={(e) =>
+                        handleInputChange("engineLifeTimeLimit", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.engineLifeTimeLimit != null
+                        ? aircraft.engineLifeTimeLimit
+                        : "N/A"}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Propeller Life Time Limit <span className="text-red-500">*</span>
+                  </p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      min={0}
+                      value={editAircraft?.propellerLifeTimeLimit ?? ""}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "propellerLifeTimeLimit",
+                          e.target.value
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.propellerLifeTimeLimit != null
+                        ? aircraft.propellerLifeTimeLimit
+                        : "N/A"}
+                    </p>
+                  )}
+                </div> */}
               </div>
             </div>
 
@@ -636,7 +732,8 @@ export function AircraftDetail() {
                     />
                   ) : (
                     <p className="text-gray-900">
-                      {aircraft.engineLifeTimeLimit || aircraft.engineLifeTimeLimit === 0
+                      {aircraft.engineLifeTimeLimit ||
+                      aircraft.engineLifeTimeLimit === 0
                         ? aircraft.engineLifeTimeLimit
                         : "N/A"}
                     </p>
@@ -661,7 +758,9 @@ export function AircraftDetail() {
                           >
                             <span
                               className={
-                                engineARCFile ? "text-gray-900" : "text-gray-400"
+                                engineARCFile
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
                               }
                             >
                               {engineARCFileName
@@ -700,7 +799,8 @@ export function AircraftDetail() {
                               handleDownloadArc(
                                 "engine_arc",
                                 aircraft.engineArc!,
-                                aircraft.engineArc!.split("/").pop() || "engine_arc"
+                                aircraft.engineArc!.split("/").pop() ||
+                                  "engine_arc"
                               )
                             }
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
@@ -814,7 +914,9 @@ export function AircraftDetail() {
                           >
                             <span
                               className={
-                                propellerARCFile ? "text-gray-900" : "text-gray-400"
+                                propellerARCFile
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
                               }
                             >
                               {propellerARCFileName
@@ -839,7 +941,10 @@ export function AircraftDetail() {
                           <button
                             type="button"
                             onClick={() =>
-                              handleViewArc("propeller_arc", aircraft.propellerArc!)
+                              handleViewArc(
+                                "propeller_arc",
+                                aircraft.propellerArc!
+                              )
                             }
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
                           >
@@ -853,7 +958,8 @@ export function AircraftDetail() {
                               handleDownloadArc(
                                 "propeller_arc",
                                 aircraft.propellerArc!,
-                                aircraft.propellerArc!.split("/").pop() || "propeller_arc"
+                                aircraft.propellerArc!.split("/").pop() ||
+                                  "propeller_arc"
                               )
                             }
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
@@ -891,7 +997,9 @@ export function AircraftDetail() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">View file</span>
+              <span className="text-sm font-medium text-gray-900">
+                View file
+              </span>
               <button
                 type="button"
                 onClick={closeFileViewModal}
