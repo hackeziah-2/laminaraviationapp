@@ -11,7 +11,7 @@ import {
   updateAircraftTechnicalLog,
   AircraftTechnicalLogUpdate,
 } from "../api/aircraftTechnicalLogApi";
-import { snakeAllKeys } from "../utility/utils";
+import { snakeAllKeys, computeTotalBlockTime } from "../utility/utils";
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -31,7 +31,7 @@ export function AddTechnicalLogbookEntryModal({
   const [formData, setFormData] = useState({
     seqNo: "ATL-",
     acReg: "",
-    natureOfFlight: "TR",
+    natureOfFlight: "",
     // Off-blocks/Origin
     offBlocksDate: "",
     offBlocksTime: "",
@@ -59,12 +59,12 @@ export function AddTechnicalLogbookEntryModal({
     afterLandingHours: "",
     afterLandingMinutes: "",
     // Tachometer & Hobbs
-    tachometerStart: "",
-    tachometerEnd: "",
-    tachometerTotal: "",
-    hobbsMeterStart: "",
-    hobbsMeterEnd: "",
-    hobbsMeterTotal: "",
+    tachometerStart: "0",
+    tachometerEnd: "0",
+    tachometerTotal: "0",
+    hobbsMeterStart: "0",
+    hobbsMeterEnd: "0",
+    hobbsMeterTotal: "0",
     // Inspection & Service
     nextInspectionDue: "",
     tachTimeDue: "",
@@ -228,9 +228,15 @@ export function AddTechnicalLogbookEntryModal({
               setFormData((prev) => ({
                 ...prev,
                 hobbsMeterStart:
-                  latestEntry.hobbsMeterEnd?.toString() || prev.hobbsMeterStart,
+                  latestEntry.hobbsMeterEnd != null &&
+                  latestEntry.hobbsMeterEnd !== 0
+                    ? latestEntry.hobbsMeterEnd.toString()
+                    : prev.hobbsMeterStart,
                 tachometerStart:
-                  latestEntry.tachometerEnd?.toString() || prev.tachometerStart,
+                  latestEntry.tachometerEnd != null &&
+                  latestEntry.tachometerEnd !== 0
+                    ? latestEntry.tachometerEnd.toString()
+                    : prev.tachometerStart,
 
                 airframePrevTime:
                   latestEntry.airframeTotalTime?.toString() ||
@@ -267,11 +273,15 @@ export function AddTechnicalLogbookEntryModal({
                     setFormData((prev) => ({
                       ...prev,
                       hobbsMeterStart:
-                        latestEntry.hobbsMeterEnd?.toString() ||
-                        prev.hobbsMeterStart,
+                        latestEntry.hobbsMeterEnd != null &&
+                        latestEntry.hobbsMeterEnd !== 0
+                          ? latestEntry.hobbsMeterEnd.toString()
+                          : prev.hobbsMeterStart,
                       tachometerStart:
-                        latestEntry.tachometerEnd?.toString() ||
-                        prev.tachometerStart,
+                        latestEntry.tachometerEnd != null &&
+                        latestEntry.tachometerEnd !== 0
+                          ? latestEntry.tachometerEnd.toString()
+                          : prev.tachometerStart,
 
                       airframePrevTime:
                         latestEntry.airframeTotalTime?.toString() ||
@@ -321,7 +331,11 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: editEntry.sequenceNo || "",
         acReg: editEntry.aircraft?.registration || "",
-        natureOfFlight: editEntry.natureOfFlight || "TR",
+        // null/empty from API -> "" (-); VOID from API -> "VOID"
+        natureOfFlight:
+          editEntry.natureOfFlight === "VOID"
+            ? "VOID"
+            : editEntry.natureOfFlight?.trim() || "",
         offBlocksDate: editEntry.originDate || "",
         offBlocksTime: formatTimeFromAPI(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
@@ -447,7 +461,7 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: "ATL-",
         acReg: "",
-        natureOfFlight: "TR",
+        natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
         offBlocksStation: "",
@@ -469,12 +483,12 @@ export function AddTechnicalLogbookEntryModal({
         priorDepartureMinutes: "",
         afterLandingHours: "",
         afterLandingMinutes: "",
-        tachometerStart: "",
-        tachometerEnd: "",
-        tachometerTotal: "",
-        hobbsMeterStart: "",
-        hobbsMeterEnd: "",
-        hobbsMeterTotal: "",
+        tachometerStart: "0",
+        tachometerEnd: "0",
+        tachometerTotal: "0",
+        hobbsMeterStart: "0",
+        hobbsMeterEnd: "0",
+        hobbsMeterTotal: "0",
         nextInspectionDue: "",
         tachTimeDue: "",
         pilotReport: "",
@@ -535,7 +549,8 @@ export function AddTechnicalLogbookEntryModal({
 
       // Check if this is a new entry (both start values are empty)
       const isNewEntry =
-        formData.hobbsMeterStart === "" && formData.tachometerStart === "";
+        (formData.hobbsMeterStart === "" || formData.hobbsMeterStart === "0") &&
+        (formData.tachometerStart === "" || formData.tachometerStart === "0");
 
       if (isNewEntry) {
         const latestEntry = await getLatestAircraftTechnicalLog(
@@ -551,9 +566,15 @@ export function AddTechnicalLogbookEntryModal({
           setFormData((prev) => ({
             ...prev,
             hobbsMeterStart:
-              latestEntry.hobbsMeterEnd?.toString() || prev.hobbsMeterStart,
+              latestEntry.hobbsMeterEnd != null &&
+              latestEntry.hobbsMeterEnd !== 0
+                ? latestEntry.hobbsMeterEnd.toString()
+                : prev.hobbsMeterStart,
             tachometerStart:
-              latestEntry.tachometerEnd?.toString() || prev.tachometerStart,
+              latestEntry.tachometerEnd != null &&
+              latestEntry.tachometerEnd !== 0
+                ? latestEntry.tachometerEnd.toString()
+                : prev.tachometerStart,
 
             airframePrevTime:
               latestEntry.airframeTotalTime?.toString() ||
@@ -783,9 +804,15 @@ export function AddTechnicalLogbookEntryModal({
           setFormData((prev) => ({
             ...prev,
             hobbsMeterStart:
-              latestEntry.hobbsMeterEnd?.toString() || prev.hobbsMeterStart,
+              latestEntry.hobbsMeterEnd != null &&
+              latestEntry.hobbsMeterEnd !== 0
+                ? latestEntry.hobbsMeterEnd.toString()
+                : prev.hobbsMeterStart,
             tachometerStart:
-              latestEntry.tachometerEnd?.toString() || prev.tachometerStart,
+              latestEntry.tachometerEnd != null &&
+              latestEntry.tachometerEnd !== 0
+                ? latestEntry.tachometerEnd.toString()
+                : prev.tachometerStart,
 
             airframePrevTime:
               latestEntry.airframeTotalTime?.toString() ||
@@ -831,8 +858,8 @@ export function AddTechnicalLogbookEntryModal({
           // If no latest entry exists, clear the start values
           setFormData((prev) => ({
             ...prev,
-            hobbsMeterStart: "",
-            tachometerStart: "",
+            hobbsMeterStart: "0",
+            tachometerStart: "0",
           }));
         }
       } catch (error) {
@@ -1126,94 +1153,38 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Calculate Total Flight Time from Origin and Destination Zulu times
-  const calculateTotalFlightTime = (
-    originTime: string,
-    destinationTime: string
-  ): string => {
-    // Return empty if either time is missing
-    if (!originTime || !destinationTime) {
-      return "";
-    }
-
-    // Parse Zulu time (format: "2317" or "0109" - HHMM)
-    const parseZuluTime = (timeStr: string): number => {
-      // Remove any colons or spaces
-      const cleaned = timeStr.replace(/[: ]/g, "");
-
-      // Should be 4 digits (HHMM)
-      if (cleaned.length !== 4 || !/^\d{4}$/.test(cleaned)) {
-        return -1; // Invalid format
-      }
-
-      const hours = parseInt(cleaned.substring(0, 2), 10);
-      const minutes = parseInt(cleaned.substring(2, 4), 10);
-
-      // Validate hours (0-23) and minutes (0-59)
-      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-        return -1; // Invalid time
-      }
-
-      // Convert to minutes since midnight
-      return hours * 60 + minutes;
-    };
-
-    const startMinutes = parseZuluTime(originTime);
-    const endMinutes = parseZuluTime(destinationTime);
-
-    // Return empty if parsing failed
-    if (startMinutes === -1 || endMinutes === -1) {
-      return "";
-    }
-
-    // If end < start, add 1440 minutes (24 hours) to handle crossing midnight
-    let adjustedEndMinutes = endMinutes;
-    if (endMinutes < startMinutes) {
-      adjustedEndMinutes = endMinutes + 1440;
-    }
-
-    // Calculate difference in minutes
-    const differenceMinutes = adjustedEndMinutes - startMinutes;
-
-    // Convert to hours:minutes format
-    const hours = Math.floor(differenceMinutes / 60);
-    const minutes = differenceMinutes % 60;
-
-    // Format as H:MM or HH:MM
-    return `${hours}:${minutes.toString().padStart(2, "0")}`;
-  };
-
-  // Auto-calculate Total Flight Time when origin or destination time changes
+  // Auto-calculate Total Flight Time (destinationTime - originTime) when times change
+  // Uses computeTotalBlockTime - same formula as Operations, ATL, View modal
   useEffect(() => {
-    const calculatedTime = calculateTotalFlightTime(
+    const calculatedTime = computeTotalBlockTime(
       formData.offBlocksTime,
       formData.onBlocksTime
     );
     setFormData((prev) => ({
       ...prev,
-      totalFlightTime: calculatedTime,
+      totalFlightTime: calculatedTime === "0" ? "" : calculatedTime,
     }));
   }, [formData.offBlocksTime, formData.onBlocksTime]);
 
-  // Auto-calculate Hobbs Meter Total (End - Start)
+  // hobbsMeterTotal = hobbsMeterEnd - hobbsMeterStart (accepts negative)
   useEffect(() => {
     const start = parseFloat(formData.hobbsMeterStart) || 0;
     const end = parseFloat(formData.hobbsMeterEnd) || 0;
-    const total = end > start ? end - start : 0;
+    const total = end - start;
     setFormData((prev) => ({
       ...prev,
-      hobbsMeterTotal: total > 0 ? total.toFixed(2) : "",
+      hobbsMeterTotal: total.toFixed(2),
     }));
   }, [formData.hobbsMeterStart, formData.hobbsMeterEnd]);
 
-  // Auto-calculate Tachometer Total (End - Start)
+  // tachometerTotal = tachometerEnd - tachometerStart (accepts negative)
   useEffect(() => {
     const start = parseFloat(formData.tachometerStart) || 0;
     const end = parseFloat(formData.tachometerEnd) || 0;
-    const total = end > start ? end - start : 0;
+    const total = end - start;
     setFormData((prev) => ({
       ...prev,
-      tachometerTotal: total > 0 ? total.toFixed(2) : "",
+      tachometerTotal: total.toFixed(2),
     }));
   }, [formData.tachometerStart, formData.tachometerEnd]);
 
@@ -1297,13 +1268,22 @@ export function AddTechnicalLogbookEntryModal({
   } => {
     const errors: Record<string, string> = {};
 
-    // Required fields validation
-    if (!formData.seqNo || formData.seqNo.trim() === "") {
+    // Required: Sequence No. must be set and the part after "ATL-" must be a number
+    const seqTrim = formData.seqNo?.trim() ?? "";
+    if (!seqTrim) {
       errors.seqNo = "Sequence No. is required";
+    } else {
+      const afterPrefix = seqTrim.startsWith("ATL-") ? seqTrim.slice(4) : seqTrim;
+      if (afterPrefix === "") {
+        errors.seqNo = "Sequence No. must include a number after ATL- (e.g. ATL-1 or ATL-001)";
+      } else if (!/^\d+$/.test(afterPrefix)) {
+        errors.seqNo = "Sequence No. must be a number after ATL- (e.g. ATL-1 or ATL-001)";
+      }
     }
 
-    // Sequence No. must match format of latest entry (e.g. ATL-00013, not ATL-0016)
+    // Sequence No. must match format of latest entry (e.g. ATL-00013, not ATL-0016) — only when numeric check passed
     if (
+      !errors.seqNo &&
       !editEntry &&
       latestSequenceNo &&
       formData.seqNo &&
@@ -1319,6 +1299,18 @@ export function AddTechnicalLogbookEntryModal({
           errors.seqNo = `Sequence No. must be the same format as the latest entry (e.g. ${latestSequenceNo}). Format like ATL-0016 is not accepted when the latest is ${latestSequenceNo}.`;
         }
       }
+
+      // GAP limit 15 upon creation: new sequence no must not exceed latest + 15
+      const latestNumMatch = (latestSequenceNo || "").trim().match(/(\d+)$/);
+      const enteredNumMatch = (formData.seqNo || "").trim().match(/(\d+)$/);
+      const latestNum = latestNumMatch ? parseInt(latestNumMatch[1], 10) : null;
+      const enteredNum = enteredNumMatch ? parseInt(enteredNumMatch[1], 10) : null;
+      if (latestNum != null && enteredNum != null && enteredNum > latestNum + 15) {
+        const maxNum = latestNum + 15;
+        const padLen = (latestNumMatch[1] || "").length;
+        const maxSeq = (latestSequenceNo || "").replace(/\d+$/, String(maxNum).padStart(padLen, "0"));
+        errors.seqNo = `Sequence No. gap must not exceed 15 from the latest entry. Latest: ${latestSequenceNo}, max allowed: ${maxSeq}.`;
+      }
     }
 
     // Only validate A/C Registration if aircraftId prop is not provided
@@ -1326,49 +1318,31 @@ export function AddTechnicalLogbookEntryModal({
       errors.acReg = "A/C Registration is required";
     }
 
-    if (!formData.natureOfFlight) {
-      errors.natureOfFlight = "Nature of Flight is required";
-    }
+    // Nature of Flight can be blank/empty; when blank we send VOID to the endpoint (no validation error)
 
-    if (!formData.offBlocksDate) {
-      errors.offBlocksDate = "Off-Blocks Date is required";
-    }
-
-    if (!formData.offBlocksTime || formData.offBlocksTime.trim() === "") {
-      errors.offBlocksTime = "Off-Blocks Time is required";
-    } else if (!/^\d{2}:\d{2}$/.test(formData.offBlocksTime)) {
-      errors.offBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
-    } else {
-      // Validate hours (0-23) and minutes (0-59)
-      const [hours, minutes] = formData.offBlocksTime.split(":").map(Number);
-      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-        errors.offBlocksTime =
-          "Time must be valid (hours: 0-23, minutes: 0-59)";
+    // Off-Blocks / Origin and On-Blocks / Destination: optional (format validation only when provided)
+    if (formData.offBlocksTime && formData.offBlocksTime.trim() !== "") {
+      if (!/^\d{2}:\d{2}$/.test(formData.offBlocksTime)) {
+        errors.offBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
+      } else {
+        const [hours, minutes] = formData.offBlocksTime.split(":").map(Number);
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+          errors.offBlocksTime =
+            "Time must be valid (hours: 0-23, minutes: 0-59)";
+        }
       }
     }
 
-    if (!formData.offBlocksStation || formData.offBlocksStation.trim() === "") {
-      errors.offBlocksStation = "Off-Blocks Station is required";
-    }
-
-    if (!formData.onBlocksDate) {
-      errors.onBlocksDate = "On-Blocks Date is required";
-    }
-
-    if (!formData.onBlocksTime || formData.onBlocksTime.trim() === "") {
-      errors.onBlocksTime = "On-Blocks Time is required";
-    } else if (!/^\d{2}:\d{2}$/.test(formData.onBlocksTime)) {
-      errors.onBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
-    } else {
-      // Validate hours (0-23) and minutes (0-59)
-      const [hours, minutes] = formData.onBlocksTime.split(":").map(Number);
-      if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-        errors.onBlocksTime = "Time must be valid (hours: 0-23, minutes: 0-59)";
+    if (formData.onBlocksTime && formData.onBlocksTime.trim() !== "") {
+      if (!/^\d{2}:\d{2}$/.test(formData.onBlocksTime)) {
+        errors.onBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
+      } else {
+        const [hours, minutes] = formData.onBlocksTime.split(":").map(Number);
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+          errors.onBlocksTime =
+            "Time must be valid (hours: 0-23, minutes: 0-59)";
+        }
       }
-    }
-
-    if (!formData.onBlocksStation || formData.onBlocksStation.trim() === "") {
-      errors.onBlocksStation = "On-Blocks Station is required";
     }
 
     // Numeric field validations
@@ -1399,23 +1373,6 @@ export function AddTechnicalLogbookEntryModal({
 
     if (formData.tachometerEnd && isNaN(parseFloat(formData.tachometerEnd))) {
       errors.tachometerEnd = "Tachometer End must be a valid number";
-    }
-
-    // Validate that End > Start for meters
-    if (formData.hobbsMeterStart && formData.hobbsMeterEnd) {
-      const start = parseFloat(formData.hobbsMeterStart);
-      const end = parseFloat(formData.hobbsMeterEnd);
-      if (!isNaN(start) && !isNaN(end) && end < start) {
-        errors.hobbsMeterEnd = "Hobbs Meter End must be greater than Start";
-      }
-    }
-
-    if (formData.tachometerStart && formData.tachometerEnd) {
-      const start = parseFloat(formData.tachometerStart);
-      const end = parseFloat(formData.tachometerEnd);
-      if (!isNaN(start) && !isNaN(end) && end < start) {
-        errors.tachometerEnd = "Tachometer End must be greater than Start";
-      }
     }
 
     // Time format validation for Zulu times
@@ -1459,12 +1416,54 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
 
+    // Before creating/editing ATL: ensure aircraft has life_time_limit_engine and life_time_limit_propeller set (not 0 or empty)
+    const aid = aircraftId ?? selectedAircraftId ?? null;
+    if (aid != null) {
+      try {
+        const res = await getAircraftById(aid);
+        const data = res.data || {};
+        const engineLimit = data.engine_life_time_limit ?? data.life_time_limit_engine;
+        const propellerLimit = data.propeller_life_time_limit ?? data.life_time_limit_propeller;
+        const engineMissing =
+          engineLimit == null || engineLimit === "" || Number(engineLimit) === 0;
+        const propellerMissing =
+          propellerLimit == null || propellerLimit === "" || Number(propellerLimit) === 0;
+        if (engineMissing || propellerMissing) {
+          Swal.fire({
+            icon: "warning",
+            title: "Aircraft limits required",
+            html:
+              "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating or editing an ATL entry.<br/><br/>" +
+              (engineMissing ? "• Set <strong>Engine Life Time Limit</strong> (life_time_limit_engine)<br/>" : "") +
+              (propellerMissing ? "• Set <strong>Propeller Life Time Limit</strong> (life_time_limit_propeller)" : ""),
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Failed to validate aircraft limits:", err);
+        Swal.fire({
+          icon: "error",
+          title: "Validation error",
+          text: "Could not load aircraft information. Please try again.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+    }
+
     try {
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const apiDataCamel: any = {
         aircraftFk: aircraftId || selectedAircraftId!, // Use aircraftId from prop if provided, otherwise use selectedAircraftId
         sequenceNo: formData.seqNo,
-        natureOfFlight: formData.natureOfFlight as any,
+        // "-" (blank) -> null; "VOID" -> VOID
+        natureOfFlight:
+          formData.natureOfFlight === "VOID"
+            ? "VOID"
+            : formData.natureOfFlight?.trim()
+              ? (formData.natureOfFlight as any)
+              : null,
         nextInspectionDue: formData.nextInspectionDue || undefined,
         tachTimeDue: formData.tachTimeDue
           ? parseFloat(formData.tachTimeDue)
@@ -1476,12 +1475,31 @@ export function AddTechnicalLogbookEntryModal({
         destinationDate: formData.onBlocksDate,
         destinationTime: convertTimeToAPIFormat(formData.onBlocksTime),
         numberOfLandings: parseFloat(formData.numberOfLandings) || 0,
-        hobbsMeterStart: parseFloat(formData.hobbsMeterStart) || 0,
-        hobbsMeterEnd: parseFloat(formData.hobbsMeterEnd) || 0,
-        hobbsMeterTotal: parseFloat(formData.hobbsMeterTotal) || 0,
-        tachometerStart: parseFloat(formData.tachometerStart) || 0,
-        tachometerEnd: parseFloat(formData.tachometerEnd) || 0,
-        tachometerTotal: parseFloat(formData.tachometerTotal) || 0,
+        // Always save hobbs/tachometer Start and End (0 when empty) - ensure 0 persists in DB
+        hobbsMeterStart:
+          formData.hobbsMeterStart === "" ||
+          formData.hobbsMeterStart === undefined
+            ? 0
+            : parseFloat(formData.hobbsMeterStart) || 0,
+        hobbsMeterEnd:
+          formData.hobbsMeterEnd === "" || formData.hobbsMeterEnd === undefined
+            ? 0
+            : parseFloat(formData.hobbsMeterEnd) || 0,
+        hobbsMeterTotal:
+          (parseFloat(formData.hobbsMeterEnd) || 0) -
+          (parseFloat(formData.hobbsMeterStart) || 0),
+        tachometerStart:
+          formData.tachometerStart === "" ||
+          formData.tachometerStart === undefined
+            ? 0
+            : parseFloat(formData.tachometerStart) || 0,
+        tachometerEnd:
+          formData.tachometerEnd === "" || formData.tachometerEnd === undefined
+            ? 0
+            : parseFloat(formData.tachometerEnd) || 0,
+        tachometerTotal:
+          (parseFloat(formData.tachometerEnd) || 0) -
+          (parseFloat(formData.tachometerStart) || 0),
         airframePrevTime: formData.airframePrevTime
           ? parseFloat(formData.airframePrevTime)
           : undefined,
@@ -1596,8 +1614,15 @@ export function AddTechnicalLogbookEntryModal({
         rtsTime: formData.rtsTime
           ? convertTimeToAPIFormat(formData.rtsTime)
           : undefined,
-        whiteAtl: formData.whiteAtl ? formData.whiteAtl.name : undefined,
-        dfp: formData.dfp ? formData.dfp.name : undefined,
+        // When uploading new file: omit from JSON (sent via multipart). When editing without new file: keep existing path.
+        whiteAtl:
+          formData.whiteAtl instanceof File
+            ? undefined
+            : editEntry?.whiteAtl ?? undefined,
+        dfp:
+          formData.dfp instanceof File
+            ? undefined
+            : editEntry?.dfp ?? undefined,
         componentParts: componentRecords.map((record) => ({
           qty: parseFloat(record.qty) || 0,
           unit: record.unit,
@@ -1613,11 +1638,21 @@ export function AddTechnicalLogbookEntryModal({
       // Convert camelCase to snake_case before sending to API
       const apiDataSnake = snakeAllKeys(apiDataCamel);
 
+      const files =
+        formData.whiteAtl instanceof File || formData.dfp instanceof File
+          ? {
+              whiteAtl:
+                formData.whiteAtl instanceof File ? formData.whiteAtl : null,
+              dfp: formData.dfp instanceof File ? formData.dfp : null,
+            }
+          : undefined;
+
       if (editEntry) {
         // Update existing entry
         const updatedEntry = await updateAircraftTechnicalLog(
           editEntry.id,
-          apiDataSnake as AircraftTechnicalLogUpdate
+          apiDataSnake as AircraftTechnicalLogUpdate,
+          files
         );
 
         // Show success message
@@ -1643,7 +1678,8 @@ export function AddTechnicalLogbookEntryModal({
 
       // Create new entry
       const createdEntry = await createAircraftTechnicalLog(
-        apiDataSnake as any
+        apiDataSnake as any,
+        files
       );
 
       // Show success message
@@ -1666,7 +1702,7 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: "ATL-",
         acReg: "",
-        natureOfFlight: "TR",
+        natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
         offBlocksStation: "",
@@ -1688,12 +1724,12 @@ export function AddTechnicalLogbookEntryModal({
         priorDepartureMinutes: "",
         afterLandingHours: "",
         afterLandingMinutes: "",
-        tachometerStart: "",
-        tachometerEnd: "",
-        tachometerTotal: "",
-        hobbsMeterStart: "",
-        hobbsMeterEnd: "",
-        hobbsMeterTotal: "",
+        tachometerStart: "0",
+        tachometerEnd: "0",
+        tachometerTotal: "0",
+        hobbsMeterStart: "0",
+        hobbsMeterEnd: "0",
+        hobbsMeterTotal: "0",
         nextInspectionDue: "",
         tachTimeDue: "",
         pilotReport: "",
@@ -1992,23 +2028,37 @@ export function AddTechnicalLogbookEntryModal({
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Sequence No. *
                 </label>
-                <input
-                  type="text"
-                  value={formData.seqNo}
-                  onChange={(e) => {
-                    setFormData({ ...formData, seqNo: e.target.value });
-                    // Clear error when user starts typing
-                    if (validationErrors.seqNo) {
-                      setValidationErrors({ ...validationErrors, seqNo: "" });
-                    }
-                  }}
-                  className={`w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                <div
+                  className={`flex items-stretch w-full border rounded overflow-hidden ${
                     validationErrors.seqNo
-                      ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                      : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                      ? "border-red-500 ring-1 ring-red-400"
+                      : "border-gray-300"
                   }`}
-                  required
-                />
+                >
+                  <div className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-200 border-r border-gray-300 shrink-0">
+                    ATL-
+                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={
+                      formData.seqNo.startsWith("ATL-")
+                        ? formData.seqNo.slice(4)
+                        : formData.seqNo
+                    }
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      setFormData({ ...formData, seqNo: "ATL-" + digits });
+                      if (validationErrors.seqNo) {
+                        setValidationErrors({ ...validationErrors, seqNo: "" });
+                      }
+                    }}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border-0 rounded-none focus:outline-none focus:ring-0 bg-white text-gray-900 placeholder:text-gray-400"
+                    placeholder="001"
+                    required
+                  />
+                </div>
                 {validationErrors.seqNo && (
                   <p className="mt-1 text-xs text-red-600">
                     {validationErrors.seqNo}
@@ -2122,7 +2172,7 @@ export function AddTechnicalLogbookEntryModal({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
-                  Nature of Flight *
+                  Nature of Flight
                 </label>
                 <select
                   value={formData.natureOfFlight}
@@ -2133,8 +2183,8 @@ export function AddTechnicalLogbookEntryModal({
                     })
                   }
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-                  required
                 >
+                  <option value="">-</option>
                   <option value="TR">TR - Training Flight</option>
                   <option value="PSF">PSF - Post Flight Inspection</option>
                   <option value="PRF">PRF - Pre Flight Inspection</option>
@@ -2143,6 +2193,7 @@ export function AddTechnicalLogbookEntryModal({
                   <option value="TR W/ PIREM">
                     TR W/ PIREM - Training Flight with Pilot Remarks VOID
                   </option>
+                  <option value="VOID">VOID - Void</option>
                 </select>
               </div>
               <div>
@@ -3247,48 +3298,6 @@ export function AddTechnicalLogbookEntryModal({
                         />
                       </td>
                     </tr>
-                    <tr>
-                      <td
-                        className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100"
-                        colSpan={2}
-                      >
-                        Life time limit
-                      </td>
-                      <td
-                        className="border border-gray-300 px-2 py-1.5 bg-white"
-                        colSpan={4}
-                      >
-                        <input
-                          type="text"
-                          value={formData.lifeTimeLimitEngine}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              lifeTimeLimitEngine: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white"
-                          placeholder="Engine"
-                        />
-                      </td>
-                      <td
-                        className="border border-gray-300 px-2 py-1.5 bg-white"
-                        colSpan={4}
-                      >
-                        <input
-                          type="text"
-                          value={formData.lifeTimeLimitPropeller}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              lifeTimeLimitPropeller: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm bg-white"
-                          placeholder="Propeller"
-                        />
-                      </td>
-                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -3825,7 +3834,7 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("whiteAtl", e.target.files?.[0] || null)
                     }
                     className="hidden"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
                     htmlFor="white-atl-file"
@@ -3861,7 +3870,7 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("dfp", e.target.files?.[0] || null)
                     }
                     className="hidden"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
                     htmlFor="dfp-file"

@@ -7,11 +7,13 @@ import {
   Save,
   X,
   Upload,
+  Eye,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getAircraftById, updateAircraft } from "../api/aircraftApi";
+import apiClient from "../api/index";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import { snakeAllKeys } from "../utility/utils";
@@ -42,6 +44,18 @@ export function AircraftDetail() {
     setPropellerARCFileName(String(file?.name));
   };
 
+  /** Strip app/, app/uploads/, uploads/, leading slashes and api/v1 so we never display or send path prefix */
+  const stripArcPathPrefix = (path: string): string => {
+    if (!path || typeof path !== "string") return "";
+    let p = path.trim().replace(/^\/+/, "");
+    p = p.replace(/^api\/v1\//, "");
+    p = p.replace(/^app\/uploads\//, "");
+    p = p.replace(/^\/app\/uploads\//, "");
+    p = p.replace(/^app\//, "");
+    p = p.replace(/^uploads\//, "");
+    return p.trim();
+  };
+
   useEffect(() => {
     if (!id) return;
     getAircraftById(Number(id))
@@ -65,16 +79,32 @@ export function AircraftDetail() {
           engineLifeTimeLimit: Number(
             data.engine_life_time_limit ?? data.life_time_limit_engine ?? 0
           ),
-          engineArc: data?.engine_arc?.replace("uploads/", ""),
+          engineArc:
+            data?.engine_arc && String(data.engine_arc).trim()
+              ? stripArcPathPrefix(String(data.engine_arc))
+              : "",
           propellerModel: data.propeller_model,
           propellerSerialNumber: data.propeller_serial_number,
           propellerLifeTimeLimit: Number(
-            data.propeller_life_time_limit ?? data.life_time_limit_propeller ?? 0
+            data.propeller_life_time_limit ??
+              data.life_time_limit_propeller ??
+              0
           ),
-          propellerArc: data?.propeller_arc?.replace("uploads/", ""),
+          propellerArc:
+            data?.propeller_arc && String(data.propeller_arc).trim()
+              ? stripArcPathPrefix(String(data.propeller_arc))
+              : "",
         };
-        setEngineARCFileName(data?.engine_arc?.replace("uploads/", ""));
-        setPropellerARCFileName(data?.propeller_arc?.replace("uploads/", ""));
+        setEngineARCFileName(
+          data?.engine_arc && String(data.engine_arc).trim()
+            ? stripArcPathPrefix(String(data.engine_arc))
+            : ""
+        );
+        setPropellerARCFileName(
+          data?.propeller_arc && String(data.propeller_arc).trim()
+            ? stripArcPathPrefix(String(data.propeller_arc))
+            : ""
+        );
         setAircraft(mappedAircraft);
       })
       .finally(() =>
@@ -97,6 +127,30 @@ export function AircraftDetail() {
       return Number.isFinite(num) ? num : null;
     };
 
+    // Required: life_time_limit_engine and life_time_limit_propeller must be set
+    const engineLimit = toOptionalFloat(editAircraft?.engineLifeTimeLimit);
+    const propellerLimit = toOptionalFloat(
+      editAircraft?.propellerLifeTimeLimit
+    );
+    if (engineLimit == null) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required field",
+        text: "Engine Life Time Limit (life_time_limit_engine) is required. Please set it before saving.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+    if (propellerLimit == null) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required field",
+        text: "Propeller Life Time Limit (life_time_limit_propeller) is required. Please set it before saving.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+
     const updatedData = {
       registration: editAircraft?.registration,
       manufacturer: editAircraft?.manufacturer,
@@ -112,7 +166,9 @@ export function AircraftDetail() {
 
       engine_model: editAircraft?.engineModel,
       engine_serial_number: editAircraft?.engineSerialNumber,
-      engine_life_time_limit: toOptionalFloat(editAircraft?.engineLifeTimeLimit),
+      engine_life_time_limit: toOptionalFloat(
+        editAircraft?.engineLifeTimeLimit
+      ),
       // engine_arc: editAircraft?.engineArc,
 
       propeller_model: editAircraft?.propellerModel,
@@ -127,10 +183,13 @@ export function AircraftDetail() {
 
     // Append JSON data as string
     formData.append("json_data", JSON.stringify(snakeAllKeys(updatedData)));
-    // Append files if they exist
-
-    formData.append("engine_arc_file", engineARCFile || "");
-    formData.append("propeller_arc_file", propellerARCFile || "");
+    // Append files only when user selected a new file (File object)
+    if (engineARCFile instanceof File) {
+      formData.append("engine_arc_file", engineARCFile);
+    }
+    if (propellerARCFile instanceof File) {
+      formData.append("propeller_arc_file", propellerARCFile);
+    }
 
     try {
       const response = await updateAircraft(Number(id), formData);
@@ -139,6 +198,22 @@ export function AircraftDetail() {
       setEditedAircraft(updatedAircraft);
       setAircraft(updatedAircraft);
       setIsEditMode(false);
+      setEngineARCFile(null);
+      setPropellerARCFile(null);
+      const enginePath =
+        (updatedAircraft as any).engineArc ??
+        (updatedAircraft as any).engine_arc ??
+        "";
+      const propellerPath =
+        (updatedAircraft as any).propellerArc ??
+        (updatedAircraft as any).propeller_arc ??
+        "";
+      setEngineARCFileName(
+        enginePath ? stripArcPathPrefix(String(enginePath)) : ""
+      );
+      setPropellerARCFileName(
+        propellerPath ? stripArcPathPrefix(String(propellerPath)) : ""
+      );
 
       Swal.fire({
         icon: "success",
@@ -179,6 +254,120 @@ export function AircraftDetail() {
   const handlePropellerCancel = () => {
     setPropellerARCFile(null);
     setPropellerARCFileName("");
+  };
+
+  /** Normalize path for download/view: strip app/, app/uploads/, uploads/, leading slashes, api/v1 */
+  const normalizeArcPath = (path: string): string => {
+    return stripArcPathPrefix(path);
+  };
+
+  /** Download – same logic as ATL list view: GET {folder}/download/{filePath} */
+  const handleDownloadArc = async (
+    folder: "engine_arc" | "propeller_arc",
+    filename: string,
+    displayName?: string
+  ) => {
+    if (!filename || !filename.trim()) return;
+    const filePath = normalizeArcPath(filename);
+    const endpoint = `${folder}/download/${filePath}`;
+    try {
+      const response = await apiClient.get(endpoint, {
+        responseType: "blob",
+        headers: { Accept: "application/octet-stream" },
+      });
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = displayName || filePath.split("/").pop() || folder;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Download error:", err);
+      Swal.fire({
+        icon: "error",
+        title: "Download failed",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to download file.",
+      });
+    }
+  };
+
+  /** MIME from filename for view */
+  const getMimeFromFilename = (path: string): string | null => {
+    const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
+    if (ext === "pdf") return "application/pdf";
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    if (ext === "png") return "image/png";
+    if (ext === "gif") return "image/gif";
+    if (ext === "webp") return "image/webp";
+    return null;
+  };
+
+  /** True if file path is an image (show View icon); otherwise show Download icon */
+  const isArcImage = (path: string): boolean => {
+    const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
+    return ["jpg", "jpeg", "png", "gif", "webp"].includes(ext ?? "");
+  };
+
+  const [showFileViewModal, setShowFileViewModal] = useState(false);
+  const [fileViewBlobUrl, setFileViewBlobUrl] = useState<string | null>(null);
+  const [fileViewMimeType, setFileViewMimeType] = useState<string | null>(null);
+  const [fileViewLoading, setFileViewLoading] = useState(false);
+  const [fileViewError, setFileViewError] = useState<string | null>(null);
+
+  /** View in modal – same logic as ATL list view: open modal, GET {folder}/download/{filePath}, show image/PDF or fallback */
+  const handleViewArc = async (
+    folder: "engine_arc" | "propeller_arc",
+    filename: string
+  ) => {
+    if (!filename || !filename.trim()) return;
+    setFileViewLoading(true);
+    setFileViewError(null);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setShowFileViewModal(true);
+    const filePath = normalizeArcPath(filename);
+    const endpoint = `${folder}/download/${filePath}`;
+    try {
+      const response = await apiClient.get(endpoint, {
+        responseType: "blob",
+        headers: { Accept: "application/octet-stream" },
+      });
+      const blob = response.data as Blob;
+      const url = window.URL.createObjectURL(blob);
+      const serverType =
+        blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream =
+        !serverType || serverType === "application/octet-stream";
+      const mimeType = isOctetStream
+        ? getMimeFromFilename(filePath)
+        : serverType;
+      setFileViewBlobUrl(url);
+      setFileViewMimeType(mimeType ?? null);
+      setFileViewError(null);
+    } catch (err: any) {
+      console.error("View file error:", err);
+      setFileViewError(
+        err?.response?.data?.detail || err?.message || "Failed to open file."
+      );
+      setFileViewBlobUrl(null);
+      setFileViewMimeType(null);
+    } finally {
+      setFileViewLoading(false);
+    }
+  };
+
+  const closeFileViewModal = () => {
+    if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
+    setShowFileViewModal(false);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setFileViewError(null);
   };
 
   if (!aircraft) {
@@ -383,6 +572,53 @@ export function AircraftDetail() {
                     <p className="text-gray-900">{aircraft.status || "N/A"}</p>
                   )}
                 </div>
+                {/* <div>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Engine Life Time Limit <span className="text-red-500">*</span>
+                  </p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      min={0}
+                      value={editAircraft?.engineLifeTimeLimit ?? ""}
+                      onChange={(e) =>
+                        handleInputChange("engineLifeTimeLimit", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.engineLifeTimeLimit != null
+                        ? aircraft.engineLifeTimeLimit
+                        : "N/A"}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">
+                    Propeller Life Time Limit <span className="text-red-500">*</span>
+                  </p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      min={0}
+                      value={editAircraft?.propellerLifeTimeLimit ?? ""}
+                      onChange={(e) =>
+                        handleInputChange(
+                          "propellerLifeTimeLimit",
+                          e.target.value
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.propellerLifeTimeLimit != null
+                        ? aircraft.propellerLifeTimeLimit
+                        : "N/A"}
+                    </p>
+                  )}
+                </div> */}
               </div>
             </div>
 
@@ -496,7 +732,8 @@ export function AircraftDetail() {
                     />
                   ) : (
                     <p className="text-gray-900">
-                      {aircraft.engineLifeTimeLimit || aircraft.engineLifeTimeLimit === 0
+                      {aircraft.engineLifeTimeLimit ||
+                      aircraft.engineLifeTimeLimit === 0
                         ? aircraft.engineLifeTimeLimit
                         : "N/A"}
                     </p>
@@ -505,39 +742,76 @@ export function AircraftDetail() {
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Engine ARC</p>
                   <div>
-                    <div className="relative">
-                      <input
-                        type="file"
-                        id="engine-arc-file"
-                        onChange={handleEngineARCFile}
-                        className="hidden"
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                        disabled={!isEditMode}
-                      />
-                      <label
-                        htmlFor="engine-arc-file"
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
-                      >
-                        <span
-                          className={
-                            engineARCFile ? "text-gray-900" : "text-gray-400"
-                          }
-                        >
-                          {engineARCFileName
-                            ? engineARCFileName
-                            : "Choose file or N/A"}
-                        </span>
-                        <Upload className="w-4 h-4 text-gray-400" />
-                      </label>
-                    </div>
-
-                    {isEditMode && engineARCFileName && (
-                      <button
-                        onClick={handleEngineCancel}
-                        className="text-xs text-red-600 hover:text-red-700 mt-1"
-                      >
-                        Remove file
-                      </button>
+                    {isEditMode ? (
+                      <>
+                        <div className="relative">
+                          <input
+                            type="file"
+                            id="engine-arc-file"
+                            onChange={handleEngineARCFile}
+                            className="hidden"
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                          />
+                          <label
+                            htmlFor="engine-arc-file"
+                            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                          >
+                            <span
+                              className={
+                                engineARCFile
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }
+                            >
+                              {engineARCFileName
+                                ? engineARCFileName
+                                : "Choose file or N/A"}
+                            </span>
+                            <Upload className="w-4 h-4 text-gray-400" />
+                          </label>
+                        </div>
+                        {engineARCFileName && (
+                          <button
+                            onClick={handleEngineCancel}
+                            className="text-xs text-red-600 hover:text-red-700 mt-1"
+                          >
+                            Remove file
+                          </button>
+                        )}
+                      </>
+                    ) : aircraft.engineArc?.trim() ? (
+                      <div className="flex flex-col gap-1">
+                        {isArcImage(aircraft.engineArc) ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleViewArc("engine_arc", aircraft.engineArc!)
+                            }
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                          >
+                            <Eye className="w-4 h-4 flex-shrink-0" />
+                            View
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDownloadArc(
+                                "engine_arc",
+                                aircraft.engineArc!,
+                                aircraft.engineArc!.split("/").pop() ||
+                                  "engine_arc"
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                          >
+                            <Download className="w-4 h-4 flex-shrink-0" />
+                            Download
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">N/A</p>
                     )}
                   </div>
                 </div>
@@ -624,57 +898,81 @@ export function AircraftDetail() {
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Propeller ARC</p>
                   <div>
-                    <div className="relative">
-                      <input
-                        type="file"
-                        id="propeller-arc-file"
-                        onChange={handlePropellerARCFile}
-                        className="hidden"
-                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                        disabled={!isEditMode}
-                      />
-                      <label
-                        htmlFor="propeller-arc-file"
-                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
-                      >
-                        <span
-                          className={
-                            propellerARCFile ? "text-gray-900" : "text-gray-400"
-                          }
-                        >
-                          {propellerARCFileName
-                            ? propellerARCFileName
-                            : "Choose file or N/A"}
-                        </span>
-                        <Upload className="w-4 h-4 text-gray-400" />
-                      </label>
-                    </div>
-                    {isEditMode && propellerARCFileName && (
-                      <button
-                        onClick={handlePropellerCancel}
-                        className="text-xs text-red-600 hover:text-red-700 mt-1"
-                      >
-                        Remove file
-                      </button>
+                    {isEditMode ? (
+                      <>
+                        <div className="relative">
+                          <input
+                            type="file"
+                            id="propeller-arc-file"
+                            onChange={handlePropellerARCFile}
+                            className="hidden"
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                          />
+                          <label
+                            htmlFor="propeller-arc-file"
+                            className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                          >
+                            <span
+                              className={
+                                propellerARCFile
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }
+                            >
+                              {propellerARCFileName
+                                ? propellerARCFileName
+                                : "Choose file or N/A"}
+                            </span>
+                            <Upload className="w-4 h-4 text-gray-400" />
+                          </label>
+                        </div>
+                        {propellerARCFileName && (
+                          <button
+                            onClick={handlePropellerCancel}
+                            className="text-xs text-red-600 hover:text-red-700 mt-1"
+                          >
+                            Remove file
+                          </button>
+                        )}
+                      </>
+                    ) : aircraft.propellerArc?.trim() ? (
+                      <div className="flex flex-col gap-1">
+                        {isArcImage(aircraft.propellerArc) ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleViewArc(
+                                "propeller_arc",
+                                aircraft.propellerArc!
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                          >
+                            <Eye className="w-4 h-4 flex-shrink-0" />
+                            View
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDownloadArc(
+                                "propeller_arc",
+                                aircraft.propellerArc!,
+                                aircraft.propellerArc!.split("/").pop() ||
+                                  "propeller_arc"
+                              )
+                            }
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                          >
+                            <Download className="w-4 h-4 flex-shrink-0" />
+                            Download
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">N/A</p>
                     )}
                   </div>
-                  {/* {aircraft.propellerArc ? (
-                    <a
-                      href="#"
-                      className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        // In a real app, this would trigger the file download
-                        alert("File download would start here");
-                      }}
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span className="text-sm">{aircraft.propellerArc}</span>
-                      <Download className="w-3.5 h-3.5" />
-                    </a>
-                  ) : (
-                    <p className="text-gray-900">N/A</p>
-                  )} */}
                 </div>
               </div>
             </div>
@@ -683,6 +981,92 @@ export function AircraftDetail() {
           <Spinner />
         )}
       </div>
+
+      {/* File View Modal – Engine ARC / Propeller ARC */}
+      {showFileViewModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+          }}
+          onClick={closeFileViewModal}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <span className="text-sm font-medium text-gray-900">
+                View file
+              </span>
+              <button
+                type="button"
+                onClick={closeFileViewModal}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
+              {fileViewLoading && (
+                <div className="flex flex-col items-center gap-2 text-gray-500">
+                  <Spinner />
+                  <span className="text-sm">Loading file…</span>
+                </div>
+              )}
+              {fileViewError && !fileViewLoading && (
+                <div className="text-center text-red-600 text-sm">
+                  {fileViewError}
+                </div>
+              )}
+              {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
+                <>
+                  {(fileViewMimeType?.startsWith("image/") ||
+                    fileViewMimeType === "image/jpeg" ||
+                    fileViewMimeType === "image/jpg") && (
+                    <img
+                      src={fileViewBlobUrl}
+                      alt="File preview"
+                      className="max-w-full max-h-[70vh] object-contain"
+                    />
+                  )}
+                  {(fileViewMimeType === "application/pdf" ||
+                    fileViewMimeType?.includes("pdf")) && (
+                    <iframe
+                      src={fileViewBlobUrl}
+                      title="File preview"
+                      className="w-full h-[70vh] border-0 rounded"
+                    />
+                  )}
+                  {fileViewBlobUrl &&
+                    !fileViewMimeType?.startsWith("image/") &&
+                    fileViewMimeType !== "image/jpeg" &&
+                    fileViewMimeType !== "image/jpg" &&
+                    fileViewMimeType !== "application/pdf" &&
+                    !fileViewMimeType?.includes("pdf") && (
+                      <div className="text-center text-gray-600 text-sm">
+                        <p className="mb-2">
+                          Preview not available for this file type.
+                        </p>
+                        <a
+                          href={fileViewBlobUrl}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          Open in new tab / Download
+                        </a>
+                      </div>
+                    )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
