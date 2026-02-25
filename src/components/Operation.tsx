@@ -13,6 +13,7 @@ import {
   Search,
   Pencil,
   Eye,
+  RefreshCw,
 } from "lucide-react";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
@@ -204,17 +205,20 @@ export function Operation() {
   ) => {
     const run =
       computed?.airframeRunTime != null
-        ? String(computed.airframeRunTime)
-        : (r as any).airframe?.hrsTime ??
-          (r as any).airframe?.run ??
-          r.airframeRunTime ??
-          r.airframeTotalTime ??
-          (r as any).airframeRun ??
-          "-";
+        ? Number(computed.airframeRunTime).toFixed(2)
+        : (r as any).airframe?.hrsTime != null || (r as any).airframe?.run != null
+          ? toFormat2(Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run))
+          : r.airframeRunTime != null || r.airframeTotalTime != null
+            ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
+            : (r as any).airframeRun != null
+              ? toFormat2(Number((r as any).airframeRun))
+              : "-";
     const aftt =
       computed?.airframeAftt != null
-        ? String(computed.airframeAftt)
-        : r.airframeAftt ?? (r as any).airframeTotalTime ?? "-";
+        ? Number(computed.airframeAftt).toFixed(2)
+        : r.airframeAftt != null || (r as any).airframeTotalTime != null
+          ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
+          : "-";
     return `${run} / ${aftt}`;
   };
   const getEngineDisplay = (
@@ -223,25 +227,32 @@ export function Operation() {
   ) => {
     const run =
       computed?.engineRunTime != null
-        ? String(computed.engineRunTime)
-        : (r as any).engine?.hrsTime ??
-          (r as any).engine?.run ??
-          r.engineRunTime ??
-          r.engineTotalTime ??
-          (r as any).engineRun ??
-          "-";
+        ? Number(computed.engineRunTime).toFixed(2)
+        : (r as any).engine?.hrsTime != null || (r as any).engine?.run != null
+          ? toFormat2(Number((r as any).engine?.hrsTime ?? (r as any).engine?.run))
+          : r.engineRunTime != null || r.engineTotalTime != null
+            ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
+            : (r as any).engineRun != null
+              ? toFormat2(Number((r as any).engineRun))
+              : "-";
     const tsn =
       computed?.engineTsn != null
         ? Number(computed.engineTsn).toFixed(2)
-        : (r as any).engine?.tsn ?? r.engineTsn ?? "-";
+        : (r as any).engine?.tsn != null || r.engineTsn != null
+          ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
+          : "-";
     const tso =
       computed?.engineTso != null
         ? Number(computed.engineTso).toFixed(2)
-        : (r as any).engine?.tso ?? r.engineTso ?? "-";
+        : (r as any).engine?.tso != null || r.engineTso != null
+          ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
+          : "-";
     const tbo =
       computed?.engineTbo != null
         ? Number(computed.engineTbo).toFixed(2)
-        : (r as any).engine?.tbo ?? r.engineTbo ?? "-";
+        : (r as any).engine?.tbo != null || r.engineTbo != null
+          ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
+          : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
   const getPropellerDisplay = (
@@ -250,25 +261,32 @@ export function Operation() {
   ) => {
     const run =
       computed?.propellerRunTime != null
-        ? String(computed.propellerRunTime)
-        : (r as any).propeller?.hrsTime ??
-          (r as any).propeller?.run ??
-          r.propellerRunTime ??
-          r.propellerTotalTime ??
-          (r as any).propellerRun ??
-          "-";
+        ? Number(computed.propellerRunTime).toFixed(2)
+        : (r as any).propeller?.hrsTime != null || (r as any).propeller?.run != null
+          ? toFormat2(Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run))
+          : r.propellerRunTime != null || r.propellerTotalTime != null
+            ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
+            : (r as any).propellerRun != null
+              ? toFormat2(Number((r as any).propellerRun))
+              : "-";
     const tsn =
       computed?.propellerTsn != null
-        ? String(computed.propellerTsn)
-        : (r as any).propeller?.tsn ?? r.propellerTsn ?? "-";
+        ? Number(computed.propellerTsn).toFixed(2)
+        : (r as any).propeller?.tsn != null || r.propellerTsn != null
+          ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
+          : "-";
     const tso =
       computed?.propellerTso != null
-        ? String(computed.propellerTso)
-        : (r as any).propeller?.tso ?? r.propellerTso ?? "-";
+        ? Number(computed.propellerTso).toFixed(2)
+        : (r as any).propeller?.tso != null || r.propellerTso != null
+          ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
+          : "-";
     const tbo =
       computed?.propellerTbo != null
-        ? String(computed.propellerTbo)
-        : (r as any).propeller?.tbo ?? r.propellerTbo ?? "-";
+        ? Number(computed.propellerTbo).toFixed(2)
+        : (r as any).propeller?.tbo != null || r.propellerTbo != null
+          ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
+          : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
 
@@ -355,6 +373,11 @@ export function Operation() {
     if (v == null || v === "") return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
+  };
+  /** Format computation result always as 2 decimal places (.2f) */
+  const toFormat2 = (v: unknown): string => {
+    const n = v != null && v !== "" ? Number(v) : null;
+    return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
   };
   const computedEnginePropellerList = useMemo(() => {
     const list: Array<{
@@ -507,7 +530,7 @@ export function Operation() {
         timer: 1500,
         showConfirmButton: false,
       });
-      setRefreshKey((k) => k + 1);
+      refreshPage();
     } catch (err: unknown) {
       const e = err as {
         response?: { data?: { detail?: string } };
@@ -520,6 +543,35 @@ export function Operation() {
         title: "Delete Failed",
         text: msg,
       });
+    }
+  };
+
+  // Refresh aircraft + records so list view recomputes (Engine TSN/TSO/TBO, Propeller, Airframe AFTT, etc.)
+  const refreshPage = async () => {
+    if (!aircraftId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [aircraftRes, recordsRes] = await Promise.all([
+        getAircraftById(aircraftId),
+        getAircraftTechnicalLogs(
+          currentPage,
+          itemsPerPage,
+          searchQuery,
+          aircraftId,
+          sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
+        ),
+      ]);
+      setAircraft(toCamel(aircraftRes.data));
+      setFleetTimeRecords(recordsRes.items);
+      setTotalRecords(recordsRes.total);
+      setTotalPages(recordsRes.pages);
+    } catch (err: any) {
+      console.error("Error refreshing:", err);
+      setError("Failed to load data");
+      setFleetTimeRecords([]);
+    } finally {
+      setTimeout(() => setLoading(false), 360);
     }
   };
 
@@ -584,6 +636,16 @@ export function Operation() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={refreshPage}
+                disabled={loading}
+                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh list and recalculate computed values"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
               <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
                 <Printer className="w-4 h-4" />
                 <span className="hidden sm:inline">Print</span>
@@ -1213,114 +1275,64 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.airframeRunTime != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .airframeRunTime
-                                      )
-                                    : record.airframeRunTime != null
-                                    ? String(record.airframeRunTime)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.airframeRunTime ?? record.airframeRunTime
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.airframeAftt != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .airframeAftt
-                                      )
-                                    : record.airframeAftt != null
-                                    ? String(record.airframeAftt)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.airframeAftt ?? record.airframeAftt
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.engineRunTime != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .engineRunTime
-                                      )
-                                    : record.engineRunTime != null
-                                    ? String(record.engineRunTime)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.engineRunTime ?? record.engineRunTime
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.engineTsn != null
-                                    ? Number(
-                                        computedEnginePropellerList[rowIndex]
-                                          .engineTsn
-                                      ).toFixed(2)
-                                    : record.engineTsn != null
-                                    ? Number(record.engineTsn).toFixed(2)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.engineTsn ?? record.engineTsn
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.engineTso != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .engineTso
-                                      )
-                                    : record.engineTso != null
-                                    ? String(record.engineTso)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.engineTso ?? record.engineTso
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.engineTbo != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .engineTbo
-                                      )
-                                    : record.engineTbo != null
-                                    ? String(record.engineTbo)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.engineTbo ?? record.engineTbo
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.propellerRunTime != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .propellerRunTime
-                                      )
-                                    : record.propellerRunTime != null
-                                    ? String(record.propellerRunTime)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.propellerRunTime ?? record.propellerRunTime
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.propellerTsn != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .propellerTsn
-                                      )
-                                    : record.propellerTsn != null
-                                    ? String(record.propellerTsn)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.propellerTsn ?? record.propellerTsn
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.propellerTso != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .propellerTso
-                                      )
-                                    : record.propellerTso != null
-                                    ? String(record.propellerTso)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.propellerTso ?? record.propellerTso
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {computedEnginePropellerList[rowIndex]
-                                    ?.propellerTbo != null
-                                    ? String(
-                                        computedEnginePropellerList[rowIndex]
-                                          .propellerTbo
-                                      )
-                                    : record.propellerTbo != null
-                                    ? String(record.propellerTbo)
-                                    : "-"}
+                                  {toFormat2(
+                                    computedEnginePropellerList[rowIndex]
+                                      ?.propellerTbo ?? record.propellerTbo
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.fuelQtyLeftUpliftQty || "-"}
@@ -2148,30 +2160,7 @@ export function Operation() {
         aircraftId={aircraftId}
         onSuccess={() => {
           setShowAddRecordModal(false);
-          // Refresh the records list
-          const fetchRecords = async () => {
-            if (!aircraftId) return;
-            setLoading(true);
-            setError(null);
-            try {
-              const response = await getAircraftTechnicalLogs(
-                currentPage,
-                itemsPerPage,
-                searchQuery,
-                aircraftId
-              );
-              setFleetTimeRecords(response.items);
-              setTotalRecords(response.total);
-              setTotalPages(response.pages);
-            } catch (err: any) {
-              console.error("Error fetching ATL records:", err);
-              setError("Failed to load fleet time records");
-              setFleetTimeRecords([]);
-            } finally {
-              setTimeout(() => setLoading(false), 360);
-            }
-          };
-          fetchRecords();
+          refreshPage();
         }}
       />
 
@@ -2188,30 +2177,7 @@ export function Operation() {
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
-            // Refresh the records list
-            const fetchRecords = async () => {
-              if (!aircraftId) return;
-              setLoading(true);
-              setError(null);
-              try {
-                const response = await getAircraftTechnicalLogs(
-                  currentPage,
-                  itemsPerPage,
-                  searchQuery,
-                  aircraftId
-                );
-                setFleetTimeRecords(response.items);
-                setTotalRecords(response.total);
-                setTotalPages(response.pages);
-              } catch (err: any) {
-                console.error("Error fetching ATL records:", err);
-                setError("Failed to load fleet time records");
-                setFleetTimeRecords([]);
-              } finally {
-                setTimeout(() => setLoading(false), 360);
-              }
-            };
-            fetchRecords();
+            refreshPage();
           }}
         />
       )}

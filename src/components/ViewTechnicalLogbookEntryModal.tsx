@@ -133,7 +133,9 @@ export function ViewTechnicalLogbookEntryModal({
   };
 
   // Format airframe/engine/propeller time (number or string) for display
-  const formatComponentTime = (value: number | string | undefined | null): string => {
+  const formatComponentTime = (
+    value: number | string | undefined | null
+  ): string => {
     if (value == null || value === "") return "-";
     const num = typeof value === "string" ? parseFloat(value) : value;
     if (Number.isNaN(num)) return "-";
@@ -242,15 +244,31 @@ export function ViewTechnicalLogbookEntryModal({
               )}`
             : displayValue(entry.date),
         // Airframe, Engine & Propeller times (PREV / FLIGHT / TOTAL)
-        airframePrevTime: formatComponentTime((entryData as any).airframePrevTime),
-        airframeFlightTime: formatComponentTime((entryData as any).airframeFlightTime),
-        airframeTotalTime: formatComponentTime(entryData.airframeTotalTime ?? (entryData as any).airframeTotalTime),
+        airframePrevTime: formatComponentTime(
+          (entryData as any).airframePrevTime
+        ),
+        airframeFlightTime: formatComponentTime(
+          (entryData as any).airframeFlightTime
+        ),
+        airframeTotalTime: formatComponentTime(
+          entryData.airframeTotalTime ?? (entryData as any).airframeTotalTime
+        ),
         enginePrevTime: formatComponentTime((entryData as any).enginePrevTime),
-        engineFlightTime: formatComponentTime((entryData as any).engineFlightTime),
-        engineTotalTime: formatComponentTime(entryData.engineTotalTime ?? (entryData as any).engineTotalTime),
-        propellerPrevTime: formatComponentTime((entryData as any).propellerPrevTime),
-        propellerFlightTime: formatComponentTime((entryData as any).propellerFlightTime),
-        propellerTotalTime: formatComponentTime(entryData.propellerTotalTime ?? (entryData as any).propellerTotalTime),
+        engineFlightTime: formatComponentTime(
+          (entryData as any).engineFlightTime
+        ),
+        engineTotalTime: formatComponentTime(
+          entryData.engineTotalTime ?? (entryData as any).engineTotalTime
+        ),
+        propellerPrevTime: formatComponentTime(
+          (entryData as any).propellerPrevTime
+        ),
+        propellerFlightTime: formatComponentTime(
+          (entryData as any).propellerFlightTime
+        ),
+        propellerTotalTime: formatComponentTime(
+          entryData.propellerTotalTime ?? (entryData as any).propellerTotalTime
+        ),
         airframeRunTime: formatComponentTime(entryData.airframeRunTime),
         airframeAftt: formatComponentTime(entryData.airframeAftt),
         engineRunTime: formatComponentTime(entryData.engineRunTime),
@@ -258,11 +276,14 @@ export function ViewTechnicalLogbookEntryModal({
         engineTso: formatComponentTime(entryData.engineTso),
         engineTbo: formatComponentTime(entryData.engineTbo),
         propellerRunTime: formatComponentTime(entryData.propellerRunTime),
-        propellerTsn: entryData.propellerTsn != null ? String(entryData.propellerTsn) : "-",
+        propellerTsn:
+          entryData.propellerTsn != null ? String(entryData.propellerTsn) : "-",
         propellerTso: formatComponentTime(entryData.propellerTso),
         propellerTbo: formatComponentTime(entryData.propellerTbo),
         lifeTimeLimitEngine: formatComponentTime(entryData.lifeTimeLimitEngine),
-        lifeTimeLimitPropeller: formatComponentTime(entryData.lifeTimeLimitPropeller),
+        lifeTimeLimitPropeller: formatComponentTime(
+          entryData.lifeTimeLimitPropeller
+        ),
         whiteAtl: entryData.whiteAtl || "N/A",
         dfp: entryData.dfp || "N/A",
       }
@@ -854,41 +875,90 @@ export function ViewTechnicalLogbookEntryModal({
                   <table className="w-full border-collapse border border-gray-300">
                     <thead>
                       <tr>
-                        <th colSpan={2} className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200">
+                        <th
+                          colSpan={2}
+                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                        >
                           AIRFRAME
                         </th>
-                        <th colSpan={4} className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200">
+                        <th
+                          colSpan={4}
+                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                        >
                           ENGINE
                         </th>
-                        <th colSpan={4} className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200">
+                        <th
+                          colSpan={4}
+                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                        >
                           PROPELLER
                         </th>
                       </tr>
                       <tr>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">RUN TIME</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">AFTT</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">RUN TIME</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">TSN</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">TSO</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">TBO</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">RUN TIME</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">TSN</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">TSO</th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">TBO</th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          RUN TIME
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          AFTT
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          RUN TIME
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSN
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSO
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TBO
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          RUN TIME
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSN
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSO
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TBO
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr className="border-b border-gray-300">
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.airframeRunTime ?? "0"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.airframeAftt ?? "-"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.engineRunTime ?? "0"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.engineTsn ?? "UNK"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.engineTso ?? "-"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.engineTbo ?? "-"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerRunTime ?? "0"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerTsn ?? "-"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerTso ?? "-"}</td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">{detailData.propellerTbo ?? "-"}</td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.airframeRunTime ?? "0"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.airframeAftt ?? "-"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.engineRunTime ?? "0"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.engineTsn ?? "0"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.engineTso ?? "-"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.engineTbo ?? "-"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.propellerRunTime ?? "0"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.propellerTsn ?? "-"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.propellerTso ?? "-"}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
+                          {detailData.propellerTbo ?? "-"}
+                        </td>
                       </tr>
                     </tbody>
                   </table>
