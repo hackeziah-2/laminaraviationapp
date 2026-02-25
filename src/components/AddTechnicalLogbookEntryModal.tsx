@@ -1,4 +1,4 @@
-import { X, Upload, Plus, Trash2, ChevronDown, Check } from "lucide-react";
+import { X, Upload, Plus, Trash2, ChevronDown, Check, Loader2 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import Swal from "sweetalert2";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
@@ -99,7 +99,7 @@ export function AddTechnicalLogbookEntryModal({
     engineFlightTime: "",
     engineTotalTime: "",
     engineRunTime: "",
-    engineTsn: "",
+    engineTsn: "0.0",
     engineTso: "",
     engineTbo: "",
     propellerPrevTime: "",
@@ -181,6 +181,7 @@ export function AddTechnicalLogbookEntryModal({
   // RTS Name searchable dropdown state
   const [rtsAccounts, setRtsAccounts] = useState<Account[]>([]);
   const [loadingRtsAccounts, setLoadingRtsAccounts] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [rtsSearchTerm, setRtsSearchTerm] = useState("");
   const [isRtsDropdownOpen, setIsRtsDropdownOpen] = useState(false);
   const [debouncedRtsSearch, setDebouncedRtsSearch] = useState("");
@@ -401,7 +402,7 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
         engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
         engineRunTime: editEntry.engineRunTime?.toString() || "",
-        engineTsn: editEntry.engineTsn ?? "",
+        engineTsn: editEntry.engineTsn != null && editEntry.engineTsn !== "" ? String(editEntry.engineTsn) : "0.0",
         engineTso: editEntry.engineTso?.toString() || "",
         engineTbo: editEntry.engineTbo?.toString() || "",
         propellerPrevTime:
@@ -517,7 +518,7 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: "",
         engineTotalTime: "",
         engineRunTime: "",
-        engineTsn: "",
+        engineTsn: "0.0",
         engineTso: "",
         engineTbo: "",
         propellerPrevTime: "",
@@ -595,7 +596,7 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn ?? prev.engineTsn,
+            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -833,7 +834,7 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn ?? prev.engineTsn,
+            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -1222,7 +1223,7 @@ export function AddTechnicalLogbookEntryModal({
           ? airframeAftt.toFixed(2)
           : (parseFloat(prev.airframeAftt) || airframeRunTime).toFixed(2),
         engineRunTime: engineRunTime.toFixed(2),
-        engineTsn: "UNK",
+        engineTsn: "0.0",
         engineTso: hasPrevEngineTso
           ? engineTso.toFixed(2)
           : prev.engineTso || engineRunTime.toFixed(2),
@@ -1273,11 +1274,15 @@ export function AddTechnicalLogbookEntryModal({
     if (!seqTrim) {
       errors.seqNo = "Sequence No. is required";
     } else {
-      const afterPrefix = seqTrim.startsWith("ATL-") ? seqTrim.slice(4) : seqTrim;
+      const afterPrefix = seqTrim.startsWith("ATL-")
+        ? seqTrim.slice(4)
+        : seqTrim;
       if (afterPrefix === "") {
-        errors.seqNo = "Sequence No. must include a number after ATL- (e.g. ATL-1 or ATL-001)";
+        errors.seqNo =
+          "Sequence No. must include a number after ATL- (e.g. ATL-1 or ATL-001)";
       } else if (!/^\d+$/.test(afterPrefix)) {
-        errors.seqNo = "Sequence No. must be a number after ATL- (e.g. ATL-1 or ATL-001)";
+        errors.seqNo =
+          "Sequence No. must be a number after ATL- (e.g. ATL-1 or ATL-001)";
       }
     }
 
@@ -1304,11 +1309,20 @@ export function AddTechnicalLogbookEntryModal({
       const latestNumMatch = (latestSequenceNo || "").trim().match(/(\d+)$/);
       const enteredNumMatch = (formData.seqNo || "").trim().match(/(\d+)$/);
       const latestNum = latestNumMatch ? parseInt(latestNumMatch[1], 10) : null;
-      const enteredNum = enteredNumMatch ? parseInt(enteredNumMatch[1], 10) : null;
-      if (latestNum != null && enteredNum != null && enteredNum > latestNum + 15) {
+      const enteredNum = enteredNumMatch
+        ? parseInt(enteredNumMatch[1], 10)
+        : null;
+      if (
+        latestNum != null &&
+        enteredNum != null &&
+        enteredNum > latestNum + 15
+      ) {
         const maxNum = latestNum + 15;
         const padLen = (latestNumMatch[1] || "").length;
-        const maxSeq = (latestSequenceNo || "").replace(/\d+$/, String(maxNum).padStart(padLen, "0"));
+        const maxSeq = (latestSequenceNo || "").replace(
+          /\d+$/,
+          String(maxNum).padStart(padLen, "0")
+        );
         errors.seqNo = `Sequence No. gap must not exceed 15 from the latest entry. Latest: ${latestSequenceNo}, max allowed: ${maxSeq}.`;
       }
     }
@@ -1422,20 +1436,30 @@ export function AddTechnicalLogbookEntryModal({
       try {
         const res = await getAircraftById(aid);
         const data = res.data || {};
-        const engineLimit = data.engine_life_time_limit ?? data.life_time_limit_engine;
-        const propellerLimit = data.propeller_life_time_limit ?? data.life_time_limit_propeller;
+        const engineLimit =
+          data.engine_life_time_limit ?? data.life_time_limit_engine;
+        const propellerLimit =
+          data.propeller_life_time_limit ?? data.life_time_limit_propeller;
         const engineMissing =
-          engineLimit == null || engineLimit === "" || Number(engineLimit) === 0;
+          engineLimit == null ||
+          engineLimit === "" ||
+          Number(engineLimit) === 0;
         const propellerMissing =
-          propellerLimit == null || propellerLimit === "" || Number(propellerLimit) === 0;
+          propellerLimit == null ||
+          propellerLimit === "" ||
+          Number(propellerLimit) === 0;
         if (engineMissing || propellerMissing) {
           Swal.fire({
             icon: "warning",
             title: "Aircraft limits required",
             html:
               "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating or editing an ATL entry.<br/><br/>" +
-              (engineMissing ? "• Set <strong>Engine Life Time Limit</strong> (life_time_limit_engine)<br/>" : "") +
-              (propellerMissing ? "• Set <strong>Propeller Life Time Limit</strong> (life_time_limit_propeller)" : ""),
+              (engineMissing
+                ? "• Set <strong>Engine Life Time Limit</strong> (life_time_limit_engine)<br/>"
+                : "") +
+              (propellerMissing
+                ? "• Set <strong>Propeller Life Time Limit</strong> (life_time_limit_propeller)"
+                : ""),
             confirmButtonColor: "#2563eb",
           });
           return;
@@ -1452,6 +1476,7 @@ export function AddTechnicalLogbookEntryModal({
       }
     }
 
+    setIsSubmitting(true);
     try {
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const apiDataCamel: any = {
@@ -1462,8 +1487,8 @@ export function AddTechnicalLogbookEntryModal({
           formData.natureOfFlight === "VOID"
             ? "VOID"
             : formData.natureOfFlight?.trim()
-              ? (formData.natureOfFlight as any)
-              : null,
+            ? (formData.natureOfFlight as any)
+            : null,
         nextInspectionDue: formData.nextInspectionDue || undefined,
         tachTimeDue: formData.tachTimeDue
           ? parseFloat(formData.tachTimeDue)
@@ -1758,7 +1783,7 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: "",
         engineTotalTime: "",
         engineRunTime: "",
-        engineTsn: "",
+        engineTsn: "0.0",
         engineTso: "",
         engineTbo: "",
         propellerPrevTime: "",
@@ -1894,6 +1919,8 @@ export function AddTechnicalLogbookEntryModal({
           confirmButtonColor: "#dc2626",
         });
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -2002,6 +2029,17 @@ export function AddTechnicalLogbookEntryModal({
 
       {/* Modal */}
       <div className="relative bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Loading overlay on create/edit submit */}
+        {isSubmitting && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+              <p className="text-sm font-medium text-gray-700">
+                {editEntry ? "Updating entry..." : "Creating entry..."}
+              </p>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">
@@ -3203,8 +3241,8 @@ export function AddTechnicalLogbookEntryModal({
                             })
                           }
                           className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="UNK"
-                          title="Auto: UNK"
+                          placeholder=""
+                          title=""
                         />
                       </td>
                       <td className="border border-gray-300 px-2 py-1.5 bg-white">
@@ -3263,7 +3301,7 @@ export function AddTechnicalLogbookEntryModal({
                             })
                           }
                           className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="TSN"
+                          placeholder=""
                           title="Auto: Prev TSN + Prop Run"
                         />
                       </td>
