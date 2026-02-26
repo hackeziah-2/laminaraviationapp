@@ -47,6 +47,7 @@ export type NatureOfFlightType =
   | "VOID"
   | "VE"
   | "EOR"
+  | "ATL_REPL"
   | "OTHER";
 
 export interface AircraftTechnicalLog {

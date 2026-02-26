@@ -2229,9 +2229,10 @@ export function AddTechnicalLogbookEntryModal({
                   <option value="EGR">EGR - Engine Run-up</option>
                   <option value="ME">ME - Maintenance Entry</option>
                   <option value="TR W/ PIREM">
-                    TR W/ PIREM - Training Flight with Pilot Remarks VOID
+                    TR W/ PIREM - Training Flight with Pilot Remarks
                   </option>
                   <option value="VOID">VOID - Void</option>
+                  <option value="ATL_REPL">ATL REPL</option>
                 </select>
               </div>
               <div>

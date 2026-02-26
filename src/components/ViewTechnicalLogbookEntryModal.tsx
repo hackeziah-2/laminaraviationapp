@@ -156,6 +156,7 @@ export function ViewTechnicalLogbookEntryModal({
       VOID: "VOID",
       VE: "VE - Vehicle",
       EOR: "EOR - End of Run",
+      ATL_REPL: "ATL REPL",
       OTHER: "OTHER",
     };
     return mapping[nature] || nature || "-";
