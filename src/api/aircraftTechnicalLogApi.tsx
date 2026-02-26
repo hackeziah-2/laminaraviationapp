@@ -47,6 +47,7 @@ export type NatureOfFlightType =
   | "VOID"
   | "VE"
   | "EOR"
+  | "ATL_REPL"
   | "OTHER";
 
 export interface AircraftTechnicalLog {
@@ -528,4 +529,25 @@ export const getLatestAircraftTechnicalLog = async (
     }
     throw error;
   }
+};
+
+/**
+ * Import Aircraft Technical Log entries from Excel file.
+ * POST /api/v1/excel-data/aircraft-technical-log/import
+ * Sends aircraft_id in query and in form body for compatibility.
+ */
+export const importAircraftTechnicalLogExcel = async (
+  file: File,
+  aircraftId: number
+): Promise<{ data?: unknown }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("aircraft_id", String(aircraftId));
+  formData.append("aircraft_fk", String(aircraftId));
+  const response = await apiClient.post(
+    `excel-data/aircraft-technical-log/import?aircraft_id=${aircraftId}`,
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+  return response.data ?? response;
 };

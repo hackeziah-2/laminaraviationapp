@@ -213,6 +213,12 @@ export function Maintenance() {
     null
   );
   const [adSaving, setAdSaving] = useState(false);
+  // AD view file modal (for image preview)
+  const [adViewFileUrl, setAdViewFileUrl] = useState<string | null>(null);
+  const [adViewFilePath, setAdViewFilePath] = useState<string | null>(null);
+  const [adViewFileName, setAdViewFileName] = useState<string>("");
+  const [adViewIsImage, setAdViewIsImage] = useState(false);
+  const [adViewLoading, setAdViewLoading] = useState(false);
 
   const fetchLdnd = useCallback(async () => {
     if (!aircraftId || activeCategory !== "LDND") return;
@@ -540,6 +546,11 @@ export function Maintenance() {
     const last = parts[parts.length - 1] ?? filePath;
     return last.split("?")[0] ?? last;
   };
+
+  const isImageFilePath = (filePath: string): boolean => {
+    const lower = (filePath || "").toLowerCase();
+    return /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(lower);
+  };
   const handleADFileChange = (file: File | null) => {
     setAdUploadFile(file);
     setAdUploadFileName(file ? file.name : "");
@@ -601,6 +612,49 @@ export function Maintenance() {
       });
     }
   };
+
+  const handleADViewFile = async (item: ADMonitoring) => {
+    const filePath = getADFilePath(item);
+    if (!filePath?.trim()) return;
+    const isImage = isImageFilePath(filePath);
+    setAdViewLoading(true);
+    setAdViewFilePath(null);
+    setAdViewFileUrl(null);
+    setAdViewFileName(extractADFilename(filePath));
+    setAdViewIsImage(isImage);
+    try {
+      const blob = await downloadAdMonitoringFile(aircraftId, filePath);
+      const url = window.URL.createObjectURL(blob);
+      setAdViewFilePath(filePath);
+      setAdViewFileUrl(url);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.detail ?? err?.message ?? "Failed to load file.";
+      await Swal.fire({
+        icon: "error",
+        title: "Cannot open file",
+        text: msg,
+      });
+    } finally {
+      setAdViewLoading(false);
+    }
+  };
+
+  const handleADCloseViewFile = useCallback(() => {
+    setAdViewFileUrl((prev) => {
+      if (prev) window.URL.revokeObjectURL(prev);
+      return null;
+    });
+    setAdViewFilePath(null);
+    setAdViewFileName("");
+    setAdViewIsImage(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (adViewFileUrl) window.URL.revokeObjectURL(adViewFileUrl);
+    };
+  }, [adViewFileUrl]);
 
   const totalPages = ldndPages;
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1266,6 +1320,9 @@ export function Maintenance() {
                         Work Orders
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
+                        File
+                      </th>
+                      <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
                         Actions
                       </th>
                     </tr>
@@ -1274,7 +1331,7 @@ export function Maintenance() {
                     {paginatedADItems.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="px-5 py-8 text-center text-gray-500 text-sm"
                         >
                           No records found. Add an entry to get started.
@@ -1306,6 +1363,38 @@ export function Maintenance() {
                               <FileText className="w-4 h-4" />
                               <span className="text-sm">{item.workOrders}</span>
                             </button>
+                          </td>
+                          <td className="px-5 py-4 text-center">
+                            {getADFilePath(item) ? (
+                              isImageFilePath(getADFilePath(item)!) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleADViewFile(item)}
+                                  className="inline-flex items-center gap-1 px-2 py-1.5 text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200"
+                                  title="View image"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                  View
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleADDownloadFile(
+                                      getADFilePath(item)!,
+                                      extractADFilename(getADFilePath(item)!)
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
+                                  title="Download file"
+                                >
+                                  <Download className="w-4 h-4" />
+                                  Download
+                                </button>
+                              )
+                            ) : (
+                              <span className="text-gray-400 text-sm">—</span>
+                            )}
                           </td>
                           <td className="px-5 py-4 text-center">
                             <div className="flex items-center justify-center gap-1">
@@ -1585,6 +1674,65 @@ export function Maintenance() {
                   ? "Update Entry"
                   : "Add Entry"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AD View File Modal (image preview or download prompt) */}
+      {(adViewFileUrl !== null || adViewLoading) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={handleADCloseViewFile}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <span className="text-sm font-medium text-gray-900">
+                {adViewFileName || "View file"}
+              </span>
+              <button
+                type="button"
+                onClick={handleADCloseViewFile}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 flex-1 min-h-0 overflow-auto flex items-center justify-center">
+              {adViewLoading ? (
+                <div className="flex items-center gap-2 text-gray-500">
+                  <Loader className="w-6 h-6 animate-spin" />
+                  <span>Loading…</span>
+                </div>
+              ) : adViewIsImage && adViewFileUrl ? (
+                <img
+                  src={adViewFileUrl}
+                  alt={adViewFileName}
+                  className="max-w-full max-h-[70vh] object-contain"
+                />
+              ) : adViewFilePath ? (
+                <div className="text-center py-6">
+                  <p className="text-gray-600 mb-4">
+                    This file cannot be previewed here.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleADDownloadFile(
+                        adViewFilePath,
+                        adViewFileName
+                      );
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 text-gray-700"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download file
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

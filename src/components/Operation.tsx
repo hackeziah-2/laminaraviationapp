@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -21,6 +21,7 @@ import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal
 import {
   getAircraftTechnicalLogs,
   deleteAircraftTechnicalLog,
+  importAircraftTechnicalLogExcel,
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
@@ -183,6 +184,8 @@ export function Operation() {
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
+  const [importLoading, setImportLoading] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
   type ComputedRow =
@@ -546,6 +549,43 @@ export function Operation() {
     }
   };
 
+  const handleImportClick = () => {
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !aircraftId) return;
+    setImportLoading(true);
+    try {
+      await importAircraftTechnicalLogExcel(file, aircraftId);
+      await refreshPage();
+      await Swal.fire({
+        icon: "success",
+        title: "Import complete",
+        text: "Aircraft Technical Log entries have been imported successfully.",
+        confirmButtonColor: "#2563eb",
+      });
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Import failed.";
+      await Swal.fire({
+        icon: "error",
+        title: "Import failed",
+        text: typeof message === "string" ? message : "Failed to import file.",
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   // Refresh aircraft + records so list view recomputes (Engine TSN/TSO/TBO, Propeller, Airframe AFTT, etc.)
   const refreshPage = async () => {
     if (!aircraftId) return;
@@ -653,6 +693,24 @@ export function Operation() {
               <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
+              </button>
+              <input
+                type="file"
+                ref={importFileInputRef}
+                onChange={handleImportFileChange}
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                aria-label="Import ATL from Excel"
+              />
+              <button
+                type="button"
+                onClick={handleImportClick}
+                disabled={importLoading}
+                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Import Aircraft Technical Log from Excel"
+              >
+                <Upload className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`} />
+                <span className="hidden sm:inline">{importLoading ? "Importing…" : "Import"}</span>
               </button>
               <button
                 onClick={() => {
