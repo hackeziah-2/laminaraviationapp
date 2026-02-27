@@ -8,6 +8,8 @@ export interface AuthUser {
   status: "active" | "inactive";
   lastLogin: string;
   createdDate: string;
+  /** When present, use for created_by (account_information_id) on ATL create */
+  accountInformationId?: number;
 }
 
 export interface AuthUserCreate {
@@ -34,6 +36,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
   const getStr = (k: string, fallback = "") =>
     String(raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback);
   const id = Number(raw.id ?? raw.user_id ?? 0);
+  const accountInfoId = Number(raw.account_information_id ?? raw.accountInformationId ?? 0);
   const composedName = `${getStr("first_name")} ${getStr("middle_name")} ${getStr("last_name")}`
     .replace(/\s+/g, " ")
     .trim();
@@ -45,6 +48,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     status: (getStr("status", "active").toLowerCase() === "inactive" ? "inactive" : "active") as "active" | "inactive",
     lastLogin: getStr("last_login") || getStr("lastLogin", "Never"),
     createdDate: getStr("created_date") || getStr("createdDate") || getStr("created_at", ""),
+    accountInformationId: isNaN(accountInfoId) ? undefined : accountInfoId,
   };
 }
 

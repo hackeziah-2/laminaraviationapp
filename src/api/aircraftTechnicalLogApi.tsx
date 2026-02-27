@@ -38,6 +38,8 @@ export interface ComponentPartsRecordUpdate {
 
 // Aircraft Technical Log Interfaces
 export type NatureOfFlightType =
+  | ""
+  | "None"
   | "TR"
   | "PSF"
   | "PRF"
@@ -113,6 +115,8 @@ export interface AircraftTechnicalLog {
     model: string;
     type: string;
   };
+  workStatus?: string;
+  createdBy?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -170,6 +174,10 @@ export interface AircraftTechnicalLogCreate {
   whiteAtl?: string;
   dfp?: string;
   componentParts?: ComponentPartsRecordCreate[];
+  /** Default FOR_REVIEW on create (Fleet Time Monitoring); API enum names: FOR_REVIEW, REJECTED_MAINTENANCE, APPROVED, etc. */
+  workStatus?: string;
+  /** account_information_id of the currently logged-in user */
+  createdBy?: number;
 }
 
 export interface AircraftTechnicalLogUpdate {
@@ -225,6 +233,8 @@ export interface AircraftTechnicalLogUpdate {
   whiteAtl?: string;
   dfp?: string;
   componentParts?: ComponentPartsRecordCreate[];
+  /** Fleet Time Monitoring: work status (e.g. FOR REVIEW, APPROVED) */
+  workStatus?: string;
 }
 
 export interface PaginatedResponse<T> {
