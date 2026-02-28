@@ -2099,10 +2099,10 @@ export function AddTechnicalLogbookEntryModal({
         {/* Form Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
-            {/* Sequence No. | Work Status (edit) | A/C Registration */}
+            {/* Sequence No. | Work Status | A/C Registration (same order in View / Add / Edit) */}
             <div
               className={`grid gap-4 ${
-                editEntry || !aircraftId ? "grid-cols-2" : "grid-cols-1"
+                !aircraftId ? "grid-cols-3" : "grid-cols-2"
               }`}
             >
               <div>
@@ -2146,11 +2146,11 @@ export function AddTechnicalLogbookEntryModal({
                   </p>
                 )}
               </div>
-              {editEntry && (
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Work Status
-                  </label>
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Work Status
+                </label>
+                {editEntry ? (
                   <select
                     value={formData.workStatus}
                     onChange={(e) =>
@@ -2168,8 +2168,12 @@ export function AddTechnicalLogbookEntryModal({
                     <option value="PENDING">PENDING</option>
                     <option value="COMPLETED">COMPLETED</option>
                   </select>
-                </div>
-              )}
+                ) : (
+                  <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
+                    FOR REVIEW
+                  </div>
+                )}
+              </div>
               {!aircraftId && (
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
