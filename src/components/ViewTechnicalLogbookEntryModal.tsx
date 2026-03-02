@@ -152,7 +152,7 @@ export function ViewTechnicalLogbookEntryModal({
       PRF: "PRF - Pre Flight Inspection",
       EGR: "EGR - Engine Run-up",
       ME: "ME - Maintenance Entry",
-      "TR W/ PIREM": "TR W/ PIREM - Training Flight with Pilot Remarks",
+      TR_WITH_PIREM: "TR W/ PIREM - Training Flight with Pilot Remarks",
       VOID: "VOID",
       VE: "VE - Vehicle",
       EOR: "EOR - End of Run",
@@ -164,9 +164,16 @@ export function ViewTechnicalLogbookEntryModal({
 
   // Use fetchedEntry (from API) first, then fullEntry (from prop), otherwise use entry data with defaults
   const entryData = fetchedEntry || fullEntry;
+  // Format work status for display (e.g. FOR_REVIEW -> "FOR REVIEW")
+  const formatWorkStatus = (status: string | undefined): string => {
+    if (!status || status.trim() === "") return "N/A";
+    return status.replace(/_/g, " ");
+  };
+
   const detailData = entryData
     ? {
         seqNo: displayValue(entryData.sequenceNo || entry.seqNo),
+        workStatus: formatWorkStatus(entryData.workStatus),
         acReg: displayValue(entryData.aircraft?.registration || entry.acReg),
         natureOfFlight: formatNatureOfFlight(entryData.natureOfFlight),
         // Off-blocks/Origin
@@ -427,8 +434,8 @@ export function ViewTechnicalLogbookEntryModal({
               </span>
             </div> */}
 
-              {/* Sequence Number & Aircraft Registration */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Sequence No. | Work Status | A/C Registration (aligned with Edit) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-gray-600 text-sm mb-1">
                     Sequence No.
@@ -436,6 +443,12 @@ export function ViewTechnicalLogbookEntryModal({
                   <p className="text-gray-900">
                     {displayValue(detailData.seqNo)}
                   </p>
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    Work Status
+                  </label>
+                  <p className="text-gray-900">{detailData.workStatus}</p>
                 </div>
                 <div>
                   <label className="block text-gray-600 text-sm mb-1">

@@ -1,251 +1,194 @@
-import { RefreshCw, Printer, Download, Search, Filter, ChevronDown } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { RefreshCw, Printer, Download, Search, Loader, Pencil, X } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import Swal from 'sweetalert2';
+import { getFleetDailyUpdatePaged, updateFleetDailyUpdateRemark, type FleetDailyUpdateItem } from '../api/fleetDailyUpdateApi';
+import { Spinner } from './ui/spinner';
+
+/** Map status text to badge/row color: Running=green, ONGOING MAINTENANCE=yellow, AOG=red */
+function statusToColor(status: string | undefined): 'green' | 'yellow' | 'red' {
+  if (!status) return 'green';
+  const s = status.trim().toUpperCase();
+  if (s === 'AOG') return 'red';
+  if (s === 'ONGOING MAINTENANCE' || s === 'ONGOINGMAINTENANCE') return 'yellow';
+  return 'green'; // Running or default
+}
+
+const STATUS_OPTIONS = [
+  { value: 'Running', label: 'Running' },
+  { value: 'Ongoing Maintenance', label: 'Ongoing Maintenance' },
+  { value: 'AOG', label: 'AOG' },
+];
 
 export function AircraftFleetDailyUpdate() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
+  const [items, setItems] = useState<FleetDailyUpdateItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
-  const allAircraftData = [
-    {
-      ident: 'RP-C12',
-      status: 'Operational',
-      nextInspDue: '50 HRS',
-      tachDue: '7940.1',
-      tachEod: '7894.8',
-      remainingNextInsp: '45.3',
-      remainingEngine: '450.8',
-      remainingPropeller: '450.8',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-green-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C14',
-      status: 'ONGOING MAINTENANCE',
-      nextInspDue: '200 HRS',
-      tachDue: '1603.2',
-      tachEod: '1603',
-      remainingNextInsp: '0.2',
-      remainingEngine: '507.9',
-      remainingPropeller: '507.9',
-      remarks: 'Ongoing 200 HRS Inspection',
-      statusColor: 'yellow',
-      rowColor: 'bg-yellow-100',
-      criticalValue: 'remainingNextInsp'
-    },
-    {
-      ident: 'RP-C20',
-      status: 'Operational',
-      nextInspDue: '200 HRS',
-      tachDue: '4240.9',
-      tachEod: '4225.8',
-      remainingNextInsp: '15.1',
-      remainingEngine: '1664.2',
-      remainingPropeller: '1664.2',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-orange-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C4088',
-      status: 'AOG',
-      nextInspDue: '200 HRS',
-      tachDue: '5600.3',
-      tachEod: '5573.1',
-      remainingNextInsp: '27.2',
-      remainingEngine: '865.7',
-      remainingPropeller: '1538.5',
-      remarks: 'Crack found on Lower Right Fuselage Doorpost',
-      statusColor: 'red',
-      rowColor: 'bg-red-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C5288',
-      status: 'Operational',
-      nextInspDue: '50 HRS',
-      tachDue: '1148.4',
-      tachEod: '1101.5',
-      remainingNextInsp: '46.9',
-      remainingEngine: '859.8',
-      remainingPropeller: '1004.6',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-purple-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C9012',
-      status: 'Operational',
-      nextInspDue: '200 HRS',
-      tachDue: '2194.3',
-      tachEod: '2150.1',
-      remainingNextInsp: '44.2',
-      remainingEngine: '2039.9',
-      remainingPropeller: '1252.5',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-pink-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C25',
-      status: 'Operational',
-      nextInspDue: '1D HRS',
-      tachDue: '190.7',
-      tachEod: '190.8',
-      remainingNextInsp: '69.2',
-      remainingEngine: '410.8',
-      remainingPropeller: '410.8',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-teal-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C22',
-      status: 'Operational',
-      nextInspDue: '200 HRS',
-      tachDue: '424.0',
-      tachEod: '425.8',
-      remainingNextInsp: '15.1',
-      remainingEngine: '564.0',
-      remainingPropeller: '564.0',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-blue-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C1408',
-      status: 'Operational',
-      nextInspDue: '1D HRS',
-      tachDue: '344.7',
-      tachEod: '350.3',
-      remainingNextInsp: '24.8',
-      remainingEngine: '1820.9',
-      remainingPropeller: '1826.5',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-lime-100',
-      criticalValue: null
-    },
-    {
-      ident: 'RP-C7349',
-      status: 'Operational',
-      nextInspDue: '200 HRS',
-      tachDue: '169.2',
-      tachEod: '181.6',
-      remainingNextInsp: '36.2',
-      remainingEngine: '2333.4',
-      remainingPropeller: '2345.8',
-      remarks: '-',
-      statusColor: 'green',
-      rowColor: 'bg-indigo-100',
-      criticalValue: null
-    }
-  ];
+  // Edit remark/status modal
+  const [showRemarkModal, setShowRemarkModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<FleetDailyUpdateItem | null>(null);
+  const [remarkDraft, setRemarkDraft] = useState('');
+  const [statusDraft, setStatusDraft] = useState('');
+  const [savingRemark, setSavingRemark] = useState(false);
 
-  // Filter and search logic
-  const filteredData = useMemo(() => {
-    let filtered = [...allAircraftData];
+  // Map filterStatus to API status param (backend may expect these values)
+  const apiStatus = filterStatus === 'all' ? '' : filterStatus;
 
-    // Apply status filter
-    if (filterStatus !== 'all') {
-      filtered = filtered.filter(aircraft => {
-        if (filterStatus === 'operational') return aircraft.status === 'Operational';
-        if (filterStatus === 'maintenance') return aircraft.status === 'ONGOING MAINTENANCE';
-        if (filterStatus === 'aog') return aircraft.status === 'AOG';
-        return true;
-      });
-    }
-
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(aircraft => 
-        aircraft.ident.toLowerCase().includes(query) ||
-        aircraft.status.toLowerCase().includes(query) ||
-        aircraft.nextInspDue.toLowerCase().includes(query) ||
-        aircraft.remarks.toLowerCase().includes(query)
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await getFleetDailyUpdatePaged(
+        currentPage,
+        itemsPerPage,
+        searchDebounced,
+        apiStatus
       );
+      setItems(res.items);
+      setTotal(res.total);
+      setTotalPages(res.pages);
+    } catch (err: any) {
+      console.error('Error fetching fleet daily update:', err);
+      setItems([]);
+      setTotal(0);
+      setTotalPages(0);
+    } finally {
+      setTimeout(() => setLoading(false), 360);
     }
+  }, [currentPage, itemsPerPage, searchDebounced, apiStatus]);
 
-    return filtered;
-  }, [filterStatus, searchQuery]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-  // Pagination logic
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentData = filteredData.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters change
-  useMemo(() => {
-    setCurrentPage(1);
-  }, [filterStatus, searchQuery, itemsPerPage]);
-
-  // Get status counts
-  const statusCounts = useMemo(() => {
-    return {
-      all: allAircraftData.length,
-      operational: allAircraftData.filter(a => a.status === 'Operational').length,
-      maintenance: allAircraftData.filter(a => a.status === 'ONGOING MAINTENANCE').length,
-      aog: allAircraftData.filter(a => a.status === 'AOG').length
+  // Debounce search
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchDebounced(searchQuery);
+      setCurrentPage(1);
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
     };
+  }, [searchQuery]);
+
+  // No separate effect: page reset is done in handleFilterChange and items-per-page onChange
+
+  const handleRefresh = useCallback(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleFilterChange = (value: string) => {
+    setFilterStatus(value);
+    setCurrentPage(1);
+  };
+
+  const openRemarkModal = useCallback((item: FleetDailyUpdateItem) => {
+    setEditingItem(item);
+    setRemarkDraft(item.remarks ?? '');
+    const currentStatus = item.status ?? item.workStatus ?? '';
+    setStatusDraft(STATUS_OPTIONS.some(o => o.value === currentStatus) ? currentStatus : (STATUS_OPTIONS[0]?.value ?? 'Running'));
+    setShowRemarkModal(true);
   }, []);
 
-  const getStatusBadge = (status: string, color: string) => {
-    const colorClasses = {
+  const closeRemarkModal = useCallback(() => {
+    if (!savingRemark) {
+      setShowRemarkModal(false);
+      setEditingItem(null);
+      setRemarkDraft('');
+      setStatusDraft('');
+    }
+  }, [savingRemark]);
+
+  const handleSaveRemark = useCallback(async () => {
+    if (!editingItem) return;
+    setSavingRemark(true);
+    try {
+      await updateFleetDailyUpdateRemark(editingItem, { remarks: remarkDraft, status: statusDraft });
+      setShowRemarkModal(false);
+      setEditingItem(null);
+      setRemarkDraft('');
+      setStatusDraft('');
+      await fetchData();
+      await Swal.fire({
+        icon: 'success',
+        title: 'Saved',
+        text: 'Remark and status updated successfully.',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err: any) {
+      console.error('Error updating remark:', err);
+      const msg = err?.response?.data?.detail ?? err?.message ?? 'Failed to update remark.';
+      await Swal.fire({
+        icon: 'error',
+        title: 'Update failed',
+        text: typeof msg === 'string' ? msg : JSON.stringify(msg),
+      });
+    } finally {
+      setSavingRemark(false);
+    }
+  }, [editingItem, remarkDraft, statusDraft, fetchData]);
+
+  const startIndex = total > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endIndex = Math.min(currentPage * itemsPerPage, total);
+
+  const getRowColorClass = (rowColor?: string, statusColor?: string, statusText?: string) => {
+    if (rowColor?.startsWith('bg-')) return rowColor;
+    const map: Record<string, string> = {
+      green: 'bg-green-100',
+      yellow: 'bg-yellow-100',
+      red: 'bg-red-100',
+      orange: 'bg-orange-100',
+      blue: 'bg-blue-100',
+      purple: 'bg-purple-100',
+      pink: 'bg-pink-100',
+      teal: 'bg-teal-100',
+      lime: 'bg-lime-100',
+      indigo: 'bg-indigo-100',
+    };
+    const c = statusColor || rowColor || (statusText ? statusToColor(statusText) : '');
+    return map[c] || map[statusToColor(statusText)] || '';
+  };
+
+  const getStatusBadge = (status: string, color?: string) => {
+    const colorClasses: Record<string, string> = {
       green: 'bg-green-500 text-white',
       yellow: 'bg-yellow-400 text-gray-900',
-      red: 'bg-red-500 text-white'
+      red: 'bg-red-500 text-white',
     };
-
+    const c = color || statusToColor(status);
     return (
-      <span className={`px-3 py-1 rounded-full text-xs ${colorClasses[color as keyof typeof colorClasses]}`}>
-        {status}
+      <span className={`px-3 py-1 rounded-full text-xs font-medium ${colorClasses[c] || colorClasses.green}`}>
+        {status || '-'}
       </span>
     );
   };
 
-  // Generate page numbers for pagination
   const getPageNumbers = () => {
-    const pages = [];
+    const pages: (number | string)[] = [];
     const maxPagesToShow = 5;
-    
     if (totalPages <= maxPagesToShow) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
-      }
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else if (currentPage <= 3) {
+      for (let i = 1; i <= 4; i++) pages.push(i);
+      pages.push('...');
+      pages.push(totalPages);
+    } else if (currentPage >= totalPages - 2) {
+      pages.push(1);
+      pages.push('...');
+      for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
     } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) {
-          pages.push(i);
-        }
-        pages.push('...');
-        pages.push(totalPages);
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1);
-        pages.push('...');
-        for (let i = totalPages - 3; i <= totalPages; i++) {
-          pages.push(i);
-        }
-      } else {
-        pages.push(1);
-        pages.push('...');
-        pages.push(currentPage - 1);
-        pages.push(currentPage);
-        pages.push(currentPage + 1);
-        pages.push('...');
-        pages.push(totalPages);
-      }
+      pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
     }
-    
     return pages;
   };
 
@@ -258,8 +201,12 @@ export function AircraftFleetDailyUpdate() {
           <p className="text-gray-600 mt-1 text-sm">Daily maintenance status and maintenance tracking</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-            <RefreshCw className="w-4 h-4" />
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {loading ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             <span className="hidden sm:inline">Refresh</span>
           </button>
           <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
@@ -302,20 +249,20 @@ export function AircraftFleetDailyUpdate() {
             {/* Left: Showing count and Filter */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
               <span className="text-sm text-gray-600">
-                Showing {filteredData.length > 0 ? startIndex + 1 : 0} to {Math.min(endIndex, filteredData.length)} of {filteredData.length} aircraft
+                Showing {startIndex} to {endIndex} of {total} aircraft
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-600">Filter by Status</span>
                 <select
                   value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
+                  onChange={(e) => handleFilterChange(e.target.value)}
                   className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
                   style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center' }}
                 >
-                  <option value="all">All Aircraft ({statusCounts.all})</option>
-                  <option value="operational">Operational ({statusCounts.operational})</option>
-                  <option value="maintenance">Under Maintenance ({statusCounts.maintenance})</option>
-                  <option value="aog">AOG ({statusCounts.aog})</option>
+                  <option value="all">All Aircraft</option>
+                  <option value="Running">Running</option>
+                  <option value="Ongoing Maintenance">Ongoing Maintenance</option>
+                  <option value="AOG">AOG</option>
                 </select>
               </div>
             </div>
@@ -325,7 +272,10 @@ export function AircraftFleetDailyUpdate() {
               <span>Items per page:</span>
               <select
                 value={itemsPerPage}
-                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
                 className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundPosition: 'right 8px center' }}
               >
@@ -338,7 +288,12 @@ export function AircraftFleetDailyUpdate() {
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto relative min-h-[200px]">
+          {loading ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+              <Spinner className="w-8 h-8 text-blue-600" />
+            </div>
+          ) : null}
           <table className="w-full">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-300">
@@ -366,6 +321,9 @@ export function AircraftFleetDailyUpdate() {
                 <th className="px-4 py-3 text-left text-gray-900 text-xs">
                   REMARKS
                 </th>
+                <th className="px-4 py-3 text-center text-gray-900 text-xs w-20">
+                  ACTIONS
+                </th>
               </tr>
               <tr className="bg-gray-100 border-b border-gray-300">
                 <th className="border-r border-gray-300"></th>
@@ -377,49 +335,61 @@ export function AircraftFleetDailyUpdate() {
                 <th className="border-r border-gray-300"></th>
                 <th className="border-r border-gray-300"></th>
                 <th></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {currentData.length === 0 ? (
+              {items.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                    No aircraft found matching your filters.
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                    {loading ? 'Loading...' : 'No aircraft found matching your filters.'}
                   </td>
                 </tr>
               ) : (
-                currentData.map((aircraft, index) => (
-                <tr 
-                  key={index} 
-                  className={`border-b border-gray-200 ${aircraft.rowColor}`}
+                items.map((aircraft) => (
+                <tr
+                  key={aircraft.id ?? aircraft.ident ?? Math.random()}
+                  className={`border-b border-gray-200 ${getRowColorClass(aircraft.rowColor, aircraft.statusColor, aircraft.status ?? aircraft.workStatus)}`}
                 >
                   <td className="px-4 py-3 text-sm text-gray-900 border-r border-gray-300">
-                    {aircraft.ident}
+                    {aircraft.ident ?? aircraft.registration ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-sm border-r border-gray-300">
-                    {getStatusBadge(aircraft.status, aircraft.statusColor)}
+                    {getStatusBadge(aircraft.status ?? aircraft.workStatus ?? '-')}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                    {aircraft.nextInspDue}
+                    {aircraft.nextInspDue ?? aircraft.nextInspectionDue ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                    {aircraft.tachDue}
+                    {aircraft.tachDue ?? aircraft.tachTimeDue ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                    {aircraft.tachEod}
+                    {aircraft.tachEod ?? '-'}
                   </td>
                   <td className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${
                     aircraft.criticalValue === 'remainingNextInsp' ? 'bg-red-500 text-white' : 'text-gray-900'
                   }`}>
-                    {aircraft.remainingNextInsp}
+                    {aircraft.remainingNextInsp ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                    {aircraft.remainingEngine}
+                    {aircraft.remainingEngine ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                    {aircraft.remainingPropeller}
+                    {aircraft.remainingPropeller ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">
-                    {aircraft.remarks}
+                    {aircraft.remarks ?? '-'}
+                  </td>
+                  <td className="px-4 py-3 text-center border-gray-300">
+                    <button
+                      type="button"
+                      onClick={() => openRemarkModal(aircraft)}
+                      className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
+                      title="Edit remark"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edit
+                    </button>
                   </td>
                 </tr>
                 ))
@@ -429,7 +399,7 @@ export function AircraftFleetDailyUpdate() {
         </div>
 
         {/* Pagination */}
-        {filteredData.length > 0 && (
+        {total > 0 && !loading && (
           <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-center gap-2">
             <button
               onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
@@ -463,6 +433,80 @@ export function AircraftFleetDailyUpdate() {
           </div>
         )}
       </div>
+
+      {/* Edit Remark Modal */}
+      {showRemarkModal && editingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={closeRemarkModal}>
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-md relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {savingRemark && (
+              <div className="absolute inset-0 rounded-lg bg-white/80 flex items-center justify-center z-10">
+                <Spinner className="w-10 h-10 text-blue-600" />
+              </div>
+            )}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Remark</h3>
+              <button
+                type="button"
+                onClick={closeRemarkModal}
+                disabled={savingRemark}
+                className="p-1 rounded text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="px-4 py-4 space-y-3">
+              <p className="text-sm text-gray-600">
+                Aircraft: <span className="font-medium text-gray-900">{editingItem.ident ?? editingItem.registration ?? '—'}</span>
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={statusDraft}
+                  onChange={(e) => setStatusDraft(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                <textarea
+                  value={remarkDraft}
+                  onChange={(e) => setRemarkDraft(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter remarks..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={closeRemarkModal}
+                disabled={savingRemark}
+                className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveRemark}
+                disabled={savingRemark}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {savingRemark ? <Loader className="w-4 h-4 animate-spin" /> : null}
+                {savingRemark ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

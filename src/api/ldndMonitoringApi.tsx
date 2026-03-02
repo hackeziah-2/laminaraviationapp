@@ -42,7 +42,7 @@ export interface PaginatedLDNDResponse {
 /** Response from GET .../ldnd-monitoring/latest */
 export interface LDNDLatest {
   currentTach: number | string | null;
-  nextInspectionType: string | null;
+  nextInspectionDue: number | null;
   nextInspectionUnit: string | null;
   lastUpdated: string | null;
 }
@@ -86,7 +86,7 @@ export const getAircraftLdndMonitoringLatest = async (
     const r = raw ?? {};
     return {
       currentTach: r.current_tach ?? r.currentTach ?? null,
-      nextInspectionType: r.next_inspection_type ?? r.nextInspectionType ?? null,
+      nextInspectionDue: toNum(r.next_inspection_due ?? r.nextInspectionDue),
       nextInspectionUnit: r.next_inspection_unit ?? r.nextInspectionUnit ?? null,
       lastUpdated: r.last_updated ?? r.lastUpdated ?? null,
     };

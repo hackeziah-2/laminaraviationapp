@@ -985,7 +985,9 @@ export function Maintenance() {
                       <Loader className="w-5 h-5 animate-spin text-gray-400 inline" />
                     ) : (
                       [
-                        ldndLatest?.nextInspectionType,
+                        ldndLatest?.nextInspectionDue != null
+                          ? String(ldndLatest.nextInspectionDue)
+                          : null,
                         ldndLatest?.nextInspectionUnit,
                       ]
                         .filter(Boolean)

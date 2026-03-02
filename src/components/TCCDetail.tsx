@@ -473,16 +473,6 @@ export function TCCDetailContent({
           <h1 className="text-base font-semibold text-gray-900 tracking-tight">
             TCC Monitoring
           </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1.5 text-sm text-gray-600">
-            <span className="font-medium text-gray-900">MSN</span>
-            <span>{aircraftId}</span>
-            <span>
-              TSN <span className="text-gray-900">7561</span>
-            </span>
-            <span>
-              CSN <span className="text-gray-900">11656.0</span>
-            </span>
-          </div>
         </div>
       </div>
 

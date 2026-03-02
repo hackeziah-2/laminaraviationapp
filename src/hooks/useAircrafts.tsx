@@ -81,11 +81,22 @@ export const useAircrafts = (
 
     getAircrafts(page, limit, search, status, sortParam)
       .then((res) => {
-        setAircrafts(res.data.items);
-        setTotalPages(res.data.pages);
-        setTotalItems(res.data.total);
+        const data = res?.data ?? {};
+        const rawItems = data.items ?? data.results ?? data.data ?? [];
+        const list = Array.isArray(rawItems) ? rawItems : [];
+        const total = Number(data.total ?? data.count ?? list.length) || 0;
+        const safeLimit = Number(limit) || 10;
+        const pages = Math.max(1, Math.min(9999, Number(data.pages ?? data.total_pages) || Math.ceil(total / safeLimit) || 1));
+        setAircrafts(list);
+        setTotalPages(pages);
+        setTotalItems(total);
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => {
+        setError(err?.message ?? "Failed to load aircraft");
+        setAircrafts([]);
+        setTotalPages(0);
+        setTotalItems(0);
+      })
       .finally(() => {
         setTimeout(() => setLoading(false), 360);
       });

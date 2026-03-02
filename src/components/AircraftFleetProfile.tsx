@@ -20,7 +20,7 @@ import {
 import Swal from "sweetalert2";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Spinner } from "../components/ui/spinner";
+import { Spinner } from "./ui/spinner";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { AircraftForm } from "../types/Aircraft";
 import {
@@ -35,7 +35,9 @@ import { dateToday, snakeAllKeys } from "../utility/utils";
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [filterStatus, setFilterStatus] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showAddAircraftModal, setShowAddAircraftModal] = useState(false);
@@ -114,10 +116,23 @@ export function AircraftFleetProfile() {
     useAircrafts(
       currentPage,
       itemsPerPage,
-      searchTerm,
+      searchDebounced,
       filterStatus,
       sortParam
     );
+
+  // Debounce search so we don't hit the API on every keystroke
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setSearchDebounced(searchTerm);
+      setCurrentPage(1);
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    };
+  }, [searchTerm]);
 
   const importFileInputRef = useRef<HTMLInputElement>(null);
   const [importLoading, setImportLoading] = useState(false);
@@ -175,10 +190,9 @@ export function AircraftFleetProfile() {
   const totalPages = totalPage;
   const paginatedAircraft = aircrafts;
 
-  // Reset to page 1 when search or filter changes
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    setCurrentPage(1);
+    // Page reset is handled in debounce effect
   };
 
   const handleFilterChange = (value: string) => {
@@ -469,7 +483,7 @@ export function AircraftFleetProfile() {
           </button>
           <button
             onClick={() => setShowAddAircraftModal(true)}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Add Aircraft</span>
@@ -567,38 +581,38 @@ export function AircraftFleetProfile() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {paginatedAircraft.length > 0 ? (
+                  {Array.isArray(paginatedAircraft) && paginatedAircraft.length > 0 ? (
                     paginatedAircraft.map((ac) => (
                       <tr
-                        key={ac.id}
+                        key={ac?.id ?? Math.random()}
                         className="hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-6 py-3.5 text-gray-900">
-                          {ac.registration}
+                          {ac?.registration ?? "-"}
                         </td>
                         <td className="px-6 py-3.5 text-gray-900">
-                          {ac.model}
+                          {ac?.model ?? "-"}
                         </td>
-                        <td className="px-6 py-3.5 text-gray-600">{ac.msn}</td>
-                        <td className="px-6 py-3.5 text-gray-900">{ac.base}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{ac?.msn ?? "-"}</td>
+                        <td className="px-6 py-3.5 text-gray-900">{ac?.base ?? "-"}</td>
 
                         <td className="px-6 py-3.5">
                           <span
                             className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getStatusColor(
-                              ac.status
+                              ac?.status ?? ""
                             )}`}
                           >
-                            {ac.status}
+                            {ac?.status ?? "-"}
                           </span>
                         </td>
                         <td className="px-6 py-3.5 text-gray-900">
-                          {ac.created_at.split("T")[0]}
+                          {ac?.created_at ? String(ac.created_at).split("T")[0] : "-"}
                         </td>
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-2">
                             <select
                               onChange={(e) => {
-                                if (e.target.value) {
+                                if (e.target.value && ac?.id != null) {
                                   handleViewAircraft(ac.id, e.target.value);
                                   e.target.value = ""; // Reset selection
                                 }
@@ -621,7 +635,7 @@ export function AircraftFleetProfile() {
                               </option>
                             </select>
                             <button
-                              onClick={() => handleDeleteAircraft(ac)}
+                              onClick={() => { if (ac?.id != null) handleDeleteAircraft(ac); }}
                               className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                               title="Delete"
                             >
@@ -667,7 +681,7 @@ export function AircraftFleetProfile() {
                   onClick={() =>
                     setCurrentPage((prev) => Math.max(prev - 1, 1))
                   }
-                  disabled={page === 1}
+                  disabled={page <= 1}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -714,12 +728,10 @@ export function AircraftFleetProfile() {
                 )}
 
                 <button
-                  // onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                  // disabled={currentPage === totalPages || totalPages === 0}
                   onClick={() =>
-                    setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                    setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))
                   }
-                  disabled={page === totalPages}
+                  disabled={totalPages === 0 || page >= totalPages}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                 >
                   <span>Next</span>
@@ -730,8 +742,8 @@ export function AircraftFleetProfile() {
           </div>
         </>
       )}
-      <div className="text-gray-600">
-        Showing {(page - 1) * itemsPerPage + 1} to{" "}
+      <div className="text-gray-600 text-sm">
+        Showing {totalItems > 0 ? (page - 1) * itemsPerPage + 1 : 0} to{" "}
         {Math.min(page * itemsPerPage, totalItems)} of {totalItems} aircraft
       </div>
 
@@ -1101,7 +1113,7 @@ export function AircraftFleetProfile() {
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm"
+                    className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
                   >
                     Add Aircraft
                   </button>
