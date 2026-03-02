@@ -39,18 +39,14 @@ export interface ComponentPartsRecordUpdate {
 // Aircraft Technical Log Interfaces
 export type NatureOfFlightType =
   | ""
-  | "None"
   | "TR"
   | "PSF"
   | "PRF"
   | "EGR"
   | "ME"
-  | "TR W/ PIREM"
+  | "TR_WITH_PIREM"
   | "VOID"
-  | "VE"
-  | "EOR"
-  | "ATL_REPL"
-  | "OTHER";
+  | "ATL_REPL";
 
 export interface AircraftTechnicalLog {
   id: number;

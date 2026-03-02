@@ -152,7 +152,7 @@ export function ViewTechnicalLogbookEntryModal({
       PRF: "PRF - Pre Flight Inspection",
       EGR: "EGR - Engine Run-up",
       ME: "ME - Maintenance Entry",
-      "TR W/ PIREM": "TR W/ PIREM - Training Flight with Pilot Remarks",
+      TR_WITH_PIREM: "TR W/ PIREM - Training Flight with Pilot Remarks",
       VOID: "VOID",
       VE: "VE - Vehicle",
       EOR: "EOR - End of Run",
@@ -448,9 +448,7 @@ export function ViewTechnicalLogbookEntryModal({
                   <label className="block text-gray-600 text-sm mb-1">
                     Work Status
                   </label>
-                  <p className="text-gray-900">
-                    {detailData.workStatus}
-                  </p>
+                  <p className="text-gray-900">{detailData.workStatus}</p>
                 </div>
                 <div>
                   <label className="block text-gray-600 text-sm mb-1">

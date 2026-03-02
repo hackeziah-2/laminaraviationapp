@@ -17,6 +17,7 @@ export interface FleetDailyUpdateItem {
   nextInspectionDue?: string;
   tachDue?: number;
   tachTimeDue?: number;
+  /** Tach time at end of day — from fleet-daily-update or eod table (tach_time_eod) */
   tachEod?: number;
   remainingNextInsp?: number;
   remainingEngine?: number;
@@ -60,7 +61,20 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
     nextInspectionDue: camel?.nextInspectionDue ?? o?.next_inspection_due,
     tachDue: camel?.tachDue ?? camel?.tachTimeDue ?? o?.tach_time_due,
     tachTimeDue: camel?.tachTimeDue ?? o?.tach_time_due,
-    tachEod: camel?.tachEod ?? o?.tach_eod,
+    // EOD (end of day) tach: from fleet-daily-update or from eod table (tach_time_eod / eod.tach_time_eod)
+    tachEod: (() => {
+      const eodObj = o?.eod && typeof o.eod === "object" ? (o.eod as Record<string, unknown>) : null;
+      const fromEod = eodObj
+        ? (eodObj.tach_time_eod ?? eodObj.tach_eod) as number | undefined
+        : undefined;
+      return (
+        camel?.tachEod ??
+        camel?.tachTimeEod ??
+        o?.tach_eod ??
+        o?.tach_time_eod ??
+        fromEod
+      );
+    })(),
     remainingNextInsp: camel?.remainingNextInsp ?? o?.remaining_next_insp,
     remainingEngine: camel?.remainingEngine ?? o?.remaining_engine,
     remainingPropeller: camel?.remainingPropeller ?? o?.remaining_propeller,
@@ -82,12 +96,12 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
 
 /**
  * Get fleet daily update for a single aircraft.
- * GET api/v1/aircraft/{aircraft_id}/fleet-daily-update
+ * GET api/v1/aircraft/{aircraft_id}/fleet-daily-update/
  */
 export async function getAircraftFleetDailyUpdate(
   aircraftId: number
 ): Promise<FleetDailyUpdateItem | null> {
-  const res = await apiClient.get(`aircraft/${aircraftId}/fleet-daily-update`, {
+  const res = await apiClient.get(`aircraft/${aircraftId}/fleet-daily-update/`, {
     headers: { Accept: "application/json" },
   });
   const raw = res.data?.data ?? res.data;
@@ -98,8 +112,7 @@ export async function getAircraftFleetDailyUpdate(
 /**
  * Get paginated fleet daily update list (all aircraft).
  * Supports pagination, search, and status filter.
- * GET api/v1/fleet-daily-update/paged?page=&limit=&search=&status=
- * Or if backend uses aircraft path: api/v1/aircraft/fleet-daily-update/paged?...
+ * GET api/v1/fleet-daily-update/?page=&limit=&search=&status=
  */
 export async function getFleetDailyUpdatePaged(
   page = 1,
@@ -113,8 +126,8 @@ export async function getFleetDailyUpdatePaged(
   if (search.trim()) params.set("search", search.trim());
   if (status && status !== "all") params.set("status", status);
 
-  try {
-    const res = await apiClient.get(`fleet-daily-update/paged?${params.toString()}`, {
+  const tryEndpoint = async (path: string) => {
+    const res = await apiClient.get(path, {
       headers: { Accept: "application/json" },
     });
     const data = res.data ?? {};
@@ -127,9 +140,20 @@ export async function getFleetDailyUpdatePaged(
     const pages =
       data.pages ?? Math.max(1, Math.ceil(Number(total) / (data.limit ?? limit)));
     return { items, total: Number(total), page: pageNum, pages };
+  };
+
+  try {
+    return await tryEndpoint(`fleet-daily-update/?${params.toString()}`);
   } catch (err: any) {
     if (err?.response?.status === 404 || err?.response?.status === 405) {
-      return { items: [], total: 0, page: 1, pages: 1 };
+      try {
+        return await tryEndpoint(`fleet-daily-update/paged?${params.toString()}`);
+      } catch (fallbackErr: any) {
+        if (fallbackErr?.response?.status === 404 || fallbackErr?.response?.status === 405) {
+          return { items: [], total: 0, page: 1, pages: 1 };
+        }
+        throw fallbackErr;
+      }
     }
     throw err;
   }
