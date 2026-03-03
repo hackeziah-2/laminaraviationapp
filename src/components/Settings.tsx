@@ -40,12 +40,8 @@ interface User {
   createdDate: string;
 }
 
-interface Role {
-  id: number;
-  name: string;
-  description: string;
-  userCount: number;
-}
+/** Role (including user_count from GET /v1/roles/roles-list) */
+type Role = rolesApi.Role;
 
 interface Permission {
   module: string;
@@ -53,6 +49,19 @@ interface Permission {
   write: boolean;
   approve: boolean;
 }
+
+/** Module permissions shown in System Settings — code (backend) : label (UI) */
+const MODULE_PERMISSIONS_LIST: { code: string; label: string }[] = [
+  { code: "dashboard", label: "Dashboard" },
+  { code: "profile", label: "General Information" },
+  { code: "operation", label: "Operation" },
+  { code: "maintenance", label: "Maintenance" },
+  { code: "logbook", label: "Logbook" },
+  { code: "document_on_board", label: "Document On Board" },
+  { code: "certificate-monitoring", label: "Certificate Monitoring" },
+  { code: "daily-update", label: "Daily Update" },
+  { code: "settings", label: "System Settings" },
+];
 
 interface AddUserModalProps {
   isOpen: boolean;
@@ -1174,41 +1183,14 @@ function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
     description: "",
   });
 
-  const [permissions, setPermissions] = useState<Permission[]>([
-    { module: "Dashboard", read: false, write: false, approve: false },
-    {
-      module: "Aircraft Fleet Daily Update",
+  const [permissions, setPermissions] = useState<Permission[]>(
+    MODULE_PERMISSIONS_LIST.map(({ label }) => ({
+      module: label,
       read: false,
       write: false,
       approve: false,
-    },
-    {
-      module: "Aircraft Fleet Profile",
-      read: false,
-      write: false,
-      approve: false,
-    },
-    {
-      module: "Aircraft Technical Logbook",
-      read: false,
-      write: false,
-      approve: false,
-    },
-    {
-      module: "Maintenance Scheduling",
-      read: false,
-      write: false,
-      approve: false,
-    },
-    {
-      module: "Time Controlled Components",
-      read: false,
-      write: false,
-      approve: false,
-    },
-    { module: "User Management", read: false, write: false, approve: false },
-    { module: "System Settings", read: false, write: false, approve: false },
-  ]);
+    }))
+  );
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -1601,6 +1583,7 @@ export function Settings() {
   useEffect(() => {
     setRolesLoading(true);
     setRolesError(null);
+    // GET /v1/roles/roles-list — includes user_count per role for Roles & Permissions badges
     rolesApi
       .getRoles()
       .then((data) => {
@@ -1615,179 +1598,54 @@ export function Settings() {
   }, []);
 
   const permissionsByRole: Record<string, Permission[]> = {
-    Admin: [
-      { module: "Dashboard", read: true, write: true, approve: true },
-      {
-        module: "Aircraft Fleet Daily Update",
-        read: true,
-        write: true,
-        approve: true,
-      },
-      {
-        module: "Aircraft Fleet Profile",
-        read: true,
-        write: true,
-        approve: true,
-      },
-      {
-        module: "Aircraft Technical Logbook",
-        read: true,
-        write: true,
-        approve: true,
-      },
-      {
-        module: "Maintenance Scheduling",
-        read: true,
-        write: true,
-        approve: true,
-      },
-      {
-        module: "Time Controlled Components",
-        read: true,
-        write: true,
-        approve: true,
-      },
-      { module: "User Management", read: true, write: true, approve: true },
-      { module: "System Settings", read: true, write: true, approve: true },
-    ],
+    Admin: MODULE_PERMISSIONS_LIST.map(({ label }) => ({
+      module: label,
+      read: true,
+      write: true,
+      approve: true,
+    })),
     Planner: [
       { module: "Dashboard", read: true, write: false, approve: false },
-      {
-        module: "Aircraft Fleet Daily Update",
-        read: true,
-        write: true,
-        approve: false,
-      },
-      {
-        module: "Aircraft Fleet Profile",
-        read: true,
-        write: true,
-        approve: false,
-      },
-      {
-        module: "Aircraft Technical Logbook",
-        read: true,
-        write: true,
-        approve: false,
-      },
-      {
-        module: "Maintenance Scheduling",
-        read: true,
-        write: true,
-        approve: true,
-      },
-      {
-        module: "Time Controlled Components",
-        read: true,
-        write: true,
-        approve: false,
-      },
-      { module: "User Management", read: false, write: false, approve: false },
+      { module: "General Information", read: true, write: true, approve: false },
+      { module: "Operation", read: true, write: true, approve: false },
+      { module: "Maintenance", read: true, write: true, approve: true },
+      { module: "Logbook", read: true, write: true, approve: false },
+      { module: "Document On Board", read: true, write: true, approve: false },
+      { module: "Certificate Monitoring", read: true, write: true, approve: false },
+      { module: "Daily Update", read: true, write: true, approve: false },
       { module: "System Settings", read: false, write: false, approve: false },
     ],
     Mechanic: [
       { module: "Dashboard", read: true, write: false, approve: false },
-      {
-        module: "Aircraft Fleet Daily Update",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Aircraft Fleet Profile",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Aircraft Technical Logbook",
-        read: true,
-        write: true,
-        approve: false,
-      },
-      {
-        module: "Maintenance Scheduling",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Time Controlled Components",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      { module: "User Management", read: false, write: false, approve: false },
+      { module: "General Information", read: true, write: false, approve: false },
+      { module: "Operation", read: true, write: false, approve: false },
+      { module: "Maintenance", read: true, write: false, approve: false },
+      { module: "Logbook", read: true, write: true, approve: false },
+      { module: "Document On Board", read: true, write: false, approve: false },
+      { module: "Certificate Monitoring", read: true, write: false, approve: false },
+      { module: "Daily Update", read: true, write: false, approve: false },
       { module: "System Settings", read: false, write: false, approve: false },
     ],
     Viewer: [
       { module: "Dashboard", read: true, write: false, approve: false },
-      {
-        module: "Aircraft Fleet Daily Update",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Aircraft Fleet Profile",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Aircraft Technical Logbook",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Maintenance Scheduling",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Time Controlled Components",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      { module: "User Management", read: false, write: false, approve: false },
+      { module: "General Information", read: true, write: false, approve: false },
+      { module: "Operation", read: true, write: false, approve: false },
+      { module: "Maintenance", read: true, write: false, approve: false },
+      { module: "Logbook", read: true, write: false, approve: false },
+      { module: "Document On Board", read: true, write: false, approve: false },
+      { module: "Certificate Monitoring", read: true, write: false, approve: false },
+      { module: "Daily Update", read: true, write: false, approve: false },
       { module: "System Settings", read: false, write: false, approve: false },
     ],
     Auditor: [
       { module: "Dashboard", read: true, write: false, approve: false },
-      {
-        module: "Aircraft Fleet Daily Update",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Aircraft Fleet Profile",
-        read: true,
-        write: false,
-        approve: true,
-      },
-      {
-        module: "Aircraft Technical Logbook",
-        read: true,
-        write: false,
-        approve: true,
-      },
-      {
-        module: "Maintenance Scheduling",
-        read: true,
-        write: false,
-        approve: false,
-      },
-      {
-        module: "Time Controlled Components",
-        read: true,
-        write: false,
-        approve: true,
-      },
-      { module: "User Management", read: false, write: false, approve: false },
+      { module: "General Information", read: true, write: false, approve: true },
+      { module: "Operation", read: true, write: false, approve: false },
+      { module: "Maintenance", read: true, write: false, approve: false },
+      { module: "Logbook", read: true, write: false, approve: true },
+      { module: "Document On Board", read: true, write: false, approve: false },
+      { module: "Certificate Monitoring", read: true, write: false, approve: true },
+      { module: "Daily Update", read: true, write: false, approve: false },
       { module: "System Settings", read: false, write: false, approve: false },
     ],
   };

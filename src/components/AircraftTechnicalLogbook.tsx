@@ -133,7 +133,9 @@ export function AircraftTechnicalLogbook() {
       );
 
       setEntries(mappedEntries);
-      setTotalPages(response.pages);
+      setTotalPages(
+        response.total > 0 ? Math.max(1, response.pages) : response.pages
+      );
       setTotalEntries(response.total);
     } catch (err: any) {
       // Check for network errors (backend not running)
@@ -433,8 +435,7 @@ export function AircraftTechnicalLogbook() {
             ) : (
               <>
                 Showing {entries.length > 0 ? startIndex + 1 : 0} to{" "}
-                {Math.min(startIndex + itemsPerPage, entries.length)} of{" "}
-                {entries.length} entries
+                {startIndex + entries.length} of {totalEntries} entries
               </>
             )}
           </div>
@@ -577,7 +578,7 @@ export function AircraftTechnicalLogbook() {
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setCurrentPage(1)}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1 || loading}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
                 >
@@ -586,7 +587,7 @@ export function AircraftTechnicalLogbook() {
 
                 {/* Page numbers */}
                 {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  let pageNum;
+                  let pageNum: number;
                   if (totalPages <= 5) {
                     pageNum = i + 1;
                   } else if (currentPage <= 3) {
@@ -594,7 +595,6 @@ export function AircraftTechnicalLogbook() {
                   } else if (currentPage >= totalPages - 2) {
                     pageNum = totalPages - 4 + i;
                   } else {
-                    ROUTE;
                     pageNum = currentPage - 2 + i;
                   }
 
