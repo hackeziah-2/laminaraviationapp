@@ -514,7 +514,7 @@ export function MaintenanceLogbook() {
   // Form state for Add/Edit modal
   const [formData, setFormData] = useState({
     date: "",
-    sequenceNo: "ATL-",
+    sequenceNo: "",
     tachTime: "",
     airframeTime: "",
     engineTime: "",
@@ -899,7 +899,7 @@ export function MaintenanceLogbook() {
         // Reset form for new entry
         setFormData({
           date: "",
-          sequenceNo: "ATL-",
+          sequenceNo: "",
           tachTime: "",
           airframeTime: "",
           engineTime: "",
