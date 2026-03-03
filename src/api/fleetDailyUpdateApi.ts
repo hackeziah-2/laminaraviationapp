@@ -19,8 +19,11 @@ export interface FleetDailyUpdateItem {
   tachTimeDue?: number;
   /** Tach time at end of day — from fleet-daily-update or eod table (tach_time_eod) */
   tachEod?: number;
+  /** From API: remaining_time_before_next_isp / remaining_time_before_next_insp (hours) */
   remainingNextInsp?: number;
+  /** From API: remaining_time_before_engine (hours) */
   remainingEngine?: number;
+  /** From API: remaining_time_before_propeller (hours) */
   remainingPropeller?: number;
   remarks?: string;
   statusColor?: string;
@@ -75,9 +78,20 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
         fromEod
       );
     })(),
-    remainingNextInsp: camel?.remainingNextInsp ?? o?.remaining_next_insp,
-    remainingEngine: camel?.remainingEngine ?? o?.remaining_engine,
-    remainingPropeller: camel?.remainingPropeller ?? o?.remaining_propeller,
+    // remaining_time_before_* from api/v1/fleet-daily-update/
+    remainingNextInsp:
+      camel?.remainingNextInsp ??
+      o?.remaining_next_insp ??
+      o?.remaining_time_before_next_isp ??
+      o?.remaining_time_before_next_insp,
+    remainingEngine:
+      camel?.remainingEngine ??
+      o?.remaining_engine ??
+      o?.remaining_time_before_engine,
+    remainingPropeller:
+      camel?.remainingPropeller ??
+      o?.remaining_propeller ??
+      o?.remaining_time_before_propeller,
     remarks: camel?.remarks ?? o?.remarks ?? "",
     statusColor: camel?.statusColor ?? o?.status_color,
     rowColor: camel?.rowColor ?? o?.row_color,
