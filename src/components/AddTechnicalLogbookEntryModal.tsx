@@ -340,7 +340,7 @@ export function AddTechnicalLogbookEntryModal({
       );
       // Populate form data from editEntry (normalize workStatus: API may return "FOR REVIEW" or "FOR_REVIEW")
       setFormData({
-        seqNo: (editEntry.sequenceNo || "").replace(/^ATL-/i, ""),
+        seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
         workStatus:
           (editEntry.workStatus === "FOR REVIEW" ? "FOR_REVIEW" : editEntry.workStatus) || "",
         acReg: editEntry.aircraft?.registration || "",
@@ -1266,7 +1266,7 @@ export function AddTechnicalLogbookEntryModal({
 
   if (!isOpen) return null;
 
-  // Parse numeric part length from latest sequence (e.g. "ATL-00013" → 5)
+  // Parse numeric part length from latest sequence (e.g. "00013" → 5)
   const getLatestNumericLength = (seq: string): number => {
     const match = (seq || "").trim().match(/(\d+)$/);
     return match ? match[1].length : 0;
@@ -1512,7 +1512,7 @@ export function AddTechnicalLogbookEntryModal({
       }
       const apiDataCamel: any = {
         aircraftFk: aircraftFkValue!,
-        sequenceNo: formData.seqNo.trim() ? `ATL-${formData.seqNo.trim()}` : formData.seqNo,
+        sequenceNo: formData.seqNo.trim(),
         // Blank/empty -> VOID (API requires valid enum); "VOID" -> VOID
         // "-" option (value "") submits "" in JSON; only explicit VOID sends "VOID"
         natureOfFlight:

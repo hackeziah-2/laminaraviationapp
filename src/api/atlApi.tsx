@@ -5,7 +5,7 @@ export interface AtlItem {
   sequenceNo?: string;
   code?: string;
   reference?: string;
-  /** Display label: sequence number (e.g. ATL-123) or code/reference */
+  /** Display label: sequence number or code/reference */
   label: string;
 }
 
@@ -36,7 +36,7 @@ export const getAtlList = async (
       const seqNo = r.sequence_no ?? r.sequence_number ?? r.sequenceNo ?? "";
       const code = r.code ?? r.atl_code ?? "";
       const ref = r.reference ?? r.atl_ref ?? r.atl_reference ?? "";
-      const label = seqNo || [code, ref].filter(Boolean).join(" - ") || `ATL-${id}`;
+      const label = seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
       return { id, sequenceNo: seqNo, code, reference: ref, label };
     });
   } catch {

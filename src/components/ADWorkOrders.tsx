@@ -591,23 +591,22 @@ export function ADWorkOrders() {
                 <label className="block text-gray-900 text-sm font-medium mb-1">
                   Sequence No.
                 </label>
-                <p className="text-xs text-gray-500 mb-2">ATL Reference</p>
+                <p className="text-xs text-gray-500 mb-2">ATL Reference (sequence no.)</p>
                 <div className="flex items-stretch rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
-                  <span className="inline-flex items-center px-4 py-2.5 bg-[#f7f7f7] border-r border-gray-200 text-gray-600 text-sm font-medium shrink-0 rounded-l-xl">
-                    ATL-
-                  </span>
                   <input
                     type="text"
-                    value={(formData.atlRef || "").replace(/^ATL-/i, "")}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={formData.atlRef || ""}
                     onChange={(e) => {
-                      const num = e.target.value.replace(/^ATL-/i, "").trim();
+                      const num = e.target.value.replace(/\D/g, "");
                       setFormData((prev) => ({
                         ...prev,
-                        atlRef: num ? `ATL-${num}` : "",
+                        atlRef: num,
                       }));
                     }}
                     placeholder="001"
-                    className="flex-1 min-w-0 py-2.5 pl-3 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none border-0 rounded-r-xl"
+                    className="flex-1 min-w-0 py-2.5 pl-3 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none border-0 rounded-xl"
                     aria-label="ATL sequence number"
                   />
                 </div>
