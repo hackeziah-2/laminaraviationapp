@@ -1,4 +1,4 @@
-import { X, Upload, Plus, Trash2, ChevronDown, Check, Loader2 } from "lucide-react";
+import { X, Upload, Plus, Trash2, ChevronDown, Check, Loader2, Download, Eye } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import Swal from "sweetalert2";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
@@ -13,6 +13,7 @@ import {
   AircraftTechnicalLogUpdate,
 } from "../api/aircraftTechnicalLogApi";
 import { snakeAllKeys, computeTotalBlockTime } from "../utility/utils";
+import apiClient from "../api/index";
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -192,6 +193,13 @@ export function AddTechnicalLogbookEntryModal({
   // File upload states
   const [whiteAtlFileName, setWhiteAtlFileName] = useState("");
   const [dfpFileName, setDfpFileName] = useState("");
+
+  // File view modal (View button for White ATL / DFP when editEntry has existing file)
+  const [showFileViewModal, setShowFileViewModal] = useState(false);
+  const [fileViewBlobUrl, setFileViewBlobUrl] = useState<string | null>(null);
+  const [fileViewMimeType, setFileViewMimeType] = useState<string | null>(null);
+  const [fileViewLoading, setFileViewLoading] = useState(false);
+  const [fileViewError, setFileViewError] = useState<string | null>(null);
 
   // Validation errors state
   const [validationErrors, setValidationErrors] = useState<
@@ -1661,15 +1669,19 @@ export function AddTechnicalLogbookEntryModal({
         rtsTime: formData.rtsTime
           ? convertTimeToAPIFormat(formData.rtsTime)
           : undefined,
-        // When uploading new file: omit from JSON (sent via multipart). When editing without new file: keep existing path.
-        whiteAtl:
-          formData.whiteAtl instanceof File
-            ? undefined
-            : editEntry?.whiteAtl ?? undefined,
-        dfp:
-          formData.dfp instanceof File
-            ? undefined
-            : editEntry?.dfp ?? undefined,
+        // When uploading new file: omit from JSON (sent via multipart). When editing: omit whiteAtl/dfp from JSON so backend keeps existing files (sending string URL causes "value is not a valid dict").
+        ...(!editEntry &&
+        formData.whiteAtl !== undefined &&
+        formData.whiteAtl !== null &&
+        !(formData.whiteAtl instanceof File)
+          ? { whiteAtl: formData.whiteAtl }
+          : {}),
+        ...(!editEntry &&
+        formData.dfp !== undefined &&
+        formData.dfp !== null &&
+        !(formData.dfp instanceof File)
+          ? { dfp: formData.dfp }
+          : {}),
         componentParts: componentRecords.map((record) => ({
           qty: parseFloat(record.qty) || 0,
           unit: record.unit,
@@ -1971,6 +1983,96 @@ export function AddTechnicalLogbookEntryModal({
     } else if (field === "dfp") {
       setDfpFileName("");
     }
+  };
+
+  /** Download file via GET /api/v1/{folder}/download/{filePath} (White ATL / DFP in Edit Entry) */
+  const handleDownloadAtlFile = async (
+    folder: "white_atl" | "dfp",
+    filePath: string,
+    displayName?: string
+  ) => {
+    if (!filePath?.trim()) return;
+    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    const endpoint = `${folder}/download/${path}`;
+    try {
+      const response = await apiClient.get(endpoint, {
+        responseType: "blob",
+        headers: { Accept: "application/octet-stream" },
+      });
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = displayName || path.split("/").pop() || "download";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Download error:", err);
+      Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: err?.response?.data?.detail || err?.message || "Failed to download file.",
+      });
+    }
+  };
+
+  const getMimeFromFilename = (path: string): string | null => {
+    const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
+    if (ext === "pdf") return "application/pdf";
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    if (ext === "png") return "image/png";
+    if (ext === "gif") return "image/gif";
+    if (ext === "webp") return "image/webp";
+    return null;
+  };
+
+  /** True if file path is an image (show View button); otherwise only Download. */
+  const isImageFilePath = (path: string): boolean => {
+    const mime = getMimeFromFilename(path);
+    return !!(mime && mime.startsWith("image/"));
+  };
+
+  /** View file in modal (image popup; other types get download/open link) */
+  const handleViewAtlFile = async (folder: "white_atl" | "dfp", filePath: string) => {
+    if (!filePath?.trim()) return;
+    setFileViewLoading(true);
+    setFileViewError(null);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setShowFileViewModal(true);
+    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    const endpoint = `${folder}/download/${path}`;
+    try {
+      const response = await apiClient.get(endpoint, {
+        responseType: "blob",
+        headers: { Accept: "application/octet-stream" },
+      });
+      const blob = response.data as Blob;
+      const url = window.URL.createObjectURL(blob);
+      const serverType = blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream = !serverType || serverType === "application/octet-stream";
+      const mimeType = isOctetStream ? getMimeFromFilename(path) : serverType;
+      setFileViewBlobUrl(url);
+      setFileViewMimeType(mimeType ?? null);
+      setFileViewError(null);
+    } catch (err: any) {
+      console.error("View file error:", err);
+      setFileViewError(err?.response?.data?.detail || err?.message || "Failed to open file.");
+      setFileViewBlobUrl(null);
+      setFileViewMimeType(null);
+    } finally {
+      setFileViewLoading(false);
+    }
+  };
+
+  const closeFileViewModal = () => {
+    if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
+    setShowFileViewModal(false);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setFileViewError(null);
   };
 
   // Calculate total time from prev time + flight time
@@ -3942,6 +4044,36 @@ export function AddTechnicalLogbookEntryModal({
                       Remove file
                     </button>
                   )}
+                  {editEntry?.whiteAtl && editEntry.whiteAtl.trim() !== "" && (
+                    <div className="flex flex-col gap-1 mt-2">
+                      {isImageFilePath(editEntry.whiteAtl) && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                          onClick={() =>
+                            handleViewAtlFile("white_atl", editEntry.whiteAtl!)
+                          }
+                        >
+                          <Eye className="w-4 h-4 flex-shrink-0" />
+                          View
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                        onClick={() =>
+                          handleDownloadAtlFile(
+                            "white_atl",
+                            editEntry.whiteAtl!,
+                            editEntry.whiteAtl!.split("/").pop() || "white_atl"
+                          )
+                        }
+                      >
+                        <Download className="w-4 h-4 flex-shrink-0" />
+                        Download
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
               <div>
@@ -3978,6 +4110,36 @@ export function AddTechnicalLogbookEntryModal({
                       Remove file
                     </button>
                   )}
+                  {editEntry?.dfp && editEntry.dfp.trim() !== "" && (
+                    <div className="flex flex-col gap-1 mt-2">
+                      {isImageFilePath(editEntry.dfp) && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                          onClick={() =>
+                            handleViewAtlFile("dfp", editEntry.dfp!)
+                          }
+                        >
+                          <Eye className="w-4 h-4 flex-shrink-0" />
+                          View
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                        onClick={() =>
+                          handleDownloadAtlFile(
+                            "dfp",
+                            editEntry.dfp!,
+                            editEntry.dfp!.split("/").pop() || "dfp"
+                          )
+                        }
+                      >
+                        <Download className="w-4 h-4 flex-shrink-0" />
+                        Download
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -4001,6 +4163,90 @@ export function AddTechnicalLogbookEntryModal({
           </div>
         </form>
       </div>
+
+      {/* File View Modal – View button for White ATL / DFP (image popup or download for other types) */}
+      {showFileViewModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+          }}
+          onClick={closeFileViewModal}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <span className="text-sm font-medium text-gray-900">View file</span>
+              <button
+                type="button"
+                onClick={closeFileViewModal}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
+              {fileViewLoading && (
+                <div className="flex flex-col items-center gap-2 text-gray-500">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                  <span className="text-sm">Loading file…</span>
+                </div>
+              )}
+              {fileViewError && !fileViewLoading && (
+                <div className="text-center text-red-600 text-sm">
+                  {fileViewError}
+                </div>
+              )}
+              {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
+                <>
+                  {(fileViewMimeType?.startsWith("image/") ||
+                    fileViewMimeType === "image/jpeg" ||
+                    fileViewMimeType === "image/jpg") && (
+                    <img
+                      src={fileViewBlobUrl}
+                      alt="File preview"
+                      className="max-w-full max-h-[70vh] object-contain"
+                    />
+                  )}
+                  {(fileViewMimeType === "application/pdf" ||
+                    fileViewMimeType?.includes("pdf")) && (
+                    <iframe
+                      src={fileViewBlobUrl}
+                      title="File preview"
+                      className="w-full h-[70vh] border-0 rounded"
+                    />
+                  )}
+                  {fileViewBlobUrl &&
+                    !fileViewMimeType?.startsWith("image/") &&
+                    fileViewMimeType !== "image/jpeg" &&
+                    fileViewMimeType !== "image/jpg" &&
+                    fileViewMimeType !== "application/pdf" &&
+                    !fileViewMimeType?.includes("pdf") && (
+                      <div className="text-center text-gray-600 text-sm">
+                        <p className="mb-2">
+                          Preview not available for this file type.
+                        </p>
+                        <a
+                          href={fileViewBlobUrl}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          Open in new tab / Download
+                        </a>
+                      </div>
+                    )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
