@@ -1,5 +1,5 @@
 # UAT (User Acceptance Testing)
-# Frontend: http://120.89.33.51:3001
+# Frontend: http://120.89.33.51:3011
 # Usage: docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build
 
 services:
@@ -14,7 +14,7 @@ services:
     env_file:
       - .env.uat
     ports:
-      - "3001:80"
+      - "3011:80"
     environment:
       - NODE_ENV=production
     restart: unless-stopped

@@ -69,7 +69,7 @@ Deployments use **host** `120.89.33.51`. Each environment has its own frontend p
 | Environment | Frontend URL (app) | Backend API / Docs |
 |-------------|--------------------|---------------------|
 | **Dev** | http://120.89.33.51:3000 | http://120.89.33.51:8000/docs |
-| **UAT** | http://120.89.33.51:3001 | http://120.89.33.51:8080/docs |
+| **UAT** | http://120.89.33.51:3011 | http://120.89.33.51:8080/docs |
 | **Prod** | http://120.89.33.51:3002 | http://120.89.33.51:8082/docs |
 
 Config is in `.env.dev`, `.env.uat`, and `.env.prod` (and `docker-compose.dev.yml`, `docker-compose.uat.yml`, `docker-compose.prod.yml`). Rebuild whenever `VITE_API_URL` or `VITE_APP_URL` changes (they are set at build time).
@@ -84,7 +84,7 @@ Use the env file and compose file for the environment you want:
 # Development (frontend: http://120.89.33.51:3000, API: :8000)
 docker-compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
 
-# UAT (frontend: http://120.89.33.51:3001, API: :8080)
+# UAT (frontend: http://120.89.33.51:3011, API: :8080)
 docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build
 
 # Production (frontend: http://120.89.33.51:3002, API: :8082)
@@ -98,7 +98,7 @@ docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 curl http://120.89.33.51:3000/health
 
 # UAT
-curl http://120.89.33.51:3001/health
+curl http://120.89.33.51:3011/health
 
 # Prod
 curl http://120.89.33.51:3002/health
@@ -140,14 +140,14 @@ Use the API URL for the target environment. Rebuild the app whenever `VITE_API_U
 
 ---
 
-#### UAT (User Acceptance Testing) — host `120.89.33.51`, frontend port 3001
+#### UAT (User Acceptance Testing) — host `120.89.33.51`, frontend port 3011
 
 | Step | Action | Command |
 |------|--------|--------|
 | 1 | Use UAT env file | `.env.uat` has `VITE_API_URL=http://120.89.33.51:8080/api/v1/` |
 | 2 | Build and run (Docker) | `docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build` |
 | 3 | Or build image only | `docker build --build-arg VITE_API_URL=http://120.89.33.51:8080/api/v1/ -t laminar-aviation-app:uat .` |
-| 4 | Verify | Open http://120.89.33.51:3001 and `curl http://120.89.33.51:3001/health` |
+| 4 | Verify | Open http://120.89.33.51:3011 and `curl http://120.89.33.51:3011/health` |
 
 **Traditional (no Docker):**
 
@@ -163,7 +163,7 @@ Use the API URL for the target environment. Rebuild the app whenever `VITE_API_U
 **Checklist**
 
 - [ ] Backend for the environment (prod or UAT) is running and reachable at the URLs above.
-- [ ] CORS on the backend allows the frontend origin (e.g. `http://120.89.33.51:3000`, `http://120.89.33.51:3001`, `http://120.89.33.51:3002`).
+- [ ] CORS on the backend allows the frontend origin (e.g. `http://120.89.33.51:3000`, `http://120.89.33.51:3011`, `http://120.89.33.51:3002`).
 - [ ] The correct `.env.dev` / `.env.uat` / `.env.prod` (or build arg) is used for that environment.
 - [ ] After changing `VITE_API_URL`, you ran a new build and redeployed.
 
@@ -243,7 +243,7 @@ docker-compose -f docker-compose.prod.yml down
 
 With the default host **120.89.33.51**, the app is available at:
 - Dev: http://120.89.33.51:3000  
-- UAT: http://120.89.33.51:3001  
+- UAT: http://120.89.33.51:3011  
 - Prod: http://120.89.33.51:3002
 
 #### Docker: Dev, UAT, Prod
@@ -251,7 +251,7 @@ With the default host **120.89.33.51**, the app is available at:
 | Environment | Compose file | Env file | Frontend (host 120.89.33.51) | Backend API |
 |-------------|--------------|----------|------------------------------|-------------|
 | **Dev** | `docker-compose.dev.yml` | `.env.dev` | :3000 | :8000 |
-| **UAT** | `docker-compose.uat.yml` | `.env.uat` | :3001 | :8080 |
+| **UAT** | `docker-compose.uat.yml` | `.env.uat` | :3011 | :8080 |
 | **Prod** | `docker-compose.prod.yml` | `.env.prod` | :3002 | :8082 |
 
 Always use `--env-file .env.<env>` with the matching compose file so `VITE_API_URL` is set correctly at build time.
@@ -449,7 +449,7 @@ npm run build
 | Variable | Description | Example (host 120.89.33.51) |
 |----------|-------------|-----------------------------|
 | `VITE_API_URL` | Backend API base URL (set at build time) | Dev: `http://120.89.33.51:8000/api/v1/`, UAT: `:8080`, Prod: `:8082` |
-| `VITE_APP_URL` | Frontend app URL (for reference / redirects) | Dev: `http://120.89.33.51:3000`, UAT: `:3001`, Prod: `http://120.89.33.51:3002` |
+| `VITE_APP_URL` | Frontend app URL (for reference / redirects) | Dev: `http://120.89.33.51:3000`, UAT: `:3011`, Prod: `http://120.89.33.51:3002` |
 
 ### Setting Environment Variables
 
