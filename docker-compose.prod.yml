@@ -1,6 +1,6 @@
-# Development
-# Frontend: http://120.89.33.51:3000
-# Usage: docker-compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
+# Production
+# Frontend: http://120.89.33.51:3002
+# Usage: docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 
 services:
   frontend:
@@ -8,15 +8,15 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://120.89.33.51:8000/api/v1/}
-    image: laminar-aviation-app:dev
-    container_name: laminar-aviation-frontend-dev
+        VITE_API_URL: ${VITE_API_URL:-http://120.89.33.51:8082/api/v1/}
+    image: laminar-aviation-app:latest
+    container_name: laminar-aviation-frontend
     env_file:
-      - .env.dev
+      - .env.prod
     ports:
-      - "3000:80"
+      - "3002:80"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]

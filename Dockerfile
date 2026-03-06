@@ -1,5 +1,6 @@
 # Multi-stage build for React/Vite application
-# Use same Dockerfile for dev and prod; pass VITE_API_URL at build time.
+# Same Dockerfile for dev, UAT, and prod. Pass VITE_API_URL at build time via
+# docker-compose (--env-file .env.dev | .env.uat | .env.prod).
 
 # Stage 1: Build the application
 FROM node:20-alpine AS builder

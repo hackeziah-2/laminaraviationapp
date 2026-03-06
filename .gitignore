@@ -1,1 +1,7 @@
 node_modules
+
+# Environment files (secrets / per-environment config)
+.env
+.env.dev
+.env.uat
+.env.prod

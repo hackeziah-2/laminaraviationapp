@@ -62,46 +62,98 @@ src/
 
 ## Deployment
 
+### Host and URLs
+
+Deployments use **host** `120.89.33.51`. Each environment has its own frontend port and backend API.
+
+| Environment | Frontend URL (app) | Backend API / Docs |
+|-------------|--------------------|---------------------|
+| **Dev** | http://120.89.33.51:3000 | http://120.89.33.51:8000/docs |
+| **UAT** | http://120.89.33.51:3001 | http://120.89.33.51:8080/docs |
+| **Prod** | http://120.89.33.51:3002 | http://120.89.33.51:8082/docs |
+
+Config is in `.env.dev`, `.env.uat`, and `.env.prod` (and `docker-compose.dev.yml`, `docker-compose.uat.yml`, `docker-compose.prod.yml`). Rebuild whenever `VITE_API_URL` or `VITE_APP_URL` changes (they are set at build time).
+
+---
+
+### How to Deploy (Docker, by environment)
+
+Use the env file and compose file for the environment you want:
+
+```bash
+# Development (frontend: http://120.89.33.51:3000, API: :8000)
+docker-compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
+
+# UAT (frontend: http://120.89.33.51:3001, API: :8080)
+docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build
+
+# Production (frontend: http://120.89.33.51:3002, API: :8082)
+docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+```
+
+**Verify after deploy:**
+
+```bash
+# Dev
+curl http://120.89.33.51:3000/health
+
+# UAT
+curl http://120.89.33.51:3001/health
+
+# Prod
+curl http://120.89.33.51:3002/health
+```
+
+**Stop a stack:**
+
+```bash
+docker-compose -f docker-compose.dev.yml down    # dev
+docker-compose -f docker-compose.uat.yml down    # uat
+docker-compose -f docker-compose.prod.yml down   # prod
+```
+
+---
+
 ### Steps for Deployment (Prod and UAT)
 
 Use the API URL for the target environment. Rebuild the app whenever `VITE_API_URL` changes (it is set at build time).
 
 ---
 
-#### Production (Prod)
+#### Production (Prod) — host `120.89.33.51`, frontend port 3002
 
 | Step | Action | Command |
 |------|--------|--------|
-| 1 | Set production API URL | `echo "VITE_API_URL=https://api.yourdomain.com/api/v1/" > .env` |
-| 2 | Build and run (Docker) | `docker-compose up -d --build` |
-| 3 | Or build image only | `docker build --build-arg VITE_API_URL=https://api.yourdomain.com/api/v1/ -t laminar-aviation-app:prod .` |
-| 4 | Verify | `curl https://your-frontend-domain/health` and open the app in a browser |
+| 1 | Use prod env file | `.env.prod` has `VITE_API_URL=http://120.89.33.51:8082/api/v1/` |
+| 2 | Build and run (Docker) | `docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build` |
+| 3 | Or build image only | `docker build --build-arg VITE_API_URL=http://120.89.33.51:8082/api/v1/ -t laminar-aviation-app:latest .` |
+| 4 | Verify | Open http://120.89.33.51:3002 and `curl http://120.89.33.51:3002/health` |
 
 **Traditional (no Docker):**
 
 | Step | Action | Command |
 |------|--------|--------|
-| 1 | Set production API URL | `export VITE_API_URL=https://api.yourdomain.com/api/v1/` |
+| 1 | Set production API URL | `export VITE_API_URL=http://120.89.33.51:8082/api/v1/` |
 | 2 | Build | `npm install && npm run build` |
 | 3 | Deploy | Copy `build/` to prod server (e.g. `scp -r build/* user@prod-server:/var/www/laminar-aviation/`) |
 | 4 | Restart web server | On server: `sudo nginx -t && sudo systemctl restart nginx` |
 
 ---
 
-#### UAT (User Acceptance Testing)
+#### UAT (User Acceptance Testing) — host `120.89.33.51`, frontend port 3001
 
 | Step | Action | Command |
 |------|--------|--------|
-| 1 | Set UAT API URL | `echo "VITE_API_URL=https://uat-api.yourdomain.com/api/v1/" > .env` |
-| 2 | Build and run (Docker) | `docker-compose up -d --build` |
-| 3 | Or build image only | `docker build --build-arg VITE_API_URL=https://uat-api.yourdomain.com/api/v1/ -t laminar-aviation-app:uat .` |
-| 4 | Verify | `curl http://localhost:3000/health` and test the app against UAT backend |
+| 1 | Use UAT env file | `.env.uat` has `VITE_API_URL=http://120.89.33.51:8080/api/v1/` |
+| 2 | Build and run (Docker) | `docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build` |
+| 3 | Or build image only | `docker build --build-arg VITE_API_URL=http://120.89.33.51:8080/api/v1/ -t laminar-aviation-app:uat .` |
+| 4 | Verify | Open http://120.89.33.51:3001 and `curl http://120.89.33.51:3001/health` |
 
 **Traditional (no Docker):**
 
 | Step | Action | Command |
 |------|--------|--------|
-| 1 | Set UAT API URL | `export VITE_API_URL=https://uat-api.yourdomain.com/api/v1/` |
+| 1 | Set UAT API URL | `export VITE_API_URL=http://120.89.33.51:8080/api/v1/` |
 | 2 | Build | `npm install && npm run build` |
 | 3 | Deploy | Copy `build/` to UAT server (e.g. `scp -r build/* user@uat-server:/var/www/laminar-aviation-uat/`) |
 | 4 | Restart web server | On server: `sudo nginx -t && sudo systemctl restart nginx` |
@@ -110,9 +162,9 @@ Use the API URL for the target environment. Rebuild the app whenever `VITE_API_U
 
 **Checklist**
 
-- [ ] Backend for the environment (prod or UAT) is running and reachable.
-- [ ] CORS on the backend allows the frontend origin (e.g. `https://app.yourdomain.com`, `https://uat.yourdomain.com`).
-- [ ] `.env` (or build arg) has the correct `VITE_API_URL` for that environment.
+- [ ] Backend for the environment (prod or UAT) is running and reachable at the URLs above.
+- [ ] CORS on the backend allows the frontend origin (e.g. `http://120.89.33.51:3000`, `http://120.89.33.51:3001`, `http://120.89.33.51:3002`).
+- [ ] The correct `.env.dev` / `.env.uat` / `.env.prod` (or build arg) is used for that environment.
 - [ ] After changing `VITE_API_URL`, you ran a new build and redeployed.
 
 ---
@@ -121,26 +173,23 @@ Use the API URL for the target environment. Rebuild the app whenever `VITE_API_U
 
 #### Option A: Docker (recommended)
 
-Run these commands in order from the project root:
+Use the **Host and URLs** table above. From the project root, run one of:
 
-| Step | Command |
-|------|--------|
-| 1. Set API URL (production) | `echo "VITE_API_URL=http://your-backend-url:8000/api/v1/" > .env` |
-| 2. Build and start | `docker-compose up -d --build` |
-| 3. View logs (optional) | `docker-compose logs -f` |
-| 4. Verify | `curl http://localhost:3000/health` |
+| Environment | Command |
+|-------------|--------|
+| Dev | `docker-compose --env-file .env.dev -f docker-compose.dev.yml up -d --build` |
+| UAT | `docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build` |
+| Prod | `docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build` |
+
+View logs: `docker-compose -f docker-compose.<env>.yml logs -f` (e.g. `docker-compose -f docker-compose.prod.yml logs -f`).
 
 **Manual Docker build (without docker-compose):**
 
 ```bash
-# 1. Set API URL and build image
-docker build --build-arg VITE_API_URL=http://your-backend-url:8000/api/v1/ -t laminar-aviation-app:latest .
-
-# 2. Run container
-docker run -d -p 3000:80 --name laminar-frontend laminar-aviation-app:latest
-
-# 3. Verify
-curl http://localhost:3000/health
+# Example: production build
+docker build --build-arg VITE_API_URL=http://120.89.33.51:8082/api/v1/ -t laminar-aviation-app:latest .
+docker run -d -p 3002:80 --name laminar-frontend laminar-aviation-app:latest
+# Verify: curl http://120.89.33.51:3002/health
 ```
 
 ---
@@ -179,30 +228,33 @@ Docker provides an easy and consistent way to deploy the application across diff
 
 #### Quick Start
 
-1. **Build and run with Docker Compose:**
+1. **Build and run with Docker Compose** (use the env you need — see [Host and URLs](#host-and-urls) above):
 
 ```bash
-# Build and start the container
-docker-compose up -d
+# Example: run production frontend
+docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 
 # View logs
-docker-compose logs -f
+docker-compose -f docker-compose.prod.yml logs -f
 
-# Stop the container
-docker-compose down
+# Stop
+docker-compose -f docker-compose.prod.yml down
 ```
 
-The application will be available at `http://localhost:3000`
+With the default host **120.89.33.51**, the app is available at:
+- Dev: http://120.89.33.51:3000  
+- UAT: http://120.89.33.51:3001  
+- Prod: http://120.89.33.51:3002
 
-#### Docker: Dev vs Prod
+#### Docker: Dev, UAT, Prod
 
-| Environment | Command | API URL (build-time) |
-|-------------|---------|----------------------|
-| **Prod** | `echo "VITE_API_URL=https://api.yourdomain.com/api/v1/" > .env` then `docker-compose up -d --build` | From `.env` or default `http://localhost:8000/api/v1/` |
-| **Dev** (backend on host) | `docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build` | `http://host.docker.internal:8000/api/v1/` so the container can reach backend on your machine |
+| Environment | Compose file | Env file | Frontend (host 120.89.33.51) | Backend API |
+|-------------|--------------|----------|------------------------------|-------------|
+| **Dev** | `docker-compose.dev.yml` | `.env.dev` | :3000 | :8000 |
+| **UAT** | `docker-compose.uat.yml` | `.env.uat` | :3001 | :8080 |
+| **Prod** | `docker-compose.prod.yml` | `.env.prod` | :3002 | :8082 |
 
-- **Prod:** Set `VITE_API_URL` in `.env` to your production API, then run `docker-compose up -d --build`.
-- **Dev:** Use `docker-compose.dev.yml` so the frontend (in Docker) talks to a backend running on the host (Docker Desktop: `host.docker.internal`).
+Always use `--env-file .env.<env>` with the matching compose file so `VITE_API_URL` is set correctly at build time.
 
 2. **Build Docker image manually:**
 
@@ -394,9 +446,10 @@ npm run build
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_API_URL` | Backend API base URL | `http://localhost:8000/api/v1/` |
+| Variable | Description | Example (host 120.89.33.51) |
+|----------|-------------|-----------------------------|
+| `VITE_API_URL` | Backend API base URL (set at build time) | Dev: `http://120.89.33.51:8000/api/v1/`, UAT: `:8080`, Prod: `:8082` |
+| `VITE_APP_URL` | Frontend app URL (for reference / redirects) | Dev: `http://120.89.33.51:3000`, UAT: `:3001`, Prod: `http://120.89.33.51:3002` |
 
 ### Setting Environment Variables
 
