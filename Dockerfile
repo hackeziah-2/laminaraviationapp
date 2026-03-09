@@ -16,9 +16,11 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build arguments: set at build time for dev or prod API URL
+# Build arguments: set at build time via docker-compose (--env-file .env.dev | .env.uat | .env.prod)
 ARG VITE_API_URL=http://localhost:8000/api/v1/
+ARG VITE_APP_URL=http://localhost:3000
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_APP_URL=$VITE_APP_URL
 
 # Build for production
 RUN npm run build

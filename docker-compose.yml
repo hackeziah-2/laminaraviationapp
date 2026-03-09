@@ -1,5 +1,9 @@
-# Production: set VITE_API_URL in .env or pass at runtime before docker-compose up
-# Example: echo "VITE_API_URL=https://api.yourdomain.com/api/v1/" > .env
+# Default compose: use .env, or override with --env-file
+# Examples:
+#   docker-compose up -d --build
+#   docker-compose --env-file .env.dev -f docker-compose.dev.yml up -d --build
+#   docker-compose --env-file .env.uat -f docker-compose.uat.yml up -d --build
+#   docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 
 services:
   frontend:
@@ -8,6 +12,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1/}
+        VITE_APP_URL: ${VITE_APP_URL:-http://localhost:3000}
     image: laminar-aviation-app:latest
     container_name: laminar-aviation-frontend
     ports:

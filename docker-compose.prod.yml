@@ -9,6 +9,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://120.89.33.51:8082/api/v1/}
+        VITE_APP_URL: ${VITE_APP_URL:-http://120.89.33.51:3002}
     image: laminar-aviation-app:latest
     container_name: laminar-aviation-frontend
     env_file:
