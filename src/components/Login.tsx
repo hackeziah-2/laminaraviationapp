@@ -59,16 +59,22 @@ export function Login({ onLogin }: LoginProps) {
       navigate("/dashboard");
     } catch (err) {
       const fallback = "Invalid username or password";
-      const detail =
-        (err as {
-          response?: { data?: { detail?: string | Array<{ msg?: string }> ; message?: string } };
-        })?.response?.data?.detail;
+      const detail = (
+        err as {
+          response?: {
+            data?: {
+              detail?: string | Array<{ msg?: string }>;
+              message?: string;
+            };
+          };
+        }
+      )?.response?.data?.detail;
       const detailMessage =
         Array.isArray(detail) && detail.length > 0
-          ? (detail[0]?.msg || fallback)
+          ? detail[0]?.msg || fallback
           : typeof detail === "string"
-            ? detail
-            : "";
+          ? detail
+          : "";
       const message =
         detailMessage ||
         (err as { response?: { data?: { detail?: string; message?: string } } })
@@ -158,7 +164,7 @@ export function Login({ onLogin }: LoginProps) {
           {/* Additional Info */}
           <div className="mt-6 pt-6 border-t border-gray-200">
             <p className="text-center text-gray-600">
-              Demo credentials: Any username/password
+              Ask credential to Administrator
             </p>
           </div>
         </div>
