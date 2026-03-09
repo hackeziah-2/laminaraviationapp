@@ -1,7 +1,8 @@
 import axios from "axios";
 
+const baseURL = (import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/").replace(/\/?$/, "/");
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/", // Automatically uses dev or prod URL
+  baseURL, // e.g. http://localhost:8000/api/v1/
 });
 
 api.interceptors.request.use((config) => {

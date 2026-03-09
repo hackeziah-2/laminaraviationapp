@@ -5,6 +5,8 @@ export interface AuthUser {
   name: string;
   email: string;
   role: string;
+  /** Role ID for loading permissions; may come from backend or resolved by role name */
+  roleId?: number;
   status: "active" | "inactive";
   lastLogin: string;
   createdDate: string;
@@ -37,6 +39,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     String(raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback);
   const id = Number(raw.id ?? raw.user_id ?? 0);
   const accountInfoId = Number(raw.account_information_id ?? raw.accountInformationId ?? 0);
+  const roleId = Number(raw.role_id ?? raw.roleId ?? 0);
   const composedName = `${getStr("first_name")} ${getStr("middle_name")} ${getStr("last_name")}`
     .replace(/\s+/g, " ")
     .trim();
@@ -45,6 +48,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     name: getStr("name") || getStr("full_name") || composedName || getStr("username", ""),
     email: getStr("email"),
     role: getStr("role", "Viewer"),
+    roleId: isNaN(roleId) ? undefined : roleId,
     status: (getStr("status", "active").toLowerCase() === "inactive" ? "inactive" : "active") as "active" | "inactive",
     lastLogin: getStr("last_login") || getStr("lastLogin", "Never"),
     createdDate: getStr("created_date") || getStr("createdDate") || getStr("created_at", ""),
