@@ -17,6 +17,7 @@ import { Operation } from './components/Operation';
 import { ReliabilityMonitoring } from './components/ReliabilityMonitoring';
 import { TCCDetail } from './components/TCCDetail';
 import { ADWorkOrders } from './components/ADWorkOrders';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { Copy, Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
@@ -105,24 +106,24 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/login" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/profile" element={<AircraftFleetProfile />} />
-          <Route path="/profile/:id" element={<AircraftDetail />} />
-          <Route path="/profile/:id/logbook" element={<MaintenanceLogbook />} />
-          <Route path="/profile/:id/maintenance" element={<RedirectToMaintenanceLdnd />} />
-          <Route path="/profile/:id/maintenance-ad-work-orders/:ad_monitoring_id" element={<ADWorkOrders />} />
-          <Route path="/profile/:id/maintenance-tcc" element={<Maintenance />} />
-          <Route path="/profile/:id/maintenance-ldnd" element={<Maintenance />} />
-          <Route path="/profile/:id/maintenance-ad" element={<Maintenance />} />
-          <Route path="/profile/:id/maintenance-cpcp" element={<Maintenance />} />
-          <Route path="/profile/:id/operation" element={<Operation />} />
-          <Route path="/profile/:id/operation/reliability/:recordId" element={<ReliabilityMonitoring />} />
-          <Route path="/profile/:aircraft_id/document_on_board" element={<AircraftDocumentOnBoard />} />
-          <Route path="/daily-update" element={<AircraftFleetDailyUpdate />} />
-          <Route path="/technical-logbook" element={<AircraftTechnicalLogbook />} />
-          <Route path="/document-on-board" element={<DocumentOnBoard />} />
-          <Route path="/certificate-monitoring" element={<CertificateMonitoring />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/dashboard" element={<ProtectedRoute moduleCode="dashboard"><Dashboard /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute moduleCode="profile"><AircraftFleetProfile /></ProtectedRoute>} />
+          <Route path="/profile/:id" element={<ProtectedRoute moduleCode="profile"><AircraftDetail /></ProtectedRoute>} />
+          <Route path="/profile/:id/logbook" element={<ProtectedRoute moduleCode="logbook"><MaintenanceLogbook /></ProtectedRoute>} />
+          <Route path="/profile/:id/maintenance" element={<ProtectedRoute moduleCode="maintenance"><RedirectToMaintenanceLdnd /></ProtectedRoute>} />
+          <Route path="/profile/:id/maintenance-ad-work-orders/:ad_monitoring_id" element={<ProtectedRoute moduleCode="maintenance"><ADWorkOrders /></ProtectedRoute>} />
+          <Route path="/profile/:id/maintenance-tcc" element={<ProtectedRoute moduleCode="maintenance"><Maintenance /></ProtectedRoute>} />
+          <Route path="/profile/:id/maintenance-ldnd" element={<ProtectedRoute moduleCode="maintenance"><Maintenance /></ProtectedRoute>} />
+          <Route path="/profile/:id/maintenance-ad" element={<ProtectedRoute moduleCode="maintenance"><Maintenance /></ProtectedRoute>} />
+          <Route path="/profile/:id/maintenance-cpcp" element={<ProtectedRoute moduleCode="maintenance"><Maintenance /></ProtectedRoute>} />
+          <Route path="/profile/:id/operation" element={<ProtectedRoute moduleCode="operation"><Operation /></ProtectedRoute>} />
+          <Route path="/profile/:id/operation/reliability/:recordId" element={<ProtectedRoute moduleCode="operation"><ReliabilityMonitoring /></ProtectedRoute>} />
+          <Route path="/profile/:aircraft_id/document_on_board" element={<ProtectedRoute moduleCode="document_on_board"><AircraftDocumentOnBoard /></ProtectedRoute>} />
+          <Route path="/daily-update" element={<ProtectedRoute moduleCode="daily-update"><AircraftFleetDailyUpdate /></ProtectedRoute>} />
+          <Route path="/technical-logbook" element={<ProtectedRoute moduleCode="logbook"><AircraftTechnicalLogbook /></ProtectedRoute>} />
+          <Route path="/document-on-board" element={<ProtectedRoute moduleCode="document_on_board"><DocumentOnBoard /></ProtectedRoute>} />
+          <Route path="/certificate-monitoring" element={<ProtectedRoute moduleCode="certificate-monitoring"><CertificateMonitoring /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute moduleCode="settings"><Settings /></ProtectedRoute>} />
         </Routes>
       </div>
     </div>

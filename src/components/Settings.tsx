@@ -7,6 +7,7 @@ import {
   Plus,
   Search,
   Edit2,
+  Trash2,
   Lock,
   UserX,
   UserPlus,
@@ -22,6 +23,8 @@ import {
 import * as authApi from "../api/authApi";
 import * as rolesApi from "../api/rolesApi";
 import * as accountApi from "../api/accountApi";
+import * as modulesApi from "../api/modulesApi";
+import { MODULE_PERMISSIONS_LIST } from "../constants/modulePermissions";
 
 interface User {
   id: number;
@@ -50,18 +53,23 @@ interface Permission {
   approve: boolean;
 }
 
-/** Module permissions shown in System Settings — code (backend) : label (UI) */
-const MODULE_PERMISSIONS_LIST: { code: string; label: string }[] = [
-  { code: "dashboard", label: "Dashboard" },
-  { code: "profile", label: "General Information" },
-  { code: "operation", label: "Operation" },
-  { code: "maintenance", label: "Maintenance" },
-  { code: "logbook", label: "Logbook" },
-  { code: "document_on_board", label: "Document On Board" },
-  { code: "certificate-monitoring", label: "Certificate Monitoring" },
-  { code: "daily-update", label: "Daily Update" },
-  { code: "settings", label: "System Settings" },
-];
+/** Build permission list from modules (all false). Uses API modules when provided, else static list. */
+function getDefaultModulePermissions(apiModules?: modulesApi.Module[]): Permission[] {
+  if (apiModules?.length) {
+    return apiModules.map((m) => ({
+      module: m.name || m.code || String(m.id),
+      read: false,
+      write: false,
+      approve: false,
+    }));
+  }
+  return MODULE_PERMISSIONS_LIST.map(({ label }) => ({
+    module: label,
+    read: false,
+    write: false,
+    approve: false,
+  }));
+}
 
 interface AddUserModalProps {
   isOpen: boolean;
@@ -115,6 +123,8 @@ interface EditRoleModalProps {
 interface CreateRoleModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Modules from API (modules-list) for permission rows; falls back to static list when empty. */
+  moduleList: Array<{ id?: number; name: string; code?: string }>;
   onCreate: (role: Role, permissions: Permission[]) => void | Promise<void>;
 }
 
@@ -1177,20 +1187,35 @@ function EditRoleModal({
 }
 
 // Create Role Modal
-function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
+function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleModalProps) {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
   });
 
-  const [permissions, setPermissions] = useState<Permission[]>(
-    MODULE_PERMISSIONS_LIST.map(({ label }) => ({
-      module: label,
-      read: false,
-      write: false,
-      approve: false,
-    }))
+  const defaultPerms = React.useMemo(
+    () =>
+      moduleList.length > 0
+        ? moduleList.map((m) => ({
+            module: m.name || m.code || String(m.id ?? ""),
+            read: false,
+            write: false,
+            approve: false,
+          }))
+        : MODULE_PERMISSIONS_LIST.map(({ label }) => ({
+            module: label,
+            read: false,
+            write: false,
+            approve: false,
+          })),
+    [moduleList]
   );
+
+  const [permissions, setPermissions] = useState<Permission[]>(defaultPerms);
+
+  React.useEffect(() => {
+    setPermissions(defaultPerms);
+  }, [defaultPerms]);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -1221,14 +1246,7 @@ function CreateRoleModal({ isOpen, onClose, onCreate }: CreateRoleModalProps) {
         )
       );
       setFormData({ name: "", description: "" });
-      setPermissions(
-        permissions.map((p) => ({
-          ...p,
-          read: false,
-          write: false,
-          approve: false,
-        }))
-      );
+      setPermissions(defaultPerms);
       onClose();
     } catch {
       // Stay open on error
@@ -1395,6 +1413,7 @@ export function Settings() {
   >({});
   const [usersLoading, setUsersLoading] = useState(true);
   const [rolesLoading, setRolesLoading] = useState(true);
+  const [modulesList, setModulesList] = useState<modulesApi.Module[]>([]);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1580,10 +1599,9 @@ export function Settings() {
     fetchUsersList();
   }, [fetchUsersList]);
 
-  useEffect(() => {
+  const fetchRoles = useCallback(() => {
     setRolesLoading(true);
     setRolesError(null);
-    // GET /v1/roles/roles-list — includes user_count per role for Roles & Permissions badges
     rolesApi
       .getRoles()
       .then((data) => {
@@ -1595,6 +1613,18 @@ export function Settings() {
         setRolesError((err as Error)?.message ?? "Failed to load roles");
       })
       .finally(() => setRolesLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchRoles();
+  }, [fetchRoles]);
+
+  useEffect(() => {
+    // GET /api/v1/modules/modules-list — for Create/Edit Role permission matrix
+    modulesApi
+      .getModulesList()
+      .then((data) => setModulesList(Array.isArray(data) ? data : []))
+      .catch(() => setModulesList([]));
   }, []);
 
   const permissionsByRole: Record<string, Permission[]> = {
@@ -2098,15 +2128,81 @@ export function Settings() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => {
-                          setSelectedRoleForEdit(role);
-                          setShowEditRoleModal(true);
+                        onClick={async () => {
+                          try {
+                            const roleWithPerms = await rolesApi.getRole(role.id);
+                            const perms =
+                              roleWithPerms.permissions?.length > 0
+                                ? roleWithPerms.permissions
+                                : getDefaultModulePermissions(modulesList);
+                            setCustomPermissions((prev) => ({
+                              ...prev,
+                              [role.name]: perms,
+                            }));
+                            setSelectedRoleForEdit(role);
+                            setShowEditRoleModal(true);
+                          } catch {
+                            setCustomPermissions((prev) => ({
+                              ...prev,
+                              [role.name]: getDefaultModulePermissions(modulesList),
+                            }));
+                            setSelectedRoleForEdit(role);
+                            setShowEditRoleModal(true);
+                          }
                         }}
                         type="button"
                         className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
                       >
                         <Edit2 className="w-4 h-4" />
                         Edit Permissions
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const hasUsers = (role.userCount ?? 0) > 0;
+                          const result = await Swal.fire({
+                            title: "Delete role?",
+                            html: hasUsers
+                              ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
+                              : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
+                            icon: "warning",
+                            showCancelButton: true,
+                            confirmButtonColor: "#dc2626",
+                            cancelButtonColor: "#6b7280",
+                            confirmButtonText: "Yes, delete",
+                            cancelButtonText: "Cancel",
+                          });
+                          if (!result.isConfirmed) return;
+                          try {
+                            await rolesApi.deleteRole(role.id);
+                            setCustomPermissions((prev) => {
+                              const next = { ...prev };
+                              delete next[role.name];
+                              return next;
+                            });
+                            fetchRoles();
+                            await Swal.fire({
+                              title: "Deleted",
+                              text: `Role ${role.name} has been removed.`,
+                              icon: "success",
+                              confirmButtonColor: "#1f2937",
+                            });
+                          } catch (err: unknown) {
+                            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
+                            const msg =
+                              (typeof data?.message === "string" ? data.message : null) ||
+                              (typeof data?.detail === "string" ? data.detail : null) ||
+                              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
+                              (err as Error)?.message ||
+                              "Failed to delete role";
+                            await Swal.fire({ icon: "error", title: "Error", text: msg });
+                          }
+                        }}
+                        type="button"
+                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                        title="Delete role"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
                       </button>
                     </div>
                   </div>
@@ -2413,7 +2509,7 @@ export function Settings() {
           selectedRoleForEdit
             ? customPermissions[selectedRoleForEdit.name] ??
               permissionsByRole[selectedRoleForEdit.name] ??
-              []
+              getDefaultModulePermissions(modulesList)
             : []
         }
         onUpdate={async (updatedRole, updatedPermissions) => {
@@ -2426,11 +2522,12 @@ export function Settings() {
             setRoles((prev) =>
               prev.map((r) => (r.id === updatedRole.id ? result : r))
             );
+            fetchRoles();
             setCustomPermissions((prev) => {
               const next = { ...prev };
               const oldName = selectedRoleForEdit?.name;
               if (oldName && oldName !== updatedRole.name) delete next[oldName];
-              next[updatedRole.name] = updatedPermissions;
+              next[updatedRole.name] = result.permissions?.length ? result.permissions : updatedPermissions;
               return next;
             });
             setShowEditRoleModal(false);
@@ -2442,9 +2539,11 @@ export function Settings() {
               confirmButtonColor: "#1f2937",
             });
           } catch (err: unknown) {
+            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
             const msg =
-              (err as { response?: { data?: { message?: string } } })?.response
-                ?.data?.message ||
+              (typeof data?.message === "string" ? data.message : null) ||
+              (typeof data?.detail === "string" ? data.detail : null) ||
+              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
               (err as Error)?.message ||
               "Failed to update role";
             await Swal.fire({ icon: "error", title: "Error", text: msg });
@@ -2456,6 +2555,7 @@ export function Settings() {
       <CreateRoleModal
         isOpen={showCreateRoleModal}
         onClose={() => setShowCreateRoleModal(false)}
+        moduleList={modulesList.length > 0 ? modulesList : MODULE_PERMISSIONS_LIST.map((m) => ({ name: m.label, code: m.code }))}
         onCreate={async (newRole, permissions) => {
           try {
             const created = await rolesApi.createRole(
@@ -2463,9 +2563,10 @@ export function Settings() {
               permissions
             );
             setRoles((prev) => [...prev, created]);
+            fetchRoles();
             setCustomPermissions((prev) => ({
               ...prev,
-              [created.name]: permissions,
+              [created.name]: created.permissions?.length ? created.permissions : permissions,
             }));
             setShowCreateRoleModal(false);
             await Swal.fire({
@@ -2475,9 +2576,11 @@ export function Settings() {
               confirmButtonColor: "#1f2937",
             });
           } catch (err: unknown) {
+            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
             const msg =
-              (err as { response?: { data?: { message?: string } } })?.response
-                ?.data?.message ||
+              (typeof data?.message === "string" ? data.message : null) ||
+              (typeof data?.detail === "string" ? data.detail : null) ||
+              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
               (err as Error)?.message ||
               "Failed to create role";
             await Swal.fire({ icon: "error", title: "Error", text: msg });
