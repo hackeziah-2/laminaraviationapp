@@ -1,5 +1,6 @@
 import { LayoutGrid, Plane, Calendar, Bell, ChevronLeft, ChevronRight, X, FileText, FolderOpen, Award, Settings, LogOut } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -9,18 +10,22 @@ interface SidebarProps {
   onMobileMenuClose?: () => void;
 }
 
+/** Sidebar menu item id maps to module code for role-based access */
+const MENU_ITEMS = [
+  { id: 'dashboard', moduleCode: 'dashboard' as const, label: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
+  { id: 'profile', moduleCode: 'profile' as const, label: 'Aircraft Fleet Profile', icon: Plane, path: '/profile' },
+  { id: 'daily-update', moduleCode: 'daily-update' as const, label: 'Aircraft Fleet Daily Update', icon: Calendar, path: '/daily-update' },
+  { id: 'technical-logbook', moduleCode: 'logbook' as const, label: 'Aircraft Technical Logbook', icon: FileText, path: '/technical-logbook' },
+  { id: 'document-on-board', moduleCode: 'document_on_board' as const, label: 'Document On Board', icon: FolderOpen, path: '/document-on-board' },
+  { id: 'certificate-monitoring', moduleCode: 'certificate-monitoring' as const, label: 'Certificate Monitoring', icon: Award, path: '/certificate-monitoring' },
+  { id: 'settings', moduleCode: 'settings' as const, label: 'Settings', icon: Settings, path: '/settings' },
+];
+
 export function Sidebar({ isCollapsed, onToggle, onLogout, isMobileMenuOpen = false, onMobileMenuClose }: SidebarProps) {
   const location = useLocation();
+  const { canAccess } = useUserPermissions();
 
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, path: '/dashboard' },
-    { id: 'profile', label: 'Aircraft Fleet Profile', icon: Plane, path: '/profile' },
-    { id: 'daily-update', label: 'Aircraft Fleet Daily Update', icon: Calendar, path: '/daily-update' },
-    { id: 'technical-logbook', label: 'Aircraft Technical Logbook', icon: FileText, path: '/technical-logbook' },
-    { id: 'document-on-board', label: 'Document On Board', icon: FolderOpen, path: '/document-on-board' },
-    { id: 'certificate-monitoring', label: 'Certificate Monitoring', icon: Award, path: '/certificate-monitoring' },
-    { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
-  ];
+  const menuItems = MENU_ITEMS.filter((item) => canAccess(item.moduleCode));
 
   const isActive = (path: string) => {
     if (path === '/profile') {
