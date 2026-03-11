@@ -9,6 +9,11 @@ import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook'
 import { DocumentOnBoard } from './components/DocumentOnBoard';
 import { AircraftDocumentOnBoard } from './components/AircraftDocumentOnBoard';
 import { CertificateMonitoring } from './components/CertificateMonitoring';
+import { AircraftStatutoryCertificates } from './components/AircraftStatutoryCertificates';
+import { RegulatoryAdvisory } from './components/RegulatoryAdvisory';
+import { OrganizationalApprovals } from './components/OrganizationalApprovals';
+import { OEMTechnicalPublication } from './components/OEMTechnicalPublication';
+import { PersonnelAuthorization } from './components/PersonnelAuthorization';
 import { Settings } from './components/Settings';
 import { AircraftDetail } from './components/AircraftDetail';
 import { MaintenanceLogbook } from './components/MaintenanceLogbook';
@@ -123,6 +128,12 @@ function AppContent() {
           <Route path="/technical-logbook" element={<ProtectedRoute moduleCode="logbook"><AircraftTechnicalLogbook /></ProtectedRoute>} />
           <Route path="/document-on-board" element={<ProtectedRoute moduleCode="document_on_board"><DocumentOnBoard /></ProtectedRoute>} />
           <Route path="/certificate-monitoring" element={<ProtectedRoute moduleCode="certificate-monitoring"><CertificateMonitoring /></ProtectedRoute>} />
+          <Route path="/regulatory-compliance" element={<Navigate to="/regulatory-compliance/advisory" replace />} />
+          <Route path="/regulatory-compliance/advisory" element={<ProtectedRoute moduleCode="regulatory-compliance"><RegulatoryAdvisory /></ProtectedRoute>} />
+          <Route path="/regulatory-compliance/aircraft-statutory-certificates" element={<ProtectedRoute moduleCode="regulatory-compliance"><AircraftStatutoryCertificates /></ProtectedRoute>} />
+          <Route path="/regulatory-compliance/organizational-approvals" element={<ProtectedRoute moduleCode="regulatory-compliance"><OrganizationalApprovals /></ProtectedRoute>} />
+          <Route path="/regulatory-compliance/oem-technical-publication" element={<ProtectedRoute moduleCode="regulatory-compliance"><OEMTechnicalPublication /></ProtectedRoute>} />
+          <Route path="/regulatory-compliance/personnel-authorization" element={<ProtectedRoute moduleCode="regulatory-compliance"><PersonnelAuthorization /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute moduleCode="settings"><Settings /></ProtectedRoute>} />
         </Routes>
       </div>

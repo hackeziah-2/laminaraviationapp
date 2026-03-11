@@ -296,7 +296,6 @@ export const getAircraftTechnicalLogs = async (
         const result: any = {};
         for (const key in obj) {
           const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          console.log(camel, "camelcamelcamelcamel");
           result[camel] = transformToCamel(obj[key]);
         }
         return result;
@@ -421,8 +420,7 @@ export const createAircraftTechnicalLog = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const hasFiles =
-      files &&
-      (files.whiteAtl instanceof File || files.dfp instanceof File);
+      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
       const formData = new FormData();
       formData.append("json_data", JSON.stringify(data));
@@ -432,10 +430,14 @@ export const createAircraftTechnicalLog = async (
       if (files.dfp instanceof File) {
         formData.append("dfp", files.dfp);
       }
-      const response = await apiClient.post("aircraft-technical-log/", formData, {
-        headers: { Accept: "application/json" },
-        // Do not set Content-Type — browser sets multipart/form-data with boundary
-      });
+      const response = await apiClient.post(
+        "aircraft-technical-log/",
+        formData,
+        {
+          headers: { Accept: "application/json" },
+          // Do not set Content-Type — browser sets multipart/form-data with boundary
+        }
+      );
       return toCamel(response.data);
     }
     const response = await apiClient.post("aircraft-technical-log/", data);
@@ -473,8 +475,7 @@ export const updateAircraftTechnicalLog = async (
     };
 
     const hasFiles =
-      files &&
-      (files.whiteAtl instanceof File || files.dfp instanceof File);
+      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
       const formData = new FormData();
       formData.append("json_data", JSON.stringify(data));

@@ -31,12 +31,17 @@ function normalizeCertificateItem(item: any): CertificateMonitoring {
     c.id ?? c.documentId ?? item.document_id ?? item.id ?? null;
   const rawIsCert =
     c.isAircraftCertificate ?? item.is_aircraft_certificate ?? false;
+  const aircraft = c.aircraft ?? item.aircraft;
+  const aircraftObj = aircraft && typeof aircraft === "object" ? aircraft : undefined;
   return {
     id: documentId,
     aircraftId:
       c.aircraftId ?? c.aircraftFk ?? item.aircraft_id ?? item.aircraft_fk,
-    aircraft: c.aircraft,
+    aircraft: aircraftObj,
     certificateName: c.certificateName ?? c.documentName ?? item.certificate_name ?? item.document_name ?? "",
+    certificateType: c.certificateType ?? item.certificate_type ?? null,
+    makeModel: c.makeModel ?? item.make_model ?? (aircraftObj && (aircraftObj as any).aircraftType) ?? null,
+    msn: c.msn ?? item.msn ?? (aircraftObj && (aircraftObj as any).msn) ?? null,
     description: c.description ?? null,
     issueDate: c.issueDate ?? item.issue_date ?? null,
     expiryDate: c.expiryDate ?? item.expiry_date ?? null,
@@ -65,8 +70,14 @@ export interface CertificateMonitoring {
     id: number;
     registration: string;
     aircraftType?: string;
+    manufacturer?: string;
+    model?: string;
+    msn?: string;
   };
   certificateName: string;
+  certificateType?: string | null;
+  makeModel?: string | null;
+  msn?: string | null;
   description?: string | null;
   issueDate?: string | null;
   expiryDate?: string | null;
@@ -84,6 +95,9 @@ export interface CertificateMonitoring {
 export interface CertificateMonitoringCreate {
   aircraftId?: number;
   certificateName: string;
+  certificateType?: string | null;
+  makeModel?: string | null;
+  msn?: string | null;
   description?: string | null;
   issueDate?: string | null;
   expiryDate?: string | null;
@@ -97,6 +111,9 @@ export interface CertificateMonitoringCreate {
 export interface CertificateMonitoringUpdate {
   aircraftId?: number;
   certificateName?: string;
+  certificateType?: string | null;
+  makeModel?: string | null;
+  msn?: string | null;
   description?: string | null;
   issueDate?: string | null;
   expiryDate?: string | null;
