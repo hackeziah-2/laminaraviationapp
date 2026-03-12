@@ -8,7 +8,11 @@ import {
   Upload,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  Pencil,
+  Trash2,
 } from "lucide-react";
+import Swal from "sweetalert2";
 
 interface Personnel {
   id: number;
@@ -28,6 +32,21 @@ interface Personnel {
   typeTrainingBaron: string;
 }
 
+function PersonnelDetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <span className="block text-gray-500 text-sm mb-0.5">{label}</span>
+      <span className="text-gray-900 text-sm">{value || "—"}</span>
+    </div>
+  );
+}
+
 // Authorization scope options per aircraft type
 const SCOPE_CESSNA_OPTIONS = ["RTS, II, MR, EGR", "RTS, MR, EGR", "MR", "NONE"];
 const SCOPE_BARON_OPTIONS = [
@@ -45,6 +64,12 @@ export function PersonnelAuthorization() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingPersonnel, setEditingPersonnel] = useState<Personnel | null>(
+    null
+  );
+  const [viewingPersonnel, setViewingPersonnel] = useState<Personnel | null>(
+    null
+  );
 
   // Create form state
   const [createForm, setCreateForm] = useState({
@@ -245,6 +270,7 @@ export function PersonnelAuthorization() {
   ].sort();
 
   const openCreateModal = () => {
+    setEditingPersonnel(null);
     setCreateForm({
       authorizationNumber: "",
       name: "",
@@ -266,7 +292,52 @@ export function PersonnelAuthorization() {
     setShowCreateModal(true);
   };
 
-  const closeCreateModal = () => setShowCreateModal(false);
+  const openViewModal = (person: Personnel) => {
+    setViewingPersonnel(person);
+  };
+
+  const openViewEditModal = (person: Personnel) => {
+    setEditingPersonnel(person);
+    const toDateInput = (s: string) => {
+      if (!s || s === "—") return "";
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+    };
+    setCreateForm({
+      authorizationNumber: person.authorizationNo,
+      name: person.name,
+      position: person.position,
+      licenseNoType: person.licNoType || "",
+      authInitialDOI: toDateInput(person.authInitialDOI),
+      authIssueDate: toDateInput(person.authIssueDate),
+      authExpiryDate:
+        person.authExpiryDate && person.authExpiryDate !== "—"
+          ? person.authExpiryDate
+          : "",
+      scopeCessna:
+        person.scopeCessna && person.scopeCessna !== "—"
+          ? person.scopeCessna
+          : "",
+      scopeBaron:
+        person.scopeBaron && person.scopeBaron !== "—" ? person.scopeBaron : "",
+      scopeOthers:
+        person.scopeOthers && person.scopeOthers !== "—"
+          ? person.scopeOthers
+          : "",
+      caapLicExpiry: toDateInput(person.caapLicExpiry),
+      hfTrainingExpiry: toDateInput(person.hfTrainingExpiry),
+      typeTrainingCessna: toDateInput(person.typeTrainingCessna),
+      typeTrainingBaron: toDateInput(person.typeTrainingBaron),
+      webLink: "",
+      uploadedFile: null,
+    });
+    setShowCreateModal(true);
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setEditingPersonnel(null);
+  };
 
   const handleCreateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -274,28 +345,52 @@ export function PersonnelAuthorization() {
   };
 
   const handleCreateSubmit = () => {
-    const nextId = Math.max(0, ...personnel.map((p) => p.id)) + 1;
-    setPersonnel((prev) => [
-      ...prev,
-      {
-        id: nextId,
-        authorizationNo: createForm.authorizationNumber.trim() || "—",
-        name: createForm.name.trim(),
-        position: createForm.position.trim(),
-        licNoType: createForm.licenseNoType.trim(),
-        authInitialDOI: createForm.authInitialDOI || "—",
-        authIssueDate: createForm.authIssueDate || "—",
-        authExpiryDate: createForm.authExpiryDate.trim() || "—",
-        scopeCessna: createForm.scopeCessna || "—",
-        scopeBaron: createForm.scopeBaron || "—",
-        scopeOthers: createForm.scopeOthers || "—",
-        caapLicExpiry: createForm.caapLicExpiry || "—",
-        hfTrainingExpiry: createForm.hfTrainingExpiry || "—",
-        typeTrainingCessna: createForm.typeTrainingCessna || "—",
-        typeTrainingBaron: createForm.typeTrainingBaron || "—",
-      },
-    ]);
+    const row = {
+      authorizationNo: createForm.authorizationNumber.trim() || "—",
+      name: createForm.name.trim(),
+      position: createForm.position.trim(),
+      licNoType: createForm.licenseNoType.trim(),
+      authInitialDOI: createForm.authInitialDOI || "—",
+      authIssueDate: createForm.authIssueDate || "—",
+      authExpiryDate: createForm.authExpiryDate.trim() || "—",
+      scopeCessna: createForm.scopeCessna || "—",
+      scopeBaron: createForm.scopeBaron || "—",
+      scopeOthers: createForm.scopeOthers || "—",
+      caapLicExpiry: createForm.caapLicExpiry || "—",
+      hfTrainingExpiry: createForm.hfTrainingExpiry || "—",
+      typeTrainingCessna: createForm.typeTrainingCessna || "—",
+      typeTrainingBaron: createForm.typeTrainingBaron || "—",
+    };
+    if (editingPersonnel) {
+      setPersonnel((prev) =>
+        prev.map((p) => (p.id === editingPersonnel.id ? { ...p, ...row } : p))
+      );
+    } else {
+      const nextId = Math.max(0, ...personnel.map((p) => p.id)) + 1;
+      setPersonnel((prev) => [...prev, { id: nextId, ...row }]);
+    }
     closeCreateModal();
+  };
+
+  const handleDeletePersonnel = async (id: number) => {
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: "You won't be able to revert this!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Yes, delete it!",
+    });
+    if (!result.isConfirmed) return;
+    setPersonnel((prev) => prev.filter((p) => p.id !== id));
+    Swal.fire({
+      icon: "success",
+      title: "Deleted!",
+      text: "The personnel record has been deleted.",
+      timer: 1500,
+      showConfirmButton: false,
+    });
   };
 
   // Calculate position counts
@@ -549,6 +644,9 @@ export function PersonnelAuthorization() {
                     BARON 95-C55
                   </span>
                 </th>
+                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
+                  ACTIONS
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -608,12 +706,43 @@ export function PersonnelAuthorization() {
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openViewModal(person)}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                          title="View details"
+                          aria-label="View"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openViewEditModal(person)}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                          title="Edit"
+                          aria-label="Edit"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePersonnel(person.id)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded"
+                          title="Delete"
+                          aria-label="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
                   <td
-                    colSpan={14}
+                    colSpan={15}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found matching your search criteria
@@ -704,6 +833,104 @@ export function PersonnelAuthorization() {
         </div>
       </div>
 
+      {/* View Personnel Details Modal */}
+      {viewingPersonnel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
+            onClick={() => setViewingPersonnel(null)}
+            aria-hidden
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="view-personnel-title"
+            className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2
+                id="view-personnel-title"
+                className="text-lg font-semibold text-gray-900 flex items-center gap-2"
+              >
+                View Personnel Details
+              </h2>
+              <button
+                type="button"
+                onClick={() => setViewingPersonnel(null)}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+              <PersonnelDetailRow
+                label="Authorization Number"
+                value={viewingPersonnel.authorizationNo}
+              />
+              <PersonnelDetailRow label="Name" value={viewingPersonnel.name} />
+              <PersonnelDetailRow
+                label="Position"
+                value={viewingPersonnel.position}
+              />
+              <PersonnelDetailRow
+                label="License No / Type"
+                value={viewingPersonnel.licNoType}
+              />
+              <PersonnelDetailRow
+                label="Auth Initial DOI"
+                value={viewingPersonnel.authInitialDOI}
+              />
+              <PersonnelDetailRow
+                label="Auth Issue Date"
+                value={viewingPersonnel.authIssueDate}
+              />
+              <PersonnelDetailRow
+                label="Auth Expiry Date"
+                value={viewingPersonnel.authExpiryDate}
+              />
+              <PersonnelDetailRow
+                label="Scope (Cessna 150, 152, 172)"
+                value={viewingPersonnel.scopeCessna}
+              />
+              <PersonnelDetailRow
+                label="Scope (Baron 95-C55)"
+                value={viewingPersonnel.scopeBaron}
+              />
+              <PersonnelDetailRow
+                label="Scope (Others)"
+                value={viewingPersonnel.scopeOthers}
+              />
+              <PersonnelDetailRow
+                label="CAAP License Expiry"
+                value={viewingPersonnel.caapLicExpiry}
+              />
+              <PersonnelDetailRow
+                label="HF Training Expiry"
+                value={viewingPersonnel.hfTrainingExpiry}
+              />
+              <PersonnelDetailRow
+                label="Type Training (Cessna)"
+                value={viewingPersonnel.typeTrainingCessna}
+              />
+              <PersonnelDetailRow
+                label="Type Training (Baron)"
+                value={viewingPersonnel.typeTrainingBaron}
+              />
+            </div>
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewingPersonnel(null)}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Personnel Authorization Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -724,7 +951,9 @@ export function PersonnelAuthorization() {
                 id="create-personnel-title"
                 className="text-lg font-semibold text-gray-900"
               >
-                Personnel Authorization
+                {editingPersonnel
+                  ? "Edit Personnel Authorization"
+                  : "Personnel Authorization"}
               </h2>
               <button
                 type="button"

@@ -277,21 +277,16 @@ export function Sidebar({
                         }, 150);
                       }}
                     >
-                      <Link
-                        to="/regulatory-compliance"
-                        onClick={(e) => {
-                          if (isMobileMenuOpen) {
-                            e.preventDefault();
-                            setRegulatoryExpanded((prev) => !prev);
-                          } else {
-                            onMobileMenuClose?.();
-                          }
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRegulatoryExpanded((prev) => !prev);
                         }}
                         aria-expanded={isExpanded}
                         aria-label={`${item.label}, submenu ${
                           isExpanded ? "visible" : "hidden"
                         }`}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-200 ${
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-200 cursor-pointer ${
                           active ? "bg-blue-50" : "hover:bg-gray-50"
                         }`}
                       >
@@ -308,18 +303,22 @@ export function Sidebar({
                           {item.label}
                         </span>
                         <ChevronDown
-                          className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${
-                            isExpanded ? "rotate-0" : "-rotate-90"
-                          } ${active ? "text-blue-600" : "text-gray-500"}`}
+                          className={`w-4 h-4 flex-shrink-0 ${active ? "text-blue-600" : "text-gray-500"}`}
+                          style={{
+                            transition: "transform 0.2s ease",
+                            transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+                          }}
                           aria-hidden
                         />
-                      </Link>
+                      </button>
                       <div
-                        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                          isExpanded
-                            ? "max-h-[500px] opacity-100 translate-y-0 mt-1"
-                            : "max-h-0 opacity-0 -translate-y-1"
-                        }`}
+                        style={{
+                          overflow: "hidden",
+                          transition: "max-height 0.3s ease-in-out, opacity 0.3s ease-in-out",
+                          maxHeight: isExpanded ? "500px" : "0px",
+                          opacity: isExpanded ? 1 : 0,
+                          marginTop: isExpanded ? "4px" : "0px",
+                        }}
                         aria-hidden={!isExpanded}
                       >
                         {item.children && (
