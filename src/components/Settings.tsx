@@ -116,6 +116,8 @@ interface EditRoleModalProps {
   isOpen: boolean;
   onClose: () => void;
   role: Role | null;
+  /** Modules from API (module-list) for permission rows; used to merge with role's permissions. */
+  moduleList: Array<{ id?: number; name: string; code?: string }>;
   permissions: Permission[];
   onUpdate: (role: Role, permissions: Permission[]) => void | Promise<void>;
 }
@@ -998,11 +1000,35 @@ function ResetPasswordModal({
   );
 }
 
+/** Merge API module list with role's existing permissions (match by module name/code). */
+function mergePermissionsWithModuleList(
+  moduleList: Array<{ id?: number; name: string; code?: string }>,
+  permissions: Permission[]
+): Permission[] {
+  if (!moduleList?.length) return permissions;
+  return moduleList.map((m) => {
+    const moduleName = m.name || m.code || String(m.id ?? "");
+    const existing = permissions.find(
+      (p) =>
+        p.module === moduleName ||
+        p.module === m.name ||
+        (m.code && p.module === m.code)
+    );
+    return {
+      module: moduleName,
+      read: existing?.read ?? false,
+      write: existing?.write ?? false,
+      approve: existing?.approve ?? false,
+    };
+  });
+}
+
 // Edit Role Modal
 function EditRoleModal({
   isOpen,
   onClose,
   role,
+  moduleList,
   permissions,
   onUpdate,
 }: EditRoleModalProps) {
@@ -1010,8 +1036,11 @@ function EditRoleModal({
     name: role?.name || "",
     description: role?.description || "",
   });
-  const [rolePermissions, setRolePermissions] =
-    useState<Permission[]>(permissions);
+  const merged = React.useMemo(
+    () => mergePermissionsWithModuleList(moduleList, permissions),
+    [moduleList, permissions]
+  );
+  const [rolePermissions, setRolePermissions] = useState<Permission[]>(merged);
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
@@ -1020,9 +1049,9 @@ function EditRoleModal({
         name: role.name,
         description: role.description,
       });
-      setRolePermissions(permissions);
+      setRolePermissions(mergePermissionsWithModuleList(moduleList, permissions));
     }
-  }, [role, permissions]);
+  }, [role, permissions, moduleList]);
 
   if (!isOpen || !role) return null;
 
@@ -1620,7 +1649,7 @@ export function Settings() {
   }, [fetchRoles]);
 
   useEffect(() => {
-    // GET /api/v1/modules/modules-list — for Create/Edit Role permission matrix
+    // GET /api/v1/modules/module-list — for Create/Edit Role permission matrix
     modulesApi
       .getModulesList()
       .then((data) => setModulesList(Array.isArray(data) ? data : []))
@@ -2505,6 +2534,7 @@ export function Settings() {
           setSelectedRoleForEdit(null);
         }}
         role={selectedRoleForEdit}
+        moduleList={modulesList.length > 0 ? modulesList : MODULE_PERMISSIONS_LIST.map((m) => ({ name: m.label, code: m.code }))}
         permissions={
           selectedRoleForEdit
             ? customPermissions[selectedRoleForEdit.name] ??
