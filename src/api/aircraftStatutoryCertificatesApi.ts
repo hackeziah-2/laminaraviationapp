@@ -275,11 +275,16 @@ export const downloadStatutoryCertificateFile = async (
   }
 
   if (pathForEndpoint) {
+    // Encode path segments so slashes in path don't break the URL
+    const encodedPath = pathForEndpoint
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
     try {
-      return await tryGet(`document_on_board/download/${pathForEndpoint}`);
+      return await tryGet(`document_on_board/download/${encodedPath}`);
     } catch (firstErr) {
       try {
-        return await tryGet(`${BASE}/download/${pathForEndpoint}`);
+        return await tryGet(`${BASE}/download/${encodedPath}`);
       } catch {
         throw firstErr;
       }

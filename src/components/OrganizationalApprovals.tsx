@@ -8,7 +8,6 @@ import {
   ChevronRight,
   ExternalLink,
   X,
-  Upload,
   Eye,
   Pencil,
   Trash2,
@@ -45,8 +44,6 @@ export function OrganizationalApprovals() {
     expiryDate: "",
     webLink: "",
   });
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadFileName, setUploadFileName] = useState("");
 
   const [approvals, setApprovals] = useState<Approval[]>([
     {
@@ -131,8 +128,6 @@ export function OrganizationalApprovals() {
   const openAddModal = () => {
     setEditingApproval(null);
     setFormData({ approvalType: "", number: "", expiryDate: "", webLink: "" });
-    setUploadFile(null);
-    setUploadFileName("");
     setShowModal(true);
   };
 
@@ -154,8 +149,6 @@ export function OrganizationalApprovals() {
       webLink:
         approval.fileLink && approval.fileLink !== "#" ? approval.fileLink : "",
     });
-    setUploadFile(null);
-    setUploadFileName("");
     setShowModal(true);
   };
 
@@ -163,8 +156,6 @@ export function OrganizationalApprovals() {
     setShowModal(false);
     setEditingApproval(null);
     setFormData({ approvalType: "", number: "", expiryDate: "", webLink: "" });
-    setUploadFile(null);
-    setUploadFileName("");
   };
 
   const handleSaveDocument = () => {
@@ -660,54 +651,6 @@ export function OrganizationalApprovals() {
                   placeholder="Enter Link"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-              </div>
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Upload Document
-                </label>
-                {uploadFile || uploadFileName ? (
-                  <div className="flex items-center gap-2 p-3 border border-gray-300 rounded-md bg-gray-50">
-                    <span className="flex-1 text-sm truncate">
-                      {uploadFileName}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUploadFile(null);
-                        setUploadFileName("");
-                      }}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                    <input
-                      type="file"
-                      id="org-approval-file"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        setUploadFile(f ?? null);
-                        setUploadFileName(f ? f.name : "");
-                      }}
-                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                    />
-                    <label
-                      htmlFor="org-approval-file"
-                      className="cursor-pointer flex flex-col items-center"
-                    >
-                      <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                      <span className="text-sm text-gray-600 mb-1">
-                        Choose file or drag here
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10MB)
-                      </span>
-                    </label>
-                  </div>
-                )}
               </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-3">

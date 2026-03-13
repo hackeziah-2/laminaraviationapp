@@ -5,7 +5,6 @@ import {
   Download,
   Filter,
   X,
-  Upload,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -88,7 +87,6 @@ export function PersonnelAuthorization() {
     typeTrainingCessna: "",
     typeTrainingBaron: "",
     webLink: "",
-    uploadedFile: null as File | null,
   });
 
   const [personnel, setPersonnel] = useState<Personnel[]>([
@@ -287,7 +285,6 @@ export function PersonnelAuthorization() {
       typeTrainingCessna: "",
       typeTrainingBaron: "",
       webLink: "",
-      uploadedFile: null,
     });
     setShowCreateModal(true);
   };
@@ -329,7 +326,6 @@ export function PersonnelAuthorization() {
       typeTrainingCessna: toDateInput(person.typeTrainingCessna),
       typeTrainingBaron: toDateInput(person.typeTrainingBaron),
       webLink: "",
-      uploadedFile: null,
     });
     setShowCreateModal(true);
   };
@@ -337,11 +333,6 @@ export function PersonnelAuthorization() {
   const closeCreateModal = () => {
     setShowCreateModal(false);
     setEditingPersonnel(null);
-  };
-
-  const handleCreateFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setCreateForm((prev) => ({ ...prev, uploadedFile: file }));
   };
 
   const handleCreateSubmit = () => {
@@ -1255,31 +1246,6 @@ export function PersonnelAuthorization() {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Upload Document
-                  </label>
-                  <label className="flex flex-col items-center justify-center w-full min-h-[100px] border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors py-4">
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                      onChange={handleCreateFileChange}
-                    />
-                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                    <span className="text-sm text-gray-500">
-                      Choose file or drag here
-                    </span>
-                    <span className="text-xs text-gray-400 mt-1">
-                      PDF, DOC, DOCX, JPG, PNG (Max 10MB)
-                    </span>
-                    {createForm.uploadedFile && (
-                      <span className="text-sm text-gray-700 mt-2 font-medium truncate max-w-[200px]">
-                        {createForm.uploadedFile.name}
-                      </span>
-                    )}
-                  </label>
-                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">

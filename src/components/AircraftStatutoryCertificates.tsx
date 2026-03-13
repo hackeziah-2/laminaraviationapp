@@ -5,12 +5,13 @@ import {
   ExternalLink,
   X,
   Loader,
-  Upload,
   ArrowUp,
   ArrowDown,
   Eye,
   Pencil,
   Trash2,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
@@ -19,7 +20,6 @@ import {
   createAircraftStatutoryCertificate,
   updateAircraftStatutoryCertificate,
   deleteAircraftStatutoryCertificate,
-  downloadStatutoryCertificateFile,
   type AircraftStatutoryCertificate as CertificateType,
 } from "../api/aircraftStatutoryCertificatesApi";
 import { getAircrafts } from "../api/aircraftApi";
@@ -135,10 +135,13 @@ export function AircraftStatutoryCertificates() {
     expiryDate: "",
     webLink: "",
   });
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadFileName, setUploadFileName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const statutoryFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Aircraft Registry searchable dropdown
+  const [aircraftSearchTerm, setAircraftSearchTerm] = useState("");
+  const [isAircraftDropdownOpen, setIsAircraftDropdownOpen] = useState(false);
+  const [selectedAircraftDisplay, setSelectedAircraftDisplay] = useState("");
+  const aircraftDropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchCertificates = useCallback(async () => {
     setLoading(true);
@@ -170,10 +173,10 @@ export function AircraftStatutoryCertificates() {
     }
   }, [currentPage, itemsPerPage, searchDebounced, filterCertificateType]);
 
-  const fetchAircrafts = useCallback(async () => {
+  const fetchAircrafts = useCallback(async (search = "") => {
     setLoadingAircrafts(true);
     try {
-      const response = await getAircrafts(1, 10, "", "");
+      const response = await getAircrafts(1, 100, search, "");
       const data = response?.data ?? response;
       const list =
         data?.results ??
@@ -197,6 +200,70 @@ export function AircraftStatutoryCertificates() {
     fetchAircrafts();
   }, [fetchAircrafts]);
 
+  // Refetch aircrafts when dropdown is open and search term changes (debounced)
+  const aircraftSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isAircraftDropdownOpen) return;
+    if (aircraftSearchDebounceRef.current) clearTimeout(aircraftSearchDebounceRef.current);
+    aircraftSearchDebounceRef.current = setTimeout(() => {
+      fetchAircrafts(aircraftSearchTerm);
+    }, 300);
+    return () => {
+      if (aircraftSearchDebounceRef.current) {
+        clearTimeout(aircraftSearchDebounceRef.current);
+        aircraftSearchDebounceRef.current = null;
+      }
+    };
+  }, [isAircraftDropdownOpen, aircraftSearchTerm, fetchAircrafts]);
+
+  // Filter aircrafts by registration (client-side for instant list while typing)
+  const filteredAircrafts = useMemo(() => {
+    const q = aircraftSearchTerm.trim().toLowerCase();
+    if (!q) return aircrafts;
+    return aircrafts.filter((ac) => {
+      const reg = (ac.registration ?? "").toLowerCase();
+      const type = (ac.aircraftType ?? ac.manufacturer ?? ac.model ?? "").toString().toLowerCase();
+      return reg.includes(q) || type.includes(q);
+    });
+  }, [aircrafts, aircraftSearchTerm]);
+
+  const getSelectedAircraftDisplay = useCallback(() => {
+    if (!formData.aircraftId) return "";
+    const ac = aircrafts.find((a) => String(a.id) === formData.aircraftId);
+    if (!ac) return "";
+    return ac.aircraftType
+      ? `${ac.registration ?? ""} (${ac.aircraftType})`
+      : (ac.registration ?? "") + (ac.manufacturer && ac.model ? ` (${ac.manufacturer} ${ac.model})` : "");
+  }, [formData.aircraftId, aircrafts]);
+
+  const handleAircraftSelect = useCallback(
+    (id: number, registration: string, aircraftType?: string) => {
+      setFormData((prev) => ({ ...prev, aircraftId: String(id) }));
+      setSelectedAircraftDisplay(
+        aircraftType ? `${registration} (${aircraftType})` : registration
+      );
+      setAircraftSearchTerm("");
+      setIsAircraftDropdownOpen(false);
+    },
+    []
+  );
+
+  // Close aircraft dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        aircraftDropdownRef.current &&
+        !aircraftDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsAircraftDropdownOpen(false);
+      }
+    };
+    if (isAircraftDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isAircraftDropdownOpen]);
+
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
@@ -214,17 +281,6 @@ export function AircraftStatutoryCertificates() {
     const id = c.id ?? (c as any).documentId ?? (c as any).document_id;
     return id != null && !isNaN(Number(id)) ? Number(id) : null;
   };
-
-  const getFilePath = (c: CertificateType | null): string | null => {
-    if (!c) return null;
-    const path =
-      c.filePath ?? (c as any).uploadFile ?? (c as any).upload_file ?? (c as any).file_path;
-    if (typeof path !== "string" || !path.trim()) return null;
-    return path.trim();
-  };
-
-  const hasUploadedFile = (c: CertificateType | null): boolean =>
-    Boolean(getFilePath(c));
 
   const getRegistration = (c: CertificateType): string => {
     const ac = c.aircraft;
@@ -266,48 +322,6 @@ export function AircraftStatutoryCertificates() {
           });
     } catch {
       return dateStr;
-    }
-  };
-
-  const extractFilename = (filePath: string): string => {
-    let p = filePath;
-    if (p.includes("/")) p = p.split("/").pop() || p;
-    p = p.split("?")[0];
-    return p;
-  };
-
-  const handleDownloadFile = async (
-    filePath: string | null | undefined,
-    fileName?: string,
-    certificateId?: number | null
-  ) => {
-    if (!filePath && (certificateId == null || certificateId <= 0)) {
-      Swal.fire({
-        icon: "error",
-        title: "Download Failed",
-        text: "File path is not available.",
-      });
-      return;
-    }
-    try {
-      const blob = await downloadStatutoryCertificateFile(
-        filePath || "",
-        certificateId
-      );
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = fileName || (filePath ? extractFilename(filePath) : "certificate") || "download";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (error: any) {
-      Swal.fire({
-        icon: "error",
-        title: "Download Failed",
-        text: error?.message ?? "Failed to download.",
-      });
     }
   };
 
@@ -356,9 +370,9 @@ export function AircraftStatutoryCertificates() {
       expiryDate: "",
       webLink: "",
     });
-    setUploadFile(null);
-    setUploadFileName("");
-    if (statutoryFileInputRef.current) statutoryFileInputRef.current.value = "";
+    setSelectedAircraftDisplay("");
+    setAircraftSearchTerm("");
+    setIsAircraftDropdownOpen(false);
     setEditingCertificate(null);
     setShowEditModal(false);
     setShowAddModal(true);
@@ -379,13 +393,14 @@ export function AircraftStatutoryCertificates() {
       (c as any).expiry_date ??
       (c as any).date_of_expiration ??
       "";
+    const acId =
+      c.aircraftId != null
+        ? String(c.aircraftId)
+        : ac && (ac as any).id
+        ? String((ac as any).id)
+        : "";
     setFormData({
-      aircraftId:
-        c.aircraftId != null
-          ? String(c.aircraftId)
-          : ac && (ac as any).id
-          ? String((ac as any).id)
-          : "",
+      aircraftId: acId,
       certificateType:
         (c as any).certificateType ??
         (c as any).certificate_type ??
@@ -394,9 +409,11 @@ export function AircraftStatutoryCertificates() {
       expiryDate: toDateInputValue(rawExpiry),
       webLink: (c as any).webLink ?? c.webLink ?? "",
     });
-    setUploadFile(null);
-    setUploadFileName("");
-    if (statutoryFileInputRef.current) statutoryFileInputRef.current.value = "";
+    const reg = (ac && (ac as any).registration) ?? (c as any).registration ?? "";
+    const type = (ac && ((ac as any).aircraftType ?? (ac as any).aircraft_type)) ?? "";
+    setSelectedAircraftDisplay(type ? `${reg} (${type})` : reg);
+    setAircraftSearchTerm("");
+    setIsAircraftDropdownOpen(false);
     setShowAddModal(false);
     setShowEditModal(true);
   };
@@ -438,9 +455,9 @@ export function AircraftStatutoryCertificates() {
       expiryDate: "",
       webLink: "",
     });
-    setUploadFile(null);
-    setUploadFileName("");
-    if (statutoryFileInputRef.current) statutoryFileInputRef.current.value = "";
+    setSelectedAircraftDisplay("");
+    setAircraftSearchTerm("");
+    setIsAircraftDropdownOpen(false);
     setEditingCertificate(null);
     setShowAddModal(false);
     setShowEditModal(false);
@@ -501,20 +518,9 @@ export function AircraftStatutoryCertificates() {
         date_of_expiration: expiryForApi,
         web_link: normalizeWebLink(formData.webLink),
       };
-      if (
-        editingCertificate &&
-        getFilePath(editingCertificate) &&
-        !uploadFile
-      ) {
-        payload.file_path = getFilePath(editingCertificate);
-      }
 
-      // Always send FormData with json_data so backend receives it; upload_file is optional (append only when user selected a file).
       const formDataObj = new FormData();
       formDataObj.append("json_data", JSON.stringify(payload));
-      if (uploadFile instanceof File) {
-        formDataObj.append("upload_file", uploadFile);
-      }
       if (editingCertificate) {
         const certId = getCertId(editingCertificate);
         if (!certId) throw new Error("Invalid certificate ID");
@@ -542,14 +548,6 @@ export function AircraftStatutoryCertificates() {
       });
     } finally {
       setTimeout(() => setIsSaving(false), 360);
-    }
-  };
-
-  const handleFileChange = (file: File | null) => {
-    setUploadFile(file);
-    setUploadFileName(file ? file.name : "");
-    if (!file && statutoryFileInputRef.current) {
-      statutoryFileInputRef.current.value = "";
     }
   };
 
@@ -710,9 +708,6 @@ export function AircraftStatutoryCertificates() {
                       </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      FILE
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                       WEB LINK
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -724,7 +719,7 @@ export function AircraftStatutoryCertificates() {
                   {filteredCertificates.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={7}
                         className="px-6 py-12 text-center text-gray-500 text-sm"
                       >
                         No certificates found
@@ -733,7 +728,6 @@ export function AircraftStatutoryCertificates() {
                   ) : (
                     filteredCertificates.map((cert, index) => {
                       const certId = getCertId(cert);
-                      const filePath = getFilePath(cert);
                       return (
                         <tr
                           key={certId ?? `cert-${index}`}
@@ -753,26 +747,6 @@ export function AircraftStatutoryCertificates() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {formatExpiry(cert.expiryDate)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            {hasUploadedFile(cert) && filePath ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleDownloadFile(
-                                    filePath,
-                                    extractFilename(filePath),
-                                    certId
-                                  )
-                                }
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors"
-                              >
-                                <Download className="w-4 h-4" />
-                                Download
-                              </button>
-                            ) : (
-                              <span className="text-gray-400">—</span>
-                            )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             {(cert as any).webLink ?? (cert as any).web_link ? (
@@ -831,52 +805,70 @@ export function AircraftStatutoryCertificates() {
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="text-sm text-gray-700">
-                Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
-                {Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
-                {totalRecords} certificate(s)
+            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-b-lg shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">items per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 min-w-[4rem] pl-2 pr-8 border border-gray-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
               </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">Per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white"
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    disabled={currentPage <= 1}
-                    className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    Previous
-                  </button>
-                  <span className="px-2 py-1.5 text-sm text-gray-700">
-                    Page {currentPage} of {totalPages || 1}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setCurrentPage((p) => Math.min(totalPages || 1, p + 1))
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="text-sm text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 transition-colors"
+                >
+                  Previous
+                </button>
+                <div className="flex items-center gap-0.5 mx-1">
+                  {(() => {
+                    const pages = totalPages || 1;
+                    const maxVisible = 5;
+                    let start = 1;
+                    let end = Math.min(pages, maxVisible);
+                    if (pages > maxVisible) {
+                      start = Math.max(1, Math.min(currentPage - 2, pages - maxVisible + 1));
+                      end = Math.min(pages, start + maxVisible - 1);
                     }
-                    disabled={currentPage >= totalPages}
-                    className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                  >
-                    Next
-                  </button>
+                    return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(
+                      (page) => (
+                        <button
+                          key={page}
+                          type="button"
+                          onClick={() => setCurrentPage(page)}
+                          className={`min-w-[2rem] h-8 px-2 rounded text-sm font-medium transition-colors ${
+                            currentPage === page
+                              ? "bg-blue-600 text-white"
+                              : "text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    );
+                  })()}
                 </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages || 1, p + 1))
+                  }
+                  disabled={currentPage >= totalPages}
+                  className="text-sm text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 transition-colors"
+                >
+                  Next
+                </button>
               </div>
             </div>
           </>
@@ -926,26 +918,6 @@ export function AircraftStatutoryCertificates() {
                 label="Expiry Date"
                 value={formatExpiry(viewingCertificate.expiryDate)}
               />
-              <div>
-                <span className="block text-gray-500 text-sm mb-1">File</span>
-                {hasUploadedFile(viewingCertificate) ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const path = getFilePath(viewingCertificate);
-                      const id = getCertId(viewingCertificate);
-                      if (path || id != null)
-                        handleDownloadFile(path || "", path ? extractFilename(path) : undefined, id);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </button>
-                ) : (
-                  <span className="text-gray-600 text-sm">No file uploaded</span>
-                )}
-              </div>
               <div>
                 <span className="block text-gray-500 text-sm mb-1">
                   Web Link
@@ -1009,26 +981,92 @@ export function AircraftStatutoryCertificates() {
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Aircraft Registry <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={formData.aircraftId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, aircraftId: e.target.value })
-                  }
-                  disabled={loadingAircrafts}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select Aircraft</option>
-                  {aircrafts.map((ac) => (
-                    <option key={ac.id} value={ac.id}>
-                      {ac.registration}{" "}
-                      {ac.aircraftType
-                        ? `(${ac.aircraftType})`
-                        : ac.manufacturer && ac.model
-                        ? `(${ac.manufacturer} ${ac.model})`
-                        : ""}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative" ref={aircraftDropdownRef}>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={
+                        isAircraftDropdownOpen
+                          ? aircraftSearchTerm
+                          : selectedAircraftDisplay || getSelectedAircraftDisplay()
+                      }
+                      onChange={(e) => {
+                        setAircraftSearchTerm(e.target.value);
+                        setIsAircraftDropdownOpen(true);
+                      }}
+                      onFocus={() => {
+                        setIsAircraftDropdownOpen(true);
+                        setAircraftSearchTerm("");
+                      }}
+                      placeholder="Search by registration..."
+                      disabled={loadingAircrafts}
+                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-70"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setIsAircraftDropdownOpen((open) => !open)
+                      }
+                      disabled={loadingAircrafts}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
+                    >
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform ${
+                          isAircraftDropdownOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {isAircraftDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                      {loadingAircrafts ? (
+                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                          Loading aircrafts...
+                        </div>
+                      ) : filteredAircrafts.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                          {aircraftSearchTerm
+                            ? "No aircraft found"
+                            : "No aircraft available"}
+                        </div>
+                      ) : (
+                        <ul className="py-1">
+                          {filteredAircrafts.map((ac) => {
+                            const display =
+                              ac.aircraftType
+                                ? `${ac.registration ?? ""} (${ac.aircraftType})`
+                                : (ac.registration ?? "") +
+                                  (ac.manufacturer && ac.model
+                                    ? ` (${ac.manufacturer} ${ac.model})`
+                                    : "");
+                            const isSelected =
+                              formData.aircraftId === String(ac.id);
+                            return (
+                              <li
+                                key={ac.id}
+                                onClick={() =>
+                                  handleAircraftSelect(
+                                    ac.id,
+                                    ac.registration ?? "",
+                                    ac.aircraftType ?? (ac.manufacturer && ac.model ? `${ac.manufacturer} ${ac.model}` : undefined)
+                                  )
+                                }
+                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between text-sm ${
+                                  isSelected ? "bg-blue-50" : ""
+                                }`}
+                              >
+                                <span className="text-gray-900">{display}</span>
+                                {isSelected && (
+                                  <Check className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
@@ -1090,68 +1128,6 @@ export function AircraftStatutoryCertificates() {
                     Enter a valid link only (e.g. https://example.com)
                   </p>
                 )}
-              </div>
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Upload Document{" "}
-                  <span className="text-gray-500 font-normal">(optional)</span>
-                </label>
-                <div>
-                  <input
-                    ref={statutoryFileInputRef}
-                    type="file"
-                    id="statutory-cert-file"
-                    className="hidden"
-                    onChange={(e) =>
-                      handleFileChange(e.target.files?.[0] ?? null)
-                    }
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                  />
-                  <label
-                    htmlFor="statutory-cert-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between text-sm"
-                  >
-                    <span
-                      className={
-                        uploadFileName ? "text-gray-900" : "text-gray-400"
-                      }
-                    >
-                      {uploadFileName || "Choose file or N/A"}
-                    </span>
-                    <Upload className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  </label>
-                  {uploadFileName && (
-                    <button
-                      type="button"
-                      onClick={() => handleFileChange(null)}
-                      className="text-xs text-red-600 hover:text-red-700 mt-1"
-                    >
-                      Remove file
-                    </button>
-                  )}
-                  {editingCertificate &&
-                    getFilePath(editingCertificate) &&
-                    !uploadFile && (
-                      <div className="flex flex-col gap-1 mt-2">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                          onClick={() =>
-                            handleDownloadFile(
-                              getFilePath(editingCertificate),
-                              extractFilename(
-                                getFilePath(editingCertificate)!
-                              ),
-                              getCertId(editingCertificate)
-                            )
-                          }
-                        >
-                          <Download className="w-4 h-4 flex-shrink-0" />
-                          Download current file
-                        </button>
-                      </div>
-                    )}
-                </div>
               </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-3">

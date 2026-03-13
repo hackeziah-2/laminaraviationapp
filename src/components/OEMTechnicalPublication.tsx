@@ -8,7 +8,6 @@ import {
   ChevronRight,
   ExternalLink,
   X,
-  Upload,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -40,7 +39,6 @@ export function OEMTechnicalPublication() {
     publicationType: "",
     expiryDate: "",
     assignLink: "",
-    uploadedFile: null as File | null,
   });
 
   const [publications, setPublications] = useState<Publication[]>([
@@ -131,7 +129,6 @@ export function OEMTechnicalPublication() {
       publicationType: "",
       expiryDate: "",
       assignLink: "",
-      uploadedFile: null,
     });
     setShowAddModal(true);
   };
@@ -167,7 +164,6 @@ export function OEMTechnicalPublication() {
       expiryDate,
       assignLink:
         pub.linkToManual && pub.linkToManual !== "#" ? pub.linkToManual : "",
-      uploadedFile: null,
     });
     setShowAddModal(true);
   };
@@ -179,7 +175,6 @@ export function OEMTechnicalPublication() {
       publicationType: "",
       expiryDate: "",
       assignLink: "",
-      uploadedFile: null,
     });
   };
 
@@ -240,11 +235,6 @@ export function OEMTechnicalPublication() {
       timer: 1500,
       showConfirmButton: false,
     });
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setAddForm((prev) => ({ ...prev, uploadedFile: file }));
   };
 
   // Calculate type counts
@@ -654,32 +644,6 @@ export function OEMTechnicalPublication() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
                     placeholder="Enter Web Link"
                   />
-                </div>
-                {/* Upload Document */}
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Upload Document
-                  </label>
-                  <label className="flex flex-col items-center justify-center w-full min-h-[120px] border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                      onChange={handleFileChange}
-                    />
-                    <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                    <span className="text-sm text-gray-500">
-                      Choose file or drag here
-                    </span>
-                    <span className="text-xs text-gray-400 mt-1">
-                      Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10MB)
-                    </span>
-                    {addForm.uploadedFile && (
-                      <span className="text-sm text-gray-700 mt-2 font-medium truncate max-w-[200px]">
-                        {addForm.uploadedFile.name}
-                      </span>
-                    )}
-                  </label>
                 </div>
               </div>
             </div>
