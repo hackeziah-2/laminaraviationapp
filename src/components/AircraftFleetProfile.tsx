@@ -256,6 +256,9 @@ export function AircraftFleetProfile() {
     ownership: "",
     status: "Active",
 
+    // Aircraft Information
+    modelYear: "",
+
     // Airframe Information
     airframeServiceManual: "",
     airframeIpc: "",
@@ -264,11 +267,15 @@ export function AircraftFleetProfile() {
     engineModel: "",
     engineSerialNumber: "",
     engineLifeTimeLimit: "",
+    engineTsn: "",
+    engineTso: "",
 
     //  Propeller Information
     propellerModel: "",
     propellerSerialNumber: "",
     propellerLifeTimeLimit: "",
+    propellerTsn: "",
+    propellerTso: "",
 
     engineArc: null,
     propellerArc: null,
@@ -324,6 +331,12 @@ export function AircraftFleetProfile() {
         form.propellerLifeTimeLimit === ""
           ? null
           : parseFloat(form.propellerLifeTimeLimit),
+      modelYear:
+        form.modelYear === "" ? null : (form.modelYear ? parseInt(form.modelYear, 10) : null),
+      engineTsn: form.engineTsn === "" ? null : (form.engineTsn ? parseFloat(form.engineTsn) : null),
+      engineTso: form.engineTso === "" ? null : (form.engineTso ? parseFloat(form.engineTso) : null),
+      propellerTsn: form.propellerTsn === "" ? null : (form.propellerTsn ? parseFloat(form.propellerTsn) : null),
+      propellerTso: form.propellerTso === "" ? null : (form.propellerTso ? parseFloat(form.propellerTso) : null),
     });
 
     // Append JSON data as string
@@ -354,14 +367,19 @@ export function AircraftFleetProfile() {
         base: "",
         ownership: "",
         status: "Active",
+        modelYear: "",
         airframeServiceManual: "",
         airframeIpc: "",
         engineModel: "",
         engineSerialNumber: "",
         engineLifeTimeLimit: "",
+        engineTsn: "",
+        engineTso: "",
         propellerModel: "",
         propellerSerialNumber: "",
         propellerLifeTimeLimit: "",
+        propellerTsn: "",
+        propellerTso: "",
         engineArc: null,
         propellerArc: null,
       });
@@ -816,9 +834,9 @@ export function AircraftFleetProfile() {
                   </div>
                 </div>
 
-                {/* MSN & Registration Number */}
+                {/* MSN & Model Year */}
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
                         MSN (Required)
@@ -835,6 +853,23 @@ export function AircraftFleetProfile() {
                       {errors.msn && (
                         <p className="text-red-500 text-sm">{errors.msn}</p>
                       )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Model Year
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={4}
+                        value={form.modelYear}
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                          handleChange("modelYear", v);
+                        }}
+                        placeholder="e.g., 2020"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
                     </div>
                   </div>
                 </div>
@@ -969,6 +1004,38 @@ export function AircraftFleetProfile() {
                         <p className="text-red-500 text-xs mt-1">{errors.engineLifeTimeLimit}</p>
                       )}
                     </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Engine TSN
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.engineTsn}
+                        onChange={(e) =>
+                          handleChange("engineTsn", e.target.value)
+                        }
+                        placeholder="Time Since New"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Engine TSO
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.engineTso}
+                        onChange={(e) =>
+                          handleChange("engineTso", e.target.value)
+                        }
+                        placeholder="Time Since Overhaul"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-gray-600 text-sm mb-2">
@@ -1059,6 +1126,38 @@ export function AircraftFleetProfile() {
                       {errors.propellerLifeTimeLimit && (
                         <p className="text-red-500 text-xs mt-1">{errors.propellerLifeTimeLimit}</p>
                       )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Propeller TSN
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.propellerTsn}
+                        onChange={(e) =>
+                          handleChange("propellerTsn", e.target.value)
+                        }
+                        placeholder="Time Since New"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Propeller TSO
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.propellerTso}
+                        onChange={(e) =>
+                          handleChange("propellerTso", e.target.value)
+                        }
+                        placeholder="Time Since Overhaul"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
                     </div>
                   </div>
                   <div>
