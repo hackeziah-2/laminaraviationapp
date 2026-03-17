@@ -4,14 +4,13 @@ import {
   Plus,
   Download,
   Filter,
-  ChevronLeft,
-  ChevronRight,
   ExternalLink,
   X,
   Pencil,
   Trash2,
   Loader2,
 } from "lucide-react";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import {
   getOemPublicationsPaged,
@@ -548,84 +547,19 @@ export function OEMTechnicalPublication() {
           </table>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-700">Items per page:</span>
-            <select
-              value={itemsPerPage}
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6"
-            >
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              let pageNum: number;
-              if (totalPages <= 5) pageNum = i + 1;
-              else if (currentPage <= 3) pageNum = i + 1;
-              else if (currentPage >= totalPages - 2)
-                pageNum = totalPages - 4 + i;
-              else pageNum = currentPage - 2 + i;
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
-                  className="min-w-[2rem] px-3 py-1.5 rounded transition-colors text-white"
-                  style={{
-                    backgroundColor:
-                      currentPage === pageNum ? "#38BDF8" : "transparent",
-                    color: currentPage === pageNum ? "#ffffff" : "#454545",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (currentPage !== pageNum)
-                      e.currentTarget.style.backgroundColor = "#f3f3f5";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (currentPage !== pageNum)
-                      e.currentTarget.style.backgroundColor = "transparent";
-                  }}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-            {totalPages > 5 && currentPage < totalPages - 2 && (
-              <>
-                <span className="px-2 text-gray-500">...</span>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  className="min-w-[2rem] px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                >
-                  {totalPages}
-                </button>
-              </>
-            )}
-            <button
-              onClick={() =>
-                setCurrentPage(Math.min(totalPages, currentPage + 1))
-              }
-              disabled={currentPage === totalPages || totalPages === 0}
-              className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-            >
-              <span>Next</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={total}
+          totalLabel="publications"
+          itemsPerPage={itemsPerPage}
+          onItemsPerPageChange={(size) => {
+            setItemsPerPage(size);
+            setCurrentPage(1);
+          }}
+          disabled={loading}
+        />
       </div>
 
       {showAddModal && (
