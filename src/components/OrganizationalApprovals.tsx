@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Search,
   Plus,
@@ -11,113 +11,153 @@ import {
   Eye,
   Pencil,
   Trash2,
+  Loader2,
 } from "lucide-react";
+import { Spinner } from "./ui/spinner";
 import Swal from "sweetalert2";
+import {
+  getOrganizationalApprovalsPaged,
+  createOrganizationalApproval,
+  updateOrganizationalApproval,
+  deleteOrganizationalApproval,
+  getCertificateCategoryTypesList,
+  createCertificateCategoryType,
+  type OrganizationalApproval,
+  type OrganizationalApprovalSortBy,
+  type SortOrder,
+  type CertificateTypeOption,
+} from "../api/organizationalApprovalApi";
 
-const APPROVAL_TYPES = [
-  "ATOC",
-  "AMOC",
-  "ATOC VALIDITY NEPAL",
-  "FSTD",
-  "AMDC",
-] as const;
-
-interface Approval {
-  id: number;
-  certificate: string;
-  number: string;
-  expiry: string;
-  fileLink: string;
+/** Format expiry string (ISO or other) for display e.g. "16 Aug 30" */
+function formatExpiryDisplay(expiry: string | null | undefined): string {
+  if (!expiry?.trim()) return "—";
+  const d = new Date(expiry);
+  if (isNaN(d.getTime())) return expiry;
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+  });
 }
+
+/** Normalize date to YYYY-MM-DD for API */
+function toApiDate(value: string | null | undefined): string {
+  if (!value?.trim()) return "";
+  const d = new Date(value.trim());
+  if (isNaN(d.getTime())) return value.trim();
+  return d.toISOString().slice(0, 10);
+}
+
+const SEARCH_DEBOUNCE_MS = 400;
 
 export function OrganizationalApprovals() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortBy, setSortBy] = useState<OrganizationalApprovalSortBy>("EXPIRY");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [showModal, setShowModal] = useState(false);
-  const [editingApproval, setEditingApproval] = useState<Approval | null>(null);
-  const [viewingApproval, setViewingApproval] = useState<Approval | null>(null);
+  const [editingApproval, setEditingApproval] = useState<OrganizationalApproval | null>(null);
+  const [viewingApproval, setViewingApproval] = useState<OrganizationalApproval | null>(null);
   const [formData, setFormData] = useState({
-    approvalType: "",
+    certificateFk: 0,
     number: "",
     expiryDate: "",
     webLink: "",
   });
+  const [certificateTypesFromApi, setCertificateTypesFromApi] = useState<CertificateTypeOption[]>([]);
+  const [showCreateTypeModal, setShowCreateTypeModal] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [creatingType, setCreatingType] = useState(false);
 
-  const [approvals, setApprovals] = useState<Approval[]>([
-    {
-      id: 1,
-      certificate: "ATOC",
-      number: "2020-01",
-      expiry: "16 Aug 30",
-      fileLink: "#",
-    },
-    {
-      id: 2,
-      certificate: "AMOC",
-      number: "184-20",
-      expiry: "31 Oct 27",
-      fileLink: "#",
-    },
-    {
-      id: 3,
-      certificate: "ATOC VALIDITY NEPAL",
-      number: "",
-      expiry: "29 Oct 27",
-      fileLink: "#",
-    },
-    {
-      id: 4,
-      certificate: "FSTD",
-      number: "FSTD-2020-01",
-      expiry: "16 Aug 30",
-      fileLink: "#",
-    },
-    {
-      id: 5,
-      certificate: "AMDC",
-      number: "07-2024",
-      expiry: "22 Sep 26",
-      fileLink: "#",
-    },
-  ]);
+  const [approvals, setApprovals] = useState<OrganizationalApproval[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Calculate certificate type counts
-  const certificateTypes = [...new Set(approvals.map((a) => a.certificate))];
-  const typeCounts = {
-    all: approvals.length,
-    ...Object.fromEntries(
-      certificateTypes.map((type) => [
-        type.toLowerCase(),
-        approvals.filter((a) => a.certificate === type).length,
-      ])
-    ),
-  };
+  const certificateOptions = useMemo(() => {
+    const byId = new Map<number, { id: number; name: string }>();
+    approvals
+      .filter((a) => a.certificateFk && (a.approvalTypeName || a.certificate))
+      .forEach((a) => {
+        if (!byId.has(a.certificateFk)) {
+          byId.set(a.certificateFk, {
+            id: a.certificateFk,
+            name: (a.approvalTypeName ?? a.certificate) || String(a.certificateFk),
+          });
+        }
+      });
+    certificateTypesFromApi.forEach((x) => {
+      if (x.id && x.name && !byId.has(x.id)) byId.set(x.id, { id: x.id, name: x.name });
+    });
+    if (
+      editingApproval?.certificateFk &&
+      !byId.has(editingApproval.certificateFk)
+    ) {
+      const name =
+        editingApproval.approvalTypeName ??
+        editingApproval.certificate ??
+        String(editingApproval.certificateFk);
+      byId.set(editingApproval.certificateFk, { id: editingApproval.certificateFk, name });
+    }
+    const combined = Array.from(byId.values());
+    return combined.length ? combined : certificateTypesFromApi;
+  }, [approvals, certificateTypesFromApi, editingApproval]);
 
-  const filteredApprovals = approvals.filter((approval) => {
-    const matchesSearch =
-      approval.certificate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      approval.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      approval.expiry.toLowerCase().includes(searchTerm.toLowerCase());
+  useEffect(() => {
+    getCertificateCategoryTypesList().then(setCertificateTypesFromApi);
+  }, []);
 
-    const matchesFilter =
-      filterType === "all" ||
-      approval.certificate.toLowerCase() === filterType.toLowerCase();
+  const fetchApprovals = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const certificateFilter =
+        filterType === "all" ? undefined : Number(filterType) || filterType;
+      const res = await getOrganizationalApprovalsPaged(
+        currentPage,
+        itemsPerPage,
+        debouncedSearchTerm.trim(),
+        sortBy,
+        sortOrder,
+        certificateFilter
+      );
+      setApprovals(res.items);
+      setTotal(res.total);
+      setTotalPages(Math.max(1, res.pages));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load approvals.";
+      setError(message);
+      setApprovals([]);
+      setTotal(0);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchTerm, filterType, sortBy, sortOrder]);
 
-    return matchesSearch && matchesFilter;
-  });
+  useEffect(() => {
+    fetchApprovals();
+  }, [fetchApprovals]);
 
-  const totalPages = Math.ceil(filteredApprovals.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedApprovals = filteredApprovals.slice(
-    startIndex,
-    startIndex + itemsPerPage
-  );
+  // Debounce search: update debounced term and reset to page 1 when it changes
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setCurrentPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
+
+  const paginatedApprovals = approvals;
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    setCurrentPage(1);
+    // Page resets to 1 when debounced search updates
   };
 
   const handleFilterChange = (value: string) => {
@@ -125,29 +165,36 @@ export function OrganizationalApprovals() {
     setCurrentPage(1);
   };
 
+  const handleSortChange = (field: OrganizationalApprovalSortBy) => {
+    setSortBy(field);
+    setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    setCurrentPage(1);
+  };
+
   const openAddModal = () => {
     setEditingApproval(null);
-    setFormData({ approvalType: "", number: "", expiryDate: "", webLink: "" });
+    setFormData({ certificateFk: 0, number: "", expiryDate: "", webLink: "" });
     setShowModal(true);
   };
 
-  const openViewModal = (approval: Approval) => {
+  const openViewModal = (approval: OrganizationalApproval) => {
     setViewingApproval(approval);
   };
 
-  const openViewEditModal = (approval: Approval) => {
+  const openViewEditModal = (approval: OrganizationalApproval) => {
     setEditingApproval(approval);
+    const expiryForInput = approval.expiryDate ?? approval.expiry;
     setFormData({
-      approvalType: approval.certificate,
+      certificateFk: approval.certificateFk || 0,
       number: approval.number || "",
-      expiryDate: approval.expiry
+      expiryDate: expiryForInput
         ? (() => {
-            const d = new Date(approval.expiry);
+            const d = new Date(expiryForInput);
             return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
           })()
         : "",
       webLink:
-        approval.fileLink && approval.fileLink !== "#" ? approval.fileLink : "",
+        approval.fileLink && approval.fileLink !== "#" ? approval.fileLink : approval.webLink ?? "",
     });
     setShowModal(true);
   };
@@ -155,46 +202,130 @@ export function OrganizationalApprovals() {
   const closeModal = () => {
     setShowModal(false);
     setEditingApproval(null);
-    setFormData({ approvalType: "", number: "", expiryDate: "", webLink: "" });
+    setFormData({ certificateFk: 0, number: "", expiryDate: "", webLink: "" });
   };
 
-  const handleSaveDocument = () => {
-    if (!formData.approvalType?.trim()) return;
-    const expiryFormatted = formData.expiryDate
-      ? new Date(formData.expiryDate).toLocaleDateString("en-GB", {
-          day: "numeric",
-          month: "short",
-          year: "2-digit",
-        })
-      : "—";
-    if (editingApproval) {
-      setApprovals((prev) =>
-        prev.map((a) =>
-          a.id === editingApproval.id
-            ? {
-                ...a,
-                certificate: formData.approvalType,
-                number: formData.number?.trim() || "",
-                expiry: expiryFormatted,
-                fileLink: formData.webLink?.trim() || "#",
-              }
-            : a
-        )
-      );
-    } else {
-      const newId = Math.max(0, ...approvals.map((a) => a.id)) + 1;
-      setApprovals((prev) => [
-        ...prev,
-        {
-          id: newId,
-          certificate: formData.approvalType,
-          number: formData.number?.trim() || "",
-          expiry: expiryFormatted,
-          fileLink: formData.webLink?.trim() || "#",
-        },
-      ]);
+  const handleSaveDocument = async () => {
+    const fk = formData.certificateFk;
+
+    if (!fk) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please select an Approval Type.",
+      });
+      return;
     }
-    closeModal();
+
+    if (!formData.number?.trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please enter the Approval Number.",
+      });
+      return;
+    }
+
+    if (!formData.expiryDate?.trim()) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please enter an Expiry Date.",
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    const webLink = formData.webLink?.trim();
+    const dateOfExpiration = toApiDate(formData.expiryDate);
+    if (!dateOfExpiration) {
+      Swal.fire({
+        icon: "warning",
+        title: "Invalid date",
+        text: "Please enter a valid Expiry Date.",
+      });
+      return;
+    }
+    const payload = {
+      certificate_fk: fk,
+      number: formData.number.trim(),
+      date_of_expiration: dateOfExpiration,
+      web_link: webLink !== undefined && webLink !== "" ? webLink : null,
+    };
+
+    try {
+      if (editingApproval) {
+        await updateOrganizationalApproval(editingApproval.id, payload);
+
+        Swal.fire({
+          icon: "success",
+          title: "Updated",
+          text: "The approval has been updated.",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+      } else {
+        await createOrganizationalApproval(payload);
+
+        Swal.fire({
+          icon: "success",
+          title: "Created",
+          text: "The approval has been added.",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+      }
+
+      closeModal();
+      setCurrentPage(1);
+      await fetchApprovals();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save.";
+      Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: message,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateNewType = async () => {
+    const name = newTypeName?.trim();
+    if (!name) {
+      Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please enter a name for the new approval type.",
+      });
+      return;
+    }
+    setCreatingType(true);
+    try {
+      const created = await createCertificateCategoryType({ name });
+      const list = await getCertificateCategoryTypesList();
+      setCertificateTypesFromApi(list);
+      const newId = created?.id ?? list.find((x) => x.name === name)?.id;
+      if (newId) {
+        setFormData((prev) => ({ ...prev, certificateFk: newId }));
+      }
+      setShowCreateTypeModal(false);
+      setNewTypeName("");
+      await Swal.fire({
+        icon: "success",
+        title: "Approval type created",
+        text: `"${name}" has been added.`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create type.";
+      Swal.fire({ icon: "error", title: "Error", text: message });
+    } finally {
+      setCreatingType(false);
+    }
   };
 
   const handleDeleteApproval = async (id: number) => {
@@ -208,14 +339,21 @@ export function OrganizationalApprovals() {
       confirmButtonText: "Yes, delete it!",
     });
     if (!result.isConfirmed) return;
-    setApprovals((prev) => prev.filter((a) => a.id !== id));
-    Swal.fire({
-      icon: "success",
-      title: "Deleted!",
-      text: "The approval has been deleted.",
-      timer: 1500,
-      showConfirmButton: false,
-    });
+    try {
+      await deleteOrganizationalApproval(id);
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "The approval has been deleted.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setCurrentPage(1);
+      await fetchApprovals();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete.";
+      Swal.fire({ icon: "error", title: "Error", text: message });
+    }
   };
 
   return (
@@ -234,6 +372,17 @@ export function OrganizationalApprovals() {
           <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowCreateTypeModal(true);
+              setNewTypeName("");
+            }}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Add Approval Type</span>
           </button>
           <button
             type="button"
@@ -267,7 +416,7 @@ export function OrganizationalApprovals() {
             </label>
             <input
               type="text"
-              placeholder="Search by certificate, number, or expiry..."
+              placeholder="Search by approval type, number, or expiry..."
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
@@ -276,19 +425,17 @@ export function OrganizationalApprovals() {
           <div className="w-full md:w-56">
             <label className="block text-gray-700 mb-2 flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-500" />
-              Filter by Type
+              Filter by Approval Type
             </label>
             <select
               value={filterType}
               onChange={(e) => handleFilterChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
             >
-              <option value="all">All Types ({typeCounts.all})</option>
-              {APPROVAL_TYPES.map((t) => (
-                <option key={t} value={t.toLowerCase()}>
-                  {t} (
-                  {(typeCounts as Record<string, number>)[t.toLowerCase()] ?? 0}
-                  )
+              <option value="all">All Approval Types</option>
+              {certificateOptions.map((opt, idx) => (
+                <option key={`filter-${opt.id}-${idx}`} value={opt.id}>
+                  {opt.name}
                 </option>
               ))}
             </select>
@@ -296,12 +443,12 @@ export function OrganizationalApprovals() {
         </div>
       </div>
 
-      {/* Table Header Info */}
-      <div className="text-gray-600">
-        Showing {filteredApprovals.length > 0 ? startIndex + 1 : 0} to{" "}
-        {Math.min(startIndex + itemsPerPage, filteredApprovals.length)} of{" "}
-        {filteredApprovals.length} approvals
-      </div>
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
 
       {/* Approvals Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -310,21 +457,41 @@ export function OrganizationalApprovals() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  CERTIFICATE
+                  <button
+                    type="button"
+                    onClick={() => handleSortChange("CERTIFICATE")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    APPROVAL TYPE
+                    {sortBy === "CERTIFICATE" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   NUMBER
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSortChange("EXPIRY")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
                     <span
                       className="inline-block w-2 h-2 bg-blue-600"
                       style={{
                         clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
                       }}
-                    ></span>
+                    />
                     EXPIRY
-                  </span>
+                    {sortBy === "EXPIRY" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   FILE
@@ -335,14 +502,20 @@ export function OrganizationalApprovals() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {paginatedApprovals.length > 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12">
+                    <Spinner />
+                  </td>
+                </tr>
+              ) : paginatedApprovals.length > 0 ? (
                 paginatedApprovals.map((approval) => (
                   <tr
                     key={approval.id}
                     className="hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-6 py-3.5 text-gray-900 font-medium">
-                      {approval.certificate}
+                      {approval.approvalTypeName ?? approval.certificate}
                     </td>
                     <td className="px-6 py-3.5 text-gray-900">
                       {approval.number || (
@@ -350,16 +523,22 @@ export function OrganizationalApprovals() {
                       )}
                     </td>
                     <td className="px-6 py-3.5 text-gray-900">
-                      {approval.expiry}
+                      {formatExpiryDisplay(approval.expiryDate ?? approval.expiry)}
                     </td>
                     <td className="px-6 py-3.5">
-                      <a
-                        href={approval.fileLink}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
-                      >
-                        [LINK]
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      {approval.fileLink && approval.fileLink !== "#" ? (
+                        <a
+                          href={approval.fileLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
+                        >
+                          [LINK]
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-1">
@@ -428,68 +607,23 @@ export function OrganizationalApprovals() {
           </div>
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
+              disabled={currentPage === 1 || loading}
               className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              aria-label="Previous page"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-
-            {/* Dynamic page numbers */}
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              let pageNum;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
-
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors text-white`}
-                  style={{
-                    backgroundColor:
-                      currentPage === pageNum ? "#38BDF8" : "transparent",
-                    color: currentPage === pageNum ? "#ffffff" : "#454545",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (currentPage !== pageNum)
-                      e.currentTarget.style.backgroundColor = "#f3f3f5";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (currentPage !== pageNum)
-                      e.currentTarget.style.backgroundColor = "transparent";
-                  }}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-
-            {totalPages > 5 && currentPage < totalPages - 2 && (
-              <>
-                <span className="px-2 text-gray-500">...</span>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  className="min-w-[2rem] px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                >
-                  {totalPages}
-                </button>
-              </>
-            )}
-
+            <span className="text-sm text-gray-700 px-2">
+              Page {currentPage} of {totalPages || 1}
+            </span>
             <button
-              onClick={() =>
-                setCurrentPage(Math.min(totalPages, currentPage + 1))
-              }
-              disabled={currentPage === totalPages || totalPages === 0}
+              type="button"
+              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage === totalPages || totalPages === 0 || loading}
               className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+              aria-label="Next page"
             >
               <span>Next</span>
               <ChevronRight className="w-4 h-4" />
@@ -524,7 +658,7 @@ export function OrganizationalApprovals() {
                   Approval Type
                 </span>
                 <span className="text-gray-900 text-sm">
-                  {viewingApproval.certificate}
+                  {viewingApproval.approvalTypeName ?? viewingApproval.certificate}
                 </span>
               </div>
               <div>
@@ -540,21 +674,25 @@ export function OrganizationalApprovals() {
                   Expiry Date
                 </span>
                 <span className="text-gray-900 text-sm">
-                  {viewingApproval.expiry}
+                  {formatExpiryDisplay(viewingApproval.expiryDate ?? viewingApproval.expiry)}
                 </span>
               </div>
               <div>
                 <span className="block text-gray-500 text-sm mb-0.5">
                   File Link
                 </span>
-                <a
-                  href={viewingApproval.fileLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:underline text-sm"
-                >
-                  [LINK] <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                {viewingApproval.fileLink && viewingApproval.fileLink !== "#" ? (
+                  <a
+                    href={viewingApproval.fileLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-blue-600 hover:underline text-sm"
+                  >
+                    [LINK] <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                ) : (
+                  <span className="text-gray-500">—</span>
+                )}
               </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
@@ -596,16 +734,20 @@ export function OrganizationalApprovals() {
                   Approval Type <span className="text-red-500">*</span>
                 </label>
                 <select
-                  value={formData.approvalType}
-                  onChange={(e) =>
-                    setFormData({ ...formData, approvalType: e.target.value })
-                  }
+                  value={formData.certificateFk ? String(formData.certificateFk) : ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({
+                      ...formData,
+                      certificateFk: val ? Number(val) : 0,
+                    });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select Type</option>
-                  {APPROVAL_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
+                  {certificateOptions.map((opt, idx) => (
+                    <option key={`type-${opt.id}-${idx}`} value={String(opt.id)}>
+                      {opt.name}
                     </option>
                   ))}
                 </select>
@@ -634,7 +776,6 @@ export function OrganizationalApprovals() {
                   onChange={(e) =>
                     setFormData({ ...formData, expiryDate: e.target.value })
                   }
-                  placeholder="mm/dd/yyyy"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -664,9 +805,92 @@ export function OrganizationalApprovals() {
               <button
                 type="button"
                 onClick={handleSaveDocument}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+                disabled={
+                  saving ||
+                  !formData.certificateFk ||
+                  !formData.number?.trim() ||
+                  !formData.expiryDate?.trim()
+                }
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center justify-center gap-2"
               >
-                Save Document
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Document"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create new approval type modal */}
+      {showCreateTypeModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            onClick={() => {
+              if (!creatingType) {
+                setShowCreateTypeModal(false);
+                setNewTypeName("");
+              }
+            }}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Create new approval type
+              </h2>
+              <button
+                type="button"
+                onClick={() => !creatingType && (setShowCreateTypeModal(false), setNewTypeName(""))}
+                disabled={creatingType}
+                className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newTypeName}
+                  onChange={(e) => setNewTypeName(e.target.value)}
+                  placeholder="e.g. AOC, Maintenance Approval"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateNewType()}
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => !creatingType && (setShowCreateTypeModal(false), setNewTypeName(""))}
+                disabled={creatingType}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateNewType}
+                disabled={creatingType || !newTypeName?.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2"
+              >
+                {creatingType ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create"
+                )}
               </button>
             </div>
           </div>

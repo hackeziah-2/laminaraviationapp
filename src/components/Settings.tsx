@@ -41,6 +41,7 @@ interface User {
   status: "active" | "inactive";
   lastDone: string;
   createdDate: string;
+  auth_initial_doi?: string;
 }
 
 /** Role (including user_count from GET /v1/roles/roles-list) */
@@ -87,6 +88,7 @@ interface AddUserModalProps {
     status: boolean;
     password: string;
     confirmPassword: string;
+    auth_initial_doi: string;
   }) => void | Promise<void>;
 }
 
@@ -147,6 +149,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
     status: true,
     password: "",
     confirmPassword: "",
+    auth_initial_doi: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -198,6 +201,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
         status: true,
         password: "",
         confirmPassword: "",
+        auth_initial_doi: "",
       });
       setErrors({});
       onClose();
@@ -356,6 +360,20 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Authorization Initial DOI (Date of Issuance)
+            </label>
+            <input
+              type="date"
+              value={formData.auth_initial_doi}
+              onChange={(e) =>
+                setFormData({ ...formData, auth_initial_doi: e.target.value })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Role *
             </label>
             <select
@@ -459,6 +477,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
                   status: true,
                   password: "",
                   confirmPassword: "",
+                  auth_initial_doi: "",
                 });
                 setErrors({});
               }}
@@ -501,12 +520,14 @@ function EditUserModal({
     license_no: user?.licenseNo || "",
     role_id: user?.roleId || 0,
     status: user?.status || "active",
+    auth_initial_doi: user?.auth_initial_doi || "",
   });
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
     if (user) {
-      setFormData({
+      setFormData((prev) => ({
+        ...prev,
         first_name: user.firstName || "",
         last_name: user.lastName || "",
         middle_name: user.middleName || "",
@@ -516,9 +537,24 @@ function EditUserModal({
         license_no: user.licenseNo || "",
         role_id: user.roleId || 0,
         status: user.status || "active",
-      });
+        auth_initial_doi: user.auth_initial_doi || "",
+      }));
     }
   }, [user]);
+
+  // Load auth_initial_doi when opening edit (not returned by list API)
+  React.useEffect(() => {
+    if (!isOpen || !user?.id) return;
+    accountApi
+      .getAccountInformationById(user.id)
+      .then((info) => {
+        setFormData((prev) => ({
+          ...prev,
+          auth_initial_doi: info.auth_initial_doi || "",
+        }));
+      })
+      .catch(() => {});
+  }, [isOpen, user?.id]);
 
   if (!isOpen || !user) return null;
   const handleSubmit = async (e: React.FormEvent) => {
@@ -543,6 +579,7 @@ function EditUserModal({
           roleId: formData.role_id,
           role: resolvedRole,
           status: formData.status as "active" | "inactive",
+          auth_initial_doi: formData.auth_initial_doi || undefined,
         })
       );
       onClose();
@@ -651,6 +688,19 @@ function EditUserModal({
               value={formData.license_no}
               onChange={(e) =>
                 setFormData({ ...formData, license_no: e.target.value })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Authorization Initial DOI (Date of Issuance)
+            </label>
+            <input
+              type="date"
+              value={formData.auth_initial_doi}
+              onChange={(e) =>
+                setFormData({ ...formData, auth_initial_doi: e.target.value })
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -2389,6 +2439,7 @@ export function Settings() {
               roleId: newUser.role_id,
               status: true,
               password: newUser.password,
+              auth_initial_doi: newUser.auth_initial_doi?.trim() || undefined,
             });
             setShowAddUserModal(false);
             await fetchUsersList();
@@ -2430,6 +2481,7 @@ export function Settings() {
               licenseNo: updatedUser.licenseNo || "",
               roleId: updatedUser.roleId,
               status: updatedUser.status === "active",
+              auth_initial_doi: updatedUser.auth_initial_doi ?? "",
             });
             setShowEditUserModal(false);
             setSelectedUser(null);
