@@ -1316,7 +1316,7 @@ export function Maintenance() {
                         Inspection Interval
                       </th>
                       <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                        Compli Date
+                        DATE OF EFFECTIVITY
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
                         Work Orders

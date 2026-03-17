@@ -586,15 +586,6 @@ export function AircraftFleetProfile() {
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th
-                      onClick={(e) => toggleSort("created_at", e.shiftKey)}
-                      className="cursor-pointer select-none px-6 py-3"
-                    >
-                      <div className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                        <b>CREATED AT</b>
-                        {renderSortIcon("created_at")}
-                      </div>
-                    </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
@@ -622,9 +613,6 @@ export function AircraftFleetProfile() {
                           >
                             {ac?.status ?? "-"}
                           </span>
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {ac?.created_at ? String(ac.created_at).split("T")[0] : "-"}
                         </td>
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-2">
