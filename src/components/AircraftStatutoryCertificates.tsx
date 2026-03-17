@@ -24,6 +24,7 @@ import {
 } from "../api/aircraftStatutoryCertificatesApi";
 import { getAircrafts } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -805,72 +806,19 @@ export function AircraftStatutoryCertificates() {
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-b-lg shadow-[0_1px_0_0_rgba(0,0,0,0.05)]">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">items per page:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="h-8 min-w-[4rem] pl-2 pr-8 border border-gray-300 rounded text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
-                  className="text-sm text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 transition-colors"
-                >
-                  Previous
-                </button>
-                <div className="flex items-center gap-0.5 mx-1">
-                  {(() => {
-                    const pages = totalPages || 1;
-                    const maxVisible = 5;
-                    let start = 1;
-                    let end = Math.min(pages, maxVisible);
-                    if (pages > maxVisible) {
-                      start = Math.max(1, Math.min(currentPage - 2, pages - maxVisible + 1));
-                      end = Math.min(pages, start + maxVisible - 1);
-                    }
-                    return Array.from({ length: end - start + 1 }, (_, i) => start + i).map(
-                      (page) => (
-                        <button
-                          key={page}
-                          type="button"
-                          onClick={() => setCurrentPage(page)}
-                          className={`min-w-[2rem] h-8 px-2 rounded text-sm font-medium transition-colors ${
-                            currentPage === page
-                              ? "bg-blue-600 text-white"
-                              : "text-gray-500 bg-white hover:text-gray-700 hover:bg-gray-50"
-                          }`}
-                        >
-                          {page}
-                        </button>
-                      )
-                    );
-                  })()}
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(totalPages || 1, p + 1))
-                  }
-                  disabled={currentPage >= totalPages}
-                  className="text-sm text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400 transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={Math.max(1, totalPages)}
+              onPageChange={setCurrentPage}
+              totalItems={totalRecords}
+              totalLabel="certificates"
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(size) => {
+                setItemsPerPage(size);
+                setCurrentPage(1);
+              }}
+              disabled={loading}
+            />
           </>
         )}
       </div>
