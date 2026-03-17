@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Search,
   Plus,
@@ -10,210 +10,245 @@ import {
   X,
   Pencil,
   Trash2,
+  Loader2,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import {
+  getOemPublicationsPaged,
+  createOemPublication,
+  updateOemPublication,
+  deleteOemPublication,
+  getOemItemTypesList,
+  createOemItemType,
+  type OemTechnicalPublication,
+  type OemItemTypeOption,
+  type OemPublicationSortBy,
+  type SortOrder,
+  getOemApiErrorMessage,
+} from "../api/oemTechnicalPublicationApi";
 
-interface Publication {
-  id: number;
-  item: string;
-  type: string;
-  expiry: string;
-  linkToManual: string;
+const SEARCH_DEBOUNCE_MS = 400;
+
+const CATEGORY_TYPE_OPTIONS = [
+  { value: "CERTIFICATE", label: "CERTIFICATE" },
+  { value: "SUBSCRIPTION", label: "SUBSCRIPTION" },
+  {
+    value: "REGULATORY_CORRESPONDENCE_NON_CERT",
+    label: "REGULATORY CORRESPONDENCE (NON CERT)",
+  },
+  { value: "LICENSE", label: "LICENSE" },
+] as const;
+
+function getCategoryTypeLabel(value: string): string {
+  const opt = CATEGORY_TYPE_OPTIONS.find((o) => o.value === value);
+  return opt ? opt.label : value;
 }
 
-const DEFAULT_PUBLICATION_TYPES = [
-  "TXTAV CESSNA",
-  "TXTAV BARON",
-  "JEPPESSEN NAVDATA",
-];
+function formatExpiryDisplay(expiry: string | null | undefined): string {
+  if (!expiry?.trim()) return "N/A";
+  const d = new Date(expiry);
+  if (isNaN(d.getTime())) return expiry;
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function toApiDate(value: string | null | undefined): string {
+  if (!value?.trim()) return "";
+  const d = new Date(value.trim());
+  if (isNaN(d.getTime())) return value.trim();
+  return d.toISOString().slice(0, 10);
+}
 
 export function OEMTechnicalPublication() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortBy, setSortBy] = useState<OemPublicationSortBy>("date_of_expiration");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPublication, setEditingPublication] =
-    useState<Publication | null>(null);
+    useState<OemTechnicalPublication | null>(null);
   const [addForm, setAddForm] = useState({
-    publicationType: "",
+    itemFk: 0,
+    categoryType: "",
     expiryDate: "",
     assignLink: "",
   });
+  const [itemTypes, setItemTypes] = useState<OemItemTypeOption[]>([]);
+  const [showAddItemTypeModal, setShowAddItemTypeModal] = useState(false);
+  const [newItemTypeName, setNewItemTypeName] = useState("");
+  const [creatingItemType, setCreatingItemType] = useState(false);
 
-  const [publications, setPublications] = useState<Publication[]>([
-    {
-      id: 1,
-      item: "TXTAV CESSNA",
-      type: "SUBSCRIPTION",
-      expiry: "25 Feb 2027",
-      linkToManual: "#",
-    },
-    {
-      id: 2,
-      item: "TXTAV BARON",
-      type: "SUBSCRIPTION",
-      expiry: "25 Feb 2027",
-      linkToManual: "#",
-    },
-    {
-      id: 3,
-      item: "JEPPESSEN NAVDATA",
-      type: "SUBSCRIPTION",
-      expiry: "11 Oct 2025",
-      linkToManual: "#",
-    },
-    {
-      id: 4,
-      item: "GARMIN G1000 DATABASE",
-      type: "SUBSCRIPTION",
-      expiry: "15 Dec 2026",
-      linkToManual: "#",
-    },
-    {
-      id: 5,
-      item: "AMM CESSNA 172",
-      type: "MANUAL",
-      expiry: "31 Mar 2027",
-      linkToManual: "#",
-    },
-    {
-      id: 6,
-      item: "IPC CESSNA 172",
-      type: "MANUAL",
-      expiry: "31 Mar 2027",
-      linkToManual: "#",
-    },
-    {
-      id: 7,
-      item: "CMM LYCOMING IO-360",
-      type: "MANUAL",
-      expiry: "30 Jun 2027",
-      linkToManual: "#",
-    },
-    {
-      id: 8,
-      item: "FOREFLIGHT SUBSCRIPTION",
-      type: "SUBSCRIPTION",
-      expiry: "20 Jan 2026",
-      linkToManual: "#",
-    },
-    {
-      id: 9,
-      item: "WDM CESSNA 172",
-      type: "MANUAL",
-      expiry: "31 Mar 2027",
-      linkToManual: "#",
-    },
-    {
-      id: 10,
-      item: "STC DOCUMENTATION",
-      type: "MANUAL",
-      expiry: "N/A",
-      linkToManual: "#",
-    },
-  ]);
+  const [publications, setPublications] = useState<OemTechnicalPublication[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Dynamic publication types: defaults first (TXTAV CESSNA, TXTAV BARON, JEPPESSEN NAVDATA), then any other existing; user can also type a new type
-  const publicationTypeSuggestions = useMemo(() => {
-    const existing = [...new Set(publications.map((p) => p.item))];
-    const others = existing.filter(
-      (item) => !DEFAULT_PUBLICATION_TYPES.includes(item)
-    );
-    return [...DEFAULT_PUBLICATION_TYPES, ...others];
-  }, [publications]);
+  useEffect(() => {
+    getOemItemTypesList().then(setItemTypes);
+  }, []);
+
+  const fetchPublications = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await getOemPublicationsPaged(
+        currentPage,
+        itemsPerPage,
+        debouncedSearchTerm.trim(),
+        sortBy,
+        sortOrder
+      );
+      setPublications(res.items);
+      setTotal(res.total);
+      setTotalPages(Math.max(1, res.pages));
+    } catch (err) {
+      setError(getOemApiErrorMessage(err, "Failed to load publications."));
+      setPublications([]);
+      setTotal(0);
+      setTotalPages(1);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchTerm, sortBy, sortOrder]);
+
+  useEffect(() => {
+    fetchPublications();
+  }, [fetchPublications]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setCurrentPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   const openAddModal = () => {
     setEditingPublication(null);
-    setAddForm({
-      publicationType: "",
-      expiryDate: "",
-      assignLink: "",
-    });
+    setAddForm({ itemFk: 0, categoryType: "", expiryDate: "", assignLink: "" });
     setShowAddModal(true);
+    getOemItemTypesList().then(setItemTypes);
   };
 
-  const openViewEditModal = (pub: Publication) => {
+  const openViewEditModal = (pub: OemTechnicalPublication) => {
     setEditingPublication(pub);
-    const expiryMatch =
-      pub.expiry && pub.expiry !== "N/A"
-        ? pub.expiry.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/)
-        : null;
-    const expiryDate = expiryMatch
-      ? (() => {
-          const months: Record<string, string> = {
-            Jan: "01",
-            Feb: "02",
-            Mar: "03",
-            Apr: "04",
-            May: "05",
-            Jun: "06",
-            Jul: "07",
-            Aug: "08",
-            Sep: "09",
-            Oct: "10",
-            Nov: "11",
-            Dec: "12",
-          };
-          const [, day, month, year] = expiryMatch;
-          return `${year}-${months[month] || "01"}-${day.padStart(2, "0")}`;
-        })()
-      : "";
+    const expiryForInput = pub.dateOfExpiration ?? pub.expiry;
     setAddForm({
-      publicationType: pub.item,
-      expiryDate,
+      itemFk: pub.itemFk || 0,
+      categoryType: pub.categoryType ?? pub.type ?? "",
+      expiryDate: expiryForInput
+        ? (() => {
+            const d = new Date(expiryForInput);
+            return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+          })()
+        : "",
       assignLink:
         pub.linkToManual && pub.linkToManual !== "#" ? pub.linkToManual : "",
     });
     setShowAddModal(true);
+    getOemItemTypesList().then(setItemTypes);
   };
 
   const closeAddModal = () => {
     setShowAddModal(false);
     setEditingPublication(null);
-    setAddForm({
-      publicationType: "",
-      expiryDate: "",
-      assignLink: "",
-    });
+    setAddForm({ itemFk: 0, categoryType: "", expiryDate: "", assignLink: "" });
   };
 
-  const handleSaveDocument = () => {
-    if (!addForm.publicationType.trim()) return;
-    const expiryFormatted = addForm.expiryDate
-      ? new Date(addForm.expiryDate).toLocaleDateString("en-GB", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })
-      : "N/A";
-    if (editingPublication) {
-      setPublications((prev) =>
-        prev.map((p) =>
-          p.id === editingPublication.id
-            ? {
-                ...p,
-                item: addForm.publicationType,
-                expiry: expiryFormatted,
-                linkToManual: addForm.assignLink?.trim() || "#",
-              }
-            : p
-        )
-      );
-    } else {
-      const newId = Math.max(0, ...publications.map((p) => p.id)) + 1;
-      setPublications((prev) => [
-        ...prev,
-        {
-          id: newId,
-          item: addForm.publicationType,
-          type: "SUBSCRIPTION",
-          expiry: expiryFormatted,
-          linkToManual: addForm.assignLink?.trim() || "#",
-        },
-      ]);
+  const handleSaveDocument = async () => {
+    if (!addForm.itemFk || !addForm.expiryDate?.trim()) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please select an item type and enter expiry date.",
+      });
+      return;
     }
-    closeAddModal();
+    setSaving(true);
+    try {
+      if (editingPublication) {
+        await updateOemPublication(editingPublication.id, {
+          item: addForm.itemFk,
+          category_type: addForm.categoryType?.trim() || "",
+          date_of_expiration: toApiDate(addForm.expiryDate),
+          web_link: addForm.assignLink?.trim() || "",
+        });
+        await Swal.fire({
+          icon: "success",
+          title: "Updated",
+          text: "The publication has been updated.",
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } else {
+        await createOemPublication({
+          item: addForm.itemFk,
+          category_type: addForm.categoryType?.trim() || null,
+          date_of_expiration: toApiDate(addForm.expiryDate),
+          web_link: addForm.assignLink?.trim() || null,
+        });
+        await Swal.fire({
+          icon: "success",
+          title: "Created",
+          text: "The publication has been added.",
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      }
+      closeAddModal();
+      await fetchPublications();
+    } catch (err) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getOemApiErrorMessage(err, "Failed to save publication."),
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateItemType = async () => {
+    const name = newItemTypeName?.trim();
+    if (!name) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please enter a name for the new item type.",
+      });
+      return;
+    }
+    setCreatingItemType(true);
+    try {
+      await createOemItemType({ name });
+      const list = await getOemItemTypesList();
+      setItemTypes(list);
+      setShowAddItemTypeModal(false);
+      setNewItemTypeName("");
+      await Swal.fire({
+        icon: "success",
+        title: "Item type created",
+        text: `"${name}" has been added.`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getOemApiErrorMessage(err, "Failed to create item type."),
+      });
+    } finally {
+      setCreatingItemType(false);
+    }
   };
 
   const handleDeletePublication = async (id: number) => {
@@ -227,48 +262,46 @@ export function OEMTechnicalPublication() {
       confirmButtonText: "Yes, delete it!",
     });
     if (!result.isConfirmed) return;
-    setPublications((prev) => prev.filter((p) => p.id !== id));
-    Swal.fire({
-      icon: "success",
-      title: "Deleted!",
-      text: "The publication has been deleted.",
-      timer: 1500,
-      showConfirmButton: false,
-    });
+    try {
+      await deleteOemPublication(id);
+      await Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "The publication has been deleted.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      setCurrentPage(1);
+      await fetchPublications();
+    } catch (err) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getOemApiErrorMessage(err, "Failed to delete."),
+      });
+    }
   };
 
-  // Calculate type counts
-  const typeCounts = {
-    all: publications.length,
-    subscription: publications.filter((p) => p.type === "SUBSCRIPTION").length,
-    manual: publications.filter((p) => p.type === "MANUAL").length,
-  };
-
-  const filteredPublications = publications.filter((pub) => {
-    const matchesSearch =
-      pub.item.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pub.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pub.expiry.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter =
-      filterType === "all" ||
-      pub.type.toLowerCase() === filterType.toLowerCase();
-
-    return matchesSearch && matchesFilter;
-  });
-
-  const totalPages = Math.ceil(filteredPublications.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedPublications = filteredPublications.slice(
-    startIndex,
-    startIndex + itemsPerPage
-  );
-
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
+  const handleSortChange = (field: OemPublicationSortBy) => {
+    setSortBy(field);
+    setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
     setCurrentPage(1);
   };
 
+  const displayType = (p: OemTechnicalPublication) =>
+    p.categoryType ?? p.type ?? "";
+
+  const filteredForDisplay = publications.filter((pub) => {
+    const type = displayType(pub);
+    const matchesFilter =
+      filterType === "all" || type?.toLowerCase() === filterType.toLowerCase();
+    return matchesFilter;
+  });
+
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedPublications = filteredForDisplay;
+
+  const handleSearchChange = (value: string) => setSearchTerm(value);
   const handleFilterChange = (value: string) => {
     setFilterType(value);
     setCurrentPage(1);
@@ -276,9 +309,13 @@ export function OEMTechnicalPublication() {
 
   const getTypeColor = (type: string) => {
     switch (type) {
+      case "CERTIFICATE":
+        return "bg-violet-500/10 text-violet-700 border border-violet-200";
       case "SUBSCRIPTION":
         return "bg-blue-500/10 text-blue-700 border border-blue-200";
-      case "MANUAL":
+      case "REGULATORY_CORRESPONDENCE_NON_CERT":
+        return "bg-amber-500/10 text-amber-700 border border-amber-200";
+      case "LICENSE":
         return "bg-emerald-500/10 text-emerald-700 border border-emerald-200";
       default:
         return "bg-gray-500/10 text-gray-700 border border-gray-200";
@@ -287,7 +324,6 @@ export function OEMTechnicalPublication() {
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
           <h1 className="text-gray-900 text-xl sm:text-2xl">
@@ -303,6 +339,17 @@ export function OEMTechnicalPublication() {
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
           <button
+            type="button"
+            onClick={() => {
+              setShowAddItemTypeModal(true);
+              setNewItemTypeName("");
+            }}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Add Item Type</span>
+          </button>
+          <button
             onClick={openAddModal}
             className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
           >
@@ -312,7 +359,6 @@ export function OEMTechnicalPublication() {
         </div>
       </div>
 
-      {/* Blue Banner */}
       <div
         className="text-white px-4 sm:px-6 py-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0"
         style={{ backgroundColor: "#2563EB" }}
@@ -323,7 +369,6 @@ export function OEMTechnicalPublication() {
         <span className="text-sm">DATE: 27 FEB 26</span>
       </div>
 
-      {/* Search and Filter */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
@@ -347,47 +392,71 @@ export function OEMTechnicalPublication() {
             <select
               value={filterType}
               onChange={(e) => handleFilterChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
             >
-              <option value="all">All Types ({typeCounts.all})</option>
-              <option value="subscription">
-                Subscription ({typeCounts.subscription})
-              </option>
-              <option value="manual">Manual ({typeCounts.manual})</option>
+              <option value="all">All Types</option>
+              {CATEGORY_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>
       </div>
 
-      {/* Table Header Info */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
+
       <div className="text-gray-600">
-        Showing {filteredPublications.length > 0 ? startIndex + 1 : 0} to{" "}
-        {Math.min(startIndex + itemsPerPage, filteredPublications.length)} of{" "}
-        {filteredPublications.length} publications
+        Showing {total > 0 ? startIndex + 1 : 0} to{" "}
+        {Math.min(startIndex + itemsPerPage, total)} of {total} publications
       </div>
 
-      {/* Publications Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  ITEM
+                  <button
+                    type="button"
+                    onClick={() => handleSortChange("item__name")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    ITEM
+                    {sortBy === "item__name" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   TYPE
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSortChange("date_of_expiration")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
                     <span
                       className="inline-block w-2 h-2 bg-blue-600"
                       style={{
                         clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
                       }}
-                    ></span>
+                    />
                     EXPIRY
-                  </span>
+                    {sortBy === "date_of_expiration" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   LINK TO MANUAL
@@ -398,33 +467,48 @@ export function OEMTechnicalPublication() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {paginatedPublications.length > 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
+                    <p className="text-gray-500 mt-2 text-sm">Loading publications...</p>
+                  </td>
+                </tr>
+              ) : paginatedPublications.length > 0 ? (
                 paginatedPublications.map((pub) => (
                   <tr
                     key={pub.id}
                     className="hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-6 py-3.5 text-gray-900 font-medium">
-                      {pub.item}
+                      {pub.itemName || pub.itemFk}
                     </td>
                     <td className="px-6 py-3.5">
                       <span
                         className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(
-                          pub.type
+                          pub.categoryType ?? pub.type
                         )}`}
                       >
-                        {pub.type}
+                        {getCategoryTypeLabel(pub.categoryType ?? pub.type)}
                       </span>
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900">{pub.expiry}</td>
+                    <td className="px-6 py-3.5 text-gray-900">
+                      {formatExpiryDisplay(pub.dateOfExpiration ?? pub.expiry)}
+                    </td>
                     <td className="px-6 py-3.5">
-                      <a
-                        href={pub.linkToManual}
-                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
-                      >
-                        [LINK]
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                      {pub.linkToManual && pub.linkToManual !== "#" ? (
+                        <a
+                          href={pub.linkToManual}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
+                        >
+                          [LINK]
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-1">
@@ -432,8 +516,8 @@ export function OEMTechnicalPublication() {
                           type="button"
                           onClick={() => openViewEditModal(pub)}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="View / Edit"
-                          aria-label="View or Edit"
+                          title="Edit"
+                          aria-label="Edit"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
@@ -464,7 +548,6 @@ export function OEMTechnicalPublication() {
           </table>
         </div>
 
-        {/* Pagination */}
         <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-gray-700">Items per page:</span>
@@ -474,7 +557,7 @@ export function OEMTechnicalPublication() {
                 setItemsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6"
+              className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6"
             >
               <option value={5}>5</option>
               <option value={10}>10</option>
@@ -490,25 +573,18 @@ export function OEMTechnicalPublication() {
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-
-            {/* Dynamic page numbers */}
             {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              let pageNum;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= totalPages - 2) {
+              let pageNum: number;
+              if (totalPages <= 5) pageNum = i + 1;
+              else if (currentPage <= 3) pageNum = i + 1;
+              else if (currentPage >= totalPages - 2)
                 pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
-
+              else pageNum = currentPage - 2 + i;
               return (
                 <button
                   key={pageNum}
                   onClick={() => setCurrentPage(pageNum)}
-                  className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors text-white`}
+                  className="min-w-[2rem] px-3 py-1.5 rounded transition-colors text-white"
                   style={{
                     backgroundColor:
                       currentPage === pageNum ? "#38BDF8" : "transparent",
@@ -527,7 +603,6 @@ export function OEMTechnicalPublication() {
                 </button>
               );
             })}
-
             {totalPages > 5 && currentPage < totalPages - 2 && (
               <>
                 <span className="px-2 text-gray-500">...</span>
@@ -539,7 +614,6 @@ export function OEMTechnicalPublication() {
                 </button>
               </>
             )}
-
             <button
               onClick={() =>
                 setCurrentPage(Math.min(totalPages, currentPage + 1))
@@ -554,7 +628,6 @@ export function OEMTechnicalPublication() {
         </div>
       </div>
 
-      {/* Add Publication Modal - Medium size */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -586,31 +659,50 @@ export function OEMTechnicalPublication() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="space-y-5">
-                {/* Publication Type - dynamic: select from list or enter new */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Publication Type <span className="text-red-500">*</span>
+                    Item Type <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    list="publication-type-list"
-                    value={addForm.publicationType}
+                  <select
+                    value={addForm.itemFk ? String(addForm.itemFk) : ""}
                     onChange={(e) =>
                       setAddForm((prev) => ({
                         ...prev,
-                        publicationType: e.target.value,
+                        itemFk: e.target.value ? Number(e.target.value) : 0,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="Select type or enter new (e.g. TXTAV CESSNA, JEPPESSEN NAVDATA)"
-                  />
-                  <datalist id="publication-type-list">
-                    {publicationTypeSuggestions.map((type) => (
-                      <option key={type} value={type} />
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select Item Type</option>
+                    {itemTypes.map((opt) => (
+                      <option key={opt.id} value={String(opt.id)}>
+                        {opt.name}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                 </div>
-                {/* Expiry Date */}
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    Category Type
+                  </label>
+                  <select
+                    value={addForm.categoryType}
+                    onChange={(e) =>
+                      setAddForm((prev) => ({
+                        ...prev,
+                        categoryType: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select category (optional)</option>
+                    {CATEGORY_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Expiry Date <span className="text-red-500">*</span>
@@ -627,7 +719,6 @@ export function OEMTechnicalPublication() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
-                {/* Web Link */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Web Link
@@ -641,7 +732,7 @@ export function OEMTechnicalPublication() {
                         assignLink: e.target.value,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
                     placeholder="Enter Web Link"
                   />
                 </div>
@@ -658,9 +749,98 @@ export function OEMTechnicalPublication() {
               <button
                 type="button"
                 onClick={handleSaveDocument}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                disabled={
+                  saving ||
+                  !addForm.itemFk ||
+                  !addForm.expiryDate?.trim()
+                }
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
               >
-                Save Document
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Document"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddItemTypeModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            onClick={() => {
+              if (!creatingItemType) {
+                setShowAddItemTypeModal(false);
+                setNewItemTypeName("");
+              }
+            }}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Add Item Type
+              </h2>
+              <button
+                type="button"
+                onClick={() =>
+                  !creatingItemType &&
+                  (setShowAddItemTypeModal(false), setNewItemTypeName(""))
+                }
+                disabled={creatingItemType}
+                className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-gray-700 text-sm mb-1.5">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newItemTypeName}
+                  onChange={(e) => setNewItemTypeName(e.target.value)}
+                  placeholder="e.g. TXTAV CESSNA, JEPPESSEN NAVDATA"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleCreateItemType()
+                  }
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  !creatingItemType &&
+                  (setShowAddItemTypeModal(false), setNewItemTypeName(""))
+                }
+                disabled={creatingItemType}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreateItemType}
+                disabled={creatingItemType || !newItemTypeName?.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2"
+              >
+                {creatingItemType ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create"
+                )}
               </button>
             </div>
           </div>

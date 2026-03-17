@@ -1,35 +1,41 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
-  Search,
   Plus,
   Download,
-  Filter,
   X,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   Pencil,
   Trash2,
+  Loader2,
+  ChevronDown,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import {
+  getAuthStampListFromAccountInformation,
+  getAccountInformationById,
+  type AuthStampOption,
+} from "../api/accountApi";
+import {
+  getPersonnelAuthorizationsPaged,
+  createPersonnelAuthorization,
+  updatePersonnelAuthorization,
+  deletePersonnelAuthorization,
+  getPersonnelApiErrorMessage,
+  type PersonnelAuthorizationRecord,
+} from "../api/personnelAuthorizationApi";
+import {
+  getAuthorizationScopeCessnaList,
+  getAuthorizationScopeBaronList,
+  getAuthorizationScopeOthersList,
+  createAuthorizationScopeCessna,
+  createAuthorizationScopeBaron,
+  createAuthorizationScopeOthers,
+  type AuthorizationScopeOption,
+} from "../api/authorizationScopeApi";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
-interface Personnel {
-  id: number;
-  authorizationNo: string;
-  name: string;
-  position: string;
-  licNoType: string;
-  authInitialDOI: string;
-  authIssueDate: string;
-  authExpiryDate: string;
-  scopeCessna: string;
-  scopeBaron: string;
-  scopeOthers: string;
-  caapLicExpiry: string;
-  hfTrainingExpiry: string;
-  typeTrainingCessna: string;
-  typeTrainingBaron: string;
-}
+/** Same shape as API record for view/edit. */
+type Personnel = PersonnelAuthorizationRecord;
 
 function PersonnelDetailRow({
   label,
@@ -46,20 +52,20 @@ function PersonnelDetailRow({
   );
 }
 
-// Authorization scope options per aircraft type
-const SCOPE_CESSNA_OPTIONS = ["RTS, II, MR, EGR", "RTS, MR, EGR", "MR", "NONE"];
-const SCOPE_BARON_OPTIONS = [
-  "RTS, II, MR, EGR",
-  "RTS, MR, EGR",
-  "RTS, MR",
-  "MR",
-  "NONE",
-];
-const SCOPE_OTHERS_OPTIONS = ["I/RI", "NONE"];
+const AUTH_SEARCH_DEBOUNCE_MS = 350;
+/** Request at least 10 options for Authorization Number dropdown (search is case-insensitive). */
+const AUTH_STAMP_LIST_LIMIT = 10;
+
+/** Normalize API date to YYYY-MM-DD for date inputs. */
+function toDateOnly(value: string | undefined): string {
+  if (!value || typeof value !== "string") return "";
+  const s = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : "";
+}
 
 export function PersonnelAuthorization() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterPosition, setFilterPosition] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -69,9 +75,39 @@ export function PersonnelAuthorization() {
   const [viewingPersonnel, setViewingPersonnel] = useState<Personnel | null>(
     null
   );
+  const [listLoading, setListLoading] = useState(false);
 
-  // Create form state
+  // Authorization Number searchable dropdown
+  const [authStampSearchTerm, setAuthStampSearchTerm] = useState("");
+  const [debouncedAuthSearch, setDebouncedAuthSearch] = useState("");
+  const [authStampOptions, setAuthStampOptions] = useState<AuthStampOption[]>(
+    []
+  );
+  const [loadingAuthStamp, setLoadingAuthStamp] = useState(false);
+  const [isAuthDropdownOpen, setIsAuthDropdownOpen] = useState(false);
+  const authDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Scope options from API: { id, label } for dropdown (value=id, display=label)
+  const [scopeCessnaOptions, setScopeCessnaOptions] = useState<
+    AuthorizationScopeOption[]
+  >([]);
+  const [scopeBaronOptions, setScopeBaronOptions] = useState<
+    AuthorizationScopeOption[]
+  >([]);
+  const [scopeOthersOptions, setScopeOthersOptions] = useState<
+    AuthorizationScopeOption[]
+  >([]);
+  const [scopeListsLoading, setScopeListsLoading] = useState(false);
+  const [showNewScopeModal, setShowNewScopeModal] = useState(false);
+  const [newScopeType, setNewScopeType] = useState<
+    "cessna" | "baron" | "others"
+  >("cessna");
+  const [newScopeValue, setNewScopeValue] = useState("");
+  const [addingScope, setAddingScope] = useState(false);
+
+  // Create form state (no web_link). accountInformationId from by-auth-stamp selection. Scope fields are IDs (0 = none).
   const [createForm, setCreateForm] = useState({
+    accountInformationId: 0 as number,
     authorizationNumber: "",
     name: "",
     position: "",
@@ -79,197 +115,104 @@ export function PersonnelAuthorization() {
     authInitialDOI: "",
     authIssueDate: "",
     authExpiryDate: "",
-    scopeCessna: "",
-    scopeBaron: "",
-    scopeOthers: "",
+    scopeCessnaId: 0 as number,
+    scopeBaronId: 0 as number,
+    scopeOthersId: 0 as number,
     caapLicExpiry: "",
     hfTrainingExpiry: "",
     typeTrainingCessna: "",
     typeTrainingBaron: "",
-    webLink: "",
   });
 
-  const [personnel, setPersonnel] = useState<Personnel[]>([
-    {
-      id: 1,
-      authorizationNo: "001",
-      name: "ERICSON L. GRACE",
-      position: "AVIONICS MECHANIC B",
-      licNoType: "156315-AMS",
-      authInitialDOI: "14 Aug 2023",
-      authIssueDate: "19 Aug 2025",
-      authExpiryDate: "19 Aug 2026",
-      scopeCessna: "MR",
-      scopeBaron: "MR",
-      scopeOthers: "NONE",
-      caapLicExpiry: "29 Jan 2028",
-      hfTrainingExpiry: "9 Jul 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "22 Jul 2026",
-    },
-    {
-      id: 2,
-      authorizationNo: "006",
-      name: "CHRISTIAN MARK JHON D. GONZAGA",
-      position: "A&P MECHANIC A",
-      licNoType: "138569-AMT",
-      authInitialDOI: "16 Aug 2022",
-      authIssueDate: "4 Sep 2025",
-      authExpiryDate: "4 Sep 2026",
-      scopeCessna: "RTS, II, MR, EGR",
-      scopeBaron: "RTS, II, MR, EGR",
-      scopeOthers: "NONE",
-      caapLicExpiry: "4 May 2028",
-      hfTrainingExpiry: "26 Aug 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "22 Jul 2026",
-    },
-    {
-      id: 3,
-      authorizationNo: "009",
-      name: "ARGIE C. FAJERGA",
-      position: "MAINTENANCE MANAGER",
-      licNoType: "120119-AMT",
-      authInitialDOI: "2 Jun 2023",
-      authIssueDate: "3 Jan 2026",
-      authExpiryDate: "3 Jan 2027",
-      scopeCessna: "RTS, II, MR, EGR",
-      scopeBaron: "RTS, MR, EGR",
-      scopeOthers: "NONE",
-      caapLicExpiry: "10 Nov 2023",
-      hfTrainingExpiry: "5 May 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "22 Jul 2026",
-    },
-    {
-      id: 4,
-      authorizationNo: "011",
-      name: "GLENN CARLO S. MIRAFUENTE",
-      position: "A&P MECHANIC A",
-      licNoType: "154093-AMT",
-      authInitialDOI: "20 Feb 0204",
-      authIssueDate: "12 Aug 2025",
-      authExpiryDate: "12 Aug 2026",
-      scopeCessna: "RTS, MR, EGR",
-      scopeBaron: "RTS, MR, EGR",
-      scopeOthers: "NONE",
-      caapLicExpiry: "15 Jan 2028",
-      hfTrainingExpiry: "9 Jul 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "22 Jul 2026",
-    },
-    {
-      id: 5,
-      authorizationNo: "017",
-      name: "KAILE NATHAN C. MONTEMAYOR",
-      position: "A&P MECHANIC C",
-      licNoType: "164476-AMT",
-      authInitialDOI: "20 Aug 2025",
-      authIssueDate: "20 Aug 2025",
-      authExpiryDate: "20 Aug 2026",
-      scopeCessna: "MR",
-      scopeBaron: "NONE",
-      scopeOthers: "NONE",
-      caapLicExpiry: "19 Mar 2029",
-      hfTrainingExpiry: "4 Dec 2026",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "",
-    },
-    {
-      id: 6,
-      authorizationNo: "018",
-      name: "JAZZ RUSSEL Y. SANTOS",
-      position: "A&P MECHANIC C",
-      licNoType: "167688-AMT",
-      authInitialDOI: "20 Aug 2025",
-      authIssueDate: "20 Aug 2025",
-      authExpiryDate: "20 Aug 2026",
-      scopeCessna: "MR",
-      scopeBaron: "NONE",
-      scopeOthers: "NONE",
-      caapLicExpiry: "04 Dec 2029",
-      hfTrainingExpiry: "5 May 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "",
-    },
-    {
-      id: 7,
-      authorizationNo: "019",
-      name: "LEE MARVIN V. GUNO",
-      position: "AVIONICS MECHANIC B",
-      licNoType: "158569-AMS",
-      authInitialDOI: "20 Aug 2025",
-      authIssueDate: "20 Aug 2025",
-      authExpiryDate: "20 Aug 2026",
-      scopeCessna: "MR",
-      scopeBaron: "NONE",
-      scopeOthers: "NONE",
-      caapLicExpiry: "06 Nov 2028",
-      hfTrainingExpiry: "27 May 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "",
-    },
-    {
-      id: 8,
-      authorizationNo: "020",
-      name: "JANSEN ANGEL A. GAUDICOS",
-      position: "A&P MECHANIC C",
-      licNoType: "160376-AMT",
-      authInitialDOI: "20 Aug 2025",
-      authIssueDate: "20 Aug 2025",
-      authExpiryDate: "20 Aug 2026",
-      scopeCessna: "MR",
-      scopeBaron: "NONE",
-      scopeOthers: "NONE",
-      caapLicExpiry: "26 Feb 2029",
-      hfTrainingExpiry: "4 December 2026",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "",
-    },
-    {
-      id: 9,
-      authorizationNo: "021",
-      name: "BRYAN GELO A. VELASCO",
-      position: "A&P MECHANIC C",
-      licNoType: "161283-AMT",
-      authInitialDOI: "29 Jan 2026",
-      authIssueDate: "29 Jan 2026",
-      authExpiryDate: "29 Jan 2027",
-      scopeCessna: "MR",
-      scopeBaron: "NONE",
-      scopeOthers: "NONE",
-      caapLicExpiry: "20 Dec 2028",
-      hfTrainingExpiry: "16 Jan 2027",
-      typeTrainingCessna: "9 May 2027",
-      typeTrainingBaron: "",
-    },
-    {
-      id: 10,
-      authorizationNo: "026",
-      name: "JEPHTE DAVID V. LAKE",
-      position: "TOOLKEEPER & WAREHOUSE PERSONNEL",
-      licNoType: "",
-      authInitialDOI: "29 Jan 2026",
-      authIssueDate: "29 Jan 2026",
-      authExpiryDate: "29 Jan 2027",
-      scopeCessna: "NONE",
-      scopeBaron: "NONE",
-      scopeOthers: "I/RI",
-      caapLicExpiry: "",
-      hfTrainingExpiry: "9 Jul 2027",
-      typeTrainingCessna: "",
-      typeTrainingBaron: "",
-    },
-  ]);
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [saving, setSaving] = useState(false);
 
-  // Existing authorization numbers for dynamic select (user can also type new)
-  const existingAuthNumbers = [
-    ...new Set(personnel.map((p) => p.authorizationNo)),
-  ].sort();
+  const fetchPersonnel = useCallback(async () => {
+    setListLoading(true);
+    try {
+      const res = await getPersonnelAuthorizationsPaged(
+        currentPage,
+        itemsPerPage
+      );
+      setPersonnel(res.items);
+      setTotal(res.total);
+      setTotalPages(Math.max(1, res.pages));
+    } catch {
+      setPersonnel([]);
+      setTotal(0);
+      setTotalPages(1);
+    } finally {
+      setListLoading(false);
+    }
+  }, [currentPage, itemsPerPage]);
+
+  useEffect(() => {
+    fetchPersonnel();
+  }, [fetchPersonnel]);
+
+  // Fetch scope dropdown lists from API (authorization-scope-cessna/list, authorization-scope-baron/list, authorization-scope-others/list)
+  useEffect(() => {
+    setScopeListsLoading(true);
+    Promise.all([
+      getAuthorizationScopeCessnaList(),
+      getAuthorizationScopeBaronList(),
+      getAuthorizationScopeOthersList(),
+    ])
+      .then(([cessna, baron, others]) => {
+        setScopeCessnaOptions(cessna);
+        setScopeBaronOptions(baron);
+        setScopeOthersOptions(others);
+      })
+      .catch(() => {
+        setScopeCessnaOptions([]);
+        setScopeBaronOptions([]);
+        setScopeOthersOptions([]);
+      })
+      .finally(() => setScopeListsLoading(false));
+  }, []);
+
+  // Debounce auth stamp search
+  useEffect(() => {
+    const t = setTimeout(
+      () => setDebouncedAuthSearch(authStampSearchTerm),
+      AUTH_SEARCH_DEBOUNCE_MS
+    );
+    return () => clearTimeout(t);
+  }, [authStampSearchTerm]);
+
+  // Authorization Number: get data from list of auth_stamp in account information
+  useEffect(() => {
+    if (!isAuthDropdownOpen) return;
+    setLoadingAuthStamp(true);
+    getAuthStampListFromAccountInformation(
+      debouncedAuthSearch,
+      AUTH_STAMP_LIST_LIMIT
+    )
+      .then(setAuthStampOptions)
+      .catch(() => setAuthStampOptions([]))
+      .finally(() => setLoadingAuthStamp(false));
+  }, [isAuthDropdownOpen, debouncedAuthSearch]);
+
+  // Close auth dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        authDropdownRef.current &&
+        !authDropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsAuthDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const openCreateModal = () => {
     setEditingPersonnel(null);
     setCreateForm({
+      accountInformationId: 0,
       authorizationNumber: "",
       name: "",
       position: "",
@@ -277,14 +220,13 @@ export function PersonnelAuthorization() {
       authInitialDOI: "",
       authIssueDate: "",
       authExpiryDate: "",
-      scopeCessna: "",
-      scopeBaron: "",
-      scopeOthers: "",
+      scopeCessnaId: 0,
+      scopeBaronId: 0,
+      scopeOthersId: 0,
       caapLicExpiry: "",
       hfTrainingExpiry: "",
       typeTrainingCessna: "",
       typeTrainingBaron: "",
-      webLink: "",
     });
     setShowCreateModal(true);
   };
@@ -301,31 +243,21 @@ export function PersonnelAuthorization() {
       return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
     };
     setCreateForm({
+      accountInformationId: person.accountInformationId ?? 0,
       authorizationNumber: person.authorizationNo,
       name: person.name,
       position: person.position,
       licenseNoType: person.licNoType || "",
       authInitialDOI: toDateInput(person.authInitialDOI),
       authIssueDate: toDateInput(person.authIssueDate),
-      authExpiryDate:
-        person.authExpiryDate && person.authExpiryDate !== "—"
-          ? person.authExpiryDate
-          : "",
-      scopeCessna:
-        person.scopeCessna && person.scopeCessna !== "—"
-          ? person.scopeCessna
-          : "",
-      scopeBaron:
-        person.scopeBaron && person.scopeBaron !== "—" ? person.scopeBaron : "",
-      scopeOthers:
-        person.scopeOthers && person.scopeOthers !== "—"
-          ? person.scopeOthers
-          : "",
+      authExpiryDate: toDateInput(person.authExpiryDate),
+      scopeCessnaId: person.scopeCessnaId ?? 0,
+      scopeBaronId: person.scopeBaronId ?? 0,
+      scopeOthersId: person.scopeOthersId ?? 0,
       caapLicExpiry: toDateInput(person.caapLicExpiry),
       hfTrainingExpiry: toDateInput(person.hfTrainingExpiry),
       typeTrainingCessna: toDateInput(person.typeTrainingCessna),
       typeTrainingBaron: toDateInput(person.typeTrainingBaron),
-      webLink: "",
     });
     setShowCreateModal(true);
   };
@@ -335,32 +267,98 @@ export function PersonnelAuthorization() {
     setEditingPersonnel(null);
   };
 
-  const handleCreateSubmit = () => {
-    const row = {
-      authorizationNo: createForm.authorizationNumber.trim() || "—",
-      name: createForm.name.trim(),
-      position: createForm.position.trim(),
-      licNoType: createForm.licenseNoType.trim(),
-      authInitialDOI: createForm.authInitialDOI || "—",
-      authIssueDate: createForm.authIssueDate || "—",
-      authExpiryDate: createForm.authExpiryDate.trim() || "—",
-      scopeCessna: createForm.scopeCessna || "—",
-      scopeBaron: createForm.scopeBaron || "—",
-      scopeOthers: createForm.scopeOthers || "—",
-      caapLicExpiry: createForm.caapLicExpiry || "—",
-      hfTrainingExpiry: createForm.hfTrainingExpiry || "—",
-      typeTrainingCessna: createForm.typeTrainingCessna || "—",
-      typeTrainingBaron: createForm.typeTrainingBaron || "—",
-    };
-    if (editingPersonnel) {
-      setPersonnel((prev) =>
-        prev.map((p) => (p.id === editingPersonnel.id ? { ...p, ...row } : p))
-      );
-    } else {
-      const nextId = Math.max(0, ...personnel.map((p) => p.id)) + 1;
-      setPersonnel((prev) => [...prev, { id: nextId, ...row }]);
+  const handleCreateSubmit = async () => {
+    if (
+      !createForm.authorizationNumber.trim() ||
+      !createForm.name.trim() ||
+      !createForm.position.trim()
+    ) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required fields",
+        text: "Authorization Number, Name, and Position are required.",
+      });
+      return;
     }
-    closeCreateModal();
+    setSaving(true);
+    try {
+      if (editingPersonnel) {
+        const updatePayload = {
+          authorization_no: createForm.authorizationNumber.trim(),
+          name: createForm.name.trim(),
+          position: createForm.position.trim(),
+          license_no_type: createForm.licenseNoType.trim() || undefined,
+          auth_initial_doi: createForm.authInitialDOI.trim() || undefined,
+          auth_issue_date: createForm.authIssueDate.trim() || undefined,
+          auth_expiry_date: createForm.authExpiryDate.trim() || undefined,
+          authorization_scope_cessna_id: createForm.scopeCessnaId || 0,
+          authorization_scope_baron_id: createForm.scopeBaronId || 0,
+          authorization_scope_others_id: createForm.scopeOthersId || 0,
+          caap_license_expiry: createForm.caapLicExpiry.trim() || undefined,
+          human_factors_training_expiry:
+            createForm.hfTrainingExpiry.trim() || undefined,
+          type_training_expiry_cessna:
+            createForm.typeTrainingCessna.trim() || undefined,
+          type_training_expiry_baron:
+            createForm.typeTrainingBaron.trim() || undefined,
+          ...(createForm.accountInformationId > 0
+            ? { account_information_id: createForm.accountInformationId }
+            : {}),
+        };
+        await updatePersonnelAuthorization(editingPersonnel.id, updatePayload);
+        await Swal.fire({
+          icon: "success",
+          title: "Updated",
+          text: "Personnel authorization has been updated.",
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } else {
+        const createPayload = {
+          ...(createForm.accountInformationId > 0
+            ? { account_information_id: createForm.accountInformationId }
+            : {}),
+          authorization_no: createForm.authorizationNumber.trim(),
+          name: createForm.name.trim(),
+          position: createForm.position.trim(),
+          license_no_type: createForm.licenseNoType.trim() || undefined,
+          auth_initial_doi: createForm.authInitialDOI.trim() || undefined,
+          auth_issue_date: createForm.authIssueDate.trim() || undefined,
+          auth_expiry_date: createForm.authExpiryDate.trim() || undefined,
+          authorization_scope_cessna_id: createForm.scopeCessnaId || 0,
+          authorization_scope_baron_id: createForm.scopeBaronId || 0,
+          authorization_scope_others_id: createForm.scopeOthersId || 0,
+          caap_license_expiry: createForm.caapLicExpiry.trim() || undefined,
+          human_factors_training_expiry:
+            createForm.hfTrainingExpiry.trim() || undefined,
+          type_training_expiry_cessna:
+            createForm.typeTrainingCessna.trim() || undefined,
+          type_training_expiry_baron:
+            createForm.typeTrainingBaron.trim() || undefined,
+        };
+        await createPersonnelAuthorization(createPayload);
+        await Swal.fire({
+          icon: "success",
+          title: "Created",
+          text: "Personnel authorization has been created.",
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      }
+      closeCreateModal();
+      await fetchPersonnel();
+    } catch (err) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getPersonnelApiErrorMessage(
+          err,
+          "Failed to save personnel authorization."
+        ),
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeletePersonnel = async (id: number) => {
@@ -374,58 +372,181 @@ export function PersonnelAuthorization() {
       confirmButtonText: "Yes, delete it!",
     });
     if (!result.isConfirmed) return;
-    setPersonnel((prev) => prev.filter((p) => p.id !== id));
-    Swal.fire({
-      icon: "success",
-      title: "Deleted!",
-      text: "The personnel record has been deleted.",
-      timer: 1500,
-      showConfirmButton: false,
-    });
+    try {
+      await deletePersonnelAuthorization(id);
+      await Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: "The personnel record has been deleted.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+      await fetchPersonnel();
+    } catch (err) {
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: getPersonnelApiErrorMessage(
+          err,
+          "Failed to delete personnel authorization."
+        ),
+      });
+    }
   };
 
-  // Calculate position counts
-  const positions = [...new Set(personnel.map((p) => p.position))];
-  const positionCounts = {
-    all: personnel.length,
-    ...Object.fromEntries(
-      positions.map((pos) => [
-        pos.toLowerCase().replace(/[^a-z0-9]/g, ""),
-        personnel.filter((p) => p.position === pos).length,
-      ])
-    ),
+  const getScopeTypeLabel = (type: "cessna" | "baron" | "others") => {
+    switch (type) {
+      case "cessna":
+        return "Authorization Scope (Cessna 150, 152, 172)";
+      case "baron":
+        return "Authorization Scope (Baron 95-C55)";
+      case "others":
+        return "Authorization Scope (Others)";
+    }
   };
 
-  const filteredPersonnel = personnel.filter((person) => {
-    const matchesSearch =
-      person.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      person.authorizationNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      person.position.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      person.licNoType.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter =
-      filterPosition === "all" ||
-      person.position.toLowerCase().replace(/[^a-z0-9]/g, "") ===
-        filterPosition.toLowerCase();
-
-    return matchesSearch && matchesFilter;
-  });
-
-  const totalPages = Math.ceil(filteredPersonnel.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedPersonnel = filteredPersonnel.slice(
-    startIndex,
-    startIndex + itemsPerPage
-  );
-
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    setCurrentPage(1);
+  const refetchScopeList = async (type: "cessna" | "baron" | "others") => {
+    if (type === "cessna") {
+      const list = await getAuthorizationScopeCessnaList();
+      setScopeCessnaOptions(list);
+    } else if (type === "baron") {
+      const list = await getAuthorizationScopeBaronList();
+      setScopeBaronOptions(list);
+    } else {
+      const list = await getAuthorizationScopeOthersList();
+      setScopeOthersOptions(list);
+    }
   };
 
-  const handleFilterChange = (value: string) => {
-    setFilterPosition(value);
-    setCurrentPage(1);
+  const handleAddNewScope = async () => {
+    const trimmed = newScopeValue.trim();
+    if (!trimmed) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required",
+        text: "Please enter a scope value.",
+      });
+      return;
+    }
+    const scopeLabel = getScopeTypeLabel(newScopeType);
+    const findIdByLabel = (opts: AuthorizationScopeOption[]) =>
+      opts.find((o) => o.label === trimmed)?.id ?? 0;
+
+    if (newScopeType === "cessna") {
+      const existingId = findIdByLabel(scopeCessnaOptions);
+      if (existingId) {
+        setCreateForm((prev) => ({ ...prev, scopeCessnaId: existingId }));
+        setShowNewScopeModal(false);
+        setNewScopeValue("");
+        await Swal.fire({
+          icon: "info",
+          title: "Scope selected",
+          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } else {
+        try {
+          await createAuthorizationScopeCessna(trimmed);
+          const list = await getAuthorizationScopeCessnaList();
+          setScopeCessnaOptions(list);
+          const newId = findIdByLabel(list);
+          setCreateForm((prev) => ({ ...prev, scopeCessnaId: newId }));
+          setShowNewScopeModal(false);
+          setNewScopeValue("");
+          await Swal.fire({
+            icon: "success",
+            title: "Created",
+            text: `"${trimmed}" has been added to ${scopeLabel}.`,
+            timer: 2000,
+            showConfirmButton: false,
+          });
+        } catch (err) {
+          await Swal.fire({
+            icon: "error",
+            title: "Error",
+            text:
+              err instanceof Error ? err.message : "Failed to create scope.",
+          });
+        }
+      }
+    } else if (newScopeType === "baron") {
+      const existingId = findIdByLabel(scopeBaronOptions);
+      if (existingId) {
+        setCreateForm((prev) => ({ ...prev, scopeBaronId: existingId }));
+        setShowNewScopeModal(false);
+        setNewScopeValue("");
+        await Swal.fire({
+          icon: "info",
+          title: "Scope selected",
+          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } else {
+        try {
+          await createAuthorizationScopeBaron(trimmed);
+          const list = await getAuthorizationScopeBaronList();
+          setScopeBaronOptions(list);
+          const newId = findIdByLabel(list);
+          setCreateForm((prev) => ({ ...prev, scopeBaronId: newId }));
+          setShowNewScopeModal(false);
+          setNewScopeValue("");
+          await Swal.fire({
+            icon: "success",
+            title: "Created",
+            text: `"${trimmed}" has been added to ${scopeLabel}.`,
+            timer: 2000,
+            showConfirmButton: false,
+          });
+        } catch (err) {
+          await Swal.fire({
+            icon: "error",
+            title: "Error",
+            text:
+              err instanceof Error ? err.message : "Failed to create scope.",
+          });
+        }
+      }
+    } else {
+      const existingId = findIdByLabel(scopeOthersOptions);
+      if (existingId) {
+        setCreateForm((prev) => ({ ...prev, scopeOthersId: existingId }));
+        setShowNewScopeModal(false);
+        setNewScopeValue("");
+        await Swal.fire({
+          icon: "info",
+          title: "Scope selected",
+          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } else {
+        try {
+          await createAuthorizationScopeOthers(trimmed);
+          const list = await getAuthorizationScopeOthersList();
+          setScopeOthersOptions(list);
+          const newId = findIdByLabel(list);
+          setCreateForm((prev) => ({ ...prev, scopeOthersId: newId }));
+          setShowNewScopeModal(false);
+          setNewScopeValue("");
+          await Swal.fire({
+            icon: "success",
+            title: "Created",
+            text: `"${trimmed}" has been added to ${scopeLabel}.`,
+            timer: 2000,
+            showConfirmButton: false,
+          });
+        } catch (err) {
+          await Swal.fire({
+            icon: "error",
+            title: "Error",
+            text:
+              err instanceof Error ? err.message : "Failed to create scope.",
+          });
+        }
+      }
+    }
   };
 
   return (
@@ -465,76 +586,6 @@ export function PersonnelAuthorization() {
           PERSONNEL AUTHORIZATION
         </span>
         <span className="text-sm">DATE: 27 FEB 26</span>
-      </div>
-
-      {/* Search and Filter - same card pattern as Aircraft Fleet Profile */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <label
-              htmlFor="personnel-search"
-              className="block text-gray-700 mb-2 flex items-center gap-2"
-            >
-              <Search className="w-4 h-4 text-gray-500" />
-              Search Personnel
-            </label>
-            <div className="relative">
-              <input
-                id="personnel-search"
-                type="text"
-                placeholder="Search by name, auth number, position, or license"
-                value={searchTerm}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                aria-label="Search personnel"
-                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => handleSearchChange("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
-                  aria-label="Clear search"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="w-full md:w-56">
-            <label
-              htmlFor="personnel-position-filter"
-              className="block text-gray-700 mb-2 flex items-center gap-2"
-            >
-              <Filter className="w-4 h-4 text-gray-500" />
-              Filter by Position
-            </label>
-            <select
-              id="personnel-position-filter"
-              value={filterPosition}
-              onChange={(e) => handleFilterChange(e.target.value)}
-              aria-label="Filter by position"
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-            >
-              <option value="all">All Positions ({positionCounts.all})</option>
-              <option value="apmechanica">
-                A&P Mechanic A ({positionCounts.apmechanica || 0})
-              </option>
-              <option value="apmechanicc">
-                A&P Mechanic C ({positionCounts.apmechanicc || 0})
-              </option>
-              <option value="avionicsmechanicb">
-                Avionics Mechanic B ({positionCounts.avionicsmechanicb || 0})
-              </option>
-              <option value="maintenancemanager">
-                Maintenance Manager ({positionCounts.maintenancemanager || 0})
-              </option>
-              <option value="toolkeeperwarehousepersonnel">
-                Toolkeeper & Warehouse (
-                {positionCounts.toolkeeperwarehousepersonnel || 0})
-              </option>
-            </select>
-          </div>
-        </div>
       </div>
 
       {/* Personnel Table - separate card like Aircraft Fleet Profile */}
@@ -606,12 +657,10 @@ export function PersonnelAuthorization() {
                         clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
                       }}
                     ></span>
-                    HF TRAINING
+                    HF TRAINING TYPE TRAINING
                   </span>
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  TYPE TRAINING
-                  <br />
                   <span className="inline-flex items-center gap-1">
                     <span
                       className="inline-block w-2 h-2 bg-blue-600"
@@ -619,12 +668,10 @@ export function PersonnelAuthorization() {
                         clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
                       }}
                     ></span>
-                    CESSNA 150, 152, 172
+                    CESSNA 150, 152, 172 TYPE TRAINING
                   </span>
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  TYPE TRAINING
-                  <br />
                   <span className="inline-flex items-center gap-1">
                     <span
                       className="inline-block w-2 h-2 bg-blue-600"
@@ -641,8 +688,17 @@ export function PersonnelAuthorization() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {paginatedPersonnel.length > 0 ? (
-                paginatedPersonnel.map((person) => (
+              {listLoading ? (
+                <tr>
+                  <td colSpan={15} className="px-6 py-12 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
+                    <p className="text-gray-500 mt-2 text-sm">
+                      Loading personnel...
+                    </p>
+                  </td>
+                </tr>
+              ) : personnel.length > 0 ? (
+                personnel.map((person) => (
                   <tr
                     key={person.id}
                     className="hover:bg-gray-50 transition-colors"
@@ -685,7 +741,9 @@ export function PersonnelAuthorization() {
                       )}
                     </td>
                     <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
-                      {person.hfTrainingExpiry}
+                      {person.hfTrainingExpiry || (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
                       {person.typeTrainingCessna || (
@@ -736,7 +794,7 @@ export function PersonnelAuthorization() {
                     colSpan={15}
                     className="px-6 py-12 text-center text-gray-500"
                   >
-                    No personnel found matching your search criteria
+                    No personnel found
                   </td>
                 </tr>
               )}
@@ -744,84 +802,19 @@ export function PersonnelAuthorization() {
           </table>
         </div>
 
-        {/* Pagination - same pattern as Aircraft Fleet Profile */}
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-700">Items per page:</span>
-            <select
-              value={itemsPerPage}
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              aria-label="Items per page"
-              className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6"
-            >
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              let pageNum;
-              if (totalPages <= 5) {
-                pageNum = i + 1;
-              } else if (currentPage <= 3) {
-                pageNum = i + 1;
-              } else if (currentPage >= totalPages - 2) {
-                pageNum = totalPages - 4 + i;
-              } else {
-                pageNum = currentPage - 2 + i;
-              }
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors ${
-                    currentPage === pageNum
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              );
-            })}
-            {totalPages > 5 && currentPage < totalPages - 2 && (
-              <>
-                <span className="px-2 text-gray-500">...</span>
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage(totalPages)}
-                  className="min-w-[2rem] px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                >
-                  {totalPages}
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() =>
-                setCurrentPage(Math.min(totalPages, currentPage + 1))
-              }
-              disabled={currentPage === totalPages || totalPages === 0}
-              className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          totalItems={total}
+          totalLabel="personnel"
+          itemsPerPage={itemsPerPage}
+          onItemsPerPageChange={(size) => {
+            setItemsPerPage(size);
+            setCurrentPage(1);
+          }}
+          disabled={listLoading}
+        />
       </div>
 
       {/* View Personnel Details Modal */}
@@ -956,31 +949,157 @@ export function PersonnelAuthorization() {
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-6">
               <div className="space-y-4">
-                {/* Authorization Number - dynamic: select existing or enter new */}
+                {/* Authorization Number * - searchable dropdown select (case-insensitive, returns up to 10 options) */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Authorization Number <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    list="auth-number-list"
-                    value={createForm.authorizationNumber}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        authorizationNumber: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="Select number or enter new"
-                  />
-                  <datalist id="auth-number-list">
-                    {existingAuthNumbers.map((num) => (
-                      <option key={num} value={num} />
-                    ))}
-                  </datalist>
+                  <p className="text-xs text-gray-500 mb-1">
+                    Search or select from list (case-insensitive). Auto-fill:
+                    Name, Position, License No/Type, Authorization Initial DOI.
+                  </p>
+                  <div className="relative" ref={authDropdownRef}>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={
+                          isAuthDropdownOpen
+                            ? authStampSearchTerm
+                            : createForm.authorizationNumber
+                        }
+                        onChange={(e) => {
+                          setAuthStampSearchTerm(e.target.value);
+                          setIsAuthDropdownOpen(true);
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            authorizationNumber: e.target.value,
+                          }));
+                        }}
+                        onFocus={() => {
+                          setIsAuthDropdownOpen(true);
+                          setAuthStampSearchTerm(
+                            createForm.authorizationNumber
+                          );
+                        }}
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                        placeholder="Search or select Authorization Number..."
+                        aria-label="Authorization Number - search or select (case-insensitive)"
+                        aria-expanded={isAuthDropdownOpen}
+                        aria-haspopup="listbox"
+                        aria-controls="auth-stamp-listbox"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAuthDropdownOpen(!isAuthDropdownOpen);
+                          if (!isAuthDropdownOpen)
+                            setAuthStampSearchTerm(
+                              createForm.authorizationNumber
+                            );
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                        aria-label="Open Auth Stamp list"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform ${
+                            isAuthDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                    </div>
+                    {isAuthDropdownOpen && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                        <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-600 sticky top-0">
+                          Select from list (up to {AUTH_STAMP_LIST_LIMIT}{" "}
+                          results, search is case-insensitive)
+                        </div>
+                        {loadingAuthStamp ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center flex items-center justify-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Loading...
+                          </div>
+                        ) : authStampOptions.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            {authStampSearchTerm
+                              ? "No matches. Try different text (search is case-insensitive)."
+                              : "Type to search or wait for list..."}
+                          </div>
+                        ) : (
+                          <ul
+                            id="auth-stamp-listbox"
+                            className="py-1"
+                            role="listbox"
+                            aria-label="Auth Stamp list"
+                          >
+                            {authStampOptions.map((opt, idx) => (
+                              <li
+                                key={
+                                  opt.auth_stamp
+                                    ? `auth-${opt.auth_stamp}-${idx}`
+                                    : `auth-idx-${idx}`
+                                }
+                                role="option"
+                                onClick={async () => {
+                                  const initialDoiFromOption = toDateOnly(
+                                    opt.auth_initial_doi
+                                  );
+                                  setCreateForm((prev) => ({
+                                    ...prev,
+                                    accountInformationId:
+                                      opt.account_information_id,
+                                    authorizationNumber: opt.auth_stamp,
+                                    name: opt.full_name,
+                                    position: opt.designation,
+                                    licenseNoType: opt.license_no,
+                                    authInitialDOI:
+                                      initialDoiFromOption ||
+                                      prev.authInitialDOI,
+                                  }));
+                                  setAuthStampSearchTerm("");
+                                  setIsAuthDropdownOpen(false);
+                                  if (
+                                    !initialDoiFromOption &&
+                                    opt.account_information_id > 0
+                                  ) {
+                                    getAccountInformationById(
+                                      opt.account_information_id
+                                    )
+                                      .then((info) => {
+                                        const doi = toDateOnly(
+                                          info.auth_initial_doi
+                                        );
+                                        if (doi)
+                                          setCreateForm((prev) => ({
+                                            ...prev,
+                                            authInitialDOI: doi,
+                                          }));
+                                      })
+                                      .catch(() => {});
+                                  }
+                                }}
+                                className="px-4 py-2 cursor-pointer hover:bg-gray-100 text-sm text-gray-900"
+                              >
+                                <span className="font-medium">
+                                  {opt.auth_stamp}
+                                </span>
+                                <span className="text-gray-500 block text-xs">
+                                  {opt.full_name}
+                                  {opt.designation
+                                    ? ` · ${opt.designation}`
+                                    : ""}
+                                  {opt.license_no ? ` · ${opt.license_no}` : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
+                {/* Name, Position, and License are based on the Authorization Number selected above */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Name <span className="text-red-500">*</span>
@@ -988,15 +1107,17 @@ export function PersonnelAuthorization() {
                   <input
                     type="text"
                     value={createForm.name}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        name: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="Enter Name"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-900 text-sm cursor-default"
+                    placeholder="Select Authorization Number above"
+                    aria-describedby="name-from-auth-hint"
                   />
+                  <p
+                    id="name-from-auth-hint"
+                    className="text-xs text-gray-500 mt-0.5"
+                  >
+                    From selected Authorization Number
+                  </p>
                 </div>
 
                 <div>
@@ -1006,15 +1127,17 @@ export function PersonnelAuthorization() {
                   <input
                     type="text"
                     value={createForm.position}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        position: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="Enter Position"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-900 text-sm cursor-default"
+                    placeholder="Select Authorization Number above"
+                    aria-describedby="position-from-auth-hint"
                   />
+                  <p
+                    id="position-from-auth-hint"
+                    className="text-xs text-gray-500 mt-0.5"
+                  >
+                    From selected Authorization Number
+                  </p>
                 </div>
 
                 <div>
@@ -1024,15 +1147,17 @@ export function PersonnelAuthorization() {
                   <input
                     type="text"
                     value={createForm.licenseNoType}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        licenseNoType: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="Enter License No/Type"
+                    readOnly
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-900 text-sm cursor-default"
+                    placeholder="Select Authorization Number above"
+                    aria-describedby="license-from-auth-hint"
                   />
+                  <p
+                    id="license-from-auth-hint"
+                    className="text-xs text-gray-500 mt-0.5"
+                  >
+                    From selected Authorization Number
+                  </p>
                 </div>
 
                 <div>
@@ -1042,14 +1167,19 @@ export function PersonnelAuthorization() {
                   <input
                     type="date"
                     value={createForm.authInitialDOI}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        authInitialDOI: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    readOnly
+                    title="mm/dd/yyyy — From selected Authorization Number. Auto-filled (by-auth-stamp) when you select Authorization Number"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 text-gray-900 cursor-default [color-scheme:light]"
+                    placeholder="Select Authorization Number above"
+                    aria-describedby="auth-initial-doi-hint"
                   />
+                  <p
+                    id="auth-initial-doi-hint"
+                    className="text-xs text-gray-500 mt-0.5"
+                  >
+                    From selected Authorization Number
+                    <br />
+                  </p>
                 </div>
 
                 <div>
@@ -1075,7 +1205,7 @@ export function PersonnelAuthorization() {
                     Authorization Expiry Date
                   </label>
                   <input
-                    type="text"
+                    type="date"
                     value={createForm.authExpiryDate}
                     onChange={(e) =>
                       setCreateForm((prev) => ({
@@ -1083,80 +1213,112 @@ export function PersonnelAuthorization() {
                         authExpiryDate: e.target.value,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="REF. ISSUE DATE"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
                   />
                 </div>
 
-                {/* Authorization Scope (Cessna 150, 152, 172) */}
+                {/* Authorization Scope (Cessna 150, 152, 172) - value: id, display: label */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Authorization Scope (Cessna 150, 152, 172)
                   </label>
                   <select
-                    value={createForm.scopeCessna}
-                    onChange={(e) =>
+                    value={createForm.scopeCessnaId || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__create_new__") {
+                        setNewScopeType("cessna");
+                        setNewScopeValue("");
+                        setShowNewScopeModal(true);
+                        return;
+                      }
                       setCreateForm((prev) => ({
                         ...prev,
-                        scopeCessna: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                        scopeCessnaId: v ? Number(v) : 0,
+                      }));
+                    }}
+                    disabled={scopeListsLoading}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
                   >
-                    <option value="">Select Scope</option>
-                    {SCOPE_CESSNA_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
+                    <option value="">
+                      {scopeListsLoading ? "Loading..." : "Select Scope"}
+                    </option>
+                    {scopeCessnaOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
                       </option>
                     ))}
+                    <option value="__create_new__">— Create New —</option>
                   </select>
                 </div>
 
-                {/* Authorization Scope (Baron 95-C55) */}
+                {/* Authorization Scope (Baron 95-C55) - value: id, display: label */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Authorization Scope (Baron 95-C55)
                   </label>
                   <select
-                    value={createForm.scopeBaron}
-                    onChange={(e) =>
+                    value={createForm.scopeBaronId || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__create_new__") {
+                        setNewScopeType("baron");
+                        setNewScopeValue("");
+                        setShowNewScopeModal(true);
+                        return;
+                      }
                       setCreateForm((prev) => ({
                         ...prev,
-                        scopeBaron: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                        scopeBaronId: v ? Number(v) : 0,
+                      }));
+                    }}
+                    disabled={scopeListsLoading}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
                   >
-                    <option value="">Select Scope</option>
-                    {SCOPE_BARON_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
+                    <option value="">
+                      {scopeListsLoading ? "Loading..." : "Select Scope"}
+                    </option>
+                    {scopeBaronOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
                       </option>
                     ))}
+                    <option value="__create_new__">— Create New —</option>
                   </select>
                 </div>
 
-                {/* Authorization Scope (Others) */}
+                {/* Authorization Scope (Others) - value: id, display: label */}
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Authorization Scope (Others)
                   </label>
                   <select
-                    value={createForm.scopeOthers}
-                    onChange={(e) =>
+                    value={createForm.scopeOthersId || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__create_new__") {
+                        setNewScopeType("others");
+                        setNewScopeValue("");
+                        setShowNewScopeModal(true);
+                        return;
+                      }
                       setCreateForm((prev) => ({
                         ...prev,
-                        scopeOthers: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                        scopeOthersId: v ? Number(v) : 0,
+                      }));
+                    }}
+                    disabled={scopeListsLoading}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
                   >
-                    <option value="">Select Scope</option>
-                    {SCOPE_OTHERS_OPTIONS.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
+                    <option value="">
+                      {scopeListsLoading ? "Loading..." : "Select Scope"}
+                    </option>
+                    {scopeOthersOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
                       </option>
                     ))}
+                    <option value="__create_new__">— Create New —</option>
                   </select>
                 </div>
 
@@ -1227,25 +1389,6 @@ export function PersonnelAuthorization() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Web Link
-                  </label>
-                  <input
-                    type="url"
-                    value={createForm.webLink}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        webLink: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    placeholder="Enter Web Link"
-                  />
-                </div>
-
               </div>
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
@@ -1257,14 +1400,112 @@ export function PersonnelAuthorization() {
                 Cancel
               </button>
               <button
-                type="submit"
+                type="button"
                 onClick={handleCreateSubmit}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                disabled={saving}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm inline-flex items-center justify-center gap-2"
               >
-                Save
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save"
+                )}
               </button>
             </div>
           </div>
+
+          {/* Add New Scope - pops up on top of Personnel Authorization modal */}
+          {showNewScopeModal && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <div
+                className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+                onClick={() => {
+                  if (!addingScope) {
+                    setShowNewScopeModal(false);
+                    setNewScopeValue("");
+                  }
+                }}
+                aria-hidden
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="new-scope-title"
+                className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                  <h2
+                    id="new-scope-title"
+                    className="text-lg font-semibold text-gray-900"
+                  >
+                    Add New Scope
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!addingScope) {
+                        setShowNewScopeModal(false);
+                        setNewScopeValue("");
+                      }
+                    }}
+                    className="p-1 hover:bg-gray-100 rounded"
+                  >
+                    <X className="w-5 h-5 text-gray-600" />
+                  </button>
+                </div>
+                <div className="px-6 py-4 space-y-3">
+                  <p className="text-sm text-gray-600">
+                    {newScopeType === "cessna" &&
+                      "Authorization Scope (Cessna 150, 152, 172)"}
+                    {newScopeType === "baron" &&
+                      "Authorization Scope (Baron 95-C55)"}
+                    {newScopeType === "others" &&
+                      "Authorization Scope (Others)"}
+                  </p>
+                  <label className="block text-gray-700 text-sm mb-1">
+                    Scope value
+                  </label>
+                  <input
+                    type="text"
+                    value={newScopeValue}
+                    onChange={(e) => setNewScopeValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    placeholder="Enter scope value"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!addingScope) {
+                        setShowNewScopeModal(false);
+                        setNewScopeValue("");
+                      }
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setAddingScope(true);
+                      await handleAddNewScope();
+                      setAddingScope(false);
+                    }}
+                    disabled={!newScopeValue.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
