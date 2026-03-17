@@ -688,7 +688,7 @@ export function TCCDetailContent({
                     className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200"
                     title="sequence_number"
                   >
-                    Sequence No
+                    atl reference
                   </th>
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
                     Actions

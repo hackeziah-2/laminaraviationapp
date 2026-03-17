@@ -2625,61 +2625,8 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             </div>
 
-            {/* Hobbs Meter & Tachometer */}
+            {/* Tachometer & Hobbs Meter */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Hobbs Meter */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Start
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.hobbsMeterStart}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            hobbsMeterStart: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        End
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.hobbsMeterEnd}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            hobbsMeterEnd: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Total
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.hobbsMeterTotal}
-                      readOnly
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Tachometer */}
               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                 <h3 className="text-gray-900 mb-3">Tachometer</h3>
@@ -2725,6 +2672,59 @@ export function AddTechnicalLogbookEntryModal({
                     <input
                       type="text"
                       value={formData.tachometerTotal}
+                      readOnly
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Hobbs Meter */}
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Start
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.hobbsMeterStart}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            hobbsMeterStart: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        End
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.hobbsMeterEnd}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            hobbsMeterEnd: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-1">
+                      Total
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.hobbsMeterTotal}
                       readOnly
                       disabled
                       className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
