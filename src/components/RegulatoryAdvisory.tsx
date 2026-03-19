@@ -5,6 +5,7 @@ import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   getAdvisoryPaged,
   renewAdvisory,
+  withholdAdvisory,
   type AdvisoryItem,
   type AdvisorySortBy,
   type AdvisorySortOrder,
@@ -32,6 +33,7 @@ export function RegulatoryAdvisory() {
     regulatory_compliance?: string;
   } | null>(null);
   const [renewSubmitting, setRenewSubmitting] = useState(false);
+  const [withholdSubmitting, setWithholdSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -399,6 +401,7 @@ export function RegulatoryAdvisory() {
                           </button>
                           <button
                             type="button"
+                            disabled={withholdSubmitting}
                             onClick={async (e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -414,10 +417,53 @@ export function RegulatoryAdvisory() {
                                 cancelButtonText: "Cancel",
                               });
                               if (result.isConfirmed) {
-                                // WITHHOLD action – wire to API or modal as needed
+                                setWithholdSubmitting(true);
+                                try {
+                                  await withholdAdvisory(
+                                    advisory.id,
+                                    advisory.regulatory_compliance
+                                  );
+                                  await Swal.fire({
+                                    icon: "success",
+                                    title: "Withheld",
+                                    text: "Advisory has been withheld successfully.",
+                                    timer: 2000,
+                                    showConfirmButton: false,
+                                  });
+                                  const typeParam =
+                                    filterType === "all" ? undefined : filterType;
+                                  getAdvisoryPaged(
+                                    currentPage,
+                                    itemsPerPage,
+                                    searchTerm,
+                                    typeParam,
+                                    sortBy,
+                                    sortOrder
+                                  )
+                                    .then((res) => {
+                                      setItems(res.items);
+                                      setTotal(res.total);
+                                      setTotalPages(res.pages);
+                                    })
+                                    .catch(() => {});
+                                } catch (err: unknown) {
+                                  const message =
+                                    (err as {
+                                      response?: { data?: { detail?: string } };
+                                    })?.response?.data?.detail ??
+                                    (err as Error)?.message ??
+                                    "Failed to withhold advisory";
+                                  await Swal.fire({
+                                    icon: "error",
+                                    title: "Error",
+                                    text: message,
+                                  });
+                                } finally {
+                                  setWithholdSubmitting(false);
+                                }
                               }
                             }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:pointer-events-none"
                             title="Withhold"
                           >
                             WITHHOLD

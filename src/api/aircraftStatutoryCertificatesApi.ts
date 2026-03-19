@@ -20,7 +20,7 @@ function deepToCamel(obj: unknown): unknown {
 function normalizeItem(raw: Record<string, unknown> | null | undefined): AircraftStatutoryCertificate {
   if (raw == null || typeof raw !== "object") {
     return {
-      id: 0,
+    id: 0,
       registration: "",
       makeModel: "",
       msn: "",
@@ -30,6 +30,7 @@ function normalizeItem(raw: Record<string, unknown> | null | undefined): Aircraf
       expiryDate: null,
       createdAt: null,
       updatedAt: null,
+      isWithhold: false,
     };
   }
   const c = (deepToCamel(raw) as Record<string, unknown>) ?? {};
@@ -54,6 +55,7 @@ function normalizeItem(raw: Record<string, unknown> | null | undefined): Aircraf
     expiryDate: (c.expiryDate ?? (c as any).dateOfExpiration ?? item.expiry_date ?? item.date_of_expiration) ? String(c.expiryDate ?? (c as any).dateOfExpiration ?? item.expiry_date ?? item.date_of_expiration) : null,
     createdAt: (c.createdAt ?? item.created_at) ? String(c.createdAt ?? item.created_at) : null,
     updatedAt: (c.updatedAt ?? item.updated_at) ? String(c.updatedAt ?? item.updated_at) : null,
+    isWithhold: Boolean(c.isWithhold ?? item.is_withhold ?? false),
   };
 }
 
@@ -77,6 +79,7 @@ export interface AircraftStatutoryCertificate {
   expiryDate?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  isWithhold?: boolean;
 }
 
 export interface AircraftStatutoryCertificateCreate {

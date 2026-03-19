@@ -518,32 +518,36 @@ export function OrganizationalApprovals() {
                   </td>
                 </tr>
               ) : paginatedApprovals.length > 0 ? (
-                paginatedApprovals.map((approval) => (
+                paginatedApprovals.map((approval) => {
+                  const isWithhold = approval.isWithhold ?? (approval as { is_withhold?: boolean }).is_withhold ?? false;
+                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  return (
                   <tr
                     key={approval.id}
-                    className="hover:bg-gray-50 transition-colors"
+                    className={`${rowBg} transition-colors`}
                   >
-                    <td className="px-6 py-3.5 text-gray-900 font-medium">
+                    <td className={`${cellClass} font-medium`}>
                       {approval.approvalTypeName ?? approval.certificate}
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900">
+                    <td className={cellClass}>
                       {approval.number || (
-                        <span className="text-gray-400">—</span>
+                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                       )}
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900">
+                    <td className={cellClass}>
                       {formatExpiryDisplay(
                         approval.expiryDate ?? approval.expiry
                       )}
                     </td>
-                    <td className="px-6 py-3.5">
+                    <td className={cellClass}>
                       {approval.fileLink && approval.fileLink !== "#" ? (
                         <LinkButton href={approval.fileLink} />
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                       )}
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap">
+                    <td className={`${cellClass} whitespace-nowrap`}>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -575,7 +579,8 @@ export function OrganizationalApprovals() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               ) : (
                 <tr>
                   <td

@@ -33,6 +33,7 @@ export interface PersonnelAuthorizationRecord {
   hfTrainingExpiry: string;
   typeTrainingCessna: string;
   typeTrainingBaron: string;
+  isWithhold?: boolean;
 }
 
 /** Create payload (snake_case for API). Scope fields are IDs (0 or id). */
@@ -186,6 +187,7 @@ function normalizeItem(
       hfTrainingExpiry: "",
       typeTrainingCessna: "",
       typeTrainingBaron: "",
+      isWithhold: false,
     };
   }
   const id = Number(raw.id ?? 0);
@@ -233,6 +235,7 @@ function normalizeItem(
     hfTrainingExpiry: getStr(raw, "hfTrainingExpiry", "human_factors_training_expiry", "hf_training_expiry"),
     typeTrainingCessna: getStr(raw, "typeTrainingCessna", "type_training_expiry_cessna", "type_training_cessna"),
     typeTrainingBaron: getStr(raw, "typeTrainingBaron", "type_training_expiry_baron", "type_training_baron"),
+    isWithhold: Boolean((raw as any).is_withhold ?? (raw as any).isWithhold ?? false),
   };
 }
 

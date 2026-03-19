@@ -729,27 +729,30 @@ export function AircraftStatutoryCertificates() {
                   ) : (
                     filteredCertificates.map((cert, index) => {
                       const certId = getCertId(cert);
+                      const isWithhold = (cert as CertificateType).isWithhold ?? (cert as { is_withhold?: boolean }).is_withhold ?? false;
+                      const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
+                      const cellClass = `px-6 py-4 whitespace-nowrap text-sm ${isWithhold ? "text-red-900" : "text-gray-900"}`;
                       return (
                         <tr
                           key={certId ?? `cert-${index}`}
-                          className="hover:bg-gray-50"
+                          className={rowBg}
                         >
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className={cellClass}>
                             {getRegistration(cert)}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className={cellClass}>
                             {getMakeModel(cert)}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className={cellClass}>
                             {getMsn(cert)}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className={cellClass}>
                             {getCertificateTypeLabel(cert.certificateType)}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <td className={cellClass}>
                             {formatExpiry(cert.expiryDate)}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <td className={cellClass}>
                             {(cert as any).webLink ?? (cert as any).web_link ? (
                               <LinkButton
                                 href={
@@ -757,10 +760,10 @@ export function AircraftStatutoryCertificates() {
                                 }
                               />
                             ) : (
-                              <span className="text-gray-400">—</span>
+                              <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                             )}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <td className={cellClass}>
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"

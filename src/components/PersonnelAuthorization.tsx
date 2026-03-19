@@ -698,64 +698,70 @@ export function PersonnelAuthorization() {
                   </td>
                 </tr>
               ) : personnel.length > 0 ? (
-                personnel.map((person) => (
+                personnel.map((person) => {
+                  const isWithhold = person.isWithhold ?? (person as { is_withhold?: boolean }).is_withhold ?? false;
+                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
+                  const cellClass = `px-3 py-3 whitespace-nowrap ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  const cellClassNoWrap = `px-3 py-3 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  const placeholderClass = isWithhold ? "text-red-600" : "text-gray-400";
+                  return (
                   <tr
                     key={person.id}
-                    className="hover:bg-gray-50 transition-colors"
+                    className={`${rowBg} transition-colors`}
                   >
-                    <td className="px-3 py-3 text-gray-900 font-medium whitespace-nowrap">
+                    <td className={`${cellClass} font-medium`}>
                       {person.authorizationNo}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 font-medium">
+                    <td className={`${cellClassNoWrap} font-medium`}>
                       {person.name}
                     </td>
-                    <td className="px-3 py-3 text-gray-900">
+                    <td className={cellClassNoWrap}>
                       {person.position}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.licNoType || (
-                        <span className="text-gray-400">—</span>
+                        <span className={placeholderClass}>—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.authInitialDOI}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.authIssueDate}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.authExpiryDate}
                     </td>
-                    <td className="px-3 py-3 text-gray-900">
+                    <td className={cellClassNoWrap}>
                       {person.scopeCessna}
                     </td>
-                    <td className="px-3 py-3 text-gray-900">
+                    <td className={cellClassNoWrap}>
                       {person.scopeBaron}
                     </td>
-                    <td className="px-3 py-3 text-gray-900">
+                    <td className={cellClassNoWrap}>
                       {person.scopeOthers}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.caapLicExpiry || (
-                        <span className="text-gray-400">—</span>
+                        <span className={placeholderClass}>—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.hfTrainingExpiry || (
-                        <span className="text-gray-400">—</span>
+                        <span className={placeholderClass}>—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.typeTrainingCessna || (
-                        <span className="text-gray-400">—</span>
+                        <span className={placeholderClass}>—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-gray-900 whitespace-nowrap">
+                    <td className={cellClass}>
                       {person.typeTrainingBaron || (
-                        <span className="text-gray-400">—</span>
+                        <span className={placeholderClass}>—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
+                    <td className={`${cellClassNoWrap} whitespace-nowrap`}>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -787,7 +793,8 @@ export function PersonnelAuthorization() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               ) : (
                 <tr>
                   <td

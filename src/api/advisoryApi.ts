@@ -279,3 +279,16 @@ export async function renewAdvisory(
   if (payload.category_type) body.category_type = payload.category_type;
   await apiClient.put(`advisory/${id}/${encodeURIComponent(expiry)}/`, body);
 }
+
+/**
+ * Withhold advisory: POST /api/v1/advisory/withhold/{id}/regulatory_compliance
+ * Body: { regulatory_compliance? } (optional)
+ */
+export async function withholdAdvisory(
+  id: number | string,
+  regulatoryCompliance?: string
+): Promise<void> {
+  await apiClient.put(
+    `advisory/withhold/${id}/${regulatoryCompliance}`
+  );
+}

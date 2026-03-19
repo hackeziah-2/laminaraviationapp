@@ -22,6 +22,7 @@ export interface OrganizationalApproval {
   webLink?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  isWithhold?: boolean;
 }
 
 /** Create payload: api/v1/organizational-approvals/ */
@@ -80,6 +81,7 @@ function normalizeItem(
       number: "",
       expiry: "",
       fileLink: "#",
+      isWithhold: false,
     };
   }
   const c = toCamel(raw as Record<string, any>) as Record<string, unknown>;
@@ -131,6 +133,7 @@ function normalizeItem(
       (c.updatedAt ?? raw.updated_at) != null
         ? String(c.updatedAt ?? raw.updated_at)
         : null,
+    isWithhold: Boolean((c as any).isWithhold ?? (raw as any).is_withhold ?? false),
   };
 }
 
