@@ -9,7 +9,6 @@ import {
   ChevronDown,
   X,
   FileText,
-  FolderOpen,
   Award,
   Settings,
   LogOut,
@@ -77,20 +76,6 @@ const MENU_ITEMS: SidebarMenuItem[] = [
     label: "Aircraft Technical Logbook",
     icon: FileText,
     path: "/technical-logbook",
-  },
-  {
-    id: "document-on-board",
-    moduleCode: "document_on_board" as const,
-    label: "Document On Board",
-    icon: FolderOpen,
-    path: "/document-on-board",
-  },
-  {
-    id: "certificate-monitoring",
-    moduleCode: "certificate-monitoring" as const,
-    label: "Certificate Monitoring",
-    icon: Award,
-    path: "/certificate-monitoring",
   },
   {
     id: "regulatory-compliance",

@@ -428,7 +428,11 @@ export function AircraftFleetProfile() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error("Failed to generate report:", err);
-      alert(err.message || "Error generating report");
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.message || "Error generating report",
+      });
     } finally {
       // setLoading(false);
     }

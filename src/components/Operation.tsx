@@ -87,11 +87,14 @@ export function Operation() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error("Download error:", err);
-      alert(
-        err?.response?.data?.detail ||
+      await Swal.fire({
+        icon: "error",
+        title: "Download failed",
+        text:
+          err?.response?.data?.detail ||
           err?.message ||
-          "Failed to download file."
-      );
+          "Failed to download file.",
+      });
     }
   };
 
@@ -209,19 +212,22 @@ export function Operation() {
     const run =
       computed?.airframeRunTime != null
         ? Number(computed.airframeRunTime).toFixed(2)
-        : (r as any).airframe?.hrsTime != null || (r as any).airframe?.run != null
-          ? toFormat2(Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run))
-          : r.airframeRunTime != null || r.airframeTotalTime != null
-            ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
-            : (r as any).airframeRun != null
-              ? toFormat2(Number((r as any).airframeRun))
-              : "-";
+        : (r as any).airframe?.hrsTime != null ||
+          (r as any).airframe?.run != null
+        ? toFormat2(
+            Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run)
+          )
+        : r.airframeRunTime != null || r.airframeTotalTime != null
+        ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
+        : (r as any).airframeRun != null
+        ? toFormat2(Number((r as any).airframeRun))
+        : "-";
     const aftt =
       computed?.airframeAftt != null
         ? Number(computed.airframeAftt).toFixed(2)
         : r.airframeAftt != null || (r as any).airframeTotalTime != null
-          ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
-          : "-";
+        ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
+        : "-";
     return `${run} / ${aftt}`;
   };
   const getEngineDisplay = (
@@ -232,30 +238,32 @@ export function Operation() {
       computed?.engineRunTime != null
         ? Number(computed.engineRunTime).toFixed(2)
         : (r as any).engine?.hrsTime != null || (r as any).engine?.run != null
-          ? toFormat2(Number((r as any).engine?.hrsTime ?? (r as any).engine?.run))
-          : r.engineRunTime != null || r.engineTotalTime != null
-            ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
-            : (r as any).engineRun != null
-              ? toFormat2(Number((r as any).engineRun))
-              : "-";
+        ? toFormat2(
+            Number((r as any).engine?.hrsTime ?? (r as any).engine?.run)
+          )
+        : r.engineRunTime != null || r.engineTotalTime != null
+        ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
+        : (r as any).engineRun != null
+        ? toFormat2(Number((r as any).engineRun))
+        : "-";
     const tsn =
       computed?.engineTsn != null
         ? Number(computed.engineTsn).toFixed(2)
         : (r as any).engine?.tsn != null || r.engineTsn != null
-          ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
-          : "-";
+        ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
+        : "-";
     const tso =
       computed?.engineTso != null
         ? Number(computed.engineTso).toFixed(2)
         : (r as any).engine?.tso != null || r.engineTso != null
-          ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
-          : "-";
+        ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
+        : "-";
     const tbo =
       computed?.engineTbo != null
         ? Number(computed.engineTbo).toFixed(2)
         : (r as any).engine?.tbo != null || r.engineTbo != null
-          ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
-          : "-";
+        ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
+        : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
   const getPropellerDisplay = (
@@ -265,31 +273,34 @@ export function Operation() {
     const run =
       computed?.propellerRunTime != null
         ? Number(computed.propellerRunTime).toFixed(2)
-        : (r as any).propeller?.hrsTime != null || (r as any).propeller?.run != null
-          ? toFormat2(Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run))
-          : r.propellerRunTime != null || r.propellerTotalTime != null
-            ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
-            : (r as any).propellerRun != null
-              ? toFormat2(Number((r as any).propellerRun))
-              : "-";
+        : (r as any).propeller?.hrsTime != null ||
+          (r as any).propeller?.run != null
+        ? toFormat2(
+            Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run)
+          )
+        : r.propellerRunTime != null || r.propellerTotalTime != null
+        ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
+        : (r as any).propellerRun != null
+        ? toFormat2(Number((r as any).propellerRun))
+        : "-";
     const tsn =
       computed?.propellerTsn != null
         ? Number(computed.propellerTsn).toFixed(2)
         : (r as any).propeller?.tsn != null || r.propellerTsn != null
-          ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
-          : "-";
+        ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
+        : "-";
     const tso =
       computed?.propellerTso != null
         ? Number(computed.propellerTso).toFixed(2)
         : (r as any).propeller?.tso != null || r.propellerTso != null
-          ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
-          : "-";
+        ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
+        : "-";
     const tbo =
       computed?.propellerTbo != null
         ? Number(computed.propellerTbo).toFixed(2)
         : (r as any).propeller?.tbo != null || r.propellerTbo != null
-          ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
-          : "-";
+        ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
+        : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
 
@@ -425,8 +436,7 @@ export function Operation() {
       let airframeAftt: number | null;
       if (i === 0) {
         airframeAftt =
-          toNum(r.airframeAftt) ??
-          (airframeRun != null ? airframeRun : null);
+          toNum(r.airframeAftt) ?? (airframeRun != null ? airframeRun : null);
       } else {
         const prev = list[i - 1];
         airframeAftt =
@@ -501,9 +511,13 @@ export function Operation() {
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
     console.log("Adding record to reliability tracking:", record);
-    alert(
-      `Record #${record.sequenceNo ?? record.id} added to reliability tracking`
-    );
+    Swal.fire({
+      icon: "success",
+      title: "Added",
+      text: `Record #${record.sequenceNo ?? record.id} added to reliability tracking`,
+      timer: 2000,
+      showConfirmButton: false,
+    });
   };
 
   const handleSeeReliability = (record: AircraftTechnicalLog) => {
@@ -683,7 +697,9 @@ export function Operation() {
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Refresh list and recalculate computed values"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                />
                 <span className="hidden sm:inline">Refresh</span>
               </button>
               <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
@@ -709,8 +725,12 @@ export function Operation() {
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Import Aircraft Technical Log from Excel"
               >
-                <Upload className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`} />
-                <span className="hidden sm:inline">{importLoading ? "Importing…" : "Import"}</span>
+                <Upload
+                  className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
+                />
+                <span className="hidden sm:inline">
+                  {importLoading ? "Importing…" : "Import"}
+                </span>
               </button>
               <button
                 onClick={() => {
@@ -1335,7 +1355,8 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
                                     computedEnginePropellerList[rowIndex]
-                                      ?.airframeRunTime ?? record.airframeRunTime
+                                      ?.airframeRunTime ??
+                                      record.airframeRunTime
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
@@ -1371,7 +1392,8 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
                                     computedEnginePropellerList[rowIndex]
-                                      ?.propellerRunTime ?? record.propellerRunTime
+                                      ?.propellerRunTime ??
+                                      record.propellerRunTime
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
@@ -1830,27 +1852,54 @@ export function Operation() {
                   </div>
                 )}
 
-                {/* Maintenance Planning */}
+                {/* Maintenance Planning — separate columns: OFF BLOCKS, ON BLOCKS, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
                 {groupBy === "maintenancePlanning" && (
                   <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
-                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th className={`${STICKY_SEQ_CLASS} rounded-tl-lg`}>
+                            ATL SEQ
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             NATURE OF FLIGHT
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            OFF BLOCKS / ON BLOCKS
+
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DATE | OFF BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME (RUN / AFTT)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DATE | ON BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE (RUN / TSN / TSO / TBO)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME RUN
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER (RUN / TSN / TSO / TBO)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME AFTT
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE RUN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TSN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TSO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TBO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER RUN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER TSN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER TSO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap rounded-tr-lg">
+                            PROPELLER TBO
                           </th>
                         </tr>
                       </thead>
@@ -1858,98 +1907,162 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={6}
+                              colSpan={16}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
-                              <td className={STICKY_SEQ_CELL_CLASS}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">
-                                    {record.sequenceNo || "-"}
-                                  </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowViewModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      View
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                          paginatedRecords.map((record, rowIndex) => {
+                            const comp = computedEnginePropellerList[rowIndex];
+                            return (
+                              <tr key={record.id} className="hover:bg-gray-50">
+                                <td className={STICKY_SEQ_CELL_CLASS}>
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">
+                                      {record.sequenceNo || "-"}
+                                    </span>
+                                    <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedEntry(record);
+                                          setShowViewModal(true);
+                                        }}
+                                        className="hover:underline text-xs"
+                                      >
+                                        View
+                                      </button>
+                                      <span className="text-gray-400">|</span>
+                                      <button
+                                        onClick={() => {
+                                          setSelectedEntry(record);
+                                          setShowEditModal(true);
+                                        }}
+                                        className="hover:underline text-xs"
+                                      >
+                                        Edit
+                                      </button>
+                                      <span className="text-gray-400">|</span>
+                                      <button
+                                        onClick={() => handleDeleteAtl(record)}
+                                        className="text-red-600 hover:underline text-xs"
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.originDate
-                                  ? new Date(record.originDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}{" "}
-                                /{" "}
-                                {record.destinationDate
-                                  ? new Date(record.destinationDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getEngineDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-sm">
-                                {getPropellerDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                            </tr>
-                          ))
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {record.natureOfFlight === "VOID"
+                                    ? "VOID"
+                                    : record.natureOfFlight?.trim()
+                                    ? record.natureOfFlight
+                                    : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                  {record.originDate
+                                    ? new Date(record.originDate)
+                                        .toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })
+                                        .replace(/ /g, "-")
+                                    : "-"}
+                                  {record.originTime
+                                    ? ` ${formatTimeZulu(record.originTime)}`
+                                    : ""}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                  {record.destinationDate
+                                    ? new Date(record.destinationDate)
+                                        .toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })
+                                        .replace(/ /g, "-")
+                                    : "-"}
+                                  {record.destinationTime
+                                    ? ` ${formatTimeZulu(
+                                        record.destinationTime
+                                      )}`
+                                    : ""}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.airframeRunTime != null
+                                    ? toFormat2(comp.airframeRunTime)
+                                    : getAirframeDisplay(record, comp)?.split(
+                                        " / "
+                                      )?.[0] ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.airframeAftt != null
+                                    ? toFormat2(comp.airframeAftt)
+                                    : getAirframeDisplay(record, comp)?.split(
+                                        " / "
+                                      )?.[1] ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineRunTime != null
+                                    ? toFormat2(comp.engineRunTime)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[0]
+                                        ?.replace("RUN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineTsn != null
+                                    ? toFormat2(comp.engineTsn)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[1]
+                                        ?.replace("TSN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineTso != null
+                                    ? toFormat2(comp.engineTso)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[2]
+                                        ?.replace("TSO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineTbo != null
+                                    ? toFormat2(comp.engineTbo)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[3]
+                                        ?.replace("TBO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.propellerRunTime != null
+                                    ? toFormat2(comp.propellerRunTime)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[0]
+                                        ?.replace("RUN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.propellerTsn != null
+                                    ? toFormat2(comp.propellerTsn)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[1]
+                                        ?.replace("TSN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.propellerTso != null
+                                    ? toFormat2(comp.propellerTso)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[2]
+                                        ?.replace("TSO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm">
+                                  {comp?.propellerTbo != null
+                                    ? toFormat2(comp.propellerTbo)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[3]
+                                        ?.replace("TBO ", "") ?? "-"}
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>

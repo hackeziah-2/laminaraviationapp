@@ -16,6 +16,7 @@ export interface OemTechnicalPublication {
   expiry?: string;
   linkToManual: string;
   webLink?: string | null;
+  isWithhold?: boolean;
 }
 
 /** Item type option for dropdowns. */
@@ -63,6 +64,7 @@ function normalizePublication(
       categoryType: null,
       dateOfExpiration: null,
       linkToManual: "#",
+      isWithhold: false,
     };
   }
   const c = toCamel(raw as Record<string, any>) as Record<string, unknown>;
@@ -105,6 +107,7 @@ function normalizePublication(
     expiry: expiryStr,
     linkToManual,
     webLink: linkToManual !== "#" ? linkToManual : null,
+    isWithhold: Boolean((c as any).isWithhold ?? (raw as any).is_withhold ?? false),
   };
 }
 

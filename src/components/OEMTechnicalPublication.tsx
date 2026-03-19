@@ -4,13 +4,14 @@ import {
   Plus,
   Download,
   Filter,
-  ExternalLink,
   X,
+  Eye,
   Pencil,
   Trash2,
   Loader2,
 } from "lucide-react";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { LinkButton } from "./ui/LinkButton";
 import Swal from "sweetalert2";
 import {
   getOemPublicationsPaged,
@@ -67,9 +68,12 @@ export function OEMTechnicalPublication() {
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [sortBy, setSortBy] = useState<OemPublicationSortBy>("date_of_expiration");
+  const [sortBy, setSortBy] =
+    useState<OemPublicationSortBy>("date_of_expiration");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [viewingPublication, setViewingPublication] =
+    useState<OemTechnicalPublication | null>(null);
   const [editingPublication, setEditingPublication] =
     useState<OemTechnicalPublication | null>(null);
   const [addForm, setAddForm] = useState({
@@ -83,7 +87,9 @@ export function OEMTechnicalPublication() {
   const [newItemTypeName, setNewItemTypeName] = useState("");
   const [creatingItemType, setCreatingItemType] = useState(false);
 
-  const [publications, setPublications] = useState<OemTechnicalPublication[]>([]);
+  const [publications, setPublications] = useState<OemTechnicalPublication[]>(
+    []
+  );
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -135,6 +141,10 @@ export function OEMTechnicalPublication() {
     setAddForm({ itemFk: 0, categoryType: "", expiryDate: "", assignLink: "" });
     setShowAddModal(true);
     getOemItemTypesList().then(setItemTypes);
+  };
+
+  const openViewModal = (pub: OemTechnicalPublication) => {
+    setViewingPublication(pub);
   };
 
   const openViewEditModal = (pub: OemTechnicalPublication) => {
@@ -227,11 +237,14 @@ export function OEMTechnicalPublication() {
     }
     setCreatingItemType(true);
     try {
-      await createOemItemType({ name });
+      const created = await createOemItemType({ name });
       const list = await getOemItemTypesList();
       setItemTypes(list);
       setShowAddItemTypeModal(false);
       setNewItemTypeName("");
+      if (showAddModal) {
+        setAddForm((prev) => ({ ...prev, itemFk: created.id }));
+      }
       await Swal.fire({
         icon: "success",
         title: "Item type created",
@@ -336,17 +349,6 @@ export function OEMTechnicalPublication() {
           <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowAddItemTypeModal(true);
-              setNewItemTypeName("");
-            }}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Item Type</span>
           </button>
           <button
             onClick={openAddModal}
@@ -470,47 +472,54 @@ export function OEMTechnicalPublication() {
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
-                    <p className="text-gray-500 mt-2 text-sm">Loading publications...</p>
+                    <p className="text-gray-500 mt-2 text-sm">
+                      Loading publications...
+                    </p>
                   </td>
                 </tr>
               ) : paginatedPublications.length > 0 ? (
-                paginatedPublications.map((pub) => (
+                paginatedPublications.map((pub) => {
+                  const isWithhold = pub.isWithhold ?? (pub as { is_withhold?: boolean }).is_withhold ?? false;
+                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  return (
                   <tr
                     key={pub.id}
-                    className="hover:bg-gray-50 transition-colors"
+                    className={`${rowBg} transition-colors`}
                   >
-                    <td className="px-6 py-3.5 text-gray-900 font-medium">
+                    <td className={`${cellClass} font-medium`}>
                       {pub.itemName || pub.itemFk}
                     </td>
                     <td className="px-6 py-3.5">
                       <span
                         className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(
                           pub.categoryType ?? pub.type
-                        )}`}
+                        )} ${isWithhold ? "bg-red-200 text-red-900" : ""}`}
                       >
                         {getCategoryTypeLabel(pub.categoryType ?? pub.type)}
                       </span>
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900">
+                    <td className={cellClass}>
                       {formatExpiryDisplay(pub.dateOfExpiration ?? pub.expiry)}
                     </td>
-                    <td className="px-6 py-3.5">
+                    <td className={cellClass}>
                       {pub.linkToManual && pub.linkToManual !== "#" ? (
-                        <a
-                          href={pub.linkToManual}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
-                        >
-                          [LINK]
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <LinkButton href={pub.linkToManual} />
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                       )}
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap">
+                    <td className={`${cellClass} whitespace-nowrap`}>
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openViewModal(pub)}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                          title="View Publication"
+                          aria-label="View"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
                         <button
                           type="button"
                           onClick={() => openViewEditModal(pub)}
@@ -532,7 +541,8 @@ export function OEMTechnicalPublication() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               ) : (
                 <tr>
                   <td
@@ -561,6 +571,88 @@ export function OEMTechnicalPublication() {
           disabled={loading}
         />
       </div>
+
+      {/* View Publication Modal */}
+      {viewingPublication && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            onClick={() => setViewingPublication(null)}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                View Publication
+              </h2>
+              <button
+                type="button"
+                onClick={() => setViewingPublication(null)}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+              <div>
+                <span className="block text-gray-500 text-sm mb-0.5">
+                  Item Type
+                </span>
+                <span className="text-gray-900 text-sm">
+                  {viewingPublication.itemName ??
+                    viewingPublication.itemFk ??
+                    "—"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-gray-500 text-sm mb-0.5">
+                  Category Type
+                </span>
+                <span className="text-gray-900 text-sm">
+                  {getCategoryTypeLabel(
+                    viewingPublication.categoryType ??
+                      (viewingPublication as any).type ??
+                      ""
+                  ) || "—"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-gray-500 text-sm mb-0.5">
+                  Expiry Date
+                </span>
+                <span className="text-gray-900 text-sm">
+                  {formatExpiryDisplay(
+                    viewingPublication.dateOfExpiration ??
+                      (viewingPublication as any).expiry
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className="block text-gray-500 text-sm mb-0.5">
+                  Link to Manual
+                </span>
+                {viewingPublication.linkToManual &&
+                viewingPublication.linkToManual !== "#" ? (
+                  <LinkButton
+                    href={viewingPublication.linkToManual}
+                    className="text-sm"
+                  />
+                ) : (
+                  <span className="text-gray-500">—</span>
+                )}
+              </div>
+            </div>
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewingPublication(null)}
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -599,12 +691,18 @@ export function OEMTechnicalPublication() {
                   </label>
                   <select
                     value={addForm.itemFk ? String(addForm.itemFk) : ""}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "__create_new__") {
+                        setNewItemTypeName("");
+                        setShowAddItemTypeModal(true);
+                        return;
+                      }
                       setAddForm((prev) => ({
                         ...prev,
-                        itemFk: e.target.value ? Number(e.target.value) : 0,
-                      }))
-                    }
+                        itemFk: val ? Number(val) : 0,
+                      }));
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select Item Type</option>
@@ -613,6 +711,7 @@ export function OEMTechnicalPublication() {
                         {opt.name}
                       </option>
                     ))}
+                    <option value="__create_new__">— Create New —</option>
                   </select>
                 </div>
                 <div>
@@ -684,9 +783,7 @@ export function OEMTechnicalPublication() {
                 type="button"
                 onClick={handleSaveDocument}
                 disabled={
-                  saving ||
-                  !addForm.itemFk ||
-                  !addForm.expiryDate?.trim()
+                  saving || !addForm.itemFk || !addForm.expiryDate?.trim()
                 }
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
               >
@@ -701,23 +798,125 @@ export function OEMTechnicalPublication() {
               </button>
             </div>
           </div>
+
+          {/* Add Item Type - pops up on top of Add / Edit Publication modal */}
+          {showAddItemTypeModal && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <div
+                className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+                onClick={() => {
+                  if (!creatingItemType) {
+                    setShowAddItemTypeModal(false);
+                    setNewItemTypeName("");
+                  }
+                }}
+                aria-hidden
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="add-item-type-title"
+                className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200">
+                  <h2
+                    id="add-item-type-title"
+                    className="text-base font-semibold text-gray-900"
+                  >
+                    Add Item Type
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      !creatingItemType &&
+                      (setShowAddItemTypeModal(false), setNewItemTypeName(""))
+                    }
+                    disabled={creatingItemType}
+                    className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700 disabled:opacity-50 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="px-5 py-4 space-y-3">
+                  <p className="text-gray-500 text-xs">
+                    New item type for publications (e.g. manual, subscription)
+                  </p>
+                  <div>
+                    <label className="block text-gray-500 text-xs font-medium mb-1">
+                      Item type value
+                    </label>
+                    <input
+                      type="text"
+                      value={newItemTypeName}
+                      onChange={(e) => setNewItemTypeName(e.target.value)}
+                      placeholder="Enter item type value"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleCreateItemType()
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="px-5 py-3.5 border-t border-gray-200 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      !creatingItemType &&
+                      (setShowAddItemTypeModal(false), setNewItemTypeName(""))
+                    }
+                    disabled={creatingItemType}
+                    className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateItemType}
+                    disabled={creatingItemType || !newItemTypeName?.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2 transition-colors"
+                  >
+                    {creatingItemType ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Adding...
+                      </>
+                    ) : (
+                      "Add"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {showAddItemTypeModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      {/* Standalone Add Item Type modal (when opened from header, not from Add/Edit Publication) */}
+      {showAddItemTypeModal && !showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
             onClick={() => {
               if (!creatingItemType) {
                 setShowAddItemTypeModal(false);
                 setNewItemTypeName("");
               }
             }}
+            aria-hidden
           />
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-item-type-standalone-title"
+            className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200">
+              <h2
+                id="add-item-type-standalone-title"
+                className="text-base font-semibold text-gray-900"
+              >
                 Add Item Type
               </h2>
               <button
@@ -727,29 +926,30 @@ export function OEMTechnicalPublication() {
                   (setShowAddItemTypeModal(false), setNewItemTypeName(""))
                 }
                 disabled={creatingItemType}
-                className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                className="p-1.5 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700 disabled:opacity-50 transition-colors"
               >
-                <X className="w-5 h-5 text-gray-600" />
+                <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="px-6 py-4 space-y-4">
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-gray-500 text-xs">
+                New item type for publications (e.g. manual, subscription)
+              </p>
               <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Name <span className="text-red-500">*</span>
+                <label className="block text-gray-500 text-xs font-medium mb-1">
+                  Item type value
                 </label>
                 <input
                   type="text"
                   value={newItemTypeName}
                   onChange={(e) => setNewItemTypeName(e.target.value)}
-                  placeholder="e.g. TXTAV CESSNA, JEPPESSEN NAVDATA"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  onKeyDown={(e) =>
-                    e.key === "Enter" && handleCreateItemType()
-                  }
+                  placeholder="Enter item type value"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  onKeyDown={(e) => e.key === "Enter" && handleCreateItemType()}
                 />
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+            <div className="px-5 py-3.5 border-t border-gray-200 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() =>
@@ -757,7 +957,7 @@ export function OEMTechnicalPublication() {
                   (setShowAddItemTypeModal(false), setNewItemTypeName(""))
                 }
                 disabled={creatingItemType}
-                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium disabled:opacity-50"
+                className="px-4 py-2 border border-gray-300 rounded-md bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>
@@ -765,15 +965,15 @@ export function OEMTechnicalPublication() {
                 type="button"
                 onClick={handleCreateItemType}
                 disabled={creatingItemType || !newItemTypeName?.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2 transition-colors"
               >
                 {creatingItemType ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Creating...
+                    Adding...
                   </>
                 ) : (
-                  "Create"
+                  "Add"
                 )}
               </button>
             </div>

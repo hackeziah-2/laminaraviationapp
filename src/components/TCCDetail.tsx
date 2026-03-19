@@ -629,7 +629,7 @@ export function TCCDetailContent({
                     NEXT DUE
                   </th>
                   <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
-                    REFERENCE
+                    ATL REFERENCE
                   </th>
                   <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200 w-24">
                     Actions
@@ -688,7 +688,7 @@ export function TCCDetailContent({
                     className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200"
                     title="sequence_number"
                   >
-                    atl reference
+                    Sequence No
                   </th>
                   <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
                     Actions

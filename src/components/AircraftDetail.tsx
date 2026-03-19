@@ -242,7 +242,11 @@ export function AircraftDetail() {
       });
     } catch (err) {
       console.error(err);
-      alert("Failed to save changes.");
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: "Failed to save changes.",
+      });
     }
   };
 

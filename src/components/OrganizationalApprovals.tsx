@@ -4,7 +4,6 @@ import {
   Plus,
   Download,
   Filter,
-  ExternalLink,
   X,
   Eye,
   Pencil,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { Spinner } from "./ui/spinner";
+import { LinkButton } from "./ui/LinkButton";
 import Swal from "sweetalert2";
 import {
   getOrganizationalApprovalsPaged,
@@ -58,15 +58,19 @@ export function OrganizationalApprovals() {
   const [sortBy, setSortBy] = useState<OrganizationalApprovalSortBy>("EXPIRY");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [showModal, setShowModal] = useState(false);
-  const [editingApproval, setEditingApproval] = useState<OrganizationalApproval | null>(null);
-  const [viewingApproval, setViewingApproval] = useState<OrganizationalApproval | null>(null);
+  const [editingApproval, setEditingApproval] =
+    useState<OrganizationalApproval | null>(null);
+  const [viewingApproval, setViewingApproval] =
+    useState<OrganizationalApproval | null>(null);
   const [formData, setFormData] = useState({
     certificateFk: 0,
     number: "",
     expiryDate: "",
     webLink: "",
   });
-  const [certificateTypesFromApi, setCertificateTypesFromApi] = useState<CertificateTypeOption[]>([]);
+  const [certificateTypesFromApi, setCertificateTypesFromApi] = useState<
+    CertificateTypeOption[]
+  >([]);
   const [showCreateTypeModal, setShowCreateTypeModal] = useState(false);
   const [newTypeName, setNewTypeName] = useState("");
   const [creatingType, setCreatingType] = useState(false);
@@ -86,12 +90,14 @@ export function OrganizationalApprovals() {
         if (!byId.has(a.certificateFk)) {
           byId.set(a.certificateFk, {
             id: a.certificateFk,
-            name: (a.approvalTypeName ?? a.certificate) || String(a.certificateFk),
+            name:
+              (a.approvalTypeName ?? a.certificate) || String(a.certificateFk),
           });
         }
       });
     certificateTypesFromApi.forEach((x) => {
-      if (x.id && x.name && !byId.has(x.id)) byId.set(x.id, { id: x.id, name: x.name });
+      if (x.id && x.name && !byId.has(x.id))
+        byId.set(x.id, { id: x.id, name: x.name });
     });
     if (
       editingApproval?.certificateFk &&
@@ -101,7 +107,10 @@ export function OrganizationalApprovals() {
         editingApproval.approvalTypeName ??
         editingApproval.certificate ??
         String(editingApproval.certificateFk);
-      byId.set(editingApproval.certificateFk, { id: editingApproval.certificateFk, name });
+      byId.set(editingApproval.certificateFk, {
+        id: editingApproval.certificateFk,
+        name,
+      });
     }
     const combined = Array.from(byId.values());
     return combined.length ? combined : certificateTypesFromApi;
@@ -129,7 +138,8 @@ export function OrganizationalApprovals() {
       setTotal(res.total);
       setTotalPages(Math.max(1, res.pages));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load approvals.";
+      const message =
+        err instanceof Error ? err.message : "Failed to load approvals.";
       setError(message);
       setApprovals([]);
       setTotal(0);
@@ -137,7 +147,14 @@ export function OrganizationalApprovals() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, itemsPerPage, debouncedSearchTerm, filterType, sortBy, sortOrder]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    debouncedSearchTerm,
+    filterType,
+    sortBy,
+    sortOrder,
+  ]);
 
   useEffect(() => {
     fetchApprovals();
@@ -193,7 +210,9 @@ export function OrganizationalApprovals() {
           })()
         : "",
       webLink:
-        approval.fileLink && approval.fileLink !== "#" ? approval.fileLink : approval.webLink ?? "",
+        approval.fileLink && approval.fileLink !== "#"
+          ? approval.fileLink
+          : approval.webLink ?? "",
     });
     setShowModal(true);
   };
@@ -320,7 +339,8 @@ export function OrganizationalApprovals() {
         showConfirmButton: false,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create type.";
+      const message =
+        err instanceof Error ? err.message : "Failed to create type.";
       Swal.fire({ icon: "error", title: "Error", text: message });
     } finally {
       setCreatingType(false);
@@ -372,17 +392,7 @@ export function OrganizationalApprovals() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowCreateTypeModal(true);
-              setNewTypeName("");
-            }}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Approval Type</span>
-          </button>
+
           <button
             type="button"
             onClick={openAddModal}
@@ -508,38 +518,36 @@ export function OrganizationalApprovals() {
                   </td>
                 </tr>
               ) : paginatedApprovals.length > 0 ? (
-                paginatedApprovals.map((approval) => (
+                paginatedApprovals.map((approval) => {
+                  const isWithhold = approval.isWithhold ?? (approval as { is_withhold?: boolean }).is_withhold ?? false;
+                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  return (
                   <tr
                     key={approval.id}
-                    className="hover:bg-gray-50 transition-colors"
+                    className={`${rowBg} transition-colors`}
                   >
-                    <td className="px-6 py-3.5 text-gray-900 font-medium">
+                    <td className={`${cellClass} font-medium`}>
                       {approval.approvalTypeName ?? approval.certificate}
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900">
+                    <td className={cellClass}>
                       {approval.number || (
-                        <span className="text-gray-400">—</span>
+                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                       )}
                     </td>
-                    <td className="px-6 py-3.5 text-gray-900">
-                      {formatExpiryDisplay(approval.expiryDate ?? approval.expiry)}
+                    <td className={cellClass}>
+                      {formatExpiryDisplay(
+                        approval.expiryDate ?? approval.expiry
+                      )}
                     </td>
-                    <td className="px-6 py-3.5">
+                    <td className={cellClass}>
                       {approval.fileLink && approval.fileLink !== "#" ? (
-                        <a
-                          href={approval.fileLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline text-sm"
-                        >
-                          [LINK]
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <LinkButton href={approval.fileLink} />
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                       )}
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap">
+                    <td className={`${cellClass} whitespace-nowrap`}>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -571,7 +579,8 @@ export function OrganizationalApprovals() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               ) : (
                 <tr>
                   <td
@@ -627,7 +636,8 @@ export function OrganizationalApprovals() {
                   Approval Type
                 </span>
                 <span className="text-gray-900 text-sm">
-                  {viewingApproval.approvalTypeName ?? viewingApproval.certificate}
+                  {viewingApproval.approvalTypeName ??
+                    viewingApproval.certificate}
                 </span>
               </div>
               <div>
@@ -643,22 +653,21 @@ export function OrganizationalApprovals() {
                   Expiry Date
                 </span>
                 <span className="text-gray-900 text-sm">
-                  {formatExpiryDisplay(viewingApproval.expiryDate ?? viewingApproval.expiry)}
+                  {formatExpiryDisplay(
+                    viewingApproval.expiryDate ?? viewingApproval.expiry
+                  )}
                 </span>
               </div>
               <div>
                 <span className="block text-gray-500 text-sm mb-0.5">
                   File Link
                 </span>
-                {viewingApproval.fileLink && viewingApproval.fileLink !== "#" ? (
-                  <a
+                {viewingApproval.fileLink &&
+                viewingApproval.fileLink !== "#" ? (
+                  <LinkButton
                     href={viewingApproval.fileLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-blue-600 hover:underline text-sm"
-                  >
-                    [LINK] <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                    className="text-sm"
+                  />
                 ) : (
                   <span className="text-gray-500">—</span>
                 )}
@@ -703,9 +712,16 @@ export function OrganizationalApprovals() {
                   Approval Type <span className="text-red-500">*</span>
                 </label>
                 <select
-                  value={formData.certificateFk ? String(formData.certificateFk) : ""}
+                  value={
+                    formData.certificateFk ? String(formData.certificateFk) : ""
+                  }
                   onChange={(e) => {
                     const val = e.target.value;
+                    if (val === "__create_new__") {
+                      setNewTypeName("");
+                      setShowCreateTypeModal(true);
+                      return;
+                    }
                     setFormData({
                       ...formData,
                       certificateFk: val ? Number(val) : 0,
@@ -715,10 +731,14 @@ export function OrganizationalApprovals() {
                 >
                   <option value="">Select Type</option>
                   {certificateOptions.map((opt, idx) => (
-                    <option key={`type-${opt.id}-${idx}`} value={String(opt.id)}>
+                    <option
+                      key={`type-${opt.id}-${idx}`}
+                      value={String(opt.id)}
+                    >
                       {opt.name}
                     </option>
                   ))}
+                  <option value="__create_new__">— Create New —</option>
                 </select>
               </div>
               <div>
@@ -793,29 +813,135 @@ export function OrganizationalApprovals() {
               </button>
             </div>
           </div>
+
+          {/* Create new approval type - pops up on top of Add / Edit Approval modal */}
+          {showCreateTypeModal && (
+            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+              <div
+                className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+                onClick={() => {
+                  if (!creatingType) {
+                    setShowCreateTypeModal(false);
+                    setNewTypeName("");
+                  }
+                }}
+                aria-hidden
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="create-approval-type-title"
+                className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                  <h2
+                    id="create-approval-type-title"
+                    className="text-lg font-semibold text-gray-900"
+                  >
+                    Create new approval type
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      !creatingType &&
+                      (setShowCreateTypeModal(false), setNewTypeName(""))
+                    }
+                    disabled={creatingType}
+                    className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
+                  >
+                    <X className="w-5 h-5 text-gray-600" />
+                  </button>
+                </div>
+                <div className="px-6 py-4 space-y-4">
+                  <p className="text-gray-500 text-xs">
+                    New approval type for organizational approvals (e.g. AOC,
+                    Maintenance Approval)
+                  </p>
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Approval type value{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={newTypeName}
+                      onChange={(e) => setNewTypeName(e.target.value)}
+                      placeholder="Enter approval type value"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleCreateNewType()
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      !creatingType &&
+                      (setShowCreateTypeModal(false), setNewTypeName(""))
+                    }
+                    disabled={creatingType}
+                    className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateNewType}
+                    disabled={creatingType || !newTypeName?.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2"
+                  >
+                    {creatingType ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      "Add"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Create new approval type modal */}
-      {showCreateTypeModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      {/* Standalone Create new approval type modal (when opened from header) */}
+      {showCreateTypeModal && !showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
             onClick={() => {
               if (!creatingType) {
                 setShowCreateTypeModal(false);
                 setNewTypeName("");
               }
             }}
+            aria-hidden
           />
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-approval-type-standalone-title"
+            className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2
+                id="create-approval-type-standalone-title"
+                className="text-lg font-semibold text-gray-900"
+              >
                 Create new approval type
               </h2>
               <button
                 type="button"
-                onClick={() => !creatingType && (setShowCreateTypeModal(false), setNewTypeName(""))}
+                onClick={() =>
+                  !creatingType &&
+                  (setShowCreateTypeModal(false), setNewTypeName(""))
+                }
                 disabled={creatingType}
                 className="p-1 hover:bg-gray-100 rounded disabled:opacity-50"
               >
@@ -823,15 +949,19 @@ export function OrganizationalApprovals() {
               </button>
             </div>
             <div className="px-6 py-4 space-y-4">
+              <p className="text-gray-500 text-xs">
+                New approval type for organizational approvals (e.g. AOC,
+                Maintenance Approval)
+              </p>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
-                  Name <span className="text-red-500">*</span>
+                  Approval type value <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={newTypeName}
                   onChange={(e) => setNewTypeName(e.target.value)}
-                  placeholder="e.g. AOC, Maintenance Approval"
+                  placeholder="Enter approval type value"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   onKeyDown={(e) => e.key === "Enter" && handleCreateNewType()}
                 />
@@ -840,7 +970,10 @@ export function OrganizationalApprovals() {
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => !creatingType && (setShowCreateTypeModal(false), setNewTypeName(""))}
+                onClick={() =>
+                  !creatingType &&
+                  (setShowCreateTypeModal(false), setNewTypeName(""))
+                }
                 disabled={creatingType}
                 className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700 text-sm font-medium disabled:opacity-50"
               >
@@ -858,7 +991,7 @@ export function OrganizationalApprovals() {
                     Creating...
                   </>
                 ) : (
-                  "Create"
+                  "Add"
                 )}
               </button>
             </div>
