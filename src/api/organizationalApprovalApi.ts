@@ -136,8 +136,38 @@ function normalizeItem(
 
 /**
  * Get paged list with search and sort.
- * GET api/v1/organizational-approvals/?page=&limit=&search=&sort_by=&order=&certificate_fk=
+ * GET api/v1/organizational-approvals/paged?page=&limit=&search=&sort_by=&order=&certificate_fk=
  */
+/** Query params for GET organizational-approvals (page, limit, sort_by, order, etc.) */
+function buildPagedParams(
+  page: number,
+  limit: number,
+  search: string,
+  sortBy: OrganizationalApprovalSortBy,
+  order: SortOrder,
+  certificateFilter?: string | number
+): Record<string, string | number> {
+  const sortByValue =
+    sortBy === "CERTIFICATE"
+      ? "certificate_category_types__name"
+      : "date_of_expiration";
+  const params: Record<string, string | number> = {
+    page,
+    limit,
+    sort_by: sortByValue,
+    order,
+  };
+  if (search.trim()) params.search = search.trim();
+  if (
+    certificateFilter != null &&
+    certificateFilter !== "all" &&
+    String(certificateFilter).trim() !== ""
+  ) {
+    params.certificate_fk = String(certificateFilter);
+  }
+  return params;
+}
+
 export async function getOrganizationalApprovalsPaged(
   page = 1,
   limit = 10,
@@ -146,21 +176,18 @@ export async function getOrganizationalApprovalsPaged(
   order: SortOrder = "asc",
   certificateFilter?: string | number
 ): Promise<OrganizationalApprovalPagedResponse> {
-  const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
-  if (search.trim()) params.set("search", search.trim());
-  params.set("sort_by", sortBy === "CERTIFICATE" ? "certificate_category_types__name" : "date_of_expiration");
-  params.set("order", order);
-  if (
-    certificateFilter != null &&
-    certificateFilter !== "all" &&
-    String(certificateFilter).trim() !== ""
-  )
-    params.set("certificate_fk", String(certificateFilter));
+  const params = buildPagedParams(
+    page,
+    limit,
+    search,
+    sortBy,
+    order,
+    certificateFilter
+  );
 
-  const tryEndpoint = async (path: string) => {
+  const tryEndpoint = async (path: string, requestParams: Record<string, string | number>) => {
     const res = await apiClient.get(path, {
+      params: requestParams,
       headers: { Accept: "application/json" },
     });
     const data = res.data ?? {};
@@ -178,28 +205,10 @@ export async function getOrganizationalApprovalsPaged(
         data?.data ??
         [];
     const list = Array.isArray(rawItems) ? rawItems : [];
-    const normalized = list.map((item: unknown) =>
+    // Trust server sort order for paged results; do not re-sort client-side
+    const items = list.map((item: unknown) =>
       normalizeItem((item as Record<string, unknown>) ?? {})
     );
-    const toTime = (s: string | null | undefined): number => {
-      if (s == null || String(s).trim() === "") return 0;
-      const t = new Date(s).getTime();
-      return Number.isNaN(t) ? 0 : t;
-    };
-    const items = [...normalized].sort((a, b) => {
-      if (sortBy === "EXPIRY") {
-        const tA = toTime(a.expiryDate ?? a.expiry);
-        const tB = toTime(b.expiryDate ?? b.expiry);
-        const diff = order === "asc" ? tA - tB : tB - tA;
-        if (diff !== 0) return diff;
-      } else {
-        const nameA = (a.approvalTypeName ?? a.certificate ?? "").toLowerCase();
-        const nameB = (b.approvalTypeName ?? b.certificate ?? "").toLowerCase();
-        const cmp = nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
-        if (cmp !== 0) return order === "asc" ? cmp : -cmp;
-      }
-      return (a.id ?? 0) - (b.id ?? 0);
-    });
     const total = Number(
       inner?.total ??
         inner?.count ??
@@ -230,14 +239,14 @@ export async function getOrganizationalApprovalsPaged(
   };
 
   try {
-    return await tryEndpoint(`${BASE}/?${params.toString()}`);
+    return await tryEndpoint(`${BASE}/paged`, params);
   } catch (err: unknown) {
     if (err && typeof err === "object" && "response" in err) {
       const status = (err as { response?: { status?: number } }).response
         ?.status;
       if (status === 404 || status === 405) {
         try {
-          return await tryEndpoint(`${BASE}/paged?${params.toString()}`);
+          return await tryEndpoint(`${BASE}/`, params);
         } catch (fallbackErr: unknown) {
           if (
             fallbackErr &&

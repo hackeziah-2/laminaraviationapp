@@ -1011,8 +1011,7 @@ export function PersonnelAuthorization() {
                     {isAuthDropdownOpen && (
                       <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                         <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-600 sticky top-0">
-                          Select from list (up to {AUTH_STAMP_LIST_LIMIT}{" "}
-                          results, search is case-insensitive)
+                          Select from list
                         </div>
                         {loadingAuthStamp ? (
                           <div className="px-4 py-3 text-sm text-gray-500 text-center flex items-center justify-center gap-2">

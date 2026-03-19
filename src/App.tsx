@@ -6,9 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { AircraftFleetProfile } from './components/AircraftFleetProfile';
 import { AircraftFleetDailyUpdate } from './components/AircraftFleetDailyUpdate';
 import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook';
-import { DocumentOnBoard } from './components/DocumentOnBoard';
 import { AircraftDocumentOnBoard } from './components/AircraftDocumentOnBoard';
-import { CertificateMonitoring } from './components/CertificateMonitoring';
 import { AircraftStatutoryCertificates } from './components/AircraftStatutoryCertificates';
 import { RegulatoryAdvisory } from './components/RegulatoryAdvisory';
 import { OrganizationalApprovals } from './components/OrganizationalApprovals';
@@ -123,11 +121,9 @@ function AppContent() {
           <Route path="/profile/:id/maintenance-cpcp" element={<ProtectedRoute moduleCode="maintenance"><Maintenance /></ProtectedRoute>} />
           <Route path="/profile/:id/operation" element={<ProtectedRoute moduleCode="operation"><Operation /></ProtectedRoute>} />
           <Route path="/profile/:id/operation/reliability/:recordId" element={<ProtectedRoute moduleCode="operation"><ReliabilityMonitoring /></ProtectedRoute>} />
-          <Route path="/profile/:aircraft_id/document_on_board" element={<ProtectedRoute moduleCode="document_on_board"><AircraftDocumentOnBoard /></ProtectedRoute>} />
+          <Route path="/profile/:aircraft_id/document_on_board" element={<ProtectedRoute moduleCode="profile"><AircraftDocumentOnBoard /></ProtectedRoute>} />
           <Route path="/daily-update" element={<ProtectedRoute moduleCode="daily-update"><AircraftFleetDailyUpdate /></ProtectedRoute>} />
           <Route path="/technical-logbook" element={<ProtectedRoute moduleCode="logbook"><AircraftTechnicalLogbook /></ProtectedRoute>} />
-          <Route path="/document-on-board" element={<ProtectedRoute moduleCode="document_on_board"><DocumentOnBoard /></ProtectedRoute>} />
-          <Route path="/certificate-monitoring" element={<ProtectedRoute moduleCode="certificate-monitoring"><CertificateMonitoring /></ProtectedRoute>} />
           <Route path="/regulatory-compliance" element={<Navigate to="/regulatory-compliance/advisory" replace />} />
           <Route path="/regulatory-compliance/advisory" element={<ProtectedRoute moduleCode="regulatory-compliance"><RegulatoryAdvisory /></ProtectedRoute>} />
           <Route path="/regulatory-compliance/aircraft-statutory-certificates" element={<ProtectedRoute moduleCode="regulatory-compliance"><AircraftStatutoryCertificates /></ProtectedRoute>} />

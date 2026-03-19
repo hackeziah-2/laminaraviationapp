@@ -2,7 +2,6 @@ import {
   Search,
   Download,
   Plus,
-  ExternalLink,
   X,
   Loader,
   ArrowUp,
@@ -25,6 +24,7 @@ import {
 import { getAircrafts } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { LinkButton } from "./ui/LinkButton";
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -751,17 +751,11 @@ export function AircraftStatutoryCertificates() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             {(cert as any).webLink ?? (cert as any).web_link ? (
-                              <a
+                              <LinkButton
                                 href={
                                   (cert as any).webLink ?? (cert as any).web_link
                                 }
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                              >
-                                [LINK]
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
+                              />
                             ) : (
                               <span className="text-gray-400">—</span>
                             )}
@@ -872,18 +866,13 @@ export function AircraftStatutoryCertificates() {
                 </span>
                 {viewingCertificate.webLink ??
                 (viewingCertificate as any).web_link ? (
-                  <a
+                  <LinkButton
                     href={
                       viewingCertificate.webLink ??
                       (viewingCertificate as any).web_link
                     }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline inline-flex items-center gap-1 text-sm"
-                  >
-                    [LINK]
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                    className="text-sm"
+                  />
                 ) : (
                   <span className="text-gray-600 text-sm">—</span>
                 )}

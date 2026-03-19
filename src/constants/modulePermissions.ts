@@ -8,8 +8,6 @@ export const MODULE_PERMISSIONS_LIST: { code: string; label: string }[] = [
   { code: "operation", label: "Operation" },
   { code: "maintenance", label: "Maintenance" },
   { code: "logbook", label: "Logbook" },
-  { code: "document_on_board", label: "Document On Board" },
-  { code: "certificate-monitoring", label: "Certificate Monitoring" },
   { code: "regulatory-compliance", label: "Regulatory Compliance" },
   { code: "daily-update", label: "Daily Update" },
   { code: "settings", label: "System Settings" },
@@ -36,13 +34,10 @@ const PATH_TO_MODULE: { pattern: RegExp | string; moduleCode: string }[] = [
   { pattern: "/settings", moduleCode: "settings" },
   { pattern: "/daily-update", moduleCode: "daily-update" },
   { pattern: "/technical-logbook", moduleCode: "logbook" },
-  { pattern: "/document-on-board", moduleCode: "document_on_board" },
-  { pattern: "/certificate-monitoring", moduleCode: "certificate-monitoring" },
   { pattern: /^\/regulatory-compliance/, moduleCode: "regulatory-compliance" },
   { pattern: /^\/profile\/[^/]+\/operation/, moduleCode: "operation" },
   { pattern: /^\/profile\/[^/]+\/maintenance/, moduleCode: "maintenance" },
   { pattern: /^\/profile\/[^/]+\/logbook/, moduleCode: "logbook" },
-  { pattern: /\/document_on_board/, moduleCode: "document_on_board" },
   { pattern: "/profile", moduleCode: "profile" },
 ];
 

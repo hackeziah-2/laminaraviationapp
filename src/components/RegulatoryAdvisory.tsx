@@ -1,133 +1,86 @@
-import { useState } from "react";
-import {
-  Search,
-  Plus,
-  Download,
-  Filter,
-  RotateCcw,
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Download, Filter, RotateCcw, X } from "lucide-react";
+import Swal from "sweetalert2";
 import { DataTablePagination } from "./ui/DataTablePagination";
-
-interface AdvisoryItem {
-  id: number;
-  item: string;
-  type: string;
-  expiry: string;
-  remainingValidity: string;
-}
+import {
+  getAdvisoryPaged,
+  renewAdvisory,
+  type AdvisoryItem,
+  type AdvisorySortBy,
+  type AdvisorySortOrder,
+} from "../api/advisoryApi";
 
 export function RegulatoryAdvisory() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(5);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortBy, setSortBy] = useState<AdvisorySortBy>("remaining_validity");
+  const [sortOrder, setSortOrder] = useState<AdvisorySortOrder>("desc");
+  const [items, setItems] = useState<AdvisoryItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [renewAdvisoryRow, setRenewAdvisoryRow] = useState<AdvisoryItem | null>(null);
+  /** Holds id, expiry (editable), category_type from item, regulatory_compliance from row when present. */
+  const [renewUpdate, setRenewUpdate] = useState<{
+    id: number;
+    expiry: string;
+    category_type: string;
+    regulatory_compliance?: string;
+  } | null>(null);
+  const [renewSubmitting, setRenewSubmitting] = useState(false);
 
-  const advisories: AdvisoryItem[] = [
-    {
-      id: 1,
-      item: "C OF A (RP-C12)",
-      type: "CERTIFICATE",
-      expiry: "28 Feb 2026",
-      remainingValidity: "1 DY",
-    },
-    {
-      id: 2,
-      item: "C OF A",
-      type: "CERTIFICATE",
-      expiry: "28 Feb 2026",
-      remainingValidity: "1 DY",
-    },
-    {
-      id: 3,
-      item: "W&B",
-      type: "CERTIFICATE",
-      expiry: "28 Feb 2026",
-      remainingValidity: "1 DY",
-    },
-    {
-      id: 4,
-      item: "TXTAV CESSNA",
-      type: "SUBSCRIPTION",
-      expiry: "10 Mar 2026",
-      remainingValidity: "11 DY",
-    },
-    {
-      id: 5,
-      item: "TXTAV BARON",
-      type: "SUBSCRIPTION",
-      expiry: "10 Mar 2026",
-      remainingValidity: "11 DY",
-    },
-    {
-      id: 6,
-      item: "C OF R (RP-C14)",
-      type: "CERTIFICATE",
-      expiry: "15 Mar 2026",
-      remainingValidity: "16 DY",
-    },
-    {
-      id: 7,
-      item: "PITOT STATIC",
-      type: "CERTIFICATE",
-      expiry: "20 Mar 2026",
-      remainingValidity: "21 DY",
-    },
-    {
-      id: 8,
-      item: "TRANSPONDER",
-      type: "CERTIFICATE",
-      expiry: "25 Mar 2026",
-      remainingValidity: "26 DY",
-    },
-    {
-      id: 9,
-      item: "ELT",
-      type: "CERTIFICATE",
-      expiry: "30 Mar 2026",
-      remainingValidity: "31 DY",
-    },
-    {
-      id: 10,
-      item: "JEPPESEN NAVDATA",
-      type: "SUBSCRIPTION",
-      expiry: "05 Apr 2026",
-      remainingValidity: "37 DY",
-    },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const typeParam = filterType === "all" ? undefined : filterType;
+    getAdvisoryPaged(
+      currentPage,
+      itemsPerPage,
+      searchTerm,
+      typeParam,
+      sortBy,
+      sortOrder
+    )
+      .then((res) => {
+        if (!cancelled) {
+          setItems(res.items);
+          setTotal(res.total);
+          setTotalPages(res.pages);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(
+            err?.response?.data?.detail ??
+              err?.message ??
+              "Failed to load advisories"
+          );
+          setItems([]);
+          setTotal(0);
+          setTotalPages(1);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPage, itemsPerPage, searchTerm, filterType, sortBy, sortOrder]);
 
-  // Calculate type counts
-  const typeCounts = {
-    all: advisories.length,
-    certificate: advisories.filter(
-      (ad) => ad.type === "CERTIFICATE",
-    ).length,
-    subscription: advisories.filter(
-      (ad) => ad.type === "SUBSCRIPTION",
-    ).length,
-  };
+  // Normalize type for comparison (API may return CERTIFICATE, Certificate, etc.)
+  const normalizeType = (t: string) =>
+    String(t ?? "")
+      .trim()
+      .toUpperCase();
 
-  const filteredAdvisories = advisories.filter((ad) => {
-    const matchesSearch =
-      ad.item
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      ad.type.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter =
-      filterType === "all" ||
-      ad.type.toLowerCase() === filterType.toLowerCase();
-
-    return matchesSearch && matchesFilter;
-  });
-
-  const totalPages = Math.ceil(
-    filteredAdvisories.length / itemsPerPage,
-  );
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedAdvisories = filteredAdvisories.slice(
-    startIndex,
-    startIndex + itemsPerPage,
-  );
+  const startIndex = total === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const endIndex = Math.min(currentPage * itemsPerPage, total);
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
@@ -139,26 +92,122 @@ export function RegulatoryAdvisory() {
     setCurrentPage(1);
   };
 
+  const handleSort = (field: AdvisorySortBy) => {
+    if (sortBy === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortOrder("asc");
+    }
+    setCurrentPage(1);
+  };
+
   const getTypeColor = (type: string) => {
-    switch (type) {
+    const t = normalizeType(type);
+    switch (t) {
       case "CERTIFICATE":
         return "bg-blue-500/10 text-blue-700 border border-blue-200";
       case "SUBSCRIPTION":
         return "bg-emerald-500/10 text-emerald-700 border border-emerald-200";
+      case "REGULATORY CORRESPONDENCE (NON CERT)":
+      case "REGULATORY_CORRESPONDENCE_NON_CERT":
+      case "(NON CERT)":
+        return "bg-amber-500/10 text-amber-700 border border-amber-200";
+      case "LICENSE":
+        return "bg-violet-500/10 text-violet-700 border border-violet-200";
+      case "WITHHOLD":
+        return "bg-red-500/10 text-red-700 border border-red-200";
       default:
         return "bg-gray-500/10 text-gray-700 border border-gray-200";
     }
   };
 
+  const openRenewModal = (advisory: AdvisoryItem) => {
+    setRenewAdvisoryRow(advisory);
+    setRenewUpdate({
+      id: advisory.id,
+      expiry: advisory.expiry ?? "",
+      category_type: advisory.category_type ?? advisory.type ?? "",
+      ...(advisory.regulatory_compliance
+        ? { regulatory_compliance: advisory.regulatory_compliance }
+        : {}),
+    });
+    setShowRenewModal(true);
+  };
+
+  const closeRenewModal = () => {
+    setShowRenewModal(false);
+    setRenewAdvisoryRow(null);
+    setRenewUpdate(null);
+  };
+
+  const handleRenewSubmit = async () => {
+    if (!renewUpdate || !renewUpdate.expiry.trim()) return;
+    setRenewSubmitting(true);
+    try {
+      await renewAdvisory(renewUpdate.id, renewUpdate.expiry, {
+        ...(renewUpdate.regulatory_compliance
+          ? { regulatory_compliance: renewUpdate.regulatory_compliance }
+          : {}),
+        ...(renewUpdate.category_type
+          ? { category_type: renewUpdate.category_type }
+          : {}),
+      });
+      closeRenewModal();
+      await Swal.fire({
+        icon: "success",
+        title: "Renewed",
+        text: "Advisory has been renewed successfully.",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      // Refetch current page
+      const typeParam = filterType === "all" ? undefined : filterType;
+      getAdvisoryPaged(
+        currentPage,
+        itemsPerPage,
+        searchTerm,
+        typeParam,
+        sortBy,
+        sortOrder
+      )
+        .then((res) => {
+          setItems(res.items);
+          setTotal(res.total);
+          setTotalPages(res.pages);
+        })
+        .catch(() => {});
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ??
+        (err as Error)?.message ??
+        "Failed to renew advisory";
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: message,
+      });
+    } finally {
+      setRenewSubmitting(false);
+    }
+  };
+
   const getValidityColor = (validity: string) => {
-    const days = parseInt(validity);
+    if (validity === "Expired" || validity === "") {
+      return "text-red-600 font-semibold";
+    }
+    const days = parseInt(validity, 10);
+    if (Number.isNaN(days) || days < 0) {
+      return "text-red-600 font-semibold";
+    }
     if (days <= 7) {
       return "text-red-600 font-semibold";
-    } else if (days <= 30) {
-      return "text-amber-600 font-semibold";
-    } else {
-      return "text-emerald-600 font-semibold";
     }
+    if (days <= 30) {
+      return "text-amber-600 font-semibold";
+    }
+    return "text-emerald-600 font-semibold";
   };
 
   return (
@@ -166,9 +215,7 @@ export function RegulatoryAdvisory() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h1 className="text-gray-900 text-xl sm:text-2xl">
-            Advisory
-          </h1>
+          <h1 className="text-gray-900 text-xl sm:text-2xl">Advisory</h1>
           <p className="text-gray-500 mt-1 text-sm sm:text-base">
             Document expiry monitoring and renewal management
           </p>
@@ -176,9 +223,7 @@ export function RegulatoryAdvisory() {
         <div className="flex flex-wrap items-center gap-2">
           <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
             <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">
-              Export
-            </span>
+            <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
         </div>
       </div>
@@ -188,9 +233,7 @@ export function RegulatoryAdvisory() {
         className="text-white px-4 sm:px-6 py-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0"
         style={{ backgroundColor: "#2563EB" }}
       >
-        <span className="tracking-wide text-sm sm:text-base">
-          ADVISORY
-        </span>
+        <span className="tracking-wide text-sm sm:text-base">ADVISORY</span>
         <span className="text-sm">DATE: 27 FEB 26</span>
       </div>
 
@@ -204,11 +247,9 @@ export function RegulatoryAdvisory() {
             </label>
             <input
               type="text"
-              placeholder="Search by item, type..."
+              placeholder="Search by item"
               value={searchTerm}
-              onChange={(e) =>
-                handleSearchChange(e.target.value)
-              }
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
             />
           </div>
@@ -219,20 +260,16 @@ export function RegulatoryAdvisory() {
             </label>
             <select
               value={filterType}
-              onChange={(e) =>
-                handleFilterChange(e.target.value)
-              }
+              onChange={(e) => handleFilterChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
             >
-              <option value="all">
-                All Types ({typeCounts.all})
+              <option value="all">All Types</option>
+              <option value="CERTIFICATE">CERTIFICATE</option>
+              <option value="SUBSCRIPTION">SUBSCRIPTION</option>
+              <option value="REGULATORY CORRESPONDENCE (NON CERT)">
+                REGULATORY CORRESPONDENCE (NON CERT)
               </option>
-              <option value="certificate">
-                Certificate ({typeCounts.certificate})
-              </option>
-              <option value="subscription">
-                Subscription ({typeCounts.subscription})
-              </option>
+              <option value="LICENSE">LICENSE</option>
             </select>
           </div>
         </div>
@@ -240,98 +277,175 @@ export function RegulatoryAdvisory() {
 
       {/* Table Header Info */}
       <div className="text-gray-600">
-        Showing{" "}
-        {filteredAdvisories.length > 0 ? startIndex + 1 : 0} to{" "}
-        {Math.min(
-          startIndex + itemsPerPage,
-          filteredAdvisories.length,
-        )}{" "}
-        of {filteredAdvisories.length} items
+        Showing {total > 0 ? startIndex : 0} to {endIndex} of {total} items
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
 
       {/* Advisory Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  ITEM
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  TYPE
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  EXPIRY
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  REMAINING VALIDITY
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  ACTION
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {paginatedAdvisories.length > 0 ? (
-                paginatedAdvisories.map((advisory) => (
-                  <tr
-                    key={advisory.id}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-6 py-3.5 text-gray-900 font-medium">
-                      {advisory.item}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <span
-                        className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(advisory.type)}`}
-                      >
-                        {advisory.type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-900">
-                      {advisory.expiry}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <span
-                        className={getValidityColor(
-                          advisory.remainingValidity,
-                        )}
-                      >
-                        {advisory.remainingValidity}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <button
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                        title="Renew"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        RENEW
-                      </button>
+        {loading ? (
+          <div className="px-6 py-12 text-center text-gray-500">
+            Loading advisories…
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("item")}
+                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
+                    >
+                      ITEM
+                      {sortBy === "item" && (
+                        <span className="text-gray-400">
+                          {sortOrder === "asc" ? "↑" : "↓"}
+                        </span>
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("type")}
+                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
+                    >
+                      TYPE
+                      {sortBy === "type" && (
+                        <span className="text-gray-400">
+                          {sortOrder === "asc" ? "↑" : "↓"}
+                        </span>
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                    EXPIRY
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                    <button
+                      type="button"
+                      onClick={() => handleSort("remaining_validity")}
+                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
+                    >
+                      REMAINING VALIDITY
+                      {sortBy === "remaining_validity" && (
+                        <span className="text-gray-400">
+                          {sortOrder === "asc" ? "↑" : "↓"}
+                        </span>
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                    ACTION
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {items.length > 0 ? (
+                  items.map((advisory, index) => (
+                    <tr
+                      key={`advisory-${advisory.id}-${index}`}
+                      className="hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="px-6 py-3.5 text-gray-900 font-medium">
+                        {advisory.item}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <span
+                          className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(
+                            advisory.type
+                          )}`}
+                        >
+                          {advisory.type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-900">
+                        {advisory.expiry}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <span
+                          className={getValidityColor(
+                            advisory.remainingValidity
+                          )}
+                        >
+                          {advisory.remainingValidity === "Expired" ||
+                          advisory.remainingValidity === ""
+                            ? "Expired"
+                            : `${advisory.remainingValidity} DAYS`}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openRenewModal(advisory);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                            title="Renew"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            RENEW
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const itemLabel = advisory.item ?? "this item";
+                              const result = await Swal.fire({
+                                icon: "warning",
+                                title: "Are you sure?",
+                                text: `You want to WITHHOLD - ${itemLabel}`,
+                                showCancelButton: true,
+                                confirmButtonColor: "#dc2626",
+                                cancelButtonColor: "#6b7280",
+                                confirmButtonText: "Yes, withhold",
+                                cancelButtonText: "Cancel",
+                              });
+                              if (result.isConfirmed) {
+                                // WITHHOLD action – wire to API or modal as needed
+                              }
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                            title="Withhold"
+                          >
+                            WITHHOLD
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-6 py-12 text-center text-gray-500"
+                    >
+                      No advisory items found matching your search criteria
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-6 py-12 text-center text-gray-500"
-                  >
-                    No advisory items found matching your search
-                    criteria
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <DataTablePagination
           currentPage={currentPage}
           totalPages={totalPages}
           onPageChange={setCurrentPage}
-          totalItems={filteredAdvisories.length}
+          totalItems={total}
           totalLabel="items"
           itemsPerPage={itemsPerPage}
           onItemsPerPageChange={(size) => {
@@ -339,8 +453,79 @@ export function RegulatoryAdvisory() {
             setCurrentPage(1);
           }}
           pageSizeOptions={[5, 10, 20, 50]}
+          disabled={loading}
         />
       </div>
+
+      {/* Renew Advisory – small modal */}
+      {showRenewModal && renewAdvisoryRow && renewUpdate && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
+          onClick={closeRenewModal}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="renew-advisory-title"
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-sm p-5 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 id="renew-advisory-title" className="text-lg font-semibold text-gray-900">
+                Renew Advisory
+              </h2>
+              <button
+                type="button"
+                onClick={closeRenewModal}
+                className="p-1 rounded text-gray-500 hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Expiration date
+                </label>
+                <input
+                  type="date"
+                  value={renewUpdate.expiry}
+                  onChange={(e) =>
+                    setRenewUpdate((prev) =>
+                      prev ? { ...prev, expiry: e.target.value } : null
+                    )
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
+                  placeholder="e.g. 27 FEB 26"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-gray-200">
+              <button
+                type="button"
+                onClick={closeRenewModal}
+                disabled={renewSubmitting}
+                className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRenewSubmit}
+                disabled={renewSubmitting || !renewUpdate.expiry.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: "#2563EB" }}
+              >
+                <RotateCcw className="w-4 h-4" />
+                {renewSubmitting ? "Renewing…" : "RENEW"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
