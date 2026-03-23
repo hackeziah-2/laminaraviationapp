@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -47,6 +53,69 @@ const STICKY_SEQ_CLASS =
   "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
   "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
+
+/** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
+function formatFleetWorkStatus(status: string | undefined): string {
+  if (!status || status.trim() === "") return "-";
+  return status.replace(/_/g, " ");
+}
+
+const FLEET_WORK_STATUS_BASE_TD =
+  "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
+
+const FLEET_WORK_STATUS_KEYS = [
+  "FOR_REVIEW",
+  "REJECTED_MAINTENANCE",
+  "APPROVED",
+  "AWAITING_ATTACHMENT",
+  "REJECTED_QUALITY",
+  "PENDING",
+  "COMPLETED",
+] as const;
+
+type FleetWorkStatusKey = (typeof FLEET_WORK_STATUS_KEYS)[number];
+
+/** Normalize API / display variants to a single enum key for styling */
+function normalizeFleetWorkStatusKey(
+  status: string | undefined
+): FleetWorkStatusKey | "" {
+  if (!status || status.trim() === "") return "";
+  const key = status
+    .trim()
+    .replace(/[-\s]+/g, "_")
+    .toUpperCase();
+  return (FLEET_WORK_STATUS_KEYS as readonly string[]).includes(key)
+    ? (key as FleetWorkStatusKey)
+    : "";
+}
+
+/** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
+const FLEET_WORK_STATUS_STYLE: Record<FleetWorkStatusKey, CSSProperties> = {
+  FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
+  REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
+  APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
+  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
+  REJECTED_QUALITY: { backgroundColor: "#fff1f2", color: "#9f1239" },
+  PENDING: { backgroundColor: "#f5f3ff", color: "#5b21b6" },
+  COMPLETED: { backgroundColor: "#f0fdf4", color: "#166534" },
+};
+
+function getFleetWorkStatusCellProps(status: string | undefined): {
+  className: string;
+  style: CSSProperties | undefined;
+} {
+  const key = normalizeFleetWorkStatusKey(status);
+  if (!key) {
+    return {
+      className: `${FLEET_WORK_STATUS_BASE_TD} bg-white text-gray-900`,
+      style: undefined,
+    };
+  }
+  return {
+    className: FLEET_WORK_STATUS_BASE_TD,
+    style: FLEET_WORK_STATUS_STYLE[key],
+  };
+}
 
 export function Operation() {
   const { id } = useParams<{ id: string }>();
@@ -931,6 +1000,14 @@ export function Operation() {
                               rowSpan={2}
                               className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
+                              WORK
+                              <br />
+                              STATUS
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                            >
                               NATURE OF
                               <br />
                               FLIGHT
@@ -1204,7 +1281,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={50}
+                                colSpan={51}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -1255,6 +1332,13 @@ export function Operation() {
                                       </button>
                                     </div>
                                   </div>
+                                </td>
+                                <td
+                                  {...getFleetWorkStatusCellProps(
+                                    record.workStatus
+                                  )}
+                                >
+                                  {formatFleetWorkStatus(record.workStatus)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.natureOfFlight === "VOID"

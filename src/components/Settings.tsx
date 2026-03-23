@@ -25,6 +25,7 @@ import * as rolesApi from "../api/rolesApi";
 import * as accountApi from "../api/accountApi";
 import * as modulesApi from "../api/modulesApi";
 import { MODULE_PERMISSIONS_LIST } from "../constants/modulePermissions";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
 interface User {
   id: number;
@@ -2067,102 +2068,16 @@ export function Settings() {
               )}
               {!usersLoading &&
                 (filteredUsers.length > 0 || totalUsers > 0) && (
-                  <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="text-sm text-gray-600">
-                          {totalUsers > 0
-                            ? `Showing ${
-                                (currentPage - 1) * itemsPerPage + 1
-                              }–${Math.min(
-                                currentPage * itemsPerPage,
-                                totalUsers
-                              )} of ${totalUsers}`
-                            : "No users found"}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">
-                            Items per page:
-                          </span>
-                          <select
-                            value={itemsPerPage}
-                            onChange={(e) => {
-                              setItemsPerPage(Number(e.target.value));
-                              setCurrentPage(1);
-                            }}
-                            className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-7 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat"
-                          >
-                            <option value={10}>10</option>
-                            <option value={20}>20</option>
-                            <option value={50}>50</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() =>
-                            setCurrentPage((p) => Math.max(1, p - 1))
-                          }
-                          disabled={currentPage <= 1}
-                          className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Previous
-                        </button>
-
-                        {Array.from(
-                          { length: Math.min(totalPages, 5) },
-                          (_, i) => {
-                            let pageNum = currentPage;
-                            if (totalPages <= 5) {
-                              pageNum = i + 1;
-                            } else if (currentPage <= 3) {
-                              pageNum = i + 1;
-                            } else if (currentPage >= totalPages - 2) {
-                              pageNum = totalPages - 4 + i;
-                            } else {
-                              pageNum = currentPage - 2 + i;
-                            }
-                            return (
-                              <button
-                                key={pageNum}
-                                onClick={() => setCurrentPage(pageNum)}
-                                className={`min-w-[2rem] px-3 py-1.5 rounded text-sm transition-colors ${
-                                  currentPage === pageNum
-                                    ? "bg-blue-600 text-white"
-                                    : "text-gray-700 hover:bg-gray-100"
-                                }`}
-                              >
-                                {pageNum}
-                              </button>
-                            );
-                          }
-                        )}
-
-                        {totalPages > 5 && currentPage < totalPages - 2 && (
-                          <>
-                            <span className="px-1 text-gray-500">...</span>
-                            <button
-                              onClick={() => setCurrentPage(totalPages)}
-                              className="min-w-[2rem] px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                            >
-                              {totalPages}
-                            </button>
-                          </>
-                        )}
-
-                        <button
-                          onClick={() =>
-                            setCurrentPage((p) => Math.min(totalPages, p + 1))
-                          }
-                          disabled={currentPage >= totalPages}
-                          className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <DataTablePagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                    totalItems={totalUsers}
+                    totalLabel="items"
+                    itemsPerPage={itemsPerPage}
+                    onItemsPerPageChange={setItemsPerPage}
+                    pageSizeOptions={[10, 20, 50]}
+                  />
                 )}
             </div>
           </div>
