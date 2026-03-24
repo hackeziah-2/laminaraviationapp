@@ -8,8 +8,16 @@ import {
   Trash2,
   Loader,
   Search,
+  ChevronDown,
 } from "lucide-react";
-import { useState, useCallback, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useLayoutEffect,
+  type FocusEvent,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   getWorkOrderAdMonitoring,
@@ -18,7 +26,10 @@ import {
   deleteWorkOrderAdMonitoring,
   type WorkOrderAdMonitoring,
 } from "../api/workOrderAdMonitoringApi";
-import { Spinner } from "./ui/spinner";
+import { getAtlList, type AtlItem } from "../api/atlApi";
+import { Spinner, SpinnerIcon } from "./ui/spinner";
+import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
+import { cn } from "./ui/utils";
 import Swal from "sweetalert2";
 
 function toDateInputValue(s: string | null | undefined): string {
@@ -75,6 +86,15 @@ export function ADWorkOrders() {
   const [editingWorkOrder, setEditingWorkOrder] =
     useState<WorkOrderAdMonitoring | null>(null);
 
+  const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
+  const [atlSearch, setAtlSearch] = useState("");
+  const [atlSearchDebounced, setAtlSearchDebounced] = useState("");
+  const [atlOpen, setAtlOpen] = useState(false);
+  const [atlLoading, setAtlLoading] = useState(false);
+  const atlDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const atlAnchorRef = useRef<HTMLDivElement>(null);
+  const [atlPanelWidth, setAtlPanelWidth] = useState<number | null>(null);
+
   const fetchWorkOrders = useCallback(async () => {
     if (!hasValidParams) return;
     setLoading(true);
@@ -118,6 +138,65 @@ export function ADWorkOrders() {
     setCurrentPage(1);
   }, [searchQuery]);
 
+  useEffect(() => {
+    if (!showAddModal) return;
+    if (editingWorkOrder) {
+      const ref = editingWorkOrder.atlRef ?? "";
+      setAtlSearch(ref);
+      setAtlSearchDebounced(ref);
+    } else {
+      setAtlSearch("");
+      setAtlSearchDebounced("");
+    }
+    setAtlOpen(false);
+  }, [showAddModal, editingWorkOrder?.id]);
+
+  useEffect(() => {
+    if (atlDebounceRef.current) clearTimeout(atlDebounceRef.current);
+    atlDebounceRef.current = setTimeout(() => {
+      setAtlSearchDebounced(atlSearch);
+      atlDebounceRef.current = null;
+    }, 400);
+    return () => {
+      if (atlDebounceRef.current) clearTimeout(atlDebounceRef.current);
+    };
+  }, [atlSearch]);
+
+  useEffect(() => {
+    if (!showAddModal || !hasValidParams) return;
+    const cancelled = { current: false };
+    const run = async () => {
+      setAtlLoading(true);
+      try {
+        const list = await getAtlList(
+          atlSearchDebounced.trim(),
+          aircraft_fk > 0 ? aircraft_fk : undefined
+        );
+        if (!cancelled.current) setAtlOptions(list);
+      } finally {
+        if (!cancelled.current) setAtlLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled.current = true;
+    };
+  }, [showAddModal, hasValidParams, atlSearchDebounced, aircraft_fk]);
+
+  useLayoutEffect(() => {
+    if (!showAddModal || !atlAnchorRef.current) {
+      setAtlPanelWidth(null);
+      return;
+    }
+    const el = atlAnchorRef.current;
+    const measure = () =>
+      setAtlPanelWidth(Math.round(el.getBoundingClientRect().width));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showAddModal, atlOpen]);
+
   const resetForm = () => {
     setFormData({
       woNumber: "",
@@ -129,6 +208,10 @@ export function ADWorkOrders() {
       atlRef: "",
     });
     setEditingWorkOrder(null);
+    setAtlOptions([]);
+    setAtlSearch("");
+    setAtlSearchDebounced("");
+    setAtlOpen(false);
   };
 
   const handleCreateOrUpdate = async () => {
@@ -591,25 +674,168 @@ export function ADWorkOrders() {
                 <label className="block text-gray-900 text-sm font-medium mb-1">
                   Sequence No.
                 </label>
-                <p className="text-xs text-gray-500 mb-2">ATL Reference (sequence no.)</p>
-                <div className="flex items-stretch rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={formData.atlRef || ""}
-                    onChange={(e) => {
-                      const num = e.target.value.replace(/\D/g, "");
-                      setFormData((prev) => ({
-                        ...prev,
-                        atlRef: num,
-                      }));
-                    }}
-                    placeholder="001"
-                    className="flex-1 min-w-0 py-2.5 pl-3 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none border-0 rounded-xl"
-                    aria-label="ATL sequence number"
-                  />
-                </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  ATL Reference (sequence no.) — search and select from this
+                  aircraft&apos;s ATL list. 
+                </p>
+                <Popover
+                  open={atlOpen}
+                  onOpenChange={setAtlOpen}
+                  modal={false}
+                >
+                  <PopoverAnchor ref={atlAnchorRef} className="block w-full">
+                    <div className="relative flex w-full items-center">
+                      <input
+                        type="text"
+                        value={
+                          atlOpen
+                            ? atlSearch
+                            : atlOptions.find(
+                                (o) =>
+                                  (o.sequenceNo ?? String(o.id)) ===
+                                  formData.atlRef
+                              )?.label ?? formData.atlRef
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setAtlSearch(val);
+                          setFormData((prev) => ({ ...prev, atlRef: val }));
+                          setAtlOpen(true);
+                        }}
+                        onFocus={() => {
+                          setAtlOpen(true);
+                          if (!atlSearch && formData.atlRef) {
+                            setAtlSearch(formData.atlRef);
+                          }
+                        }}
+                        placeholder="Type or search ATL sequence number..."
+                        className={cn(
+                          "w-full min-h-[2.75rem] pl-3 pr-11 py-2.5 text-sm leading-normal",
+                          "rounded-lg border border-gray-300 bg-white text-gray-900 shadow-sm",
+                          "placeholder:text-gray-400",
+                          "focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30",
+                          atlOpen && "border-blue-500 ring-2 ring-blue-500/20"
+                        )}
+                        aria-label="ATL sequence number"
+                        aria-expanded={atlOpen}
+                        aria-haspopup="listbox"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-label={atlOpen ? "Close ATL list" : "Open ATL list"}
+                        className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setAtlOpen((o) => !o);
+                        }}
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 shrink-0 transition-transform duration-200",
+                            atlOpen && "rotate-180"
+                          )}
+                        />
+                      </button>
+                    </div>
+                  </PopoverAnchor>
+                  <PopoverContent
+                    align="start"
+                    side="bottom"
+                    sideOffset={6}
+                    collisionPadding={12}
+                    onOpenAutoFocus={(e: FocusEvent) => e.preventDefault()}
+                    onCloseAutoFocus={(e: FocusEvent) => e.preventDefault()}
+                    style={
+                      atlPanelWidth != null && atlPanelWidth > 0
+                        ? { width: atlPanelWidth }
+                        : undefined
+                    }
+                    className={cn(
+                      "max-h-[min(280px,calc(100vh-6rem))] overflow-hidden p-0",
+                      "border border-gray-200 bg-white shadow-xl",
+                      "rounded-lg",
+                      "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                      "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                      "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+                    )}
+                  >
+                    <div
+                      className="max-h-[min(260px,calc(100vh-7rem))] overflow-y-auto overscroll-contain py-1"
+                      role="listbox"
+                    >
+                      {atlLoading ? (
+                        <div className="flex items-center gap-2 px-3 py-3 text-sm text-gray-500">
+                          <SpinnerIcon size="sm" aria-hidden />
+                          Loading ATL...
+                        </div>
+                      ) : atlOptions.length === 0 ? (
+                        <div className="px-3 py-3 text-sm text-gray-500">
+                          No ATL found. Try a different sequence number.
+                        </div>
+                      ) : (
+                        <ul className="py-0.5">
+                          {atlOptions.map((opt) => {
+                            const seq = opt.sequenceNo ?? String(opt.id);
+                            const isSelected = seq === formData.atlRef;
+                            const nof =
+                              opt.natureOfFlightDisplay ??
+                              "—";
+                            const acReg = opt.aircraftRegistration ?? "—";
+                            return (
+                              <li key={opt.id}>
+                                <button
+                                  type="button"
+                                  role="option"
+                                  aria-selected={isSelected}
+                                  className={cn(
+                                    "flex w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left transition-colors",
+                                    isSelected
+                                      ? "bg-blue-50 text-blue-900"
+                                      : "text-gray-900 hover:bg-gray-50 active:bg-gray-100"
+                                  )}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setFormData((prev) => ({
+                                      ...prev,
+                                      atlRef: seq,
+                                    }));
+                                    setAtlSearch(seq);
+                                    setAtlOpen(false);
+                                  }}
+                                >
+                                  <span className="text-sm font-semibold tabular-nums text-gray-900">
+                                    Sequence No. {seq}
+                                  </span>
+                                  <span className="text-xs leading-snug text-gray-600">
+                                    <span className="text-gray-500">
+                                      Nature of Flight
+                                    </span>{" "}
+                                    <span className="font-medium text-gray-800">
+                                      {nof}
+                                    </span>
+                                    <span className="mx-1.5 text-gray-300">
+                                      ·
+                                    </span>
+                                    <span className="text-gray-500">
+                                      A/C Registration
+                                    </span>{" "}
+                                    <span className="font-medium text-gray-800">
+                                      {acReg}
+                                    </span>
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 shrink-0">

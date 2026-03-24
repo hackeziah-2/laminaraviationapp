@@ -136,16 +136,22 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => openNotifications()}
-              className="relative z-[101] shrink-0 rounded-xl p-2.5 text-gray-600 ring-1 ring-gray-200/80 transition-colors hover:bg-gray-50 hover:text-gray-900"
-              aria-label="Open notifications"
+              className="relative z-[101] shrink-0 overflow-visible rounded-xl p-2.5 text-gray-600 ring-1 ring-gray-200/80 transition-colors hover:bg-gray-50 hover:text-gray-900"
+              aria-label={
+                unreadCount > 0
+                  ? `Open notifications, ${unreadCount} unread`
+                  : 'Open notifications'
+              }
               aria-expanded={isNotificationsOpen}
             >
-              <Bell className="h-5 w-5" />
-              {unreadCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold leading-none text-white shadow-sm">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
+              <span className="relative inline-flex h-5 w-5 items-center justify-center">
+                <Bell className="h-5 w-5 shrink-0" aria-hidden />
+                {unreadCount > 0 && (
+                  <span className="absolute right-0 top-0 z-10 flex min-h-[1.125rem] min-w-[1.125rem] -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-red-600 bg-white px-1 text-[11px] font-bold leading-none text-red-600 shadow-md ring-2 ring-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </span>
             </button>
           </div>
         </header>
@@ -156,16 +162,22 @@ function AuthenticatedShell({
         <button
           type="button"
           onClick={() => openNotifications()}
-          className="fixed right-4 top-4 z-[100] rounded-xl border border-gray-200/80 bg-white/95 p-2.5 text-gray-600 shadow-md backdrop-blur-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
-          aria-label="Open notifications"
+          className="fixed right-4 top-4 z-[100] overflow-visible rounded-xl border border-gray-200/80 bg-white/95 p-2.5 text-gray-600 shadow-md backdrop-blur-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
+          aria-label={
+            unreadCount > 0
+              ? `Open notifications, ${unreadCount} unread`
+              : 'Open notifications'
+          }
           aria-expanded={isNotificationsOpen}
         >
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white shadow-sm">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
+          <span className="relative inline-flex h-5 w-5 items-center justify-center">
+            <Bell className="h-5 w-5 shrink-0" aria-hidden />
+            {unreadCount > 0 && (
+              <span className="absolute right-0 top-0 z-10 flex min-h-[1.125rem] min-w-[1.125rem] -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-red-600 bg-white px-1 text-[11px] font-bold leading-none text-red-600 shadow-md ring-2 ring-white">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </span>
         </button>
       )}
 

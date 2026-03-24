@@ -12,7 +12,17 @@ import {
   updateAircraftTechnicalLog,
   AircraftTechnicalLogUpdate,
 } from "../api/aircraftTechnicalLogApi";
-import { snakeAllKeys, computeTotalBlockTime } from "../utility/utils";
+import {
+  snakeAllKeys,
+  computeTotalBlockTime,
+  toCamel,
+} from "../utility/utils";
+import {
+  getMissingAircraftFieldsForNewAtl,
+  buildAircraftDetailsRequiredForAtlHtml,
+  ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+} from "../utility/atlAircraftPrerequisites";
+import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
 
 interface AddTechnicalLogbookEntryModalProps {
@@ -226,6 +236,19 @@ export function AddTechnicalLogbookEntryModal({
           try {
             const response = await getAircraftById(aircraftId);
             const aircraftData = response.data;
+            const aircraftCamel = toCamel(aircraftData) as Aircraft;
+            const missing =
+              getMissingAircraftFieldsForNewAtl(aircraftCamel);
+            if (missing.length > 0) {
+              await Swal.fire({
+                icon: "warning",
+                title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+                confirmButtonColor: "#2563eb",
+              });
+              onClose();
+              return;
+            }
             setFormData((prev) => ({
               ...prev,
               acReg: aircraftData.registration || "",
@@ -268,6 +291,26 @@ export function AddTechnicalLogbookEntryModal({
             if (aircrafts.length > 0) {
               const aircraft = aircrafts.find((ac) => ac.id === aircraftId);
               if (aircraft) {
+                try {
+                  const fullRes = await getAircraftById(aircraftId);
+                  const aircraftCamel = toCamel(fullRes.data) as Aircraft;
+                  const missing =
+                    getMissingAircraftFieldsForNewAtl(aircraftCamel);
+                  if (missing.length > 0) {
+                    await Swal.fire({
+                      icon: "warning",
+                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                      html: buildAircraftDetailsRequiredForAtlHtml(
+                        aircraftCamel
+                      ),
+                      confirmButtonColor: "#2563eb",
+                    });
+                    onClose();
+                    return;
+                  }
+                } catch {
+                  return;
+                }
                 setFormData((prev) => ({
                   ...prev,
                   acReg: aircraft.registration,
@@ -797,6 +840,32 @@ export function AddTechnicalLogbookEntryModal({
   );
 
   const handleAircraftSelect = async (id: number, registration: string) => {
+    if (!editEntry) {
+      try {
+        const res = await getAircraftById(id);
+        const aircraftCamel = toCamel(res.data) as Aircraft;
+        const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
+        if (missing.length > 0) {
+          await Swal.fire({
+            icon: "warning",
+            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+            html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Could not verify aircraft for ATL:", err);
+        await Swal.fire({
+          icon: "error",
+          title: "Validation error",
+          text: "Could not load aircraft information. Please try again.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+    }
+
     setFormData({ ...formData, acReg: registration });
     setSelectedAircraftId(id);
     setAircraftSearchTerm("");
@@ -1428,43 +1497,25 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
 
-    // Before creating/editing ATL: ensure aircraft has life_time_limit_engine and life_time_limit_propeller set (not 0 or empty)
+    // Before creating/editing ATL: engine/propeller limits + Engine TSO/TSN + Propeller TSO/TSN on aircraft master
     const aid = aircraftId ?? selectedAircraftId ?? null;
     if (aid != null) {
       try {
         const res = await getAircraftById(aid);
-        const data = res.data || {};
-        const engineLimit =
-          data.engine_life_time_limit ?? data.life_time_limit_engine;
-        const propellerLimit =
-          data.propeller_life_time_limit ?? data.life_time_limit_propeller;
-        const engineMissing =
-          engineLimit == null ||
-          engineLimit === "" ||
-          Number(engineLimit) === 0;
-        const propellerMissing =
-          propellerLimit == null ||
-          propellerLimit === "" ||
-          Number(propellerLimit) === 0;
-        if (engineMissing || propellerMissing) {
-          Swal.fire({
+        const aircraftCamel = toCamel(res.data) as Aircraft;
+        const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
+        if (missing.length > 0) {
+          await Swal.fire({
             icon: "warning",
-            title: "Aircraft limits required",
-            html:
-              "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating or editing an ATL entry.<br/><br/>" +
-              (engineMissing
-                ? "• Set <strong>Engine Life Time Limit</strong> (life_time_limit_engine)<br/>"
-                : "") +
-              (propellerMissing
-                ? "• Set <strong>Propeller Life Time Limit</strong> (life_time_limit_propeller)"
-                : ""),
+            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+            html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
             confirmButtonColor: "#2563eb",
           });
           return;
         }
       } catch (err) {
-        console.error("Failed to validate aircraft limits:", err);
-        Swal.fire({
+        console.error("Failed to validate aircraft prerequisites:", err);
+        await Swal.fire({
           icon: "error",
           title: "Validation error",
           text: "Could not load aircraft information. Please try again.",

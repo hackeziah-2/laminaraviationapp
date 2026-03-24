@@ -10,6 +10,7 @@ import {
   type AdvisorySortBy,
   type AdvisorySortOrder,
 } from "../api/advisoryApi";
+import { Spinner } from "./ui/spinner";
 
 export function RegulatoryAdvisory() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -292,8 +293,8 @@ export function RegulatoryAdvisory() {
       {/* Advisory Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         {loading ? (
-          <div className="px-6 py-12 text-center text-gray-500">
-            Loading advisories…
+          <div className="px-6 py-12">
+            <Spinner compact label="Loading advisories…" />
           </div>
         ) : (
           <div className="overflow-x-auto">

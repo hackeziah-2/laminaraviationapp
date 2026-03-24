@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { SpinnerIcon } from "./ui/spinner";
 
 interface ProtectedRouteProps {
   /** Module code from constants/modulePermissions (e.g. dashboard, profile, settings). */
@@ -16,8 +17,8 @@ export function ProtectedRoute({ moduleCode, children }: ProtectedRouteProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[200px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="flex min-h-[200px] items-center justify-center">
+        <SpinnerIcon size="lg" />
       </div>
     );
   }

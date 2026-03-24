@@ -36,11 +36,17 @@ import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import {
-  toCamel,
+  toCamelDeep,
   formatTimeZulu,
   computeTotalBlockTime,
   computeTotalFlightHoursDecimal,
 } from "../utility/utils";
+import {
+  getMissingAircraftFieldsForNewAtl,
+  buildAircraftDetailsRequiredForAtlHtml,
+  ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+  resolveAircraftEnginePropHour,
+} from "../utility/atlAircraftPrerequisites";
 import { getAllAccounts, Account } from "../api/accountApi";
 
 type GroupByOption =
@@ -379,7 +385,7 @@ export function Operation() {
       if (!aircraftId) return;
       try {
         const response = await getAircraftById(aircraftId);
-        setAircraft(toCamel(response.data));
+        setAircraft(toCamelDeep(response.data) as Aircraft);
       } catch (err) {
         console.error("Error fetching aircraft:", err);
       }
@@ -583,7 +589,9 @@ export function Operation() {
     Swal.fire({
       icon: "success",
       title: "Added",
-      text: `Record #${record.sequenceNo ?? record.id} added to reliability tracking`,
+      text: `Record #${
+        record.sequenceNo ?? record.id
+      } added to reliability tracking`,
       timer: 2000,
       showConfirmButton: false,
     });
@@ -685,7 +693,7 @@ export function Operation() {
           sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
         ),
       ]);
-      setAircraft(toCamel(aircraftRes.data));
+      setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
       setFleetTimeRecords(recordsRes.items);
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
@@ -755,6 +763,30 @@ export function Operation() {
                         )
                       : "-"}
                   </span>
+                  <span>
+                    Engine TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTso")
+                    )}
+                  </span>
+                  <span>
+                    Engine TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTsn")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTso")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
+                    )}
+                  </span>
                 </div>
               )}
             </div>
@@ -803,25 +835,12 @@ export function Operation() {
               </button>
               <button
                 onClick={() => {
-                  const engineLimit =
-                    aircraft?.engineLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_engine;
-                  const propellerLimit =
-                    aircraft?.propellerLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_propeller;
-                  const engineMissing =
-                    engineLimit == null ||
-                    engineLimit === "" ||
-                    Number(engineLimit) === 0;
-                  const propellerMissing =
-                    propellerLimit == null ||
-                    propellerLimit === "" ||
-                    Number(propellerLimit) === 0;
-                  if (engineMissing || propellerMissing) {
+                  const missing = getMissingAircraftFieldsForNewAtl(aircraft);
+                  if (missing.length > 0) {
                     Swal.fire({
                       icon: "warning",
-                      title: "Aircraft limits required",
-                      html: "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating an ATL entry.<br/><br/>",
+                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                      html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
                       confirmButtonColor: "#2563eb",
                     });
                     return;

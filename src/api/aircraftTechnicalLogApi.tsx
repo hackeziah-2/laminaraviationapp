@@ -252,6 +252,7 @@ export interface AircraftTechnicalLogSearchAircraft {
 export interface AircraftTechnicalLogSearchResult {
   sequenceNo: string;
   aircraft: AircraftTechnicalLogSearchAircraft;
+  natureOfFlight?: string;
 }
 
 // CRUD Operations
@@ -395,6 +396,8 @@ export const searchAircraftTechnicalLogBySequence = async (
         sequenceNo:
           item.sequence_no ?? item.sequenceNo ?? item.sequence_number ?? "",
         aircraft: aircraftObj,
+        natureOfFlight:
+          item.nature_of_flight ?? item.natureOfFlight ?? undefined,
       };
     });
   } catch (error) {

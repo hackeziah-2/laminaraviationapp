@@ -2,7 +2,7 @@ import { RefreshCw, Printer, Download, Search, Loader, Pencil, X } from 'lucide-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Swal from 'sweetalert2';
 import { getFleetDailyUpdatePaged, updateFleetDailyUpdateRemark, type FleetDailyUpdateItem } from '../api/fleetDailyUpdateApi';
-import { Spinner } from './ui/spinner';
+import { SpinnerIcon } from './ui/spinner';
 
 /** Map status text to badge/row color: Running=green, ONGOING MAINTENANCE=yellow, AOG=red */
 function statusToColor(status: string | undefined): 'green' | 'yellow' | 'red' {
@@ -291,7 +291,7 @@ export function AircraftFleetDailyUpdate() {
         <div className="overflow-x-auto relative min-h-[200px]">
           {loading ? (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
-              <Spinner className="w-8 h-8 text-blue-600" />
+              <SpinnerIcon size="lg" />
             </div>
           ) : null}
           <table className="w-full">
@@ -443,7 +443,7 @@ export function AircraftFleetDailyUpdate() {
           >
             {savingRemark && (
               <div className="absolute inset-0 rounded-lg bg-white/80 flex items-center justify-center z-10">
-                <Spinner className="w-10 h-10 text-blue-600" />
+                <SpinnerIcon size="xl" />
               </div>
             )}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">

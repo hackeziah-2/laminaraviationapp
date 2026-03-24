@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { X, ChevronDown } from "lucide-react";
 import { getAtlList, type AtlItem } from "../api/atlApi";
+import { SpinnerIcon } from "./ui/spinner";
 
 interface CPCPEntryModalProps {
   isOpen: boolean;
@@ -340,7 +341,7 @@ export function CPCPEntryModal({
                     <div className="absolute z-20 w-full mt-1.5 bg-white border border-gray-300 rounded-lg shadow-lg max-h-52 overflow-auto">
                       {atlLoading ? (
                         <div className="px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
-                          <span className="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                          <SpinnerIcon size="sm" aria-hidden />
                           Loading ATL...
                         </div>
                       ) : atlOptions.length === 0 ? (
