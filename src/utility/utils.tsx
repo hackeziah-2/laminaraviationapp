@@ -30,6 +30,34 @@ export function toCamel<T extends Record<string, any>>(obj: T): any {
   return result;
 }
 
+/** Recursively snake_case → camelCase for nested API objects (e.g. engine.tso). */
+export function toCamelDeep(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((item) => toCamelDeep(item));
+  if (typeof value !== "object") return value;
+  if (value instanceof Date) return value;
+  const obj = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    const camelKey = key.replace(/_([a-z])/g, (_, c: string) =>
+      c.toUpperCase()
+    );
+    const v = obj[key];
+    if (Array.isArray(v)) {
+      result[camelKey] = v.map((item) => toCamelDeep(item));
+    } else if (
+      v !== null &&
+      typeof v === "object" &&
+      !(v instanceof Date)
+    ) {
+      result[camelKey] = toCamelDeep(v);
+    } else {
+      result[camelKey] = v;
+    }
+  }
+  return result;
+}
+
 export const dateToday = new Date().toISOString().split("T")[0];
 
 /**

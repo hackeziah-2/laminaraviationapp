@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Plus,
   Download,
@@ -8,6 +8,7 @@ import {
   Trash2,
   Loader2,
   ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import {
@@ -16,12 +17,14 @@ import {
   type AuthStampOption,
 } from "../api/accountApi";
 import {
-  getPersonnelAuthorizationsPaged,
+  getPersonnelAuthorizations,
   createPersonnelAuthorization,
   updatePersonnelAuthorization,
   deletePersonnelAuthorization,
   getPersonnelApiErrorMessage,
+  PERSONNEL_COMPLIANCE_ITEM_TYPES,
   type PersonnelAuthorizationRecord,
+  type PersonnelComplianceItemType,
 } from "../api/personnelAuthorizationApi";
 import {
   getAuthorizationScopeCessnaList,
@@ -65,6 +68,90 @@ function toDateOnly(value: string | undefined): string {
   return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : "";
 }
 
+const ITEM_TYPE_FILTER_LABELS: Record<PersonnelComplianceItemType, string> = {
+  AUTH_EXPIRY: "Auth expiry",
+  CAAP_LICENSE: "CAAP license",
+  HF_TRAINING: "HF training",
+  CESSNA: "Cessna",
+  BARON: "Baron",
+  OTHERS: "Others",
+};
+
+function itemTypeFromApi(
+  s: string | undefined
+): "" | PersonnelComplianceItemType {
+  if (!s || typeof s !== "string") return "";
+  const u = s.trim().toUpperCase();
+  return (PERSONNEL_COMPLIANCE_ITEM_TYPES as readonly string[]).includes(u)
+    ? (u as PersonnelComplianceItemType)
+    : "";
+}
+
+function itemTypeDisplayLabel(s: string | undefined): string {
+  if (!s?.trim()) return "";
+  const k = itemTypeFromApi(s);
+  return k ? ITEM_TYPE_FILTER_LABELS[k] : s.trim();
+}
+
+/** Solid badge backgrounds for each item type (aligned with product palette). */
+const ITEM_TYPE_BADGE_HEX: Record<PersonnelComplianceItemType, string> = {
+  AUTH_EXPIRY: "#F59E0B",
+  CAAP_LICENSE: "#2563EB",
+  HF_TRAINING: "#7C3AED",
+  CESSNA: "#06B6D4",
+  BARON: "#4338CA",
+  OTHERS: "#64748B",
+};
+
+function itemTypeBadgeHex(raw: string | undefined): string {
+  const k = itemTypeFromApi(raw);
+  return k ? ITEM_TYPE_BADGE_HEX[k] : "#64748B";
+}
+
+function ItemTypeBadge({ raw }: { raw: string | undefined }) {
+  const label = itemTypeDisplayLabel(raw);
+  if (!label) {
+    return <span className="text-gray-400">—</span>;
+  }
+  return (
+    <span
+      className="inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+      style={{ backgroundColor: itemTypeBadgeHex(raw) }}
+      title={label}
+    >
+      {label}
+    </span>
+  );
+}
+
+/** Maps item-type-specific expiry inputs to personnel-compliance `expiry_date`. */
+function complianceExpiryDateForItemType(
+  itemType: PersonnelComplianceItemType,
+  form: {
+    authExpiryDate: string;
+    typeTrainingCessna: string;
+    typeTrainingBaron: string;
+    caapLicExpiry: string;
+    hfTrainingExpiry: string;
+  }
+): string {
+  switch (itemType) {
+    case "AUTH_EXPIRY":
+    case "OTHERS":
+      return form.authExpiryDate.trim();
+    case "CESSNA":
+      return form.typeTrainingCessna.trim();
+    case "BARON":
+      return form.typeTrainingBaron.trim();
+    case "CAAP_LICENSE":
+      return form.caapLicExpiry.trim();
+    case "HF_TRAINING":
+      return form.hfTrainingExpiry.trim();
+    default:
+      return "";
+  }
+}
+
 export function PersonnelAuthorization() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -76,6 +163,11 @@ export function PersonnelAuthorization() {
     null
   );
   const [listLoading, setListLoading] = useState(false);
+  const [itemTypeFilter, setItemTypeFilter] = useState<
+    "" | PersonnelComplianceItemType
+  >("");
+  /** personnel-compliance/paged: sort=expiry_date | sort=-expiry_date */
+  const [expiryDateSort, setExpiryDateSort] = useState<"asc" | "desc">("asc");
 
   // Authorization Number searchable dropdown
   const [authStampSearchTerm, setAuthStampSearchTerm] = useState("");
@@ -113,6 +205,7 @@ export function PersonnelAuthorization() {
     position: "",
     licenseNoType: "",
     authInitialDOI: "",
+    itemType: "" as "" | PersonnelComplianceItemType,
     authIssueDate: "",
     authExpiryDate: "",
     scopeCessnaId: 0 as number,
@@ -125,32 +218,42 @@ export function PersonnelAuthorization() {
   });
 
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [saving, setSaving] = useState(false);
 
   const fetchPersonnel = useCallback(async () => {
     setListLoading(true);
     try {
-      const res = await getPersonnelAuthorizationsPaged(
-        currentPage,
-        itemsPerPage
-      );
-      setPersonnel(res.items);
-      setTotal(res.total);
-      setTotalPages(Math.max(1, res.pages));
+      const rows = await getPersonnelAuthorizations({
+        itemType: itemTypeFilter || undefined,
+        sortExpiryDate: expiryDateSort,
+      });
+      setPersonnel(rows);
     } catch {
       setPersonnel([]);
-      setTotal(0);
-      setTotalPages(1);
     } finally {
       setListLoading(false);
     }
-  }, [currentPage, itemsPerPage]);
+  }, [itemTypeFilter, expiryDateSort]);
+
+  const total = personnel.length;
+  const totalPages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
+  const personnelPage = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return personnel.slice(start, start + itemsPerPage);
+  }, [personnel, currentPage, itemsPerPage]);
+
+  const viewingItemType = viewingPersonnel
+    ? itemTypeFromApi(viewingPersonnel.itemType)
+    : ("" as const);
 
   useEffect(() => {
     fetchPersonnel();
   }, [fetchPersonnel]);
+
+  useEffect(() => {
+    const pages = Math.max(1, Math.ceil(personnel.length / itemsPerPage) || 1);
+    if (currentPage > pages) setCurrentPage(pages);
+  }, [personnel.length, itemsPerPage, currentPage]);
 
   // Fetch scope dropdown lists from API (authorization-scope-cessna/list, authorization-scope-baron/list, authorization-scope-others/list)
   useEffect(() => {
@@ -218,6 +321,7 @@ export function PersonnelAuthorization() {
       position: "",
       licenseNoType: "",
       authInitialDOI: "",
+      itemType: "" as "" | PersonnelComplianceItemType,
       authIssueDate: "",
       authExpiryDate: "",
       scopeCessnaId: 0,
@@ -249,6 +353,7 @@ export function PersonnelAuthorization() {
       position: person.position,
       licenseNoType: person.licNoType || "",
       authInitialDOI: toDateInput(person.authInitialDOI),
+      itemType: itemTypeFromApi(person.itemType),
       authIssueDate: toDateInput(person.authIssueDate),
       authExpiryDate: toDateInput(person.authExpiryDate),
       scopeCessnaId: person.scopeCessnaId ?? 0,
@@ -280,32 +385,66 @@ export function PersonnelAuthorization() {
       });
       return;
     }
+    if (!createForm.itemType) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required fields",
+        text: "Item Type is required.",
+      });
+      return;
+    }
+    if (
+      !createForm.accountInformationId ||
+      createForm.accountInformationId <= 0
+    ) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required fields",
+        text: "Select an Authorization Number from the list so the account is linked.",
+      });
+      return;
+    }
+    const it = createForm.itemType;
+    let expiryMissing = false;
+    if (it === "AUTH_EXPIRY" || it === "OTHERS") {
+      expiryMissing = !createForm.authExpiryDate.trim();
+    } else if (it === "CESSNA") {
+      expiryMissing = !createForm.typeTrainingCessna.trim();
+    } else if (it === "BARON") {
+      expiryMissing = !createForm.typeTrainingBaron.trim();
+    } else if (it === "CAAP_LICENSE") {
+      expiryMissing = !createForm.caapLicExpiry.trim();
+    } else if (it === "HF_TRAINING") {
+      expiryMissing = !createForm.hfTrainingExpiry.trim();
+    }
+    if (expiryMissing) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Required fields",
+        text: "Expiry date is required for the selected item type.",
+      });
+      return;
+    }
     setSaving(true);
     try {
+      const expiryDate = complianceExpiryDateForItemType(
+        createForm.itemType,
+        createForm
+      );
+      const compliancePayload = {
+        account_information_id: createForm.accountInformationId,
+        item_type: createForm.itemType.trim(),
+        authorization_scope_cessna_id: createForm.scopeCessnaId,
+        authorization_scope_baron_id: createForm.scopeBaronId,
+        authorization_scope_others_id: createForm.scopeOthersId,
+        auth_issue_date: createForm.authIssueDate.trim() || undefined,
+        expiry_date: expiryDate || undefined,
+      };
       if (editingPersonnel) {
-        const updatePayload = {
-          authorization_no: createForm.authorizationNumber.trim(),
-          name: createForm.name.trim(),
-          position: createForm.position.trim(),
-          license_no_type: createForm.licenseNoType.trim() || undefined,
-          auth_initial_doi: createForm.authInitialDOI.trim() || undefined,
-          auth_issue_date: createForm.authIssueDate.trim() || undefined,
-          auth_expiry_date: createForm.authExpiryDate.trim() || undefined,
-          authorization_scope_cessna_id: createForm.scopeCessnaId || 0,
-          authorization_scope_baron_id: createForm.scopeBaronId || 0,
-          authorization_scope_others_id: createForm.scopeOthersId || 0,
-          caap_license_expiry: createForm.caapLicExpiry.trim() || undefined,
-          human_factors_training_expiry:
-            createForm.hfTrainingExpiry.trim() || undefined,
-          type_training_expiry_cessna:
-            createForm.typeTrainingCessna.trim() || undefined,
-          type_training_expiry_baron:
-            createForm.typeTrainingBaron.trim() || undefined,
-          ...(createForm.accountInformationId > 0
-            ? { account_information_id: createForm.accountInformationId }
-            : {}),
-        };
-        await updatePersonnelAuthorization(editingPersonnel.id, updatePayload);
+        await updatePersonnelAuthorization(
+          editingPersonnel.id,
+          compliancePayload
+        );
         await Swal.fire({
           icon: "success",
           title: "Updated",
@@ -314,29 +453,7 @@ export function PersonnelAuthorization() {
           showConfirmButton: false,
         });
       } else {
-        const createPayload = {
-          ...(createForm.accountInformationId > 0
-            ? { account_information_id: createForm.accountInformationId }
-            : {}),
-          authorization_no: createForm.authorizationNumber.trim(),
-          name: createForm.name.trim(),
-          position: createForm.position.trim(),
-          license_no_type: createForm.licenseNoType.trim() || undefined,
-          auth_initial_doi: createForm.authInitialDOI.trim() || undefined,
-          auth_issue_date: createForm.authIssueDate.trim() || undefined,
-          auth_expiry_date: createForm.authExpiryDate.trim() || undefined,
-          authorization_scope_cessna_id: createForm.scopeCessnaId || 0,
-          authorization_scope_baron_id: createForm.scopeBaronId || 0,
-          authorization_scope_others_id: createForm.scopeOthersId || 0,
-          caap_license_expiry: createForm.caapLicExpiry.trim() || undefined,
-          human_factors_training_expiry:
-            createForm.hfTrainingExpiry.trim() || undefined,
-          type_training_expiry_cessna:
-            createForm.typeTrainingCessna.trim() || undefined,
-          type_training_expiry_baron:
-            createForm.typeTrainingBaron.trim() || undefined,
-        };
-        await createPersonnelAuthorization(createPayload);
+        await createPersonnelAuthorization(compliancePayload);
         await Swal.fire({
           icon: "success",
           title: "Created",
@@ -590,6 +707,33 @@ export function PersonnelAuthorization() {
 
       {/* Personnel Table - separate card like Aircraft Fleet Profile */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50/80">
+          <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 text-sm text-gray-700">
+            <span className="font-medium text-gray-800 shrink-0">
+              Item Type
+            </span>
+            <select
+              value={itemTypeFilter}
+              onChange={(e) => {
+                const v = e.target.value;
+                setItemTypeFilter(
+                  v === "" ? "" : (v as PersonnelComplianceItemType)
+                );
+                setCurrentPage(1);
+              }}
+              disabled={listLoading}
+              className="min-w-[12rem] max-w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:opacity-60"
+              aria-label="Filter by Item Type"
+            >
+              <option value="">All types</option>
+              {PERSONNEL_COMPLIANCE_ITEM_TYPES.map((item) => (
+                <option key={item} value={item}>
+                  {ITEM_TYPE_FILTER_LABELS[item]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -612,75 +756,37 @@ export function PersonnelAuthorization() {
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
                   AUTH ISSUE DATE
                 </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className="inline-block w-2 h-2 bg-blue-600"
-                      style={{
-                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
-                      }}
-                    ></span>
-                    AUTH EXPIRY
-                  </span>
+                <th className="px-3 py-3 text-left text-[10px] font-medium text-gray-600 tracking-wide">
+                ITEM TYPE
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  SCOPE
-                  <br />
-                  CESSNA 150, 152, 172
+                  AUTHORIZATION_SCOPE
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  SCOPE
-                  <br />
-                  BARON 95-C55
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  SCOPE
-                  <br />
-                  OTHERS
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className="inline-block w-2 h-2 bg-blue-600"
-                      style={{
-                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
-                      }}
-                    ></span>
-                    CAAP LIC EXPIRY
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className="inline-block w-2 h-2 bg-blue-600"
-                      style={{
-                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
-                      }}
-                    ></span>
-                    HF TRAINING TYPE TRAINING
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className="inline-block w-2 h-2 bg-blue-600"
-                      style={{
-                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
-                      }}
-                    ></span>
-                    CESSNA 150, 152, 172 TYPE TRAINING
-                  </span>
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className="inline-block w-2 h-2 bg-blue-600"
-                      style={{
-                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
-                      }}
-                    ></span>
-                    BARON 95-C55
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpiryDateSort((prev) =>
+                        prev === "asc" ? "desc" : "asc"
+                      );
+                      setCurrentPage(1);
+                    }}
+                    disabled={listLoading}
+                    className="inline-flex items-center gap-1 font-inherit uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
+                    aria-label={`Sort by expiry date, ${
+                      expiryDateSort === "asc" ? "ascending" : "descending"
+                    }. Click to reverse.`}
+                  >
+                    EXPIRY_DATE
+                    {expiryDateSort === "asc" ? (
+                      <ChevronUp className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                    ) : (
+                      <ChevronDown
+                        className="w-3.5 h-3.5 shrink-0"
+                        aria-hidden
+                      />
+                    )}
+                  </button>
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
                   ACTIONS
@@ -690,7 +796,7 @@ export function PersonnelAuthorization() {
             <tbody className="divide-y divide-gray-200">
               {listLoading ? (
                 <tr>
-                  <td colSpan={15} className="px-6 py-12 text-center">
+                  <td colSpan={10} className="px-6 py-12 text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
                     <p className="text-gray-500 mt-2 text-sm">
                       Loading personnel...
@@ -698,107 +804,100 @@ export function PersonnelAuthorization() {
                   </td>
                 </tr>
               ) : personnel.length > 0 ? (
-                personnel.map((person) => {
-                  const isWithhold = person.isWithhold ?? (person as { is_withhold?: boolean }).is_withhold ?? false;
-                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
-                  const cellClass = `px-3 py-3 whitespace-nowrap ${isWithhold ? "text-red-900" : "text-gray-900"}`;
-                  const cellClassNoWrap = `px-3 py-3 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
-                  const placeholderClass = isWithhold ? "text-red-600" : "text-gray-400";
+                personnelPage.map((person) => {
+                  const isWithhold =
+                    person.isWithhold ??
+                    (person as { is_withhold?: boolean }).is_withhold ??
+                    false;
+                  const rowBg = isWithhold
+                    ? "bg-red-100 hover:bg-red-200"
+                    : "hover:bg-gray-50";
+                  const cellClass = `px-3 py-3 whitespace-nowrap ${
+                    isWithhold ? "text-red-900" : "text-gray-900"
+                  }`;
+                  const cellClassNoWrap = `px-3 py-3 ${
+                    isWithhold ? "text-red-900" : "text-gray-900"
+                  }`;
+                  const placeholderClass = isWithhold
+                    ? "text-red-600"
+                    : "text-gray-400";
                   return (
-                  <tr
-                    key={person.id}
-                    className={`${rowBg} transition-colors`}
-                  >
-                    <td className={`${cellClass} font-medium`}>
-                      {person.authorizationNo}
-                    </td>
-                    <td className={`${cellClassNoWrap} font-medium`}>
-                      {person.name}
-                    </td>
-                    <td className={cellClassNoWrap}>
-                      {person.position}
-                    </td>
-                    <td className={cellClass}>
-                      {person.licNoType || (
-                        <span className={placeholderClass}>—</span>
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {person.authInitialDOI}
-                    </td>
-                    <td className={cellClass}>
-                      {person.authIssueDate}
-                    </td>
-                    <td className={cellClass}>
-                      {person.authExpiryDate}
-                    </td>
-                    <td className={cellClassNoWrap}>
-                      {person.scopeCessna}
-                    </td>
-                    <td className={cellClassNoWrap}>
-                      {person.scopeBaron}
-                    </td>
-                    <td className={cellClassNoWrap}>
-                      {person.scopeOthers}
-                    </td>
-                    <td className={cellClass}>
-                      {person.caapLicExpiry || (
-                        <span className={placeholderClass}>—</span>
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {person.hfTrainingExpiry || (
-                        <span className={placeholderClass}>—</span>
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {person.typeTrainingCessna || (
-                        <span className={placeholderClass}>—</span>
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {person.typeTrainingBaron || (
-                        <span className={placeholderClass}>—</span>
-                      )}
-                    </td>
-                    <td className={`${cellClassNoWrap} whitespace-nowrap`}>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openViewModal(person)}
-                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-                          title="View details"
-                          aria-label="View"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openViewEditModal(person)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Edit"
-                          aria-label="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePersonnel(person.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Delete"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    <tr
+                      key={person.id}
+                      className={`${rowBg} transition-colors`}
+                    >
+                      <td className={`${cellClass} font-medium`}>
+                        {person.authorizationNo}
+                      </td>
+                      <td className={`${cellClassNoWrap} font-medium`}>
+                        {person.name}
+                      </td>
+                      <td className={cellClassNoWrap}>{person.position}</td>
+                      <td className={cellClass}>
+                        {person.licNoType || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClass}>{person.authInitialDOI}</td>
+                      <td className={cellClass}>{person.authIssueDate}</td>
+                      <td className={cellClass}>
+                        <div className="uppercase">
+                        {person.itemType ? (
+                          <ItemTypeBadge raw={person.itemType} />
+                        ) : (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                        </div>
+                        
+                      </td>
+                      <td className={cellClassNoWrap}>
+                        {person.authorizationScope || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {person.expiryDate || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={`${cellClassNoWrap} whitespace-nowrap`}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openViewModal(person)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                            title="View details"
+                            aria-label="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openViewEditModal(person)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                            title="Edit"
+                            aria-label="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePersonnel(person.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded"
+                            title="Delete"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               ) : (
                 <tr>
                   <td
-                    colSpan={15}
+                    colSpan={10}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found
@@ -872,42 +971,70 @@ export function PersonnelAuthorization() {
                 label="Auth Initial DOI"
                 value={viewingPersonnel.authInitialDOI}
               />
+              <div>
+                <span className="mb-0.5 block text-sm text-gray-500">
+                  Item Type
+                </span>
+                <ItemTypeBadge raw={viewingPersonnel.itemType} />
+              </div>
               <PersonnelDetailRow
                 label="Auth Issue Date"
                 value={viewingPersonnel.authIssueDate}
               />
-              <PersonnelDetailRow
-                label="Auth Expiry Date"
-                value={viewingPersonnel.authExpiryDate}
-              />
-              <PersonnelDetailRow
-                label="Scope (Cessna 150, 152, 172)"
-                value={viewingPersonnel.scopeCessna}
-              />
-              <PersonnelDetailRow
-                label="Scope (Baron 95-C55)"
-                value={viewingPersonnel.scopeBaron}
-              />
-              <PersonnelDetailRow
-                label="Scope (Others)"
-                value={viewingPersonnel.scopeOthers}
-              />
-              <PersonnelDetailRow
-                label="CAAP License Expiry"
-                value={viewingPersonnel.caapLicExpiry}
-              />
-              <PersonnelDetailRow
-                label="HF Training Expiry"
-                value={viewingPersonnel.hfTrainingExpiry}
-              />
-              <PersonnelDetailRow
-                label="Type Training (Cessna)"
-                value={viewingPersonnel.typeTrainingCessna}
-              />
-              <PersonnelDetailRow
-                label="Type Training (Baron)"
-                value={viewingPersonnel.typeTrainingBaron}
-              />
+              {viewingItemType === "AUTH_EXPIRY" && (
+                <PersonnelDetailRow
+                  label="Authorization Expiry Date"
+                  value={viewingPersonnel.authExpiryDate}
+                />
+              )}
+              {viewingItemType === "CESSNA" && (
+                <>
+                  <PersonnelDetailRow
+                    label="Authorization Scope (Cessna 150, 152, 172)"
+                    value={viewingPersonnel.scopeCessna}
+                  />
+                  <PersonnelDetailRow
+                    label="Type Training Expiry (Cessna 150, 152, 172)"
+                    value={viewingPersonnel.typeTrainingCessna}
+                  />
+                </>
+              )}
+              {viewingItemType === "BARON" && (
+                <>
+                  <PersonnelDetailRow
+                    label="Authorization Scope (Baron 95-C55)"
+                    value={viewingPersonnel.scopeBaron}
+                  />
+                  <PersonnelDetailRow
+                    label="Type Training Expiry (Baron 95-C55)"
+                    value={viewingPersonnel.typeTrainingBaron}
+                  />
+                </>
+              )}
+              {viewingItemType === "OTHERS" && (
+                <>
+                  <PersonnelDetailRow
+                    label="Authorization Scope Others"
+                    value={viewingPersonnel.scopeOthers}
+                  />
+                  <PersonnelDetailRow
+                    label="Expiration Date"
+                    value={viewingPersonnel.authExpiryDate}
+                  />
+                </>
+              )}
+              {viewingItemType === "CAAP_LICENSE" && (
+                <PersonnelDetailRow
+                  label="CAAP License Expiry:"
+                  value={viewingPersonnel.caapLicExpiry}
+                />
+              )}
+              {viewingItemType === "HF_TRAINING" && (
+                <PersonnelDetailRow
+                  label="Human Factors Training Expiry"
+                  value={viewingPersonnel.hfTrainingExpiry}
+                />
+              )}
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
               <button
@@ -1191,7 +1318,7 @@ export function PersonnelAuthorization() {
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Authorization Issue Date{" "}
-                    <span className="text-red-500">*</span>
+                    {/* <span className="text-red-500">*</span> */}
                   </label>
                   <input
                     type="date"
@@ -1207,194 +1334,273 @@ export function PersonnelAuthorization() {
                 </div>
 
                 <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Authorization Expiry Date
+                  <label
+                    className="block text-gray-700 text-sm mb-1.5"
+                    htmlFor="personnel-item-type-after-doi"
+                  >
+                    Item Type: <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
-                    value={createForm.authExpiryDate}
+                  <select
+                    id="personnel-item-type-after-doi"
+                    required
+                    value={createForm.itemType}
                     onChange={(e) =>
                       setCreateForm((prev) => ({
                         ...prev,
-                        authExpiryDate: e.target.value,
+                        itemType: e.target.value as
+                          | ""
+                          | PersonnelComplianceItemType,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
-                </div>
-
-                {/* Authorization Scope (Cessna 150, 152, 172) - value: id, display: label */}
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Authorization Scope (Cessna 150, 152, 172)
-                  </label>
-                  <select
-                    value={createForm.scopeCessnaId || ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__create_new__") {
-                        setNewScopeType("cessna");
-                        setNewScopeValue("");
-                        setShowNewScopeModal(true);
-                        return;
-                      }
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        scopeCessnaId: v ? Number(v) : 0,
-                      }));
-                    }}
-                    disabled={scopeListsLoading}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                    aria-label="Item Type"
                   >
-                    <option value="">
-                      {scopeListsLoading ? "Loading..." : "Select Scope"}
-                    </option>
-                    {scopeCessnaOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
+                    <option value="">Select Item Type</option>
+                    {PERSONNEL_COMPLIANCE_ITEM_TYPES.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
                       </option>
                     ))}
-                    <option value="__create_new__">— Create New —</option>
                   </select>
                 </div>
 
-                {/* Authorization Scope (Baron 95-C55) - value: id, display: label */}
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Authorization Scope (Baron 95-C55)
-                  </label>
-                  <select
-                    value={createForm.scopeBaronId || ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__create_new__") {
-                        setNewScopeType("baron");
-                        setNewScopeValue("");
-                        setShowNewScopeModal(true);
-                        return;
+                {createForm.itemType === "AUTH_EXPIRY" && (
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Authorization Expiry Date{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      name="expiry_date"
+                      required
+                      type="date"
+                      value={createForm.authExpiryDate}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          authExpiryDate: e.target.value,
+                        }))
                       }
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        scopeBaronId: v ? Number(v) : 0,
-                      }));
-                    }}
-                    disabled={scopeListsLoading}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
-                  >
-                    <option value="">
-                      {scopeListsLoading ? "Loading..." : "Select Scope"}
-                    </option>
-                    {scopeBaronOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                    <option value="__create_new__">— Create New —</option>
-                  </select>
-                </div>
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    />
+                  </div>
+                )}
 
-                {/* Authorization Scope (Others) - value: id, display: label */}
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Authorization Scope (Others)
-                  </label>
-                  <select
-                    value={createForm.scopeOthersId || ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__create_new__") {
-                        setNewScopeType("others");
-                        setNewScopeValue("");
-                        setShowNewScopeModal(true);
-                        return;
+                {createForm.itemType === "CESSNA" && (
+                  <>
+                    {/* Authorization Scope (Cessna 150, 152, 172) - value: id, display: label */}
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Scope (Cessna 150, 152, 172)
+                      </label>
+                      <select
+                        value={createForm.scopeCessnaId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__create_new__") {
+                            setNewScopeType("cessna");
+                            setNewScopeValue("");
+                            setShowNewScopeModal(true);
+                            return;
+                          }
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            scopeCessnaId: v ? Number(v) : 0,
+                          }));
+                        }}
+                        disabled={scopeListsLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
+                      >
+                        <option value="">
+                          {scopeListsLoading ? "Loading..." : "Select Scope"}
+                        </option>
+                        {scopeCessnaOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        <option value="__create_new__">— Create New —</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Type Training Expiry (Cessna 150, 152, 172){" "}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        name="expiry_date"
+                        required
+                        type="date"
+                        value={createForm.typeTrainingCessna}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            typeTrainingCessna: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {createForm.itemType === "BARON" && (
+                  <>
+                    {/* Authorization Scope (Baron 95-C55) - value: id, display: label */}
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Scope (Baron 95-C55)
+                      </label>
+                      <select
+                        value={createForm.scopeBaronId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__create_new__") {
+                            setNewScopeType("baron");
+                            setNewScopeValue("");
+                            setShowNewScopeModal(true);
+                            return;
+                          }
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            scopeBaronId: v ? Number(v) : 0,
+                          }));
+                        }}
+                        disabled={scopeListsLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
+                      >
+                        <option value="">
+                          {scopeListsLoading ? "Loading..." : "Select Scope"}
+                        </option>
+                        {scopeBaronOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        <option value="__create_new__">— Create New —</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Type Training Expiry (Baron 95-C55){" "}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        name="expiry_date"
+                        required
+                        type="date"
+                        value={createForm.typeTrainingBaron}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            typeTrainingBaron: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {createForm.itemType === "OTHERS" && (
+                  <>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Scope Others
+                      </label>
+                      <select
+                        value={createForm.scopeOthersId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__create_new__") {
+                            setNewScopeType("others");
+                            setNewScopeValue("");
+                            setShowNewScopeModal(true);
+                            return;
+                          }
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            scopeOthersId: v ? Number(v) : 0,
+                          }));
+                        }}
+                        disabled={scopeListsLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
+                      >
+                        <option value="">
+                          {scopeListsLoading ? "Loading..." : "Select Scope"}
+                        </option>
+                        {scopeOthersOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        <option value="__create_new__">— Create New —</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Expiration Date <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        name="expiry_date"
+                        required
+                        type="date"
+                        value={createForm.authExpiryDate}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            authExpiryDate: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {createForm.itemType === "CAAP_LICENSE" && (
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      CAAP License Expiry:{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      name="expiry_date"
+                      required
+                      type="date"
+                      value={createForm.caapLicExpiry}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          caapLicExpiry: e.target.value,
+                        }))
                       }
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        scopeOthersId: v ? Number(v) : 0,
-                      }));
-                    }}
-                    disabled={scopeListsLoading}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
-                  >
-                    <option value="">
-                      {scopeListsLoading ? "Loading..." : "Select Scope"}
-                    </option>
-                    {scopeOthersOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                    <option value="__create_new__">— Create New —</option>
-                  </select>
-                </div>
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    />
+                  </div>
+                )}
 
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    CAAP License Expiry
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.caapLicExpiry}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        caapLicExpiry: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Human Factors Training Expiry
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.hfTrainingExpiry}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        hfTrainingExpiry: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Type Training Expiry (Cessna 150, 152, 172)
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.typeTrainingCessna}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        typeTrainingCessna: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Type Training Expiry (Baron 95-C55)
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.typeTrainingBaron}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        typeTrainingBaron: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
-                </div>
+                {createForm.itemType === "HF_TRAINING" && (
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Human Factors Training Expiry{" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      name="expiry_date"
+                      required
+                      type="date"
+                      value={createForm.hfTrainingExpiry}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          hfTrainingExpiry: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">

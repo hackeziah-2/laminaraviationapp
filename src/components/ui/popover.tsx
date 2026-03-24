@@ -21,6 +21,7 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  style,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
@@ -34,6 +35,12 @@ function PopoverContent({
           className,
         )}
         {...props}
+        style={{
+          // Radix Popper mirrors this onto the outer floating wrapper; a real z-index avoids
+          // stacking under fixed overlays (e.g. z-50 modals with backdrop-filter).
+          zIndex: 1000,
+          ...style,
+        }}
       />
     </PopoverPrimitive.Portal>
   );

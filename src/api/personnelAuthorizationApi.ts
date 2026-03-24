@@ -1,13 +1,22 @@
 import apiClient from "./index";
 
-/** Path under apiClient baseURL. Full: /api/v1/personnel-authorization/ */
-const BASE = "personnel-authorization";
+/** CRUD + paged list: /api/v1/personnel-compliance/ */
+const COMPLIANCE = "personnel-compliance";
 
-/** Creation: POST /personnel-authorization/ */
-const PATH_CREATE = "personnel-authorization/";
+/** Filter values for personnel-compliance/paged `item_type` query param. */
+export const PERSONNEL_COMPLIANCE_ITEM_TYPES = [
+  "AUTH_EXPIRY",
+  "CAAP_LICENSE",
+  "HF_TRAINING",
+  "CESSNA",
+  "BARON",
+  "OTHERS",
+] as const;
 
-/** Update: PUT /personnel-authorization/{id}/ */
-const pathUpdate = (id: number) => `personnel-authorization/${id}/`;
+export type PersonnelComplianceItemType =
+  (typeof PERSONNEL_COMPLIANCE_ITEM_TYPES)[number];
+
+const pathComplianceOne = (id: number) => `${COMPLIANCE}/${id}/`;
 
 /** Single personnel authorization record (app-facing). */
 export interface PersonnelAuthorizationRecord {
@@ -34,52 +43,30 @@ export interface PersonnelAuthorizationRecord {
   typeTrainingCessna: string;
   typeTrainingBaron: string;
   isWithhold?: boolean;
+  /** List view: item type from API (item_type). */
+  itemType: string;
+  /** List view: single scope label or combined from API. */
+  authorizationScope: string;
+  /** List view: separate expiry (expiry_date), distinct from auth expiry. */
+  expiryDate: string;
 }
 
-/** Create payload (snake_case for API). Scope fields are IDs (0 or id). */
-export interface PersonnelAuthorizationCreate {
+/**
+ * POST / PUT body for /api/v1/personnel-compliance/
+ * (single expiry_date; scopes as FK ids).
+ */
+export interface PersonnelCompliancePayload {
   account_information_id?: number;
-  authorization_no: string;
-  name: string;
-  position: string;
-  license_no_type?: string;
-  auth_initial_doi?: string;
+  item_type: string;
+  authorization_scope_cessna_id?: number | null;
+  authorization_scope_baron_id?: number | null;
+  authorization_scope_others_id?: number | null;
   auth_issue_date?: string;
-  auth_expiry_date?: string;
-  authorization_scope_cessna_id?: number;
-  authorization_scope_baron_id?: number;
-  authorization_scope_others_id?: number;
-  caap_license_expiry?: string;
-  human_factors_training_expiry?: string;
-  type_training_expiry_cessna?: string;
-  type_training_expiry_baron?: string;
+  expiry_date?: string;
 }
 
-/** Update payload (snake_case, all optional). Scope fields are IDs (0 or id). */
-export interface PersonnelAuthorizationUpdate {
-  account_information_id?: number;
-  authorization_no?: string;
-  name?: string;
-  position?: string;
-  license_no_type?: string;
-  auth_initial_doi?: string;
-  auth_issue_date?: string;
-  auth_expiry_date?: string;
-  authorization_scope_cessna_id?: number;
-  authorization_scope_baron_id?: number;
-  authorization_scope_others_id?: number;
-  caap_license_expiry?: string;
-  human_factors_training_expiry?: string;
-  type_training_expiry_cessna?: string;
-  type_training_expiry_baron?: string;
-}
-
-export interface PersonnelAuthorizationPagedResponse {
-  items: PersonnelAuthorizationRecord[];
-  total: number;
-  page: number;
-  pages: number;
-}
+export type PersonnelAuthorizationCreate = PersonnelCompliancePayload;
+export type PersonnelAuthorizationUpdate = PersonnelCompliancePayload;
 
 function getStr(
   raw: Record<string, unknown>,
@@ -167,6 +154,58 @@ function formatFullName(fullName: unknown): string {
   return "";
 }
 
+/** List row: AUTHORIZATION_SCOPE follows ITEM_TYPE → matching scope nested `.name`. */
+function authorizationScopeForItemType(
+  itemType: string,
+  scopeCessnaName: string,
+  scopeBaronName: string,
+  scopeOthersName: string,
+  fallback: string
+): string {
+  const u = itemType.trim().toUpperCase().replace(/\s+/g, "_");
+  if (u === "CESSNA" || u === "CESSANA") return scopeCessnaName || fallback;
+  if (u === "BARON") return scopeBaronName || fallback;
+  if (u === "OTHERS" || u === "OTHER") return scopeOthersName || fallback;
+  return fallback;
+}
+
+function extractPagedItemsAndMeta(raw: Record<string, unknown>): {
+  items: unknown[];
+  total: number | null;
+  pages: number | null;
+  limit: number;
+} {
+  const data = raw ?? {};
+  const envelope =
+    data?.data != null && typeof data.data === "object" && !Array.isArray(data.data)
+      ? (data.data as Record<string, unknown>)
+      : data;
+  const rawItems = Array.isArray(data)
+    ? data
+    : Array.isArray(envelope)
+      ? envelope
+      : (envelope?.items ??
+          envelope?.results ??
+          envelope?.data ??
+          data.items ??
+          data.results ??
+          []) as unknown;
+  const list = Array.isArray(rawItems) ? rawItems : [];
+  const limit = Number(envelope?.limit ?? data.limit ?? 10) || 10;
+
+  const totalRaw = envelope?.total ?? envelope?.count ?? data.total ?? data.count;
+  const total =
+    totalRaw != null && Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : null;
+
+  const pagesRaw = envelope?.pages ?? data.pages;
+  const pages =
+    pagesRaw != null && Number.isFinite(Number(pagesRaw)) && Number(pagesRaw) >= 1
+      ? Number(pagesRaw)
+      : null;
+
+  return { items: list, total, pages, limit };
+}
+
 function normalizeItem(
   raw: Record<string, unknown> | null | undefined
 ): PersonnelAuthorizationRecord {
@@ -188,6 +227,9 @@ function normalizeItem(
       typeTrainingCessna: "",
       typeTrainingBaron: "",
       isWithhold: false,
+      itemType: "",
+      authorizationScope: "",
+      expiryDate: "",
     };
   }
   const id = Number(raw.id ?? 0);
@@ -202,7 +244,7 @@ function normalizeItem(
     (isAcc ? getStrFromAccountInfo(acc, "auth_stamp", "Auth_stamp") : "") ||
     getStr(raw, "authorizationNo", "authorization_no");
   const name =
-    (isAcc ? formatFullName(acc.full_name) : "") ||
+    (isAcc ? (formatFullName(acc.full_name) || formatFullName(acc)) : "") ||
     getStr(raw, "name", "full_name");
   const position =
     (isAcc ? getStrFromAccountInfo(acc, "designation") : "") ||
@@ -215,6 +257,44 @@ function normalizeItem(
   const scopeBaronId = getScopeId(raw, "authorization_scope_baron_id", "authorization_scope_baron");
   const scopeOthersId = getScopeId(raw, "authorization_scope_others_id", "authorization_scope_others");
 
+  const scopeCessnaName = getScopeName(raw, ["scopeCessna", "scope_cessna"], "authorization_scope_cessna");
+  const scopeBaronName = getScopeName(raw, ["scopeBaron", "scope_baron"], "authorization_scope_baron");
+  const scopeOthersName = getScopeName(raw, ["scopeOthers", "scope_others"], "authorization_scope_others");
+  const combinedScope = [scopeCessnaName, scopeBaronName, scopeOthersName]
+    .filter((s) => s.length > 0)
+    .join(" · ");
+
+  const authorizationScopeSingle =
+    getStr(raw, "authorizationScope", "authorization_scope") ||
+    getScopeName(raw, [], "authorization_scope");
+
+  const itemTypeStr = getStr(raw, "itemType", "item_type", "ITEM_TYPE");
+  const scopeFallback = authorizationScopeSingle || combinedScope;
+  const authorizationScopeResolved = authorizationScopeForItemType(
+    itemTypeStr,
+    scopeCessnaName,
+    scopeBaronName,
+    scopeOthersName,
+    scopeFallback
+  );
+
+  const expiryDateApi = getStr(raw, "expiryDate", "expiry_date", "EXPIRY_DATE");
+  let authExpiryDate = getStr(raw, "authExpiryDate", "auth_expiry_date");
+  let caapLicExpiry = getStr(raw, "caapLicExpiry", "caap_license_expiry", "caap_lic_expiry");
+  let hfTrainingExpiry = getStr(raw, "hfTrainingExpiry", "human_factors_training_expiry", "hf_training_expiry");
+  let typeTrainingCessna = getStr(raw, "typeTrainingCessna", "type_training_expiry_cessna", "type_training_cessna");
+  let typeTrainingBaron = getStr(raw, "typeTrainingBaron", "type_training_expiry_baron", "type_training_baron");
+
+  if (expiryDateApi) {
+    const u = itemTypeStr.trim().toUpperCase().replace(/\s+/g, "_");
+    if (!authExpiryDate && (u === "AUTH_EXPIRY" || u === "OTHERS"))
+      authExpiryDate = expiryDateApi;
+    if (!caapLicExpiry && u === "CAAP_LICENSE") caapLicExpiry = expiryDateApi;
+    if (!hfTrainingExpiry && u === "HF_TRAINING") hfTrainingExpiry = expiryDateApi;
+    if (!typeTrainingCessna && u === "CESSNA") typeTrainingCessna = expiryDateApi;
+    if (!typeTrainingBaron && u === "BARON") typeTrainingBaron = expiryDateApi;
+  }
+
   return {
     id: isNaN(id) ? 0 : id,
     accountInformationId: Number.isFinite(accountInformationId) ? accountInformationId : undefined,
@@ -224,18 +304,21 @@ function normalizeItem(
     licNoType,
     authInitialDOI: getStr(raw, "authInitialDOI", "auth_initial_doi"),
     authIssueDate: getStr(raw, "authIssueDate", "auth_issue_date"),
-    authExpiryDate: getStr(raw, "authExpiryDate", "auth_expiry_date"),
-    scopeCessna: getScopeName(raw, ["scopeCessna", "scope_cessna"], "authorization_scope_cessna"),
-    scopeBaron: getScopeName(raw, ["scopeBaron", "scope_baron"], "authorization_scope_baron"),
-    scopeOthers: getScopeName(raw, ["scopeOthers", "scope_others"], "authorization_scope_others"),
+    authExpiryDate,
+    scopeCessna: scopeCessnaName,
+    scopeBaron: scopeBaronName,
+    scopeOthers: scopeOthersName,
     scopeCessnaId: scopeCessnaId || undefined,
     scopeBaronId: scopeBaronId || undefined,
     scopeOthersId: scopeOthersId || undefined,
-    caapLicExpiry: getStr(raw, "caapLicExpiry", "caap_license_expiry", "caap_lic_expiry"),
-    hfTrainingExpiry: getStr(raw, "hfTrainingExpiry", "human_factors_training_expiry", "hf_training_expiry"),
-    typeTrainingCessna: getStr(raw, "typeTrainingCessna", "type_training_expiry_cessna", "type_training_cessna"),
-    typeTrainingBaron: getStr(raw, "typeTrainingBaron", "type_training_expiry_baron", "type_training_baron"),
+    caapLicExpiry,
+    hfTrainingExpiry,
+    typeTrainingCessna,
+    typeTrainingBaron,
     isWithhold: Boolean((raw as any).is_withhold ?? (raw as any).isWithhold ?? false),
+    itemType: itemTypeStr,
+    authorizationScope: authorizationScopeResolved,
+    expiryDate: expiryDateApi,
   };
 }
 
@@ -256,68 +339,82 @@ function getApiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+export interface GetPersonnelAuthorizationsOptions {
+  /** When set, sent as `item_type` on personnel-compliance/paged. */
+  itemType?: PersonnelComplianceItemType | "";
+  /**
+   * Order by EXPIRY_DATE on personnel-compliance/paged:
+   * - asc → `sort=expiry_date`
+   * - desc → `sort=-expiry_date`
+   */
+  sortExpiryDate?: "asc" | "desc";
+}
+
 /**
- * GET paged list. API: /api/v1/personnel-authorization/paged?limit=10&page=1&ordering=account_information_id__auth_stamp
- * Sort by AUTH NO (account_information_id__auth_stamp).
+ * GET list for table. API: /api/v1/personnel-compliance/paged?page=&limit=&item_type=&sort=
+ * Fetches all pages and merges (UI still paginates client-side).
  */
-export async function getPersonnelAuthorizationsPaged(
-  page = 1,
-  limit = 10
-): Promise<PersonnelAuthorizationPagedResponse> {
-  const params = new URLSearchParams();
-  params.set("limit", String(limit));
-  params.set("page", String(page));
-  params.set("ordering", "account_information_id__auth_stamp");
+export async function getPersonnelAuthorizations(
+  options?: GetPersonnelAuthorizationsOptions
+): Promise<PersonnelAuthorizationRecord[]> {
+  const limit = 100;
+  const maxPages = 500;
+  const all: PersonnelAuthorizationRecord[] = [];
+  const itemTypeFilter =
+    options?.itemType && String(options.itemType).trim() !== ""
+      ? String(options.itemType).trim()
+      : "";
+  const sortExpiry = options?.sortExpiryDate;
+  const sortParam =
+    sortExpiry === "asc"
+      ? "expiry_date"
+      : sortExpiry === "desc"
+        ? "-expiry_date"
+        : "";
 
-  const path = `${BASE}/paged?${params.toString()}`;
   try {
-    const res = await apiClient.get(path, {
-      headers: { Accept: "application/json" },
-    });
-    const data = res.data ?? {};
-    const inner =
-      data?.data && typeof data.data === "object" ? data.data : data;
-    const rawItems = Array.isArray(data)
-      ? data
-      : Array.isArray(inner)
-        ? inner
-        : inner?.items ??
-          inner?.results ??
-          inner?.data ??
-          data?.items ??
-          data?.results ??
-          data?.data ??
-          [];
-    const list = Array.isArray(rawItems) ? rawItems : [];
-    const items = list.map((item: unknown) =>
-      normalizeItem((item as Record<string, unknown>) ?? {})
-    );
+    let page = 1;
 
-    const total = Number(
-      inner?.total ??
-        inner?.count ??
-        data?.total ??
-        data?.count ??
-        data?.total_count ??
-        items.length
-    );
-    const pages =
-      Number(inner?.pages ?? data?.pages ?? data?.total_pages) ||
-      Math.max(1, Math.ceil(total / limit));
-    return { items, total, page, pages };
+    while (page <= maxPages) {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("limit", String(limit));
+      if (itemTypeFilter) params.set("item_type", itemTypeFilter);
+      if (sortParam) params.set("sort", sortParam);
+      const path = `${COMPLIANCE}/paged?${params.toString()}`;
+      const res = await apiClient.get(path, {
+        headers: { Accept: "application/json" },
+      });
+      const root = (res.data ?? {}) as Record<string, unknown>;
+      const { items, pages, total, limit: pageLimit } = extractPagedItemsAndMeta(root);
+
+      if (items.length === 0) break;
+
+      for (const item of items) {
+        all.push(normalizeItem((item as Record<string, unknown>) ?? {}));
+      }
+
+      if (pages != null && page >= pages) break;
+      if (total != null && all.length >= total) break;
+      if (items.length < pageLimit) break;
+
+      page += 1;
+    }
+
+    return all;
   } catch (err) {
-    console.error("personnel-authorization paged failed:", path, err);
-    return { items: [], total: 0, page: 1, pages: 1 };
+    console.error("personnel-compliance/paged list failed:", err);
+    return [];
   }
 }
 
 /**
- * GET single. API: /api/v1/personnel-authorization/{id}/
+ * GET single. API: /api/v1/personnel-compliance/{id}/
  */
 export async function getPersonnelAuthorization(
   id: number
 ): Promise<PersonnelAuthorizationRecord> {
-  const res = await apiClient.get(`${BASE}/${id}/`, {
+  const res = await apiClient.get(pathComplianceOne(id), {
     headers: { Accept: "application/json" },
   });
   const raw = res.data?.data ?? res.data;
@@ -326,35 +423,46 @@ export async function getPersonnelAuthorization(
   return normalizeItem({ id });
 }
 
-/**
- * POST create. API: /personnel-authorization/
- */
-export async function createPersonnelAuthorization(
-  payload: PersonnelAuthorizationCreate
-): Promise<PersonnelAuthorizationRecord> {
-  const scopeIdOrNull = (id: number | undefined): number | null =>
+function buildPersonnelComplianceBody(
+  payload: PersonnelCompliancePayload
+): Record<string, string | number | null | undefined> {
+  const scopeIdOrNull = (id: number | null | undefined): number | null =>
     id != null && Number.isFinite(id) && id > 0 ? id : null;
 
   const body: Record<string, string | number | null | undefined> = {
-    ...(payload.account_information_id != null && Number.isFinite(payload.account_information_id)
-      ? { account_information_id: payload.account_information_id }
-      : {}),
-    authorization_no: payload.authorization_no?.trim() || "",
-    name: payload.name?.trim() || "",
-    position: payload.position?.trim() || "",
-    license_no_type: payload.license_no_type?.trim() || undefined,
-    auth_initial_doi: payload.auth_initial_doi?.trim() || undefined,
-    auth_issue_date: payload.auth_issue_date?.trim() || undefined,
-    auth_expiry_date: payload.auth_expiry_date?.trim() || undefined,
-    authorization_scope_cessna_id: scopeIdOrNull(payload.authorization_scope_cessna_id),
-    authorization_scope_baron_id: scopeIdOrNull(payload.authorization_scope_baron_id),
-    authorization_scope_others_id: scopeIdOrNull(payload.authorization_scope_others_id),
-    caap_license_expiry: payload.caap_license_expiry?.trim() || undefined,
-    human_factors_training_expiry: payload.human_factors_training_expiry?.trim() || undefined,
-    type_training_expiry_cessna: payload.type_training_expiry_cessna?.trim() || undefined,
-    type_training_expiry_baron: payload.type_training_expiry_baron?.trim() || undefined,
+    item_type: payload.item_type.trim(),
+    authorization_scope_cessna_id: scopeIdOrNull(
+      payload.authorization_scope_cessna_id ?? undefined
+    ),
+    authorization_scope_baron_id: scopeIdOrNull(
+      payload.authorization_scope_baron_id ?? undefined
+    ),
+    authorization_scope_others_id: scopeIdOrNull(
+      payload.authorization_scope_others_id ?? undefined
+    ),
   };
-  const res = await apiClient.post(PATH_CREATE, body, {
+  if (
+    payload.account_information_id != null &&
+    Number.isFinite(payload.account_information_id) &&
+    payload.account_information_id > 0
+  ) {
+    body.account_information_id = payload.account_information_id;
+  }
+  const issue = payload.auth_issue_date?.trim();
+  if (issue) body.auth_issue_date = issue;
+  const exp = payload.expiry_date?.trim();
+  if (exp) body.expiry_date = exp;
+  return body;
+}
+
+/**
+ * POST create. API: /api/v1/personnel-compliance/
+ */
+export async function createPersonnelAuthorization(
+  payload: PersonnelCompliancePayload
+): Promise<PersonnelAuthorizationRecord> {
+  const body = buildPersonnelComplianceBody(payload);
+  const res = await apiClient.post(`${COMPLIANCE}/`, body, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   });
   const rawRes = res.data?.data ?? res.data;
@@ -364,34 +472,14 @@ export async function createPersonnelAuthorization(
 }
 
 /**
- * PUT update. API: /personnel-authorization/{id}/
+ * PUT update. API: /api/v1/personnel-compliance/{id}/
  */
 export async function updatePersonnelAuthorization(
   id: number,
-  payload: PersonnelAuthorizationUpdate
+  payload: PersonnelCompliancePayload
 ): Promise<PersonnelAuthorizationRecord> {
-  const scopeIdOrNull = (scopeId: number | undefined): number | null =>
-    scopeId != null && Number.isFinite(scopeId) && scopeId > 0 ? scopeId : null;
-
-  const body: Record<string, string | number | null | undefined> = {};
-  if (payload.account_information_id != null && Number.isFinite(payload.account_information_id))
-    body.account_information_id = payload.account_information_id;
-  if (payload.authorization_no != null) body.authorization_no = payload.authorization_no.trim() || undefined;
-  if (payload.name != null) body.name = payload.name.trim() || undefined;
-  if (payload.position != null) body.position = payload.position.trim() || undefined;
-  if (payload.license_no_type != null) body.license_no_type = payload.license_no_type.trim() || undefined;
-  if (payload.auth_initial_doi != null) body.auth_initial_doi = payload.auth_initial_doi.trim() || undefined;
-  if (payload.auth_issue_date != null) body.auth_issue_date = payload.auth_issue_date.trim() || undefined;
-  if (payload.auth_expiry_date != null) body.auth_expiry_date = payload.auth_expiry_date.trim() || undefined;
-  body.authorization_scope_cessna_id = scopeIdOrNull(payload.authorization_scope_cessna_id);
-  body.authorization_scope_baron_id = scopeIdOrNull(payload.authorization_scope_baron_id);
-  body.authorization_scope_others_id = scopeIdOrNull(payload.authorization_scope_others_id);
-  if (payload.caap_license_expiry != null) body.caap_license_expiry = payload.caap_license_expiry.trim() || undefined;
-  if (payload.human_factors_training_expiry != null) body.human_factors_training_expiry = payload.human_factors_training_expiry.trim() || undefined;
-  if (payload.type_training_expiry_cessna != null) body.type_training_expiry_cessna = payload.type_training_expiry_cessna.trim() || undefined;
-  if (payload.type_training_expiry_baron != null) body.type_training_expiry_baron = payload.type_training_expiry_baron.trim() || undefined;
-
-  const res = await apiClient.put(pathUpdate(id), body, {
+  const body = buildPersonnelComplianceBody(payload);
+  const res = await apiClient.put(pathComplianceOne(id), body, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   });
   const rawRes = res.data?.data ?? res.data;
@@ -401,10 +489,10 @@ export async function updatePersonnelAuthorization(
 }
 
 /**
- * DELETE. API: /api/v1/personnel-authorization/{id}/
+ * DELETE. API: /api/v1/personnel-compliance/{id}/
  */
 export async function deletePersonnelAuthorization(id: number): Promise<void> {
-  await apiClient.delete(`${BASE}/${id}/`);
+  await apiClient.delete(pathComplianceOne(id));
 }
 
 export { getApiErrorMessage as getPersonnelApiErrorMessage };

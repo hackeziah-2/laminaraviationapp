@@ -152,11 +152,16 @@ export function AircraftFleetProfile() {
       });
       refresh();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail ?? err?.response?.data?.message ?? err?.message ?? "Import failed. Please try again.";
+      const msg =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Import failed. Please try again.";
+
       Swal.fire({
         icon: "error",
         title: "Import Failed",
-        text: msg,
+        text: "Failed in import file.",
         confirmButtonText: "OK",
       });
     } finally {
@@ -200,11 +205,16 @@ export function AircraftFleetProfile() {
     setCurrentPage(1);
   };
 
-  const handleDeleteAircraft = async (ac: { id: number; registration?: string }) => {
+  const handleDeleteAircraft = async (ac: {
+    id: number;
+    registration?: string;
+  }) => {
     const result = await Swal.fire({
       icon: "warning",
       title: "Delete Aircraft",
-      html: `Are you sure you want to delete aircraft <strong>${ac.registration ?? ac.id}</strong>? This action cannot be undone.`,
+      html: `Are you sure you want to delete aircraft <strong>${
+        ac.registration ?? ac.id
+      }</strong>? This action cannot be undone.`,
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
       cancelButtonColor: "#6b7280",
@@ -223,8 +233,15 @@ export function AircraftFleetProfile() {
       });
       refresh();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-      const msg = e?.response?.data?.detail ?? e?.response?.data?.message ?? e?.message ?? "Failed to delete aircraft.";
+      const e = err as {
+        response?: { data?: { detail?: string; message?: string } };
+        message?: string;
+      };
+      const msg =
+        e?.response?.data?.detail ??
+        e?.response?.data?.message ??
+        e?.message ??
+        "Failed to delete aircraft.";
       Swal.fire({
         icon: "error",
         title: "Delete Failed",
@@ -306,10 +323,18 @@ export function AircraftFleetProfile() {
     if (!form.model.trim()) newErrors.model = "Model is required";
     if (!form.msn.trim()) newErrors.msn = "MSN is required";
     if (!form.base.trim()) newErrors.base = "Base location is required";
-    if (form.engineLifeTimeLimit.trim() === "" || form.engineLifeTimeLimit == null)
-      newErrors.engineLifeTimeLimit = "Engine Life Time Limit (life_time_limit_engine) is required";
-    if (form.propellerLifeTimeLimit.trim() === "" || form.propellerLifeTimeLimit == null)
-      newErrors.propellerLifeTimeLimit = "Propeller Life Time Limit (life_time_limit_propeller) is required";
+    if (
+      form.engineLifeTimeLimit.trim() === "" ||
+      form.engineLifeTimeLimit == null
+    )
+      newErrors.engineLifeTimeLimit =
+        "Engine Life Time Limit (life_time_limit_engine) is required";
+    if (
+      form.propellerLifeTimeLimit.trim() === "" ||
+      form.propellerLifeTimeLimit == null
+    )
+      newErrors.propellerLifeTimeLimit =
+        "Propeller Life Time Limit (life_time_limit_propeller) is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -332,11 +357,35 @@ export function AircraftFleetProfile() {
           ? null
           : parseFloat(form.propellerLifeTimeLimit),
       modelYear:
-        form.modelYear === "" ? null : (form.modelYear ? parseInt(form.modelYear, 10) : null),
-      engineTsn: form.engineTsn === "" ? null : (form.engineTsn ? parseFloat(form.engineTsn) : null),
-      engineTso: form.engineTso === "" ? null : (form.engineTso ? parseFloat(form.engineTso) : null),
-      propellerTsn: form.propellerTsn === "" ? null : (form.propellerTsn ? parseFloat(form.propellerTsn) : null),
-      propellerTso: form.propellerTso === "" ? null : (form.propellerTso ? parseFloat(form.propellerTso) : null),
+        form.modelYear === ""
+          ? null
+          : form.modelYear
+          ? parseInt(form.modelYear, 10)
+          : null,
+      engineTsn:
+        form.engineTsn === ""
+          ? null
+          : form.engineTsn
+          ? parseFloat(form.engineTsn)
+          : null,
+      engineTso:
+        form.engineTso === ""
+          ? null
+          : form.engineTso
+          ? parseFloat(form.engineTso)
+          : null,
+      propellerTsn:
+        form.propellerTsn === ""
+          ? null
+          : form.propellerTsn
+          ? parseFloat(form.propellerTsn)
+          : null,
+      propellerTso:
+        form.propellerTso === ""
+          ? null
+          : form.propellerTso
+          ? parseFloat(form.propellerTso)
+          : null,
     });
 
     // Append JSON data as string
@@ -594,7 +643,8 @@ export function AircraftFleetProfile() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {Array.isArray(paginatedAircraft) && paginatedAircraft.length > 0 ? (
+                  {Array.isArray(paginatedAircraft) &&
+                  paginatedAircraft.length > 0 ? (
                     paginatedAircraft.map((ac) => (
                       <tr
                         key={ac?.id ?? Math.random()}
@@ -606,8 +656,12 @@ export function AircraftFleetProfile() {
                         <td className="px-6 py-3.5 text-gray-900">
                           {ac?.model ?? "-"}
                         </td>
-                        <td className="px-6 py-3.5 text-gray-600">{ac?.msn ?? "-"}</td>
-                        <td className="px-6 py-3.5 text-gray-900">{ac?.base ?? "-"}</td>
+                        <td className="px-6 py-3.5 text-gray-600">
+                          {ac?.msn ?? "-"}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {ac?.base ?? "-"}
+                        </td>
 
                         <td className="px-6 py-3.5">
                           <span
@@ -645,7 +699,9 @@ export function AircraftFleetProfile() {
                               </option>
                             </select>
                             <button
-                              onClick={() => { if (ac?.id != null) handleDeleteAircraft(ac); }}
+                              onClick={() => {
+                                if (ac?.id != null) handleDeleteAircraft(ac);
+                              }}
                               className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                               title="Delete"
                             >
@@ -739,7 +795,9 @@ export function AircraftFleetProfile() {
 
                 <button
                   onClick={() =>
-                    setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))
+                    setCurrentPage((prev) =>
+                      Math.min(prev + 1, Math.max(1, totalPages))
+                    )
                   }
                   disabled={totalPages === 0 || page >= totalPages}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
@@ -856,7 +914,9 @@ export function AircraftFleetProfile() {
                         maxLength={4}
                         value={form.modelYear}
                         onChange={(e) => {
-                          const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                          const v = e.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, 4);
                           handleChange("modelYear", v);
                         }}
                         placeholder="e.g., 2020"
@@ -979,7 +1039,8 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Engine Life Time Limit <span className="text-red-500">*</span>
+                        Engine Life Time Limit{" "}
+                        <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -990,10 +1051,16 @@ export function AircraftFleetProfile() {
                           handleChange("engineLifeTimeLimit", e.target.value)
                         }
                         placeholder="e.g., 12000.50"
-                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${errors.engineLifeTimeLimit ? "border-red-500" : "border-gray-200"}`}
+                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${
+                          errors.engineLifeTimeLimit
+                            ? "border-red-500"
+                            : "border-gray-200"
+                        }`}
                       />
                       {errors.engineLifeTimeLimit && (
-                        <p className="text-red-500 text-xs mt-1">{errors.engineLifeTimeLimit}</p>
+                        <p className="text-red-500 text-xs mt-1">
+                          {errors.engineLifeTimeLimit}
+                        </p>
                       )}
                     </div>
                     <div>
@@ -1102,7 +1169,8 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Propeller Life Time Limit <span className="text-red-500">*</span>
+                        Propeller Life Time Limit{" "}
+                        <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -1113,10 +1181,16 @@ export function AircraftFleetProfile() {
                           handleChange("propellerLifeTimeLimit", e.target.value)
                         }
                         placeholder="e.g., 8000.00"
-                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${errors.propellerLifeTimeLimit ? "border-red-500" : "border-gray-200"}`}
+                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${
+                          errors.propellerLifeTimeLimit
+                            ? "border-red-500"
+                            : "border-gray-200"
+                        }`}
                       />
                       {errors.propellerLifeTimeLimit && (
-                        <p className="text-red-500 text-xs mt-1">{errors.propellerLifeTimeLimit}</p>
+                        <p className="text-red-500 text-xs mt-1">
+                          {errors.propellerLifeTimeLimit}
+                        </p>
                       )}
                     </div>
                     <div>

@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -30,11 +36,17 @@ import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import {
-  toCamel,
+  toCamelDeep,
   formatTimeZulu,
   computeTotalBlockTime,
   computeTotalFlightHoursDecimal,
 } from "../utility/utils";
+import {
+  getMissingAircraftFieldsForNewAtl,
+  buildAircraftDetailsRequiredForAtlHtml,
+  ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+  resolveAircraftEnginePropHour,
+} from "../utility/atlAircraftPrerequisites";
 import { getAllAccounts, Account } from "../api/accountApi";
 
 type GroupByOption =
@@ -47,6 +59,69 @@ const STICKY_SEQ_CLASS =
   "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
   "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
+
+/** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
+function formatFleetWorkStatus(status: string | undefined): string {
+  if (!status || status.trim() === "") return "-";
+  return status.replace(/_/g, " ");
+}
+
+const FLEET_WORK_STATUS_BASE_TD =
+  "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
+
+const FLEET_WORK_STATUS_KEYS = [
+  "FOR_REVIEW",
+  "REJECTED_MAINTENANCE",
+  "APPROVED",
+  "AWAITING_ATTACHMENT",
+  "REJECTED_QUALITY",
+  "PENDING",
+  "COMPLETED",
+] as const;
+
+type FleetWorkStatusKey = (typeof FLEET_WORK_STATUS_KEYS)[number];
+
+/** Normalize API / display variants to a single enum key for styling */
+function normalizeFleetWorkStatusKey(
+  status: string | undefined
+): FleetWorkStatusKey | "" {
+  if (!status || status.trim() === "") return "";
+  const key = status
+    .trim()
+    .replace(/[-\s]+/g, "_")
+    .toUpperCase();
+  return (FLEET_WORK_STATUS_KEYS as readonly string[]).includes(key)
+    ? (key as FleetWorkStatusKey)
+    : "";
+}
+
+/** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
+const FLEET_WORK_STATUS_STYLE: Record<FleetWorkStatusKey, CSSProperties> = {
+  FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
+  REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
+  APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
+  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
+  REJECTED_QUALITY: { backgroundColor: "#fff1f2", color: "#9f1239" },
+  PENDING: { backgroundColor: "#f5f3ff", color: "#5b21b6" },
+  COMPLETED: { backgroundColor: "#f0fdf4", color: "#166534" },
+};
+
+function getFleetWorkStatusCellProps(status: string | undefined): {
+  className: string;
+  style: CSSProperties | undefined;
+} {
+  const key = normalizeFleetWorkStatusKey(status);
+  if (!key) {
+    return {
+      className: `${FLEET_WORK_STATUS_BASE_TD} bg-white text-gray-900`,
+      style: undefined,
+    };
+  }
+  return {
+    className: FLEET_WORK_STATUS_BASE_TD,
+    style: FLEET_WORK_STATUS_STYLE[key],
+  };
+}
 
 export function Operation() {
   const { id } = useParams<{ id: string }>();
@@ -310,7 +385,7 @@ export function Operation() {
       if (!aircraftId) return;
       try {
         const response = await getAircraftById(aircraftId);
-        setAircraft(toCamel(response.data));
+        setAircraft(toCamelDeep(response.data) as Aircraft);
       } catch (err) {
         console.error("Error fetching aircraft:", err);
       }
@@ -514,7 +589,9 @@ export function Operation() {
     Swal.fire({
       icon: "success",
       title: "Added",
-      text: `Record #${record.sequenceNo ?? record.id} added to reliability tracking`,
+      text: `Record #${
+        record.sequenceNo ?? record.id
+      } added to reliability tracking`,
       timer: 2000,
       showConfirmButton: false,
     });
@@ -616,7 +693,7 @@ export function Operation() {
           sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
         ),
       ]);
-      setAircraft(toCamel(aircraftRes.data));
+      setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
       setFleetTimeRecords(recordsRes.items);
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
@@ -632,8 +709,8 @@ export function Operation() {
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <button
             onClick={handleBack}
             className="p-2 hover:bg-gray-100 rounded transition-colors"
@@ -686,6 +763,30 @@ export function Operation() {
                         )
                       : "-"}
                   </span>
+                  <span>
+                    Engine TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTso")
+                    )}
+                  </span>
+                  <span>
+                    Engine TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTsn")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTso")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
+                    )}
+                  </span>
                 </div>
               )}
             </div>
@@ -734,25 +835,12 @@ export function Operation() {
               </button>
               <button
                 onClick={() => {
-                  const engineLimit =
-                    aircraft?.engineLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_engine;
-                  const propellerLimit =
-                    aircraft?.propellerLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_propeller;
-                  const engineMissing =
-                    engineLimit == null ||
-                    engineLimit === "" ||
-                    Number(engineLimit) === 0;
-                  const propellerMissing =
-                    propellerLimit == null ||
-                    propellerLimit === "" ||
-                    Number(propellerLimit) === 0;
-                  if (engineMissing || propellerMissing) {
+                  const missing = getMissingAircraftFieldsForNewAtl(aircraft);
+                  if (missing.length > 0) {
                     Swal.fire({
                       icon: "warning",
-                      title: "Aircraft limits required",
-                      html: "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating an ATL entry.<br/><br/>",
+                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                      html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
                       confirmButtonColor: "#2563eb",
                     });
                     return;
@@ -926,6 +1014,14 @@ export function Operation() {
                                   <ChevronDown className="w-4 h-4 inline" />
                                 )}
                               </span>
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                            >
+                              WORK
+                              <br />
+                              STATUS
                             </th>
                             <th
                               rowSpan={2}
@@ -1204,7 +1300,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={50}
+                                colSpan={51}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -1255,6 +1351,13 @@ export function Operation() {
                                       </button>
                                     </div>
                                   </div>
+                                </td>
+                                <td
+                                  {...getFleetWorkStatusCellProps(
+                                    record.workStatus
+                                  )}
+                                >
+                                  {formatFleetWorkStatus(record.workStatus)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.natureOfFlight === "VOID"

@@ -1,12 +1,40 @@
 import apiClient from "./index";
 
+/** Human-readable nature of flight for dropdowns (matches technical log vocabulary). */
+export function formatNatureOfFlightForDisplay(
+  nature: string | undefined | null
+): string {
+  if (nature == null || String(nature).trim() === "") return "—";
+  const n = String(nature).trim();
+  if (n === "VOID") return "VOID";
+  const mapping: Record<string, string> = {
+    TR: "TR - Training Flight",
+    PSF: "PSF - Post Flight Inspection",
+    PRF: "PRF - Pre Flight Inspection",
+    EGR: "EGR - Engine Run-up",
+    ME: "ME - Maintenance Entry",
+    TR_WITH_PIREM: "TR W/ PIREM - Training Flight with Pilot Remarks",
+    ATL_REPL: "ATL REPL",
+    VE: "VE - Vehicle",
+    EOR: "EOR - End of Run",
+    OTHER: "OTHER",
+  };
+  return mapping[n] ?? n;
+}
+
 export interface AtlItem {
   id: number;
   sequenceNo?: string;
   code?: string;
   reference?: string;
-  /** Display label: sequence number or code/reference */
+  /** Single-line summary: Sequence · Nature of Flight · A/C Registration (when known) */
   label: string;
+  /** Raw API value for nature of flight */
+  natureOfFlight?: string;
+  /** Same as formatNatureOfFlightForDisplay(natureOfFlight) when present */
+  natureOfFlightDisplay?: string;
+  /** Aircraft registration when returned on the ATL row */
+  aircraftRegistration?: string;
 }
 
 const ATL_PATH = "atl/";
@@ -36,8 +64,39 @@ export const getAtlList = async (
       const seqNo = r.sequence_no ?? r.sequence_number ?? r.sequenceNo ?? "";
       const code = r.code ?? r.atl_code ?? "";
       const ref = r.reference ?? r.atl_ref ?? r.atl_reference ?? "";
-      const label = seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
-      return { id, sequenceNo: seqNo, code, reference: ref, label };
+      const aircraftRaw = r.aircraft ?? r.aircraft_fk;
+      const reg =
+        typeof aircraftRaw === "object" && aircraftRaw != null
+          ? String(
+              aircraftRaw.registration ??
+                aircraftRaw.registration_mark ??
+                aircraftRaw.ident ??
+                ""
+            ).trim()
+          : String(
+              r.aircraft_registration ??
+                r.ac_reg ??
+                r.registration ??
+                ""
+            ).trim();
+      const natureRaw = String(
+        r.nature_of_flight ?? r.natureOfFlight ?? ""
+      ).trim();
+      const natureOfFlightDisplay = formatNatureOfFlightForDisplay(
+        natureRaw || undefined
+      );
+      const seqPart = seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
+      const label = `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
+      return {
+        id,
+        sequenceNo: seqNo,
+        code,
+        reference: ref,
+        label,
+        natureOfFlight: natureRaw || undefined,
+        natureOfFlightDisplay,
+        aircraftRegistration: reg || undefined,
+      };
     });
   } catch {
     return [];
