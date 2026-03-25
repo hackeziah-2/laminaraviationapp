@@ -343,6 +343,10 @@ export interface GetPersonnelAuthorizationsOptions {
   /** When set, sent as `item_type` on personnel-compliance/paged. */
   itemType?: PersonnelComplianceItemType | "";
   /**
+   * When set, sent as `name` on personnel-compliance/paged (person name search).
+   */
+  name?: string;
+  /**
    * Order by EXPIRY_DATE on personnel-compliance/paged:
    * - asc → `sort=expiry_date`
    * - desc → `sort=-expiry_date`
@@ -351,7 +355,7 @@ export interface GetPersonnelAuthorizationsOptions {
 }
 
 /**
- * GET list for table. API: /api/v1/personnel-compliance/paged?page=&limit=&item_type=&sort=
+ * GET list for table. API: /api/v1/personnel-compliance/paged?page=&limit=&item_type=&name=&sort=
  * Fetches all pages and merges (UI still paginates client-side).
  */
 export async function getPersonnelAuthorizations(
@@ -371,6 +375,10 @@ export async function getPersonnelAuthorizations(
       : sortExpiry === "desc"
         ? "-expiry_date"
         : "";
+  const nameFilter =
+    options?.name != null && String(options.name).trim() !== ""
+      ? String(options.name).trim()
+      : "";
 
   try {
     let page = 1;
@@ -380,6 +388,7 @@ export async function getPersonnelAuthorizations(
       params.set("page", String(page));
       params.set("limit", String(limit));
       if (itemTypeFilter) params.set("item_type", itemTypeFilter);
+      if (nameFilter) params.set("name", nameFilter);
       if (sortParam) params.set("sort", sortParam);
       const path = `${COMPLIANCE}/paged?${params.toString()}`;
       const res = await apiClient.get(path, {

@@ -25,7 +25,9 @@ export function RegulatoryAdvisory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRenewModal, setShowRenewModal] = useState(false);
-  const [renewAdvisoryRow, setRenewAdvisoryRow] = useState<AdvisoryItem | null>(null);
+  const [renewAdvisoryRow, setRenewAdvisoryRow] = useState<AdvisoryItem | null>(
+    null
+  );
   /** Holds id, expiry (editable), category_type from item, regulatory_compliance from row when present. */
   const [renewUpdate, setRenewUpdate] = useState<{
     id: number;
@@ -81,9 +83,6 @@ export function RegulatoryAdvisory() {
     String(t ?? "")
       .trim()
       .toUpperCase();
-
-  const startIndex = total === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-  const endIndex = Math.min(currentPage * itemsPerPage, total);
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
@@ -237,7 +236,7 @@ export function RegulatoryAdvisory() {
         style={{ backgroundColor: "#2563EB" }}
       >
         <span className="tracking-wide text-sm sm:text-base">ADVISORY</span>
-        <span className="text-sm">DATE: 27 FEB 26</span>
+        <span className="text-sm" />
       </div>
 
       {/* Search and Filter */}
@@ -253,7 +252,8 @@ export function RegulatoryAdvisory() {
               placeholder="Search by item"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:opacity-60"
             />
           </div>
           <div className="w-full md:w-56">
@@ -264,7 +264,8 @@ export function RegulatoryAdvisory() {
             <select
               value={filterType}
               onChange={(e) => handleFilterChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
             >
               <option value="all">All Types</option>
               <option value="CERTIFICATE">CERTIFICATE</option>
@@ -278,11 +279,6 @@ export function RegulatoryAdvisory() {
         </div>
       </div>
 
-      {/* Table Header Info */}
-      <div className="text-gray-600">
-        Showing {total > 0 ? startIndex : 0} to {endIndex} of {total} items
-      </div>
-
       {/* Error */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
@@ -292,68 +288,75 @@ export function RegulatoryAdvisory() {
 
       {/* Advisory Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="px-6 py-12">
-            <Spinner compact label="Loading advisories…" />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => handleSort("item")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    ITEM
+                    {sortBy === "item" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => handleSort("type")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    TYPE
+                    {sortBy === "type" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  EXPIRY
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => handleSort("remaining_validity")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    <span
+                      className="inline-block w-2 h-2 bg-blue-600"
+                      style={{
+                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
+                      }}
+                    />
+                    REMAINING VALIDITY
+                    {sortBy === "remaining_validity" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  ACTIONS
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {loading ? (
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => handleSort("item")}
-                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
-                    >
-                      ITEM
-                      {sortBy === "item" && (
-                        <span className="text-gray-400">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => handleSort("type")}
-                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
-                    >
-                      TYPE
-                      {sortBy === "type" && (
-                        <span className="text-gray-400">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    EXPIRY
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => handleSort("remaining_validity")}
-                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
-                    >
-                      REMAINING VALIDITY
-                      {sortBy === "remaining_validity" && (
-                        <span className="text-gray-400">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    ACTION
-                  </th>
+                  <td colSpan={5} className="px-6 py-12">
+                    <Spinner />
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {items.length > 0 ? (
-                  items.map((advisory, index) => (
+              ) : items.length > 0 ? (
+                items.map((advisory, index) => (
                     <tr
                       key={`advisory-${advisory.id}-${index}`}
                       className="hover:bg-gray-50 transition-colors"
@@ -385,7 +388,7 @@ export function RegulatoryAdvisory() {
                             : `${advisory.remainingValidity} DAYS`}
                         </span>
                       </td>
-                      <td className="px-6 py-3.5">
+                      <td className="px-6 py-3.5 whitespace-nowrap">
                         <div className="flex items-center gap-2 flex-wrap">
                           <button
                             type="button"
@@ -432,7 +435,9 @@ export function RegulatoryAdvisory() {
                                     showConfirmButton: false,
                                   });
                                   const typeParam =
-                                    filterType === "all" ? undefined : filterType;
+                                    filterType === "all"
+                                      ? undefined
+                                      : filterType;
                                   getAdvisoryPaged(
                                     currentPage,
                                     itemsPerPage,
@@ -449,9 +454,13 @@ export function RegulatoryAdvisory() {
                                     .catch(() => {});
                                 } catch (err: unknown) {
                                   const message =
-                                    (err as {
-                                      response?: { data?: { detail?: string } };
-                                    })?.response?.data?.detail ??
+                                    (
+                                      err as {
+                                        response?: {
+                                          data?: { detail?: string };
+                                        };
+                                      }
+                                    )?.response?.data?.detail ??
                                     (err as Error)?.message ??
                                     "Failed to withhold advisory";
                                   await Swal.fire({
@@ -472,25 +481,24 @@ export function RegulatoryAdvisory() {
                         </div>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-6 py-12 text-center text-gray-500"
-                    >
-                      No advisory items found matching your search criteria
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-6 py-12 text-center text-gray-500"
+                  >
+                    No advisory items found matching your search criteria
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
         <DataTablePagination
           currentPage={currentPage}
-          totalPages={totalPages}
+          totalPages={Math.max(1, totalPages)}
           onPageChange={setCurrentPage}
           totalItems={total}
           totalLabel="items"
@@ -518,7 +526,10 @@ export function RegulatoryAdvisory() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 id="renew-advisory-title" className="text-lg font-semibold text-gray-900">
+              <h2
+                id="renew-advisory-title"
+                className="text-lg font-semibold text-gray-900"
+              >
                 Renew Advisory
               </h2>
               <button

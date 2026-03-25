@@ -9,6 +9,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Search,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import {
@@ -168,6 +169,9 @@ export function PersonnelAuthorization() {
   >("");
   /** personnel-compliance/paged: sort=expiry_date | sort=-expiry_date */
   const [expiryDateSort, setExpiryDateSort] = useState<"asc" | "desc">("asc");
+  /** personnel-compliance/paged: `name` query param */
+  const [nameSearch, setNameSearch] = useState("");
+  const [debouncedNameSearch, setDebouncedNameSearch] = useState("");
 
   // Authorization Number searchable dropdown
   const [authStampSearchTerm, setAuthStampSearchTerm] = useState("");
@@ -226,6 +230,7 @@ export function PersonnelAuthorization() {
       const rows = await getPersonnelAuthorizations({
         itemType: itemTypeFilter || undefined,
         sortExpiryDate: expiryDateSort,
+        name: debouncedNameSearch.trim() || undefined,
       });
       setPersonnel(rows);
     } catch {
@@ -233,7 +238,7 @@ export function PersonnelAuthorization() {
     } finally {
       setListLoading(false);
     }
-  }, [itemTypeFilter, expiryDateSort]);
+  }, [itemTypeFilter, expiryDateSort, debouncedNameSearch]);
 
   const total = personnel.length;
   const totalPages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
@@ -284,6 +289,18 @@ export function PersonnelAuthorization() {
     );
     return () => clearTimeout(t);
   }, [authStampSearchTerm]);
+
+  // Debounce list filter: name → personnel-compliance/paged?name=
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedNameSearch(nameSearch.trim());
+    }, AUTH_SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [nameSearch]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedNameSearch]);
 
   // Authorization Number: get data from list of auth_stamp in account information
   useEffect(() => {
@@ -689,7 +706,7 @@ export function PersonnelAuthorization() {
             className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Personnel</span>
+            <span className="hidden sm:inline">Add Authorization</span>
           </button>
         </div>
       </div>
@@ -702,37 +719,61 @@ export function PersonnelAuthorization() {
         <span className="tracking-wide text-sm sm:text-base">
           PERSONNEL AUTHORIZATION
         </span>
-        <span className="text-sm">DATE: 27 FEB 26</span>
+        <span className="text-sm"></span>
+      </div>
+
+      {/* Name search — debounced `name` query on GET …/personnel-compliance/paged */}
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-gray-700 mb-2 flex items-center gap-2">
+              <Search className="w-4 h-4 text-gray-500" aria-hidden />
+              Search Authorization
+            </label>
+            <input
+              type="search"
+              placeholder="Search by Name (First Name, Last Name)"
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              disabled={listLoading}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:opacity-60"
+              aria-label="Search personnel by name (sent to personnel-compliance paged API)"
+              autoComplete="off"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Personnel Table - separate card like Aircraft Fleet Profile */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50/80">
-          <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 text-sm text-gray-700">
-            <span className="font-medium text-gray-800 shrink-0">
-              Item Type
-            </span>
-            <select
-              value={itemTypeFilter}
-              onChange={(e) => {
-                const v = e.target.value;
-                setItemTypeFilter(
-                  v === "" ? "" : (v as PersonnelComplianceItemType)
-                );
-                setCurrentPage(1);
-              }}
-              disabled={listLoading}
-              className="min-w-[12rem] max-w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:opacity-60"
-              aria-label="Filter by Item Type"
-            >
-              <option value="">All types</option>
-              {PERSONNEL_COMPLIANCE_ITEM_TYPES.map((item) => (
-                <option key={item} value={item}>
-                  {ITEM_TYPE_FILTER_LABELS[item]}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50/80">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
+            <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 text-sm text-gray-700">
+              <span className="font-medium text-gray-800 shrink-0">
+                Item Type
+              </span>
+              <select
+                value={itemTypeFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setItemTypeFilter(
+                    v === "" ? "" : (v as PersonnelComplianceItemType)
+                  );
+                  setCurrentPage(1);
+                }}
+                disabled={listLoading}
+                className="min-w-[12rem] max-w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:opacity-60"
+                aria-label="Filter by Item Type"
+              >
+                <option value="">All types</option>
+                {PERSONNEL_COMPLIANCE_ITEM_TYPES.map((item) => (
+                  <option key={item} value={item}>
+                    {ITEM_TYPE_FILTER_LABELS[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -757,7 +798,7 @@ export function PersonnelAuthorization() {
                   AUTH ISSUE DATE
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] font-medium text-gray-600 tracking-wide">
-                ITEM TYPE
+                  ITEM TYPE
                 </th>
                 <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
                   AUTHORIZATION_SCOPE
@@ -842,13 +883,12 @@ export function PersonnelAuthorization() {
                       <td className={cellClass}>{person.authIssueDate}</td>
                       <td className={cellClass}>
                         <div className="uppercase">
-                        {person.itemType ? (
-                          <ItemTypeBadge raw={person.itemType} />
-                        ) : (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                          {person.itemType ? (
+                            <ItemTypeBadge raw={person.itemType} />
+                          ) : (
+                            <span className={placeholderClass}>—</span>
+                          )}
                         </div>
-                        
                       </td>
                       <td className={cellClassNoWrap}>
                         {person.authorizationScope || (

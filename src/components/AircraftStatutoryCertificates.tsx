@@ -4,8 +4,7 @@ import {
   Plus,
   X,
   Loader,
-  ArrowUp,
-  ArrowDown,
+  Filter,
   Eye,
   Pencil,
   Trash2,
@@ -555,67 +554,69 @@ export function AircraftStatutoryCertificates() {
   const isModalOpen = showAddModal || showEditModal;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold text-gray-900">
+          <h1 className="text-gray-900 text-xl sm:text-2xl">
             Aircraft Statutory Certificates
-          </h2>
-          <p className="text-gray-600 mt-1">
+          </h1>
+          <p className="text-gray-500 mt-1 text-sm sm:text-base">
             Certificate expiry tracking and document management.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
           >
-            <Download className="w-4 h-4" />
-            Export
+            <Download className="w-4 h-4 text-gray-600" />
+            <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
           <button
             type="button"
             onClick={handleAddCertificate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
           >
             <Plus className="w-4 h-4" />
-            Add Certificate
+            <span className="hidden sm:inline">Add Certificate</span>
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
-          <div className="flex-1 min-w-0">
-            <p className="text-xs text-gray-500 mb-1.5">Search Aircraft</p>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by registration, model, or MSN..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                disabled={loading}
-                className="w-full h-10 pl-10 pr-9 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 bg-white"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              {loading && (
-                <Loader className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-600 animate-spin" />
-              )}
-            </div>
+      {/* Blue Banner */}
+      <div
+        className="text-white px-4 sm:px-6 py-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0"
+        style={{ backgroundColor: "#2563EB" }}
+      >
+        <span className="tracking-wide text-sm sm:text-base">
+          AIRCRAFT STATUTORY CERTIFICATES
+        </span>
+        <span className="text-sm" />
+      </div>
+
+      {/* Search and Filter */}
+      <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-gray-700 mb-2 flex items-center gap-2">
+              <Search className="w-4 h-4 text-gray-500" />
+              Search Certificates
+            </label>
+            <input
+              type="text"
+              placeholder="Search by registration, model, or MSN..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:opacity-60"
+            />
           </div>
-          <div>
-            <p className="text-xs text-gray-500 mb-1.5">
-              Filter: Certificate Type
-            </p>
+          <div className="w-full md:w-56">
+            <label className="block text-gray-700 mb-2 flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-500" />
+              Filter by Certificate Type
+            </label>
             <select
               value={filterCertificateType}
               onChange={(e) => {
@@ -623,7 +624,7 @@ export function AircraftStatutoryCertificates() {
                 setCurrentPage(1);
               }}
               disabled={loading}
-              className="h-10 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[160px]"
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
             >
               <option value="">All Types</option>
               {CERTIFICATE_TYPE_OPTIONS.map(({ value, label }) => (
@@ -634,110 +635,106 @@ export function AircraftStatutoryCertificates() {
             </select>
           </div>
         </div>
+      </div>
 
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Spinner />
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      <button
-                        type="button"
-                        onClick={() => toggleSort("registration")}
-                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
-                      >
-                        REGISTRATION
-                        {sortBy === "registration" &&
-                          (sortDir === "asc" ? (
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          ) : (
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          ))}
-                      </button>
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      <button
-                        type="button"
-                        onClick={() => toggleSort("makeModel")}
-                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
-                      >
-                        MAKE/MODEL
-                        {sortBy === "makeModel" &&
-                          (sortDir === "asc" ? (
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          ) : (
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          ))}
-                      </button>
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      <button
-                        type="button"
-                        onClick={() => toggleSort("msn")}
-                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
-                      >
-                        MSN
-                        {sortBy === "msn" &&
-                          (sortDir === "asc" ? (
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          ) : (
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          ))}
-                      </button>
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      CERTIFICATE TYPE
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      <button
-                        type="button"
-                        onClick={() => toggleSort("expiryDate")}
-                        className="flex items-center gap-1 hover:text-blue-600 focus:outline-none"
-                      >
-                        DATE OF EXPIRATION
-                        {sortBy === "expiryDate" &&
-                          (sortDir === "asc" ? (
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          ) : (
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          ))}
-                      </button>
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      WEB LINK
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                      ACTIONS
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredCertificates.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={7}
-                        className="px-6 py-12 text-center text-gray-500 text-sm"
-                      >
-                        No certificates found
-                      </td>
-                    </tr>
-                  ) : (
+      {/* Certificates Table */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("registration")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    REGISTRATION
+                    {sortBy === "registration" && (
+                      <span className="text-blue-600">
+                        {sortDir === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("makeModel")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    MAKE/MODEL
+                    {sortBy === "makeModel" && (
+                      <span className="text-blue-600">
+                        {sortDir === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("msn")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    MSN
+                    {sortBy === "msn" && (
+                      <span className="text-blue-600">
+                        {sortDir === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  CERTIFICATE TYPE
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => toggleSort("expiryDate")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    <span
+                      className="inline-block w-2 h-2 bg-blue-600"
+                      style={{
+                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
+                      }}
+                    />
+                    DATE OF EXPIRATION
+                    {sortBy === "expiryDate" && (
+                      <span className="text-blue-600">
+                        {sortDir === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  WEB LINK
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  ACTIONS
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12">
+                    <Spinner />
+                  </td>
+                </tr>
+              ) : filteredCertificates.length > 0 ? (
                     filteredCertificates.map((cert, index) => {
                       const certId = getCertId(cert);
                       const isWithhold = (cert as CertificateType).isWithhold ?? (cert as { is_withhold?: boolean }).is_withhold ?? false;
                       const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
-                      const cellClass = `px-6 py-4 whitespace-nowrap text-sm ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                      const cellClass = `px-6 py-3.5 whitespace-nowrap text-sm ${isWithhold ? "text-red-900" : "text-gray-900"}`;
                       return (
                         <tr
                           key={certId ?? `cert-${index}`}
-                          className={rowBg}
+                          className={`${rowBg} transition-colors`}
                         >
-                          <td className={cellClass}>
+                          <td className={`${cellClass} font-medium`}>
                             {getRegistration(cert)}
                           </td>
                           <td className={cellClass}>
@@ -763,7 +760,7 @@ export function AircraftStatutoryCertificates() {
                               <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
                             )}
                           </td>
-                          <td className={cellClass}>
+                          <td className={`${cellClass} whitespace-nowrap`}>
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
@@ -799,25 +796,33 @@ export function AircraftStatutoryCertificates() {
                         </tr>
                       );
                     })
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <DataTablePagination
-              currentPage={currentPage}
-              totalPages={Math.max(1, totalPages)}
-              onPageChange={setCurrentPage}
-              totalItems={totalRecords}
-              totalLabel="certificates"
-              itemsPerPage={itemsPerPage}
-              onItemsPerPageChange={(size) => {
-                setItemsPerPage(size);
-                setCurrentPage(1);
-              }}
-              disabled={loading}
-            />
-          </>
-        )}
+              ) : (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-6 py-12 text-center text-gray-500"
+                  >
+                    No certificates found matching your search criteria
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={Math.max(1, totalPages)}
+          onPageChange={setCurrentPage}
+          totalItems={totalRecords}
+          totalLabel="certificates"
+          itemsPerPage={itemsPerPage}
+          onItemsPerPageChange={(size) => {
+            setItemsPerPage(size);
+            setCurrentPage(1);
+          }}
+          disabled={loading}
+        />
       </div>
 
       {/* View Details Modal */}

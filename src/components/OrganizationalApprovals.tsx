@@ -412,7 +412,7 @@ export function OrganizationalApprovals() {
         <span className="tracking-wide text-sm sm:text-base">
           ORGANIZATIONAL APPROVALS
         </span>
-        <span className="text-sm">DATE: 27 FEB 26</span>
+        <span className="text-sm"></span>
       </div>
 
       {/* Search and Filter */}
@@ -519,66 +519,85 @@ export function OrganizationalApprovals() {
                 </tr>
               ) : paginatedApprovals.length > 0 ? (
                 paginatedApprovals.map((approval) => {
-                  const isWithhold = approval.isWithhold ?? (approval as { is_withhold?: boolean }).is_withhold ?? false;
-                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
-                  const cellClass = `px-6 py-3.5 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  const isWithhold =
+                    approval.isWithhold ??
+                    (approval as { is_withhold?: boolean }).is_withhold ??
+                    false;
+                  const rowBg = isWithhold
+                    ? "bg-red-100 hover:bg-red-200"
+                    : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 ${
+                    isWithhold ? "text-red-900" : "text-gray-900"
+                  }`;
                   return (
-                  <tr
-                    key={approval.id}
-                    className={`${rowBg} transition-colors`}
-                  >
-                    <td className={`${cellClass} font-medium`}>
-                      {approval.approvalTypeName ?? approval.certificate}
-                    </td>
-                    <td className={cellClass}>
-                      {approval.number || (
-                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {formatExpiryDisplay(
-                        approval.expiryDate ?? approval.expiry
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {approval.fileLink && approval.fileLink !== "#" ? (
-                        <LinkButton href={approval.fileLink} />
-                      ) : (
-                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
-                      )}
-                    </td>
-                    <td className={`${cellClass} whitespace-nowrap`}>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openViewModal(approval)}
-                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-                          title="View details"
-                          aria-label="View"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openViewEditModal(approval)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Edit"
-                          aria-label="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteApproval(approval.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Delete"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    <tr
+                      key={approval.id}
+                      className={`${rowBg} transition-colors`}
+                    >
+                      <td className={`${cellClass} font-medium`}>
+                        {approval.approvalTypeName ?? approval.certificate}
+                      </td>
+                      <td className={cellClass}>
+                        {approval.number || (
+                          <span
+                            className={
+                              isWithhold ? "text-red-600" : "text-gray-400"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {formatExpiryDisplay(
+                          approval.expiryDate ?? approval.expiry
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {approval.fileLink && approval.fileLink !== "#" ? (
+                          <LinkButton href={approval.fileLink} />
+                        ) : (
+                          <span
+                            className={
+                              isWithhold ? "text-red-600" : "text-gray-400"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className={`${cellClass} whitespace-nowrap`}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openViewModal(approval)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                            title="View details"
+                            aria-label="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openViewEditModal(approval)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                            title="Edit"
+                            aria-label="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteApproval(approval.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded"
+                            title="Delete"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               ) : (
