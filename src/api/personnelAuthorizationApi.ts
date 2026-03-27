@@ -51,6 +51,8 @@ export interface PersonnelAuthorizationRecord {
   authorizationScope: string;
   /** List view: separate expiry (expiry_date), distinct from auth expiry. */
   expiryDate: string;
+  /** When item_type is OTHERS: API `others_expiry_date`. */
+  othersExpiryDate: string;
 }
 
 /**
@@ -65,6 +67,7 @@ export interface PersonnelCompliancePayload {
   authorization_scope_others_id?: number | null;
   auth_issue_date?: string;
   expiry_date?: string;
+  others_expiry_date?: string;
 }
 
 export type PersonnelAuthorizationCreate = PersonnelCompliancePayload;
@@ -232,6 +235,7 @@ function normalizeItem(
       itemType: "",
       authorizationScope: "",
       expiryDate: "",
+      othersExpiryDate: "",
     };
   }
   const id = Number(raw.id ?? 0);
@@ -308,6 +312,12 @@ function normalizeItem(
   );
 
   const expiryDateApi = getStr(raw, "expiryDate", "expiry_date", "EXPIRY_DATE");
+  let othersExpiryDate = getStr(
+    raw,
+    "othersExpiryDate",
+    "others_expiry_date",
+    "OTHERS_EXPIRY_DATE"
+  );
   let authExpiryDate = getStr(raw, "authExpiryDate", "auth_expiry_date");
   let caapLicExpiry = getStr(raw, "caapLicExpiry", "caap_license_expiry", "caap_lic_expiry");
   let hfTrainingExpiry = getStr(raw, "hfTrainingExpiry", "human_factors_training_expiry", "hf_training_expiry");
@@ -316,8 +326,8 @@ function normalizeItem(
 
   if (expiryDateApi) {
     const u = itemTypeStr.trim().toUpperCase().replace(/\s+/g, "_");
-    if (!authExpiryDate && (u === "AUTH_EXPIRY" || u === "OTHERS"))
-      authExpiryDate = expiryDateApi;
+    if (!authExpiryDate && u === "AUTH_EXPIRY") authExpiryDate = expiryDateApi;
+    if (!othersExpiryDate && u === "OTHERS") othersExpiryDate = expiryDateApi;
     if (!caapLicExpiry && u === "CAAP_LICENSE") caapLicExpiry = expiryDateApi;
     if (!hfTrainingExpiry && u === "HF_TRAINING") hfTrainingExpiry = expiryDateApi;
     if (!typeTrainingCessna && u === "CESSNA") typeTrainingCessna = expiryDateApi;
@@ -348,6 +358,7 @@ function normalizeItem(
     itemType: itemTypeStr,
     authorizationScope: authorizationScopeResolved,
     expiryDate: expiryDateApi,
+    othersExpiryDate,
   };
 }
 
@@ -451,7 +462,7 @@ async function fetchPersonnelCompliancePagedAll(
 }
 
 /**
- * GET list for table. API: /api/v1/personnel-compliance-matrix-2/paged?page=&limit=&name=&sort=
+ * GET Matrix 1 list (long / per item_type rows). API: /api/v1/personnel-compliance/paged?page=&limit=&item_type=&name=&sort=
  * Fetches all pages and merges (UI still paginates client-side).
  */
 export async function getPersonnelAuthorizations(
@@ -461,13 +472,18 @@ export async function getPersonnelAuthorizations(
     options?.name != null && String(options.name).trim() !== ""
       ? String(options.name).trim()
       : "";
+  const itemTypeFilter =
+    options?.itemType != null && String(options.itemType).trim() !== ""
+      ? String(options.itemType).trim()
+      : "";
   return fetchPersonnelCompliancePagedAll(
-    COMPLIANCE_MATRIX_2,
+    COMPLIANCE,
     {
+      itemTypeFilter: itemTypeFilter || undefined,
       nameFilter,
       sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
     },
-    "personnel-compliance-matrix-2/paged"
+    "personnel-compliance/paged"
   );
 }
 
@@ -536,6 +552,8 @@ function buildPersonnelComplianceBody(
   if (issue) body.auth_issue_date = issue;
   const exp = payload.expiry_date?.trim();
   if (exp) body.expiry_date = exp;
+  const othersExp = payload.others_expiry_date?.trim();
+  if (othersExp) body.others_expiry_date = othersExp;
   return body;
 }
 

@@ -160,6 +160,7 @@ function complianceExpiryDateForItemType(
   itemType: PersonnelComplianceItemType,
   form: {
     authExpiryDate: string;
+    othersExpiryDate: string;
     typeTrainingCessna: string;
     typeTrainingBaron: string;
     caapLicExpiry: string;
@@ -168,8 +169,9 @@ function complianceExpiryDateForItemType(
 ): string {
   switch (itemType) {
     case "AUTH_EXPIRY":
-    case "OTHERS":
       return form.authExpiryDate.trim();
+    case "OTHERS":
+      return form.othersExpiryDate.trim();
     case "CESSNA":
       return form.typeTrainingCessna.trim();
     case "BARON":
@@ -246,6 +248,7 @@ export function PersonnelAuthorization() {
     itemType: "" as "" | PersonnelComplianceItemType,
     authIssueDate: "",
     authExpiryDate: "",
+    othersExpiryDate: "",
     scopeCessnaId: 0 as number,
     scopeBaronId: 0 as number,
     scopeOthersId: 0 as number,
@@ -386,6 +389,7 @@ export function PersonnelAuthorization() {
       itemType: "" as "" | PersonnelComplianceItemType,
       authIssueDate: "",
       authExpiryDate: "",
+      othersExpiryDate: "",
       scopeCessnaId: 0,
       scopeBaronId: 0,
       scopeOthersId: 0,
@@ -418,6 +422,7 @@ export function PersonnelAuthorization() {
       itemType: itemTypeFromApi(person.itemType),
       authIssueDate: toDateInput(person.authIssueDate),
       authExpiryDate: toDateInput(person.authExpiryDate),
+      othersExpiryDate: toDateInput(person.othersExpiryDate),
       scopeCessnaId: person.scopeCessnaId ?? 0,
       scopeBaronId: person.scopeBaronId ?? 0,
       scopeOthersId: person.scopeOthersId ?? 0,
@@ -468,8 +473,10 @@ export function PersonnelAuthorization() {
     }
     const it = createForm.itemType;
     let expiryMissing = false;
-    if (it === "AUTH_EXPIRY" || it === "OTHERS") {
+    if (it === "AUTH_EXPIRY") {
       expiryMissing = !createForm.authExpiryDate.trim();
+    } else if (it === "OTHERS") {
+      expiryMissing = !createForm.othersExpiryDate.trim();
     } else if (it === "CESSNA") {
       expiryMissing = !createForm.typeTrainingCessna.trim();
     } else if (it === "BARON") {
@@ -501,6 +508,10 @@ export function PersonnelAuthorization() {
         authorization_scope_others_id: createForm.scopeOthersId,
         auth_issue_date: createForm.authIssueDate.trim() || undefined,
         expiry_date: expiryDate || undefined,
+        others_expiry_date:
+          createForm.itemType === "OTHERS"
+            ? createForm.othersExpiryDate.trim() || undefined
+            : undefined,
       };
       if (editingPersonnel) {
         await updatePersonnelAuthorization(
@@ -893,6 +904,9 @@ export function PersonnelAuthorization() {
                     </button>
                   </th>
                   <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                    OTHERS EXPIRY DATE
+                  </th>
+                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
                     ACTIONS
                   </th>
                 </tr>
@@ -963,6 +977,12 @@ export function PersonnelAuthorization() {
                     rowSpan={2}
                     className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
+                    OTHERS EXPIRY DATE
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                  >
                     CAAP LIC EXPIRY
                   </th>
                   <th
@@ -1001,7 +1021,7 @@ export function PersonnelAuthorization() {
               {listLoading ? (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 14}
+                    colSpan={listGroupBy === "matrix1" ? 11 : 15}
                     className="px-6 py-12 text-center"
                   >
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
@@ -1098,6 +1118,15 @@ export function PersonnelAuthorization() {
                         </td>
                         <td className={cellClass}>
                           {person.expiryDate || (
+                            <span className={placeholderClass}>—</span>
+                          )}
+                        </td>
+                        <td className={cellClass}>
+                          {itemTypeFromApi(person.itemType) === "OTHERS" ? (
+                            person.othersExpiryDate || (
+                              <span className={placeholderClass}>—</span>
+                            )
+                          ) : (
                             <span className={placeholderClass}>—</span>
                           )}
                         </td>
@@ -1201,6 +1230,11 @@ export function PersonnelAuthorization() {
                         )}
                       </td>
                       <td className={cellClass}>
+                        {person.othersExpiryDate || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
                         {person.caapLicExpiry || (
                           <span className={placeholderClass}>—</span>
                         )}
@@ -1226,7 +1260,7 @@ export function PersonnelAuthorization() {
               ) : (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 14}
+                    colSpan={listGroupBy === "matrix1" ? 11 : 15}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found
@@ -1347,8 +1381,8 @@ export function PersonnelAuthorization() {
                     value={viewingPersonnel.scopeOthers}
                   />
                   <PersonnelDetailRow
-                    label="Expiration Date"
-                    value={viewingPersonnel.authExpiryDate}
+                    label="Others Expiry Date"
+                    value={viewingPersonnel.othersExpiryDate}
                   />
                 </>
               )}
@@ -1868,17 +1902,17 @@ export function PersonnelAuthorization() {
                     </div>
                     <div>
                       <label className="block text-gray-700 text-sm mb-1.5">
-                        Expiration Date <span className="text-red-500">*</span>
+                        Others Expiry Date <span className="text-red-500">*</span>
                       </label>
                       <input
-                        name="expiry_date"
+                        name="others_expiry_date"
                         required
                         type="date"
-                        value={createForm.authExpiryDate}
+                        value={createForm.othersExpiryDate}
                         onChange={(e) =>
                           setCreateForm((prev) => ({
                             ...prev,
-                            authExpiryDate: e.target.value,
+                            othersExpiryDate: e.target.value,
                           }))
                         }
                         className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
