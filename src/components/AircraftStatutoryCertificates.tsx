@@ -10,6 +10,7 @@ import {
   Trash2,
   ChevronDown,
   Check,
+  History,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
@@ -18,7 +19,9 @@ import {
   createAircraftStatutoryCertificate,
   updateAircraftStatutoryCertificate,
   deleteAircraftStatutoryCertificate,
+  getAircraftStatutoryCertificateHistoryPaged,
   type AircraftStatutoryCertificate as CertificateType,
+  type AircraftStatutoryCertificateHistoryRow,
 } from "../api/aircraftStatutoryCertificatesApi";
 import { getAircrafts } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
@@ -33,6 +36,8 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+const ASC_HISTORY_PAGE_SIZE = 10;
 
 /** Backend filter values for aircraft-statutory-certificates */
 const CERTIFICATE_TYPE_FILTER = {
@@ -69,7 +74,8 @@ function isValidWebLink(value: string | null | undefined): boolean {
   const v = typeof value === "string" ? value.trim() : "";
   if (!v) return true;
   try {
-    const url = v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
+    const url =
+      v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
     new URL(url);
     return true;
   } catch {
@@ -82,7 +88,8 @@ function normalizeWebLink(value: string | null | undefined): string | null {
   const v = typeof value === "string" ? value.trim() : "";
   if (!v) return null;
   try {
-    const url = v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
+    const url =
+      v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
     new URL(url);
     return url;
   } catch {
@@ -128,6 +135,18 @@ export function AircraftStatutoryCertificates() {
     useState<CertificateType | null>(null);
   const [viewingCertificate, setViewingCertificate] =
     useState<CertificateType | null>(null);
+
+  const [historyTarget, setHistoryTarget] = useState<{
+    ascHistoryId: number;
+    subtitle: string;
+  } | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRows, setHistoryRows] = useState<
+    AircraftStatutoryCertificateHistoryRow[]
+  >([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     aircraftId: "",
@@ -201,10 +220,13 @@ export function AircraftStatutoryCertificates() {
   }, [fetchAircrafts]);
 
   // Refetch aircrafts when dropdown is open and search term changes (debounced)
-  const aircraftSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aircraftSearchDebounceRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   useEffect(() => {
     if (!isAircraftDropdownOpen) return;
-    if (aircraftSearchDebounceRef.current) clearTimeout(aircraftSearchDebounceRef.current);
+    if (aircraftSearchDebounceRef.current)
+      clearTimeout(aircraftSearchDebounceRef.current);
     aircraftSearchDebounceRef.current = setTimeout(() => {
       fetchAircrafts(aircraftSearchTerm);
     }, 300);
@@ -222,7 +244,9 @@ export function AircraftStatutoryCertificates() {
     if (!q) return aircrafts;
     return aircrafts.filter((ac) => {
       const reg = (ac.registration ?? "").toLowerCase();
-      const type = (ac.aircraftType ?? ac.manufacturer ?? ac.model ?? "").toString().toLowerCase();
+      const type = (ac.aircraftType ?? ac.manufacturer ?? ac.model ?? "")
+        .toString()
+        .toLowerCase();
       return reg.includes(q) || type.includes(q);
     });
   }, [aircrafts, aircraftSearchTerm]);
@@ -233,7 +257,10 @@ export function AircraftStatutoryCertificates() {
     if (!ac) return "";
     return ac.aircraftType
       ? `${ac.registration ?? ""} (${ac.aircraftType})`
-      : (ac.registration ?? "") + (ac.manufacturer && ac.model ? ` (${ac.manufacturer} ${ac.model})` : "");
+      : (ac.registration ?? "") +
+          (ac.manufacturer && ac.model
+            ? ` (${ac.manufacturer} ${ac.model})`
+            : "");
   }, [formData.aircraftId, aircrafts]);
 
   const handleAircraftSelect = useCallback(
@@ -282,6 +309,16 @@ export function AircraftStatutoryCertificates() {
     return id != null && !isNaN(Number(id)) ? Number(id) : null;
   };
 
+  /** Path param for aircraft-statutory-certificates-history/{asc_history}/paged */
+  const getAscHistoryId = (c: CertificateType): number | null => {
+    const fromApi = c.ascHistory;
+    if (fromApi != null && fromApi > 0) return fromApi;
+    const raw = (c as any).asc_history;
+    if (raw != null && !isNaN(Number(raw)) && Number(raw) > 0)
+      return Number(raw);
+    return getCertId(c);
+  };
+
   const getRegistration = (c: CertificateType): string => {
     const ac = c.aircraft;
     if (ac && typeof ac === "object" && (ac as any).registration)
@@ -324,6 +361,65 @@ export function AircraftStatutoryCertificates() {
       return dateStr;
     }
   };
+
+  const openHistoryModal = (cert: CertificateType) => {
+    const ascId = getAscHistoryId(cert);
+    if (!ascId) {
+      Swal.fire({
+        icon: "warning",
+        title: "Unavailable",
+        text: "History is not available for this record.",
+      });
+      return;
+    }
+    setHistoryTarget({
+      ascHistoryId: ascId,
+      subtitle: getRegistration(cert),
+    });
+    setHistoryPage(1);
+  };
+
+  const closeHistoryModal = () => {
+    setHistoryTarget(null);
+    setHistoryRows([]);
+    setHistoryTotal(0);
+    setHistoryTotalPages(1);
+    setHistoryPage(1);
+  };
+
+  useEffect(() => {
+    if (!historyTarget) return;
+    let cancelled = false;
+    (async () => {
+      setHistoryLoading(true);
+      try {
+        const res = await getAircraftStatutoryCertificateHistoryPaged(
+          historyTarget.ascHistoryId,
+          historyPage,
+          ASC_HISTORY_PAGE_SIZE
+        );
+        if (cancelled) return;
+        setHistoryRows(res.items);
+        setHistoryTotal(res.total);
+        setHistoryTotalPages(Math.max(1, res.pages));
+      } catch (error: any) {
+        if (cancelled) return;
+        setHistoryRows([]);
+        setHistoryTotal(0);
+        setHistoryTotalPages(1);
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: error?.message ?? "Failed to load history.",
+        });
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [historyTarget?.ascHistoryId, historyPage]);
 
   const filteredCertificates = useMemo(() => {
     let list = [...certificates];
@@ -409,8 +505,10 @@ export function AircraftStatutoryCertificates() {
       expiryDate: toDateInputValue(rawExpiry),
       webLink: (c as any).webLink ?? c.webLink ?? "",
     });
-    const reg = (ac && (ac as any).registration) ?? (c as any).registration ?? "";
-    const type = (ac && ((ac as any).aircraftType ?? (ac as any).aircraft_type)) ?? "";
+    const reg =
+      (ac && (ac as any).registration) ?? (c as any).registration ?? "";
+    const type =
+      (ac && ((ac as any).aircraftType ?? (ac as any).aircraft_type)) ?? "";
     setSelectedAircraftDisplay(type ? `${reg} (${type})` : reg);
     setAircraftSearchTerm("");
     setIsAircraftDropdownOpen(false);
@@ -541,10 +639,14 @@ export function AircraftStatutoryCertificates() {
       resetForm();
       await fetchCertificates();
     } catch (error: any) {
+      const status = error?.response?.status;
+      const detail = error?.response?.data?.detail;
+      const text =
+        status === 409 ? detail ?? "Failed to save." : "Failed to save.";
       Swal.fire({
         icon: "error",
         title: "Error",
-        text: error?.message ?? "Failed to save.",
+        text,
       });
     } finally {
       setTimeout(() => setIsSaving(false), 360);
@@ -712,6 +814,9 @@ export function AircraftStatutoryCertificates() {
                   WEB LINK
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  HISTORY
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   ACTIONS
                 </th>
               </tr>
@@ -719,87 +824,108 @@ export function AircraftStatutoryCertificates() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12">
+                  <td colSpan={8} className="px-6 py-12">
                     <Spinner />
                   </td>
                 </tr>
               ) : filteredCertificates.length > 0 ? (
-                    filteredCertificates.map((cert, index) => {
-                      const certId = getCertId(cert);
-                      const isWithhold = (cert as CertificateType).isWithhold ?? (cert as { is_withhold?: boolean }).is_withhold ?? false;
-                      const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
-                      const cellClass = `px-6 py-3.5 whitespace-nowrap text-sm ${isWithhold ? "text-red-900" : "text-gray-900"}`;
-                      return (
-                        <tr
-                          key={certId ?? `cert-${index}`}
-                          className={`${rowBg} transition-colors`}
+                filteredCertificates.map((cert, index) => {
+                  const certId = getCertId(cert);
+                  const isWithhold =
+                    (cert as CertificateType).isWithhold ??
+                    (cert as { is_withhold?: boolean }).is_withhold ??
+                    false;
+                  const rowBg = isWithhold
+                    ? "bg-red-100 hover:bg-red-200"
+                    : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 whitespace-nowrap text-sm ${
+                    isWithhold ? "text-red-900" : "text-gray-900"
+                  }`;
+                  return (
+                    <tr
+                      key={certId ?? `cert-${index}`}
+                      className={`${rowBg} transition-colors`}
+                    >
+                      <td className={`${cellClass} font-medium`}>
+                        {getRegistration(cert)}
+                      </td>
+                      <td className={cellClass}>{getMakeModel(cert)}</td>
+                      <td className={cellClass}>{getMsn(cert)}</td>
+                      <td className={cellClass}>
+                        {getCertificateTypeLabel(cert.certificateType)}
+                      </td>
+                      <td className={cellClass}>
+                        {formatExpiry(cert.expiryDate)}
+                      </td>
+                      <td className={cellClass}>
+                        {(cert as any).webLink ?? (cert as any).web_link ? (
+                          <LinkButton
+                            href={
+                              (cert as any).webLink ?? (cert as any).web_link
+                            }
+                          />
+                        ) : (
+                          <span
+                            className={
+                              isWithhold ? "text-red-600" : "text-gray-400"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        <button
+                          type="button"
+                          onClick={() => openHistoryModal(cert)}
+                          disabled={!getAscHistoryId(cert)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                          title="View change history"
                         >
-                          <td className={`${cellClass} font-medium`}>
-                            {getRegistration(cert)}
-                          </td>
-                          <td className={cellClass}>
-                            {getMakeModel(cert)}
-                          </td>
-                          <td className={cellClass}>
-                            {getMsn(cert)}
-                          </td>
-                          <td className={cellClass}>
-                            {getCertificateTypeLabel(cert.certificateType)}
-                          </td>
-                          <td className={cellClass}>
-                            {formatExpiry(cert.expiryDate)}
-                          </td>
-                          <td className={cellClass}>
-                            {(cert as any).webLink ?? (cert as any).web_link ? (
-                              <LinkButton
-                                href={
-                                  (cert as any).webLink ?? (cert as any).web_link
-                                }
-                              />
-                            ) : (
-                              <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
-                            )}
-                          </td>
-                          <td className={`${cellClass} whitespace-nowrap`}>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleView(cert)}
-                                className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-                                title="View details"
-                                aria-label="View"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleEdit(cert)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                                aria-label="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              {certId && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDelete(certId)}
-                                  className="p-2 text-red-600 hover:bg-red-50 rounded"
-                                  title="Delete"
-                                  aria-label="Delete"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
+                          <History className="w-3.5 h-3.5" />
+                          History
+                        </button>
+                      </td>
+                      <td className={`${cellClass} whitespace-nowrap`}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleView(cert)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                            title="View details"
+                            aria-label="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(cert)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                            title="Edit"
+                            aria-label="Edit"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          {certId && (
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(certId)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No certificates found matching your search criteria
@@ -899,6 +1025,110 @@ export function AircraftStatutoryCertificates() {
         </div>
       )}
 
+      {/* Certificate history (paged) */}
+      {historyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            onClick={closeHistoryModal}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Certificate history
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {historyTarget.subtitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeHistoryModal}
+                className="p-1 hover:bg-gray-100 rounded"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {historyLoading ? (
+                <div className="py-12 flex justify-center">
+                  <Spinner />
+                </div>
+              ) : (
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Date of expiration
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Web link
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Created at
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {historyRows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={3}
+                            className="px-4 py-8 text-center text-gray-500"
+                          >
+                            No history entries
+                          </td>
+                        </tr>
+                      ) : (
+                        historyRows.map((row, idx) => (
+                          <tr
+                            key={`${row.createdAt ?? ""}-${idx}`}
+                            className="hover:bg-gray-50/80"
+                          >
+                            <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                              {formatExpiry(row.dateOfExpiration)}
+                            </td>
+                            <td className="px-4 py-3 text-gray-900">
+                              {row.webLink ? (
+                                <LinkButton
+                                  href={row.webLink}
+                                  className="text-sm"
+                                />
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                              {formatExpiry(row.createdAt)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-gray-200 bg-white px-6 py-3">
+              <DataTablePagination
+                currentPage={historyPage}
+                totalPages={Math.max(1, historyTotalPages)}
+                onPageChange={setHistoryPage}
+                totalItems={historyTotal}
+                totalLabel="entries"
+                itemsPerPage={ASC_HISTORY_PAGE_SIZE}
+                disabled={historyLoading}
+                showRangeText
+                maxVisiblePages={5}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add / Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -933,7 +1163,8 @@ export function AircraftStatutoryCertificates() {
                       value={
                         isAircraftDropdownOpen
                           ? aircraftSearchTerm
-                          : selectedAircraftDisplay || getSelectedAircraftDisplay()
+                          : selectedAircraftDisplay ||
+                            getSelectedAircraftDisplay()
                       }
                       onChange={(e) => {
                         setAircraftSearchTerm(e.target.value);
@@ -949,9 +1180,7 @@ export function AircraftStatutoryCertificates() {
                     />
                     <button
                       type="button"
-                      onClick={() =>
-                        setIsAircraftDropdownOpen((open) => !open)
-                      }
+                      onClick={() => setIsAircraftDropdownOpen((open) => !open)}
                       disabled={loadingAircrafts}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
                     >
@@ -977,13 +1206,12 @@ export function AircraftStatutoryCertificates() {
                       ) : (
                         <ul className="py-1">
                           {filteredAircrafts.map((ac) => {
-                            const display =
-                              ac.aircraftType
-                                ? `${ac.registration ?? ""} (${ac.aircraftType})`
-                                : (ac.registration ?? "") +
-                                  (ac.manufacturer && ac.model
-                                    ? ` (${ac.manufacturer} ${ac.model})`
-                                    : "");
+                            const display = ac.aircraftType
+                              ? `${ac.registration ?? ""} (${ac.aircraftType})`
+                              : (ac.registration ?? "") +
+                                (ac.manufacturer && ac.model
+                                  ? ` (${ac.manufacturer} ${ac.model})`
+                                  : "");
                             const isSelected =
                               formData.aircraftId === String(ac.id);
                             return (
@@ -993,7 +1221,10 @@ export function AircraftStatutoryCertificates() {
                                   handleAircraftSelect(
                                     ac.id,
                                     ac.registration ?? "",
-                                    ac.aircraftType ?? (ac.manufacturer && ac.model ? `${ac.manufacturer} ${ac.model}` : undefined)
+                                    ac.aircraftType ??
+                                      (ac.manufacturer && ac.model
+                                        ? `${ac.manufacturer} ${ac.model}`
+                                        : undefined)
                                   )
                                 }
                                 className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between text-sm ${
@@ -1068,11 +1299,12 @@ export function AircraftStatutoryCertificates() {
                       : "border-gray-300"
                   }`}
                 />
-                {formData.webLink.trim() && !isValidWebLink(formData.webLink) && (
-                  <p className="mt-1 text-xs text-red-600">
-                    Enter a valid link only (e.g. https://example.com)
-                  </p>
-                )}
+                {formData.webLink.trim() &&
+                  !isValidWebLink(formData.webLink) && (
+                    <p className="mt-1 text-xs text-red-600">
+                      Enter a valid link only (e.g. https://example.com)
+                    </p>
+                  )}
               </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-3">

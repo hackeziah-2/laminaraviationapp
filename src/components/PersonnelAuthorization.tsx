@@ -19,6 +19,7 @@ import {
 } from "../api/accountApi";
 import {
   getPersonnelAuthorizations,
+  getPersonnelAuthorizationsMatrix2,
   createPersonnelAuthorization,
   updatePersonnelAuthorization,
   deletePersonnelAuthorization,
@@ -125,6 +126,35 @@ function ItemTypeBadge({ raw }: { raw: string | undefined }) {
   );
 }
 
+/** First five columns: sticky left offsets + min-widths (shared Matrix 1 & 2). */
+const PERSONNEL_STICKY_TH: readonly [string, string, string, string, string] = [
+  "sticky left-0 z-30 min-w-[6.75rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
+  "sticky left-[6.75rem] z-30 min-w-[9rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
+  "sticky left-[15.75rem] z-30 min-w-[6.75rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
+  "sticky left-[22.5rem] z-30 min-w-[8rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
+  "sticky left-[30.5rem] z-30 min-w-[7.5rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
+];
+
+const PERSONNEL_STICKY_TD_BASE: readonly [string, string, string, string, string] =
+  [
+    "sticky left-0 z-20 min-w-[6.75rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+    "sticky left-[6.75rem] z-20 min-w-[9rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+    "sticky left-[15.75rem] z-20 min-w-[6.75rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+    "sticky left-[22.5rem] z-20 min-w-[8rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+    "sticky left-[30.5rem] z-20 min-w-[7.5rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+  ];
+
+function personnelStickyTd(
+  col: 0 | 1 | 2 | 3 | 4,
+  isWithhold: boolean,
+  extraClass: string
+): string {
+  const bg = isWithhold
+    ? "bg-red-100 group-hover:bg-red-200"
+    : "bg-white group-hover:bg-gray-50";
+  return `${PERSONNEL_STICKY_TD_BASE[col]} ${bg} px-3 py-3 align-middle ${extraClass}`;
+}
+
 /** Maps item-type-specific expiry inputs to personnel-compliance `expiry_date`. */
 function complianceExpiryDateForItemType(
   itemType: PersonnelComplianceItemType,
@@ -167,9 +197,13 @@ export function PersonnelAuthorization() {
   const [itemTypeFilter, setItemTypeFilter] = useState<
     "" | PersonnelComplianceItemType
   >("");
-  /** personnel-compliance/paged: sort=expiry_date | sort=-expiry_date */
+  /** Table toolbar: Matrix 1 → personnel-compliance/paged; Matrix 2 → personnel-compliance-matrix-2/paged */
+  const [listGroupBy, setListGroupBy] = useState<"matrix1" | "matrix2">(
+    "matrix2"
+  );
+  /** Paged list: sort=expiry_date | sort=-expiry_date */
   const [expiryDateSort, setExpiryDateSort] = useState<"asc" | "desc">("asc");
-  /** personnel-compliance/paged: `name` query param */
+  /** Paged list: `name` query param */
   const [nameSearch, setNameSearch] = useState("");
   const [debouncedNameSearch, setDebouncedNameSearch] = useState("");
 
@@ -227,18 +261,29 @@ export function PersonnelAuthorization() {
   const fetchPersonnel = useCallback(async () => {
     setListLoading(true);
     try {
-      const rows = await getPersonnelAuthorizations({
-        itemType: itemTypeFilter || undefined,
-        sortExpiryDate: expiryDateSort,
-        name: debouncedNameSearch.trim() || undefined,
-      });
+      const rows =
+        listGroupBy === "matrix2"
+          ? await getPersonnelAuthorizationsMatrix2({
+              sortExpiryDate: expiryDateSort,
+              name: debouncedNameSearch.trim() || undefined,
+            })
+          : await getPersonnelAuthorizations({
+              itemType: itemTypeFilter || undefined,
+              sortExpiryDate: expiryDateSort,
+              name: debouncedNameSearch.trim() || undefined,
+            });
       setPersonnel(rows);
     } catch {
       setPersonnel([]);
     } finally {
       setListLoading(false);
     }
-  }, [itemTypeFilter, expiryDateSort, debouncedNameSearch]);
+  }, [
+    listGroupBy,
+    itemTypeFilter,
+    expiryDateSort,
+    debouncedNameSearch,
+  ]);
 
   const total = personnel.length;
   const totalPages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
@@ -290,7 +335,7 @@ export function PersonnelAuthorization() {
     return () => clearTimeout(t);
   }, [authStampSearchTerm]);
 
-  // Debounce list filter: name → personnel-compliance/paged?name=
+  // Debounce list filter: name → active matrix paged endpoint
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedNameSearch(nameSearch.trim());
@@ -722,7 +767,7 @@ export function PersonnelAuthorization() {
         <span className="text-sm"></span>
       </div>
 
-      {/* Name search — debounced `name` query on GET …/personnel-compliance/paged */}
+      {/* Name search — debounced `name` on Matrix 1 …/personnel-compliance/paged or Matrix 2 …/personnel-compliance-matrix-2/paged */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
@@ -737,7 +782,7 @@ export function PersonnelAuthorization() {
               onChange={(e) => setNameSearch(e.target.value)}
               disabled={listLoading}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:opacity-60"
-              aria-label="Search personnel by name (sent to personnel-compliance paged API)"
+              aria-label="Search personnel by name (sent to the active matrix paged API)"
               autoComplete="off"
             />
           </div>
@@ -750,94 +795,215 @@ export function PersonnelAuthorization() {
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
             <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 text-sm text-gray-700">
               <span className="font-medium text-gray-800 shrink-0">
-                Item Type
+                Group By
               </span>
               <select
-                value={itemTypeFilter}
+                value={listGroupBy}
                 onChange={(e) => {
-                  const v = e.target.value;
-                  setItemTypeFilter(
-                    v === "" ? "" : (v as PersonnelComplianceItemType)
-                  );
+                  const v = e.target.value as "matrix1" | "matrix2";
+                  setListGroupBy(v);
                   setCurrentPage(1);
+                  if (v === "matrix2") setItemTypeFilter("");
                 }}
                 disabled={listLoading}
                 className="min-w-[12rem] max-w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:opacity-60"
-                aria-label="Filter by Item Type"
+                aria-label="Group by matrix view"
               >
-                <option value="">All types</option>
-                {PERSONNEL_COMPLIANCE_ITEM_TYPES.map((item) => (
-                  <option key={item} value={item}>
-                    {ITEM_TYPE_FILTER_LABELS[item]}
-                  </option>
-                ))}
+                <option value="matrix1">Matrix 1</option>
+                <option value="matrix2">Matrix 2</option>
               </select>
             </label>
+            {listGroupBy === "matrix1" && (
+              <label className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 text-sm text-gray-700">
+                <span className="font-medium text-gray-800 shrink-0">
+                  Item Type
+                </span>
+                <select
+                  value={itemTypeFilter}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setItemTypeFilter(
+                      v === "" ? "" : (v as PersonnelComplianceItemType)
+                    );
+                    setCurrentPage(1);
+                  }}
+                  disabled={listLoading}
+                  className="min-w-[12rem] max-w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:opacity-60"
+                  aria-label="Filter by Item Type"
+                >
+                  <option value="">All types</option>
+                  {PERSONNEL_COMPLIANCE_ITEM_TYPES.map((item) => (
+                    <option key={item} value={item}>
+                      {ITEM_TYPE_FILTER_LABELS[item]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  AUTH NO
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  NAME
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  POSITION
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  LIC NO / TYPE
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  AUTH INITIAL DOI
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  AUTH ISSUE DATE
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] font-medium text-gray-600 tracking-wide">
-                  ITEM TYPE
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  AUTHORIZATION_SCOPE
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExpiryDateSort((prev) =>
-                        prev === "asc" ? "desc" : "asc"
-                      );
-                      setCurrentPage(1);
-                    }}
-                    disabled={listLoading}
-                    className="inline-flex items-center gap-1 font-inherit uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
-                    aria-label={`Sort by expiry date, ${
-                      expiryDateSort === "asc" ? "ascending" : "descending"
-                    }. Click to reverse.`}
+          <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
+            {listGroupBy === "matrix1" ? (
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className={PERSONNEL_STICKY_TH[0]}>AUTH NO</th>
+                  <th className={PERSONNEL_STICKY_TH[1]}>NAME</th>
+                  <th className={PERSONNEL_STICKY_TH[2]}>POSITION</th>
+                  <th className={PERSONNEL_STICKY_TH[3]}>LIC NO / TYPE</th>
+                  <th className={PERSONNEL_STICKY_TH[4]}>
+                    AUTH INITIAL DOI
+                  </th>
+                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                    AUTH ISSUE DATE
+                  </th>
+                  <th className="px-3 py-3 text-left align-middle text-[10px] font-medium text-gray-600 tracking-wide">
+                    ITEM TYPE
+                  </th>
+                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                    AUTHORIZATION_SCOPE
+                  </th>
+                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpiryDateSort((prev) =>
+                          prev === "asc" ? "desc" : "asc"
+                        );
+                        setCurrentPage(1);
+                      }}
+                      disabled={listLoading}
+                      className="inline-flex items-center gap-1 font-inherit uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
+                      aria-label={`Sort by expiry date, ${
+                        expiryDateSort === "asc" ? "ascending" : "descending"
+                      }. Click to reverse.`}
+                    >
+                      EXPIRY_DATE
+                      {expiryDateSort === "asc" ? (
+                        <ChevronUp
+                          className="w-3.5 h-3.5 shrink-0"
+                          aria-hidden
+                        />
+                      ) : (
+                        <ChevronDown
+                          className="w-3.5 h-3.5 shrink-0"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                    ACTIONS
+                  </th>
+                </tr>
+              </thead>
+            ) : (
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th rowSpan={2} className={PERSONNEL_STICKY_TH[0]}>
+                    AUTHORIZATION NO
+                  </th>
+                  <th rowSpan={2} className={PERSONNEL_STICKY_TH[1]}>
+                    NAME
+                  </th>
+                  <th rowSpan={2} className={PERSONNEL_STICKY_TH[2]}>
+                    POSITION
+                  </th>
+                  <th rowSpan={2} className={PERSONNEL_STICKY_TH[3]}>
+                    LIC NO / TYPE
+                  </th>
+                  <th rowSpan={2} className={PERSONNEL_STICKY_TH[4]}>
+                    AUTH INITIAL DOI
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
-                    EXPIRY_DATE
-                    {expiryDateSort === "asc" ? (
-                      <ChevronUp className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                    ) : (
-                      <ChevronDown
-                        className="w-3.5 h-3.5 shrink-0"
-                        aria-hidden
-                      />
-                    )}
-                  </button>
-                </th>
-                <th className="px-3 py-3 text-left text-[10px] text-gray-600 uppercase tracking-wider">
-                  ACTIONS
-                </th>
-              </tr>
-            </thead>
+                    AUTH ISSUE DATE
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExpiryDateSort((prev) =>
+                          prev === "asc" ? "desc" : "asc"
+                        );
+                        setCurrentPage(1);
+                      }}
+                      disabled={listLoading}
+                      className="inline-flex items-center gap-1 font-inherit uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
+                      aria-label={`Sort by expiry date, ${
+                        expiryDateSort === "asc" ? "ascending" : "descending"
+                      }. Click to reverse.`}
+                    >
+                      AUTH EXPIRY DATE
+                      {expiryDateSort === "asc" ? (
+                        <ChevronUp
+                          className="w-3.5 h-3.5 shrink-0"
+                          aria-hidden
+                        />
+                      ) : (
+                        <ChevronDown
+                          className="w-3.5 h-3.5 shrink-0"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </th>
+                  <th
+                    colSpan={3}
+                    className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
+                  >
+                    AUTHORIZATION SCOPE
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                  >
+                    CAAP LIC EXPIRY
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                  >
+                    HF TRAINING EXPIRY
+                  </th>
+                  <th
+                    colSpan={2}
+                    className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
+                  >
+                    TYPE TRAINING EXPIRY
+                  </th>
+                </tr>
+                <tr>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    CESSNA 150, 152, 172
+                  </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    BARON 95-C55
+                  </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    OTHERS
+                  </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    CESSNA 150, 152, 172
+                  </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    BARON 95-C55
+                  </th>
+                </tr>
+              </thead>
+            )}
             <tbody className="divide-y divide-gray-200">
               {listLoading ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center">
+                  <td
+                    colSpan={listGroupBy === "matrix1" ? 10 : 14}
+                    className="px-6 py-12 text-center"
+                  >
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
                     <p className="text-gray-500 mt-2 text-sm">
                       Loading personnel...
@@ -853,83 +1019,206 @@ export function PersonnelAuthorization() {
                   const rowBg = isWithhold
                     ? "bg-red-100 hover:bg-red-200"
                     : "hover:bg-gray-50";
-                  const cellClass = `px-3 py-3 whitespace-nowrap ${
+                  const cellClass = `px-3 py-3 whitespace-nowrap align-middle ${
                     isWithhold ? "text-red-900" : "text-gray-900"
                   }`;
-                  const cellClassNoWrap = `px-3 py-3 ${
+                  const cellClassNoWrap = `px-3 py-3 align-middle ${
                     isWithhold ? "text-red-900" : "text-gray-900"
                   }`;
                   const placeholderClass = isWithhold
                     ? "text-red-600"
                     : "text-gray-400";
+                  if (listGroupBy === "matrix1") {
+                    return (
+                      <tr
+                        key={person.id}
+                        className={`group ${rowBg} transition-colors`}
+                      >
+                        <td
+                          className={personnelStickyTd(
+                            0,
+                            isWithhold,
+                            `${cellClass} font-medium whitespace-nowrap`
+                          )}
+                        >
+                          {person.authorizationNo}
+                        </td>
+                        <td
+                          className={personnelStickyTd(
+                            1,
+                            isWithhold,
+                            `${cellClassNoWrap} font-medium`
+                          )}
+                        >
+                          {person.name}
+                        </td>
+                        <td
+                          className={personnelStickyTd(
+                            2,
+                            isWithhold,
+                            cellClassNoWrap
+                          )}
+                        >
+                          {person.position}
+                        </td>
+                        <td
+                          className={personnelStickyTd(
+                            3,
+                            isWithhold,
+                            cellClass
+                          )}
+                        >
+                          {person.licNoType || (
+                            <span className={placeholderClass}>—</span>
+                          )}
+                        </td>
+                        <td
+                          className={personnelStickyTd(
+                            4,
+                            isWithhold,
+                            cellClass
+                          )}
+                        >
+                          {person.authInitialDOI}
+                        </td>
+                        <td className={cellClass}>{person.authIssueDate}</td>
+                        <td className={cellClass}>
+                          <div className="uppercase">
+                            {person.itemType ? (
+                              <ItemTypeBadge raw={person.itemType} />
+                            ) : (
+                              <span className={placeholderClass}>—</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className={cellClassNoWrap}>
+                          {person.authorizationScope || (
+                            <span className={placeholderClass}>—</span>
+                          )}
+                        </td>
+                        <td className={cellClass}>
+                          {person.expiryDate || (
+                            <span className={placeholderClass}>—</span>
+                          )}
+                        </td>
+                        <td
+                          className={`${cellClassNoWrap} whitespace-nowrap`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openViewModal(person)}
+                              className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                              title="View details"
+                              aria-label="View"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openViewEditModal(person)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeletePersonnel(person.id)
+                              }
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
                   return (
                     <tr
                       key={person.id}
-                      className={`${rowBg} transition-colors`}
+                      className={`group ${rowBg} transition-colors`}
                     >
-                      <td className={`${cellClass} font-medium`}>
+                      <td
+                        className={personnelStickyTd(
+                          0,
+                          isWithhold,
+                          `${cellClass} font-medium whitespace-nowrap`
+                        )}
+                      >
                         {person.authorizationNo}
                       </td>
-                      <td className={`${cellClassNoWrap} font-medium`}>
+                      <td
+                        className={personnelStickyTd(
+                          1,
+                          isWithhold,
+                          `${cellClassNoWrap} font-medium`
+                        )}
+                      >
                         {person.name}
                       </td>
-                      <td className={cellClassNoWrap}>{person.position}</td>
-                      <td className={cellClass}>
+                      <td
+                        className={personnelStickyTd(2, isWithhold, cellClassNoWrap)}
+                      >
+                        {person.position}
+                      </td>
+                      <td
+                        className={personnelStickyTd(3, isWithhold, cellClass)}
+                      >
                         {person.licNoType || (
                           <span className={placeholderClass}>—</span>
                         )}
                       </td>
-                      <td className={cellClass}>{person.authInitialDOI}</td>
+                      <td
+                        className={personnelStickyTd(4, isWithhold, cellClass)}
+                      >
+                        {person.authInitialDOI}
+                      </td>
                       <td className={cellClass}>{person.authIssueDate}</td>
                       <td className={cellClass}>
-                        <div className="uppercase">
-                          {person.itemType ? (
-                            <ItemTypeBadge raw={person.itemType} />
-                          ) : (
-                            <span className={placeholderClass}>—</span>
-                          )}
-                        </div>
+                        {person.authExpiryDate || (
+                          <span className={placeholderClass}>—</span>
+                        )}
                       </td>
                       <td className={cellClassNoWrap}>
-                        {person.authorizationScope || (
+                        {person.scopeCessna || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClassNoWrap}>
+                        {person.scopeBaron || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClassNoWrap}>
+                        {person.scopeOthers || (
                           <span className={placeholderClass}>—</span>
                         )}
                       </td>
                       <td className={cellClass}>
-                        {person.expiryDate || (
+                        {person.caapLicExpiry || (
                           <span className={placeholderClass}>—</span>
                         )}
                       </td>
-                      <td className={`${cellClassNoWrap} whitespace-nowrap`}>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openViewModal(person)}
-                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-                            title="View details"
-                            aria-label="View"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openViewEditModal(person)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                            title="Edit"
-                            aria-label="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePersonnel(person.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded"
-                            title="Delete"
-                            aria-label="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                      <td className={cellClass}>
+                        {person.hfTrainingExpiry || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {person.typeTrainingCessna || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {person.typeTrainingBaron || (
+                          <span className={placeholderClass}>—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -937,7 +1226,7 @@ export function PersonnelAuthorization() {
               ) : (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 14}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found
