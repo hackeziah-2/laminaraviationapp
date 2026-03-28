@@ -13,6 +13,8 @@ export interface Permission {
   read: boolean;
   write: boolean;
   approve: boolean;
+  /** Remove records in this module (API may send `delete` or `can_delete`). */
+  delete: boolean;
 }
 
 /** Role as returned by GET /roles/:id and POST /roles/ (includes permissions). */
@@ -69,7 +71,10 @@ function normalizePermission(raw: Record<string, unknown>): Permission {
   const read = Boolean(raw.read);
   const write = Boolean(raw.write);
   const approve = Boolean(raw.approve);
-  return { module, read, write, approve };
+  const del = Boolean(
+    raw.delete ?? raw.can_delete ?? raw.canDelete ?? false
+  );
+  return { module, read, write, approve, delete: del };
 }
 
 function normalizeRoleWithPermissions(raw: Record<string, unknown>): RoleWithPermissions {

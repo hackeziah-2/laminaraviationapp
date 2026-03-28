@@ -904,9 +904,6 @@ export function PersonnelAuthorization() {
                     </button>
                   </th>
                   <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
-                    OTHERS EXPIRY DATE
-                  </th>
-                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
                     ACTIONS
                   </th>
                 </tr>
@@ -1021,7 +1018,7 @@ export function PersonnelAuthorization() {
               {listLoading ? (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 11 : 15}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 15}
                     className="px-6 py-12 text-center"
                   >
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
@@ -1118,15 +1115,6 @@ export function PersonnelAuthorization() {
                         </td>
                         <td className={cellClass}>
                           {person.expiryDate || (
-                            <span className={placeholderClass}>—</span>
-                          )}
-                        </td>
-                        <td className={cellClass}>
-                          {itemTypeFromApi(person.itemType) === "OTHERS" ? (
-                            person.othersExpiryDate || (
-                              <span className={placeholderClass}>—</span>
-                            )
-                          ) : (
                             <span className={placeholderClass}>—</span>
                           )}
                         </td>
@@ -1260,7 +1248,7 @@ export function PersonnelAuthorization() {
               ) : (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 11 : 15}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 15}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found

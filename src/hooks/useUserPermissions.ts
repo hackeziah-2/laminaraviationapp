@@ -16,6 +16,7 @@ export interface UserPermissionsState {
   canAccess: (moduleCode: string) => boolean;
   canWrite: (moduleCode: string) => boolean;
   canApprove: (moduleCode: string) => boolean;
+  canDelete: (moduleCode: string) => boolean;
   refetch: () => Promise<void>;
 }
 
@@ -97,6 +98,12 @@ export function useUserPermissions(): UserPermissionsState {
     [permissions]
   );
 
+  const canDelete = useCallback(
+    (moduleCode: string) =>
+      matchPermission(permissions, moduleCode, (p) => p.delete),
+    [permissions]
+  );
+
   return {
     user,
     permissions,
@@ -105,6 +112,7 @@ export function useUserPermissions(): UserPermissionsState {
     canAccess,
     canWrite,
     canApprove,
+    canDelete,
     refetch: load,
   };
 }

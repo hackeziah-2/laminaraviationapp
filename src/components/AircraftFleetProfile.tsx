@@ -184,9 +184,6 @@ export function AircraftFleetProfile() {
       case "operation":
         navigate(`/profile/${aircraftId}/operation`);
         break;
-      case "document_on_board":
-        navigate(`/profile/${aircraftId}/document_on_board`);
-        break;
       default:
         navigate(`/profile/${aircraftId}`);
     }
@@ -693,9 +690,6 @@ export function AircraftFleetProfile() {
                               <option value="maintenance">Maintenance</option>
                               <option value="logbook">
                                 Maintenance Logbook
-                              </option>
-                              <option value="document_on_board">
-                                Documents On Board
                               </option>
                             </select>
                             <button

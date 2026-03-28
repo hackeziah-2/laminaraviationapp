@@ -53,6 +53,7 @@ interface Permission {
   read: boolean;
   write: boolean;
   approve: boolean;
+  delete: boolean;
 }
 
 /** Build permission list from modules (all false). Uses API modules when provided, else static list. */
@@ -63,6 +64,7 @@ function getDefaultModulePermissions(apiModules?: modulesApi.Module[]): Permissi
       read: false,
       write: false,
       approve: false,
+      delete: false,
     }));
   }
   return MODULE_PERMISSIONS_LIST.map(({ label }) => ({
@@ -70,6 +72,7 @@ function getDefaultModulePermissions(apiModules?: modulesApi.Module[]): Permissi
     read: false,
     write: false,
     approve: false,
+    delete: false,
   }));
 }
 
@@ -1070,6 +1073,7 @@ function mergePermissionsWithModuleList(
       read: existing?.read ?? false,
       write: existing?.write ?? false,
       approve: existing?.approve ?? false,
+      delete: existing?.delete ?? false,
     };
   });
 }
@@ -1122,7 +1126,7 @@ function EditRoleModal({
 
   const togglePermission = (
     index: number,
-    field: "read" | "write" | "approve"
+    field: "read" | "write" | "approve" | "delete"
   ) => {
     const updated = [...rolePermissions];
     updated[index] = { ...updated[index], [field]: !updated[index][field] };
@@ -1131,7 +1135,7 @@ function EditRoleModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Edit Role</h2>
           <p className="text-sm text-gray-600 mt-1">
@@ -1201,6 +1205,9 @@ function EditRoleModal({
                     <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
                       Approve
                     </th>
+                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
+                      Delete
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1230,6 +1237,14 @@ function EditRoleModal({
                           type="checkbox"
                           checked={perm.approve}
                           onChange={() => togglePermission(index, "approve")}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={perm.delete}
+                          onChange={() => togglePermission(index, "delete")}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
@@ -1281,12 +1296,14 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
             read: false,
             write: false,
             approve: false,
+            delete: false,
           }))
         : MODULE_PERMISSIONS_LIST.map(({ label }) => ({
             module: label,
             read: false,
             write: false,
             approve: false,
+            delete: false,
           })),
     [moduleList]
   );
@@ -1303,7 +1320,7 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
 
   const togglePermission = (
     index: number,
-    field: "read" | "write" | "approve"
+    field: "read" | "write" | "approve" | "delete"
   ) => {
     const updated = [...permissions];
     updated[index] = { ...updated[index], [field]: !updated[index][field] };
@@ -1337,7 +1354,7 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
             Create New Role
@@ -1402,6 +1419,9 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
                     <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
                       Approve
                     </th>
+                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
+                      Delete
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1431,6 +1451,14 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
                           type="checkbox"
                           checked={perm.approve}
                           onChange={() => togglePermission(index, "approve")}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={perm.delete}
+                          onChange={() => togglePermission(index, "delete")}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
@@ -1713,50 +1741,47 @@ export function Settings() {
       read: true,
       write: true,
       approve: true,
+      delete: true,
     })),
     Planner: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: true, approve: false },
-      { module: "Operation", read: true, write: true, approve: false },
-      { module: "Maintenance", read: true, write: true, approve: true },
-      { module: "Logbook", read: true, write: true, approve: false },
-      { module: "Document On Board", read: true, write: true, approve: false },
-      { module: "Certificate Monitoring", read: true, write: true, approve: false },
-      { module: "Daily Update", read: true, write: true, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, write: false, approve: false, delete: false },
+      { module: "General Information", read: true, write: true, approve: false, delete: true },
+      { module: "Operation", read: true, write: true, approve: false, delete: true },
+      { module: "Maintenance", read: true, write: true, approve: true, delete: true },
+      { module: "Logbook", read: true, write: true, approve: false, delete: true },
+      { module: "Certificate Monitoring", read: true, write: true, approve: false, delete: true },
+      { module: "Daily Update", read: true, write: true, approve: false, delete: true },
+      { module: "System Settings", read: false, write: false, approve: false, delete: false },
     ],
     Mechanic: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: false, approve: false },
-      { module: "Operation", read: true, write: false, approve: false },
-      { module: "Maintenance", read: true, write: false, approve: false },
-      { module: "Logbook", read: true, write: true, approve: false },
-      { module: "Document On Board", read: true, write: false, approve: false },
-      { module: "Certificate Monitoring", read: true, write: false, approve: false },
-      { module: "Daily Update", read: true, write: false, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, write: false, approve: false, delete: false },
+      { module: "General Information", read: true, write: false, approve: false, delete: false },
+      { module: "Operation", read: true, write: false, approve: false, delete: false },
+      { module: "Maintenance", read: true, write: false, approve: false, delete: false },
+      { module: "Logbook", read: true, write: true, approve: false, delete: true },
+      { module: "Certificate Monitoring", read: true, write: false, approve: false, delete: false },
+      { module: "Daily Update", read: true, write: false, approve: false, delete: false },
+      { module: "System Settings", read: false, write: false, approve: false, delete: false },
     ],
     Viewer: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: false, approve: false },
-      { module: "Operation", read: true, write: false, approve: false },
-      { module: "Maintenance", read: true, write: false, approve: false },
-      { module: "Logbook", read: true, write: false, approve: false },
-      { module: "Document On Board", read: true, write: false, approve: false },
-      { module: "Certificate Monitoring", read: true, write: false, approve: false },
-      { module: "Daily Update", read: true, write: false, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, write: false, approve: false, delete: false },
+      { module: "General Information", read: true, write: false, approve: false, delete: false },
+      { module: "Operation", read: true, write: false, approve: false, delete: false },
+      { module: "Maintenance", read: true, write: false, approve: false, delete: false },
+      { module: "Logbook", read: true, write: false, approve: false, delete: false },
+      { module: "Certificate Monitoring", read: true, write: false, approve: false, delete: false },
+      { module: "Daily Update", read: true, write: false, approve: false, delete: false },
+      { module: "System Settings", read: false, write: false, approve: false, delete: false },
     ],
     Auditor: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: false, approve: true },
-      { module: "Operation", read: true, write: false, approve: false },
-      { module: "Maintenance", read: true, write: false, approve: false },
-      { module: "Logbook", read: true, write: false, approve: true },
-      { module: "Document On Board", read: true, write: false, approve: false },
-      { module: "Certificate Monitoring", read: true, write: false, approve: true },
-      { module: "Daily Update", read: true, write: false, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, write: false, approve: false, delete: false },
+      { module: "General Information", read: true, write: false, approve: true, delete: false },
+      { module: "Operation", read: true, write: false, approve: false, delete: false },
+      { module: "Maintenance", read: true, write: false, approve: false, delete: false },
+      { module: "Logbook", read: true, write: false, approve: true, delete: false },
+      { module: "Certificate Monitoring", read: true, write: false, approve: true, delete: false },
+      { module: "Daily Update", read: true, write: false, approve: false, delete: false },
+      { module: "System Settings", read: false, write: false, approve: false, delete: false },
     ],
   };
 
@@ -2263,6 +2288,9 @@ export function Settings() {
                     <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
                       Approve
                     </th>
+                    <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                      Delete
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -2298,6 +2326,17 @@ export function Settings() {
                       </td>
                       <td className="px-6 py-4 text-center">
                         {permission.approve ? (
+                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
+                            <Check className="w-4 h-4 text-green-600" />
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
+                            <X className="w-4 h-4 text-red-600" />
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {permission.delete ? (
                           <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
                             <Check className="w-4 h-4 text-green-600" />
                           </div>
