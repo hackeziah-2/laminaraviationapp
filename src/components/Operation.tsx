@@ -47,6 +47,12 @@ import {
   ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
   resolveAircraftEnginePropHour,
 } from "../utility/atlAircraftPrerequisites";
+import {
+  ATL_WORK_STATUS_KEYS,
+  isAtlEditAllowedForRoleAndWorkStatus,
+  normalizeAtlWorkStatus,
+  type AtlWorkStatusKey,
+} from "../utility/atlEditRbac";
 import { getAllAccounts, Account } from "../api/accountApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
@@ -70,34 +76,8 @@ function formatFleetWorkStatus(status: string | undefined): string {
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
 
-const FLEET_WORK_STATUS_KEYS = [
-  "FOR_REVIEW",
-  "REJECTED_MAINTENANCE",
-  "APPROVED",
-  "AWAITING_ATTACHMENT",
-  "REJECTED_QUALITY",
-  "PENDING",
-  "COMPLETED",
-] as const;
-
-type FleetWorkStatusKey = (typeof FLEET_WORK_STATUS_KEYS)[number];
-
-/** Normalize API / display variants to a single enum key for styling */
-function normalizeFleetWorkStatusKey(
-  status: string | undefined
-): FleetWorkStatusKey | "" {
-  if (!status || status.trim() === "") return "";
-  const key = status
-    .trim()
-    .replace(/[-\s]+/g, "_")
-    .toUpperCase();
-  return (FLEET_WORK_STATUS_KEYS as readonly string[]).includes(key)
-    ? (key as FleetWorkStatusKey)
-    : "";
-}
-
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
-const FLEET_WORK_STATUS_STYLE: Record<FleetWorkStatusKey, CSSProperties> = {
+const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
   FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
   REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
   APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
@@ -111,7 +91,7 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
   className: string;
   style: CSSProperties | undefined;
 } {
-  const key = normalizeFleetWorkStatusKey(status);
+  const key = normalizeAtlWorkStatus(status);
   if (!key) {
     return {
       className: `${FLEET_WORK_STATUS_BASE_TD} bg-white text-gray-900`,
@@ -127,8 +107,11 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { canUpdate, canCreate, canDelete } = useUserPermissions();
+  const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
+
+  const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
+    isAtlEditAllowedForRoleAndWorkStatus(user?.role, record.workStatus);
 
   const handleBack = () => {
     navigate("/profile");
@@ -818,7 +801,7 @@ export function Operation() {
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              {canCreate("operation") && (
+              {canCreate("logbook") && (
                 <>
                   <input
                     type="file"
@@ -844,7 +827,7 @@ export function Operation() {
                   </button>
                 </>
               )}
-              {canCreate("operation") && (
+              {canCreate("logbook") && (
                 <button
                   onClick={() => {
                     const missing = getMissingAircraftFieldsForNewAtl(aircraft);
@@ -940,7 +923,7 @@ export function Operation() {
                   className="px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 min-w-[200px]"
                 >
                   <option value="">All</option>
-                  {FLEET_WORK_STATUS_KEYS.map((key) => (
+                  {ATL_WORK_STATUS_KEYS.map((key) => (
                     <option key={key} value={key}>
                       {formatFleetWorkStatus(key)}
                     </option>
@@ -1370,22 +1353,28 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {canUpdate("operation") && (
+                                      {canUpdate("logbook") && (
                                         <>
                                           <span className="text-gray-400">|</span>
                                           <button
+                                            type="button"
+                                            disabled={!allowAtlEditForRecord(record)}
                                             onClick={() => {
                                               setSelectedEntry(record);
                                               setShowEditModal(true);
                                             }}
-                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                            title="Edit"
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
                                           >
                                             Edit
                                           </button>
                                         </>
                                       )}
-                                      {canDelete("operation") && (
+                                      {canDelete("logbook") && (
                                         <>
                                           <span className="text-gray-400">|</span>
                                           <button
@@ -1912,21 +1901,28 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {canUpdate("operation") && (
+                                    {canUpdate("logbook") && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
+                                          type="button"
+                                          disabled={!allowAtlEditForRecord(record)}
                                           onClick={() => {
                                             setSelectedEntry(record);
                                             setShowEditModal(true);
                                           }}
-                                          className="hover:underline text-xs"
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
                                         >
                                           Edit
                                         </button>
                                       </>
                                     )}
-                                    {canDelete("operation") && (
+                                    {canDelete("logbook") && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -2092,21 +2088,28 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {canUpdate("operation") && (
+                                      {canUpdate("logbook") && (
                                         <>
                                           <span className="text-gray-400">|</span>
                                           <button
+                                            type="button"
+                                            disabled={!allowAtlEditForRecord(record)}
                                             onClick={() => {
                                               setSelectedEntry(record);
                                               setShowEditModal(true);
                                             }}
-                                            className="hover:underline text-xs"
+                                            className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
                                           >
                                             Edit
                                           </button>
                                         </>
                                       )}
-                                      {canDelete("operation") && (
+                                      {canDelete("logbook") && (
                                         <>
                                           <span className="text-gray-400">|</span>
                                           <button
@@ -2294,21 +2297,28 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {canUpdate("operation") && (
+                                    {canUpdate("logbook") && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
+                                          type="button"
+                                          disabled={!allowAtlEditForRecord(record)}
                                           onClick={() => {
                                             setSelectedEntry(record);
                                             setShowEditModal(true);
                                           }}
-                                          className="hover:underline text-xs"
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
                                         >
                                           Edit
                                         </button>
                                       </>
                                     )}
-                                    {canDelete("operation") && (
+                                    {canDelete("logbook") && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -2504,7 +2514,7 @@ export function Operation() {
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={aircraftId}
-        permissionModuleCode="operation"
+        permissionModuleCode="logbook"
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -2521,7 +2531,8 @@ export function Operation() {
           }}
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
-          permissionModuleCode="operation"
+          permissionModuleCode="logbook"
+          viewerRole={user?.role}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);

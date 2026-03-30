@@ -1,8 +1,22 @@
-import { X, Upload, Plus, Trash2, ChevronDown, Check, Loader2, Download, Eye } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import {
+  X,
+  Upload,
+  Plus,
+  Trash2,
+  ChevronDown,
+  Check,
+  Loader2,
+  Download,
+  Eye,
+} from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
-import { getAccountsByDesignation, getAllAccounts, Account } from "../api/accountApi";
+import {
+  getAccountsByDesignation,
+  getAllAccounts,
+  Account,
+} from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import {
   getLatestAircraftTechnicalLog,
@@ -12,11 +26,7 @@ import {
   updateAircraftTechnicalLog,
   AircraftTechnicalLogUpdate,
 } from "../api/aircraftTechnicalLogApi";
-import {
-  snakeAllKeys,
-  computeTotalBlockTime,
-  toCamel,
-} from "../utility/utils";
+import { snakeAllKeys, computeTotalBlockTime, toCamel } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
   buildAircraftDetailsRequiredForAtlHtml,
@@ -25,6 +35,10 @@ import {
 import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import {
+  formatAtlWorkStatusLabel,
+  getAtlWorkStatusDropdownKeysForRole,
+} from "../utility/atlEditRbac";
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -34,6 +48,8 @@ interface AddTechnicalLogbookEntryModalProps {
   aircraftId?: number; // Optional aircraft ID from useParams
   /** Module code for role Update permission (e.g. operation, logbook). Required when editEntry is set. */
   permissionModuleCode?: string;
+  /** When editing, limits Work Status options to statuses allowed for this role (see atlEditRbac). */
+  viewerRole?: string;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -43,12 +59,52 @@ export function AddTechnicalLogbookEntryModal({
   onSuccess,
   aircraftId,
   permissionModuleCode,
+  viewerRole,
 }: AddTechnicalLogbookEntryModalProps) {
-  const { canUpdate, canCreate } = useUserPermissions();
+  const {
+    canUpdate,
+    canCreate,
+    user: permUser,
+    loading: permLoading,
+  } = useUserPermissions();
+
+  /**
+   * Role name from GET /auth/me while editing — source of truth for Work Status dropdown RBAC
+   * (matches logged-in user’s role from the session).
+   */
+  const [atlAuthRole, setAtlAuthRole] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isOpen || !editEntry) {
+      setAtlAuthRole(undefined);
+      return;
+    }
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setAtlAuthRole(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setAtlAuthRole(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, editEntry?.id]);
+
+  /** Prefer /me (login), then permissions hook, then parent prop — all should match after load. */
+  const atlRoleForWorkStatus = useMemo(
+    () =>
+      atlAuthRole ||
+      permUser?.role?.trim() ||
+      viewerRole?.trim() ||
+      undefined,
+    [atlAuthRole, permUser?.role, viewerRole]
+  );
+
   const mod = permissionModuleCode;
   const allowSubmit =
-    (!editEntry &&
-      (!mod || canCreate(mod))) ||
+    (!editEntry && (!mod || canCreate(mod))) ||
     (!!editEntry && Boolean(mod) && canUpdate(mod as string));
   const [formData, setFormData] = useState({
     seqNo: "",
@@ -135,6 +191,14 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitEngine: "",
     lifeTimeLimitPropeller: "",
   });
+  const workStatusDropdownKeys = useMemo(
+    () =>
+      getAtlWorkStatusDropdownKeysForRole(atlRoleForWorkStatus, {
+        pendingRole: Boolean(editEntry && permLoading && !atlRoleForWorkStatus),
+        currentWorkStatus: formData.workStatus,
+      }),
+    [editEntry, permLoading, atlRoleForWorkStatus, formData.workStatus]
+  );
 
   // Component Records state
   interface ComponentRecord {
@@ -247,8 +311,7 @@ export function AddTechnicalLogbookEntryModal({
             const response = await getAircraftById(aircraftId);
             const aircraftData = response.data;
             const aircraftCamel = toCamel(aircraftData) as Aircraft;
-            const missing =
-              getMissingAircraftFieldsForNewAtl(aircraftCamel);
+            const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
             if (missing.length > 0) {
               await Swal.fire({
                 icon: "warning",
@@ -395,15 +458,18 @@ export function AddTechnicalLogbookEntryModal({
       setFormData({
         seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
         workStatus:
-          (editEntry.workStatus === "FOR REVIEW" ? "FOR_REVIEW" : editEntry.workStatus) || "",
+          (editEntry.workStatus === "FOR REVIEW"
+            ? "FOR_REVIEW"
+            : editEntry.workStatus) || "",
         acReg: editEntry.aircraft?.registration || "",
         // null/empty from API -> "" (-); VOID from API -> "VOID"; normalize TR W/ PIREM -> TR_WITH_PIREM
-        natureOfFlight:
-          editEntry.natureOfFlight === "VOID"
-            ? "VOID"
-            : editEntry.natureOfFlight === "TR W/ PIREM" || editEntry.natureOfFlight === "TR_WITH_PIREM"
-              ? "TR_WITH_PIREM"
-              : editEntry.natureOfFlight?.trim() || "",
+        natureOfFlight: (() => {
+          const nof = String(editEntry.natureOfFlight ?? "").trim();
+          if (nof === "VOID") return "VOID";
+          if (nof === "TR W/ PIREM" || nof === "TR_WITH_PIREM")
+            return "TR_WITH_PIREM";
+          return nof;
+        })(),
         offBlocksDate: editEntry.originDate || "",
         offBlocksTime: formatTimeFromAPI(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
@@ -469,7 +535,10 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
         engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
         engineRunTime: editEntry.engineRunTime?.toString() || "",
-        engineTsn: editEntry.engineTsn != null && editEntry.engineTsn !== "" ? String(editEntry.engineTsn) : "0.0",
+        engineTsn:
+          editEntry.engineTsn != null && editEntry.engineTsn !== ""
+            ? String(editEntry.engineTsn)
+            : "0.0",
         engineTso: editEntry.engineTso?.toString() || "",
         engineTbo: editEntry.engineTbo?.toString() || "",
         propellerPrevTime:
@@ -664,7 +733,12 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
+            engineTsn:
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? String(latestEntry.engineTsn)
+                : prev.engineTsn != null
+                ? String(prev.engineTsn)
+                : "0.0",
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -928,7 +1002,12 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
+            engineTsn:
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? String(latestEntry.engineTsn)
+                : prev.engineTsn != null
+                ? String(prev.engineTsn)
+                : "0.0",
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -1377,7 +1456,8 @@ export function AddTechnicalLogbookEntryModal({
       const latestNumLen = getLatestNumericLength(latestSequenceNo);
       const enteredNumLen = seqTrim.length;
       if (latestNumLen > 0 && enteredNumLen !== latestNumLen) {
-        const latestNumPart = (latestSequenceNo || "").trim().match(/(\d+)$/)?.[1] ?? "";
+        const latestNumPart =
+          (latestSequenceNo || "").trim().match(/(\d+)$/)?.[1] ?? "";
         errors.seqNo = `Sequence No. must be the same length as the latest entry (e.g. ${latestNumPart}). Expected ${latestNumLen} digit(s).`;
       }
 
@@ -1394,7 +1474,7 @@ export function AddTechnicalLogbookEntryModal({
         enteredNum > latestNum + 15
       ) {
         const maxNum = latestNum + 15;
-        const padLen = (latestNumMatch[1] || "").length;
+        const padLen = (latestNumMatch?.[1] || "").length;
         const maxSeq = (latestSequenceNo || "").replace(
           /\d+$/,
           String(maxNum).padStart(padLen, "0")
@@ -1549,19 +1629,26 @@ export function AddTechnicalLogbookEntryModal({
             if (username) {
               const accounts = await getAllAccounts();
               const account = accounts.find(
-                (a) => a.username?.toLowerCase() === String(username).toLowerCase()
+                (a) =>
+                  a.username?.toLowerCase() === String(username).toLowerCase()
               );
               if (account) createdByAccountId = account.id;
             }
           }
         } catch (err) {
-          console.warn("Could not resolve current user account_information_id:", err);
+          console.warn(
+            "Could not resolve current user account_information_id:",
+            err
+          );
         }
       }
 
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const aircraftFkValue = aircraftId ?? selectedAircraftId;
-      if (!editEntry && (aircraftFkValue == null || aircraftFkValue === undefined)) {
+      if (
+        !editEntry &&
+        (aircraftFkValue == null || aircraftFkValue === undefined)
+      ) {
         setIsSubmitting(false);
         Swal.fire({
           icon: "error",
@@ -1760,7 +1847,8 @@ export function AddTechnicalLogbookEntryModal({
       // Fleet Time Monitoring: on create only, default work_status FOR_REVIEW (API enum name); on update workStatus is already in apiDataCamel from form
       if (!editEntry) {
         apiDataCamel.workStatus = "FOR_REVIEW";
-        if (createdByAccountId != null) apiDataCamel.createdBy = createdByAccountId;
+        if (createdByAccountId != null)
+          apiDataCamel.createdBy = createdByAccountId;
       }
 
       // Convert camelCase to snake_case before sending to API
@@ -1805,7 +1893,10 @@ export function AddTechnicalLogbookEntryModal({
       }
 
       // Create new entry — payload is snake_case for backend; work_status FOR_REVIEW and createdBy set above
-      const createdEntry = await createAircraftTechnicalLog(apiDataSnake, files);
+      const createdEntry = await createAircraftTechnicalLog(
+        apiDataSnake,
+        files
+      );
 
       // Show success message
       await Swal.fire({
@@ -2053,7 +2144,10 @@ export function AddTechnicalLogbookEntryModal({
     displayName?: string
   ) => {
     if (!filePath?.trim()) return;
-    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    let path = filePath
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${path}`;
     try {
       const response = await apiClient.get(endpoint, {
@@ -2074,7 +2168,10 @@ export function AddTechnicalLogbookEntryModal({
       Swal.fire({
         icon: "error",
         title: "Download Failed",
-        text: err?.response?.data?.detail || err?.message || "Failed to download file.",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to download file.",
       });
     }
   };
@@ -2096,14 +2193,20 @@ export function AddTechnicalLogbookEntryModal({
   };
 
   /** View file in modal (image popup; other types get download/open link) */
-  const handleViewAtlFile = async (folder: "white_atl" | "dfp", filePath: string) => {
+  const handleViewAtlFile = async (
+    folder: "white_atl" | "dfp",
+    filePath: string
+  ) => {
     if (!filePath?.trim()) return;
     setFileViewLoading(true);
     setFileViewError(null);
     setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
-    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    let path = filePath
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${path}`;
     try {
       const response = await apiClient.get(endpoint, {
@@ -2112,15 +2215,19 @@ export function AddTechnicalLogbookEntryModal({
       });
       const blob = response.data as Blob;
       const url = window.URL.createObjectURL(blob);
-      const serverType = blob.type || (response as any).headers?.["content-type"] || null;
-      const isOctetStream = !serverType || serverType === "application/octet-stream";
+      const serverType =
+        blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream =
+        !serverType || serverType === "application/octet-stream";
       const mimeType = isOctetStream ? getMimeFromFilename(path) : serverType;
       setFileViewBlobUrl(url);
       setFileViewMimeType(mimeType ?? null);
       setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
-      setFileViewError(err?.response?.data?.detail || err?.message || "Failed to open file.");
+      setFileViewError(
+        err?.response?.data?.detail || err?.message || "Failed to open file."
+      );
       setFileViewBlobUrl(null);
       setFileViewMimeType(null);
     } finally {
@@ -2297,13 +2404,11 @@ export function AddTechnicalLogbookEntryModal({
                     aria-label="Work status"
                   >
                     <option value="">— Select —</option>
-                    <option value="FOR_REVIEW">FOR REVIEW</option>
-                    <option value="REJECTED_MAINTENANCE">REJECTED_MAINTENANCE</option>
-                    <option value="APPROVED">APPROVED</option>
-                    <option value="AWAITING_ATTACHMENT">AWAITING_ATTACHMENT</option>
-                    <option value="REJECTED_QUALITY">REJECTED_QUALITY</option>
-                    <option value="PENDING">PENDING</option>
-                    <option value="COMPLETED">COMPLETED</option>
+                    {workStatusDropdownKeys.map((key) => (
+                      <option key={key} value={key}>
+                        {formatAtlWorkStatusLabel(key)}
+                      </option>
+                    ))}
                   </select>
                 ) : (
                   <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
@@ -4242,7 +4347,9 @@ export function AddTechnicalLogbookEntryModal({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">View file</span>
+              <span className="text-sm font-medium text-gray-900">
+                View file
+              </span>
               <button
                 type="button"
                 onClick={closeFileViewModal}

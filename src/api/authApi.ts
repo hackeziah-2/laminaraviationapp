@@ -34,6 +34,26 @@ export interface AuthUserUpdate {
   status?: "active" | "inactive";
 }
 
+/** Role label from /me — backends vary: `role`, `role_name`, nested `role.name`, etc. */
+function pickRoleString(raw: Record<string, unknown>): string {
+  const asTrimmed = (v: unknown): string | undefined => {
+    if (typeof v !== "string") return undefined;
+    const t = v.trim();
+    return t || undefined;
+  };
+  const nestedName =
+    raw.role && typeof raw.role === "object" && raw.role !== null
+      ? asTrimmed((raw.role as Record<string, unknown>).name)
+      : undefined;
+  return (
+    asTrimmed(raw.role) ??
+    asTrimmed(raw.role_name) ??
+    asTrimmed(raw.roleName) ??
+    nestedName ??
+    "Viewer"
+  );
+}
+
 function normalizeUser(raw: Record<string, unknown>): AuthUser {
   const getStr = (k: string, fallback = "") =>
     String(raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback);
@@ -47,7 +67,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     id: isNaN(id) ? 0 : id,
     name: getStr("name") || getStr("full_name") || composedName || getStr("username", ""),
     email: getStr("email"),
-    role: getStr("role", "Viewer"),
+    role: pickRoleString(raw),
     roleId: isNaN(roleId) ? undefined : roleId,
     status: (getStr("status", "active").toLowerCase() === "inactive" ? "inactive" : "active") as "active" | "inactive",
     lastLogin: getStr("last_login") || getStr("lastLogin", "Never"),
@@ -148,7 +168,11 @@ export const token = async (username?: string, password?: string): Promise<unkno
 /** Current user: GET /api/v1/auth/me (or similar) */
 export const getMe = async (): Promise<AuthUser> => {
   const response = await apiClient.get("auth/me");
-  const raw = response.data ?? {};
+  const data = response.data as Record<string, unknown> | undefined;
+  const raw =
+    (data?.user && typeof data.user === "object"
+      ? (data.user as Record<string, unknown>)
+      : data) ?? {};
   return normalizeUser(raw);
 };
 

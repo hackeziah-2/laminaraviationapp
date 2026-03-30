@@ -51,16 +51,32 @@ export function useUserPermissions(): UserPermissionsState {
     setError(null);
     try {
       const me = await authApi.getMe();
-      setUser(me);
-
       let roleId = me.roleId;
-      if (roleId == null || roleId === 0) {
+      let userOut = me;
+
+      const needsRoleList =
+        (!me.role?.trim() && !!me.roleId) ||
+        roleId == null ||
+        roleId === 0;
+
+      if (needsRoleList) {
         const roles = await rolesApi.getRoles();
-        const byName = roles.find(
-          (r) => r.name.toLowerCase() === (me.role || "").toLowerCase()
-        );
-        roleId = byName?.id ?? 0;
+        if (!me.role?.trim() && me.roleId) {
+          const byId = roles.find((r) => r.id === me.roleId);
+          if (byId?.name?.trim()) {
+            userOut = { ...me, role: byId.name.trim(), roleId: me.roleId };
+          }
+        }
+        if (roleId == null || roleId === 0) {
+          const byName = roles.find(
+            (r) =>
+              r.name.toLowerCase() === (userOut.role || "").toLowerCase()
+          );
+          roleId = byName?.id ?? 0;
+        }
       }
+
+      setUser(userOut);
 
       if (roleId) {
         const perms = await rolesApi.getRolePermissions(roleId);

@@ -27,6 +27,7 @@ import {
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { isAtlEditAllowedForRoleAndWorkStatus } from "../utility/atlEditRbac";
 
 interface LogbookEntry {
   id: number;
@@ -39,11 +40,12 @@ interface LogbookEntry {
   destination: string;
   fltTime: string;
   pilot: string;
+  workStatus?: string;
   // status: "Serviceable" | "Under Maintenance";
 }
 
 export function AircraftTechnicalLogbook() {
-  const { canUpdate, canCreate, canDelete } = useUserPermissions();
+  const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
@@ -113,6 +115,7 @@ export function AircraftTechnicalLogbook() {
       destination: apiEntry?.destinationStation || "",
       fltTime: fltTime,
       pilot: pilotName,
+      workStatus: apiEntry.workStatus,
       // status: status,
     };
   };
@@ -260,8 +263,12 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
+  const allowAtlEditForEntry = (entry: LogbookEntry) =>
+    isAtlEditAllowedForRoleAndWorkStatus(user?.role, entry.workStatus);
+
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
+    if (!allowAtlEditForEntry(entry)) return;
     setSelectedEntry(entry);
     setIsEditModalOpen(true);
   };
@@ -531,9 +538,15 @@ export function AircraftTechnicalLogbook() {
                             </button>
                             {canUpdate("logbook") && (
                               <button
+                                type="button"
+                                disabled={!allowAtlEditForEntry(entry)}
                                 onClick={() => handleEditEntry(entry)}
-                                className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                                title="Edit"
+                                className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
+                                title={
+                                  allowAtlEditForEntry(entry)
+                                    ? "Edit"
+                                    : "Editing is not allowed for your role at this work status."
+                                }
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
@@ -659,6 +672,7 @@ export function AircraftTechnicalLogbook() {
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
           permissionModuleCode="logbook"
+          viewerRole={user?.role}
         />
       )}
 
