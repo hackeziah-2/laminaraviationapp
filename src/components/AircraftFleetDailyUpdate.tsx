@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Swal from 'sweetalert2';
 import { getFleetDailyUpdatePaged, updateFleetDailyUpdateRemark, type FleetDailyUpdateItem } from '../api/fleetDailyUpdateApi';
 import { SpinnerIcon } from './ui/spinner';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 
 /** Map status text to badge/row color: Running=green, ONGOING MAINTENANCE=yellow, AOG=red */
 function statusToColor(status: string | undefined): 'green' | 'yellow' | 'red' {
@@ -20,6 +21,7 @@ const STATUS_OPTIONS = [
 ];
 
 export function AircraftFleetDailyUpdate() {
+  const { canUpdate } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -381,15 +383,17 @@ export function AircraftFleetDailyUpdate() {
                     {aircraft.remarks ?? '-'}
                   </td>
                   <td className="px-4 py-3 text-center border-gray-300">
-                    <button
-                      type="button"
-                      onClick={() => openRemarkModal(aircraft)}
-                      className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
-                      title="Edit remark"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Edit
-                    </button>
+                    {canUpdate('daily-update') && (
+                      <button
+                        type="button"
+                        onClick={() => openRemarkModal(aircraft)}
+                        className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
+                        title="Edit remark"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit
+                      </button>
+                    )}
                   </td>
                 </tr>
                 ))
@@ -494,15 +498,17 @@ export function AircraftFleetDailyUpdate() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSaveRemark}
-                disabled={savingRemark}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {savingRemark ? <Loader className="w-4 h-4 animate-spin" /> : null}
-                {savingRemark ? 'Saving...' : 'Save'}
-              </button>
+              {canUpdate('daily-update') && (
+                <button
+                  type="button"
+                  onClick={handleSaveRemark}
+                  disabled={savingRemark}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {savingRemark ? <Loader className="w-4 h-4 animate-spin" /> : null}
+                  {savingRemark ? 'Saving...' : 'Save'}
+                </button>
+              )}
             </div>
           </div>
         </div>

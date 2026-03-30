@@ -48,6 +48,7 @@ import {
   resolveAircraftEnginePropHour,
 } from "../utility/atlAircraftPrerequisites";
 import { getAllAccounts, Account } from "../api/accountApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 type GroupByOption =
   | "allColumns"
@@ -126,6 +127,7 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
   const handleBack = () => {
@@ -811,47 +813,53 @@ export function Operation() {
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              <input
-                type="file"
-                ref={importFileInputRef}
-                onChange={handleImportFileChange}
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                aria-label="Import ATL from Excel"
-              />
-              <button
-                type="button"
-                onClick={handleImportClick}
-                disabled={importLoading}
-                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Import Aircraft Technical Log from Excel"
-              >
-                <Upload
-                  className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
-                />
-                <span className="hidden sm:inline">
-                  {importLoading ? "Importing…" : "Import"}
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  const missing = getMissingAircraftFieldsForNewAtl(aircraft);
-                  if (missing.length > 0) {
-                    Swal.fire({
-                      icon: "warning",
-                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-                      html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
-                      confirmButtonColor: "#2563eb",
-                    });
-                    return;
-                  }
-                  setShowAddRecordModal(true);
-                }}
-                className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add Record</span>
-              </button>
+              {canCreate("operation") && (
+                <>
+                  <input
+                    type="file"
+                    ref={importFileInputRef}
+                    onChange={handleImportFileChange}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    aria-label="Import ATL from Excel"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImportClick}
+                    disabled={importLoading}
+                    className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Import Aircraft Technical Log from Excel"
+                  >
+                    <Upload
+                      className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
+                    />
+                    <span className="hidden sm:inline">
+                      {importLoading ? "Importing…" : "Import"}
+                    </span>
+                  </button>
+                </>
+              )}
+              {canCreate("operation") && (
+                <button
+                  onClick={() => {
+                    const missing = getMissingAircraftFieldsForNewAtl(aircraft);
+                    if (missing.length > 0) {
+                      Swal.fire({
+                        icon: "warning",
+                        title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                        html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
+                        confirmButtonColor: "#2563eb",
+                      });
+                      return;
+                    }
+                    setShowAddRecordModal(true);
+                  }}
+                  className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add Record</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1330,25 +1338,33 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowEditModal(true);
-                                        }}
-                                        className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                        title="Edit"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => handleDeleteAtl(record)}
-                                        className="text-red-600 hover:underline text-xs"
-                                        title="Delete"
-                                      >
-                                        Delete
-                                      </button>
+                                      {canUpdate("operation") && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                            title="Edit"
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDelete("operation") && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            onClick={() => handleDeleteAtl(record)}
+                                            className="text-red-600 hover:underline text-xs"
+                                            title="Delete"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
@@ -1864,23 +1880,31 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {canUpdate("operation") && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs"
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDelete("operation") && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() => handleDeleteAtl(record)}
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -2036,23 +2060,31 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowEditModal(true);
-                                        }}
-                                        className="hover:underline text-xs"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => handleDeleteAtl(record)}
-                                        className="text-red-600 hover:underline text-xs"
-                                      >
-                                        Delete
-                                      </button>
+                                      {canUpdate("operation") && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs"
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDelete("operation") && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            onClick={() => handleDeleteAtl(record)}
+                                            className="text-red-600 hover:underline text-xs"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
@@ -2230,23 +2262,31 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {canUpdate("operation") && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs"
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDelete("operation") && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() => handleDeleteAtl(record)}
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -2432,6 +2472,7 @@ export function Operation() {
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={aircraftId}
+        permissionModuleCode="operation"
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -2448,6 +2489,7 @@ export function Operation() {
           }}
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
+          permissionModuleCode="operation"
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);

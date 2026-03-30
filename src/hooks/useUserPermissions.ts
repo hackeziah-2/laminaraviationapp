@@ -33,8 +33,12 @@ function matchPermission(
 }
 
 /**
- * Load current user and their role's permissions. Use for Sidebar filtering and route guards.
- * If backend does not return role permissions, all modules are allowed (fallback).
+ * Load current user and their role's permissions. Use for Sidebar filtering, route guards, and UI:
+ * - read (canAccess): ProtectedRoute shows no list when read is false for the module.
+ * - create (canCreate): hide Add/Create actions.
+ * - update (canUpdate): hide Edit/Update actions.
+ * - delete (canDelete): hide Delete actions.
+ * If the backend returns no permission rows, read/create/update/delete checks stay permissive for access (fallback).
  */
 export function useUserPermissions(): UserPermissionsState {
   const [user, setUser] = useState<authApi.AuthUser | null>(null);

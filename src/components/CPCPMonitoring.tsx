@@ -25,6 +25,7 @@ import {
 import { computeCpcpRow } from "../utils/cpcpFormulas";
 import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface CPCPMonitoringProps {
   onBack?: () => void;
@@ -78,6 +79,7 @@ export function CPCPMonitoring({
   embedded = false,
   aircraftId,
 }: CPCPMonitoringProps) {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -294,13 +296,15 @@ const result = await Swal.fire({
                 <Download className="w-4 h-4" />
                 Export
               </button>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Add Inspection
-              </button>
+              {canCreate("maintenance") && (
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-gray-900 hover:bg-gray-800 rounded-lg transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Inspection
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -369,14 +373,16 @@ const result = await Swal.fire({
                 />
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap mt-6"
-            >
-              <Plus className="w-4 h-4" />
-              Add Entry
-            </button>
+            {canCreate("maintenance") && (
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap mt-6"
+              >
+                <Plus className="w-4 h-4" />
+                Add Entry
+              </button>
+            )}
           </div>
 
           {/* CPCP table: REMAINING | INSPECTION OPERATION | DESCRIPTION | INTERVAL | LAST DONE | NEXT DUE | REFERENCE | ACTIONS */}
@@ -567,22 +573,26 @@ const result = await Swal.fire({
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => openEdit(item)}
-                                className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit(item)}
+                                  className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

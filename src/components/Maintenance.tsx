@@ -41,6 +41,7 @@ import {
 } from "../api/adMonitoringApi";
 import { Spinner } from "./ui/spinner";
 import Swal from "sweetalert2";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface LDNDItem {
   id: number;
@@ -94,6 +95,7 @@ export function Maintenance() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
   // Derive active category from URL path (profile/:id/maintenance-ldnd -> LDND, etc.)
@@ -1024,24 +1026,26 @@ export function Maintenance() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingLdndEntry(null);
-                    setNewEntry({
-                      type: "",
-                      unit: "HRS",
-                      lastDoneTachDue: "",
-                      lastDoneTachDone: "",
-                      nextDueTachHours: "",
-                      performedDateStart: "",
-                    });
-                    setShowAddModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Entry
-                </button>
+                {canCreate("maintenance") && (
+                  <button
+                    onClick={() => {
+                      setEditingLdndEntry(null);
+                      setNewEntry({
+                        type: "",
+                        unit: "HRS",
+                        lastDoneTachDue: "",
+                        lastDoneTachDone: "",
+                        nextDueTachHours: "",
+                        performedDateStart: "",
+                      });
+                      setShowAddModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Entry
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1174,22 +1178,26 @@ export function Maintenance() {
                           </td>
                           <td className="px-3 py-2 text-center border-l border-gray-300">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditLdnd(item)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleLdndDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditLdnd(item)}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLdndDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1250,24 +1258,26 @@ export function Maintenance() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingADEntry(null);
-                    setNewADEntry({
-                      adNumber: "",
-                      subject: "",
-                      inspectionInterval: "",
-                      compliDate: "",
-                    });
-                    setAdUploadFile(null);
-                    setAdUploadFileName("");
-                    setShowADModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Entry
-                </button>
+                {canCreate("maintenance") && (
+                  <button
+                    onClick={() => {
+                      setEditingADEntry(null);
+                      setNewADEntry({
+                        adNumber: "",
+                        subject: "",
+                        inspectionInterval: "",
+                        compliDate: "",
+                      });
+                      setAdUploadFile(null);
+                      setAdUploadFileName("");
+                      setShowADModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Entry
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1400,22 +1410,26 @@ export function Maintenance() {
                           </td>
                           <td className="px-5 py-4 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditAD(item)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleADDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditAD(item)}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleADDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleViewADWorkOrders(item.id)}
                                 className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm"
@@ -1665,17 +1679,20 @@ export function Maintenance() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleLdndCreateOrUpdate}
-                disabled={ldndSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {ldndSaving
-                  ? "Saving..."
-                  : editingLdndEntry
-                  ? "Update Entry"
-                  : "Add Entry"}
-              </button>
+              {((!editingLdndEntry && canCreate("maintenance")) ||
+                (editingLdndEntry && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleLdndCreateOrUpdate}
+                  disabled={ldndSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {ldndSaving
+                    ? "Saving..."
+                    : editingLdndEntry
+                    ? "Update Entry"
+                    : "Add Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1966,17 +1983,20 @@ export function Maintenance() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleADCreateOrUpdate}
-                disabled={adSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {adSaving
-                  ? "Saving..."
-                  : editingADEntry
-                  ? "Update Entry"
-                  : "Add Entry"}
-              </button>
+              {((!editingADEntry && canCreate("maintenance")) ||
+                (editingADEntry && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleADCreateOrUpdate}
+                  disabled={adSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {adSaving
+                    ? "Saving..."
+                    : editingADEntry
+                    ? "Update Entry"
+                    : "Add Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>

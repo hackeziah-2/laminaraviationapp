@@ -29,6 +29,7 @@ import {
   type SortOrder,
   type CertificateTypeOption,
 } from "../api/organizationalApprovalApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /** Format expiry string (ISO or other) for display e.g. "16 Aug 30" */
 function formatExpiryDisplay(expiry: string | null | undefined): string {
@@ -54,6 +55,7 @@ const SEARCH_DEBOUNCE_MS = 400;
 const OA_HISTORY_PAGE_SIZE = 10;
 
 export function OrganizationalApprovals() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -480,14 +482,16 @@ export function OrganizationalApprovals() {
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
 
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Approval</span>
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Approval</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -678,24 +682,28 @@ export function OrganizationalApprovals() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openViewEditModal(approval)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                            title="Edit"
-                            aria-label="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteApproval(approval.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded"
-                            title="Delete"
-                            aria-label="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canUpdate("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => openViewEditModal(approval)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {canDelete("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteApproval(approval.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1015,26 +1023,31 @@ export function OrganizationalApprovals() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSaveDocument}
-                disabled={
-                  saving ||
-                  !formData.certificateFk ||
-                  !formData.number?.trim() ||
-                  !formData.expiryDate?.trim()
-                }
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center justify-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Document"
-                )}
-              </button>
+              {((!editingApproval &&
+                canCreate("regulatory-compliance")) ||
+                (editingApproval &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleSaveDocument}
+                  disabled={
+                    saving ||
+                    !formData.certificateFk ||
+                    !formData.number?.trim() ||
+                    !formData.expiryDate?.trim()
+                  }
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center justify-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Document"
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

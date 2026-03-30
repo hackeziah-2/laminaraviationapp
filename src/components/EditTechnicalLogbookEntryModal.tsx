@@ -9,6 +9,7 @@ interface EditTechnicalLogbookEntryModalProps {
   entryId: number;
   aircraftId?: number;
   onSuccess?: () => void;
+  permissionModuleCode: string;
 }
 
 /**
@@ -22,6 +23,7 @@ export function EditTechnicalLogbookEntryModal({
   entryId,
   aircraftId,
   onSuccess,
+  permissionModuleCode,
 }: EditTechnicalLogbookEntryModalProps) {
   const [fullEntry, setFullEntry] = useState<AircraftTechnicalLog | null>(null);
   const [loading, setLoading] = useState(false);
@@ -93,6 +95,7 @@ export function EditTechnicalLogbookEntryModal({
         editEntry={fullEntry}
         aircraftId={aircraftId}
         onSuccess={onSuccess}
+        permissionModuleCode={permissionModuleCode}
       />
     );
   }

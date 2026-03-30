@@ -27,6 +27,7 @@ import * as accountApi from "../api/accountApi";
 import * as modulesApi from "../api/modulesApi";
 import { MODULE_PERMISSIONS_LIST } from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface User {
   id: number;
@@ -1491,6 +1492,7 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
 }
 
 export function Settings() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [activeSection, setActiveSection] = useState<
     "users" | "roles" | "matrix"
   >("users");
@@ -1902,14 +1904,16 @@ export function Settings() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
-                <button
-                  onClick={() => setShowAddUserModal(true)}
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add User
-                </button>
+                {canCreate("settings") && (
+                  <button
+                    onClick={() => setShowAddUserModal(true)}
+                    type="button"
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add User
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2015,17 +2019,19 @@ export function Settings() {
                                   <ChevronDown className="w-4 h-4 text-gray-600" />
                                 )}
                               </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setShowEditUserModal(true);
-                                }}
-                                type="button"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="Edit user"
-                              >
-                                <Edit2 className="w-4 h-4 text-gray-600" />
-                              </button>
+                              {canUpdate("settings") && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(user);
+                                    setShowEditUserModal(true);
+                                  }}
+                                  type="button"
+                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="Edit user"
+                                >
+                                  <Edit2 className="w-4 h-4 text-gray-600" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => {
                                   setSelectedUser(user);
@@ -2139,83 +2145,87 @@ export function Settings() {
                       </span>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          try {
-                            const roleWithPerms = await rolesApi.getRole(role.id);
-                            const perms =
-                              roleWithPerms.permissions?.length > 0
-                                ? roleWithPerms.permissions
-                                : getDefaultModulePermissions(modulesList);
-                            setCustomPermissions((prev) => ({
-                              ...prev,
-                              [role.name]: perms,
-                            }));
-                            setSelectedRoleForEdit(role);
-                            setShowEditRoleModal(true);
-                          } catch {
-                            setCustomPermissions((prev) => ({
-                              ...prev,
-                              [role.name]: getDefaultModulePermissions(modulesList),
-                            }));
-                            setSelectedRoleForEdit(role);
-                            setShowEditRoleModal(true);
-                          }
-                        }}
-                        type="button"
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                        Edit Permissions
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const hasUsers = (role.userCount ?? 0) > 0;
-                          const result = await Swal.fire({
-                            title: "Delete role?",
-                            html: hasUsers
-                              ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
-                              : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
-                            icon: "warning",
-                            showCancelButton: true,
-                            confirmButtonColor: "#dc2626",
-                            cancelButtonColor: "#6b7280",
-                            confirmButtonText: "Yes, delete",
-                            cancelButtonText: "Cancel",
-                          });
-                          if (!result.isConfirmed) return;
-                          try {
-                            await rolesApi.deleteRole(role.id);
-                            setCustomPermissions((prev) => {
-                              const next = { ...prev };
-                              delete next[role.name];
-                              return next;
+                      {canUpdate("settings") && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const roleWithPerms = await rolesApi.getRole(role.id);
+                              const perms =
+                                roleWithPerms.permissions?.length > 0
+                                  ? roleWithPerms.permissions
+                                  : getDefaultModulePermissions(modulesList);
+                              setCustomPermissions((prev) => ({
+                                ...prev,
+                                [role.name]: perms,
+                              }));
+                              setSelectedRoleForEdit(role);
+                              setShowEditRoleModal(true);
+                            } catch {
+                              setCustomPermissions((prev) => ({
+                                ...prev,
+                                [role.name]: getDefaultModulePermissions(modulesList),
+                              }));
+                              setSelectedRoleForEdit(role);
+                              setShowEditRoleModal(true);
+                            }
+                          }}
+                          type="button"
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          Edit Permissions
+                        </button>
+                      )}
+                      {canDelete("settings") && (
+                        <button
+                          onClick={async () => {
+                            const hasUsers = (role.userCount ?? 0) > 0;
+                            const result = await Swal.fire({
+                              title: "Delete role?",
+                              html: hasUsers
+                                ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
+                                : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
+                              icon: "warning",
+                              showCancelButton: true,
+                              confirmButtonColor: "#dc2626",
+                              cancelButtonColor: "#6b7280",
+                              confirmButtonText: "Yes, delete",
+                              cancelButtonText: "Cancel",
                             });
-                            fetchRoles();
-                            await Swal.fire({
-                              title: "Deleted",
-                              text: `Role ${role.name} has been removed.`,
-                              icon: "success",
-                              confirmButtonColor: "#1f2937",
-                            });
-                          } catch (err: unknown) {
-                            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
-                            const msg =
-                              (typeof data?.message === "string" ? data.message : null) ||
-                              (typeof data?.detail === "string" ? data.detail : null) ||
-                              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
-                              (err as Error)?.message ||
-                              "Failed to delete role";
-                            await Swal.fire({ icon: "error", title: "Error", text: msg });
-                          }
-                        }}
-                        type="button"
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
-                        title="Delete role"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </button>
+                            if (!result.isConfirmed) return;
+                            try {
+                              await rolesApi.deleteRole(role.id);
+                              setCustomPermissions((prev) => {
+                                const next = { ...prev };
+                                delete next[role.name];
+                                return next;
+                              });
+                              fetchRoles();
+                              await Swal.fire({
+                                title: "Deleted",
+                                text: `Role ${role.name} has been removed.`,
+                                icon: "success",
+                                confirmButtonColor: "#1f2937",
+                              });
+                            } catch (err: unknown) {
+                              const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
+                              const msg =
+                                (typeof data?.message === "string" ? data.message : null) ||
+                                (typeof data?.detail === "string" ? data.detail : null) ||
+                                (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
+                                (err as Error)?.message ||
+                                "Failed to delete role";
+                              await Swal.fire({ icon: "error", title: "Error", text: msg });
+                            }
+                          }}
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                          title="Delete role"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2223,23 +2233,25 @@ export function Settings() {
             )}
 
             {/* Add New Role */}
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => setShowCreateRoleModal(true)}
-              onKeyDown={(e) =>
-                e.key === "Enter" && setShowCreateRoleModal(true)
-              }
-              className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
-            >
-              <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <h3 className="text-gray-700 font-medium mb-1">
-                Create New Role
-              </h3>
-              <p className="text-sm text-gray-500">
-                Define custom roles with specific permissions
-              </p>
-            </div>
+            {canCreate("settings") && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setShowCreateRoleModal(true)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && setShowCreateRoleModal(true)
+                }
+                className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
+              >
+                <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <h3 className="text-gray-700 font-medium mb-1">
+                  Create New Role
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Define custom roles with specific permissions
+                </p>
+              </div>
+            )}
           </div>
         )}
 

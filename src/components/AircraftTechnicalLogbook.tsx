@@ -26,6 +26,7 @@ import {
   deleteAircraftTechnicalLog,
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface LogbookEntry {
   id: number;
@@ -42,6 +43,7 @@ interface LogbookEntry {
 }
 
 export function AircraftTechnicalLogbook() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
@@ -361,13 +363,15 @@ export function AircraftTechnicalLogbook() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New Entry</span>
-          </button>
+          {canCreate("logbook") && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">New Entry</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -525,20 +529,24 @@ export function AircraftTechnicalLogbook() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleEditEntry(entry)}
-                              className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteEntry(entry)}
-                              className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canUpdate("logbook") && (
+                              <button
+                                onClick={() => handleEditEntry(entry)}
+                                className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete("logbook") && (
+                              <button
+                                onClick={() => handleDeleteEntry(entry)}
+                                className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -636,6 +644,7 @@ export function AircraftTechnicalLogbook() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleCreateSuccess}
+        permissionModuleCode="logbook"
       />
 
       {/* Edit Entry Modal – READ + UPDATE */}
@@ -649,6 +658,7 @@ export function AircraftTechnicalLogbook() {
           }}
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
+          permissionModuleCode="logbook"
         />
       )}
 

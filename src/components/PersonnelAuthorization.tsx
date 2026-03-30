@@ -38,6 +38,7 @@ import {
   type AuthorizationScopeOption,
 } from "../api/authorizationScopeApi";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /** Same shape as API record for view/edit. */
 type Personnel = PersonnelAuthorizationRecord;
@@ -186,6 +187,7 @@ function complianceExpiryDateForItemType(
 }
 
 export function PersonnelAuthorization() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -756,14 +758,16 @@ export function PersonnelAuthorization() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Authorization</span>
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Authorization</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1131,26 +1135,30 @@ export function PersonnelAuthorization() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openViewEditModal(person)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                              title="Edit"
-                              aria-label="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDeletePersonnel(person.id)
-                              }
-                              className="p-2 text-red-600 hover:bg-red-50 rounded"
-                              title="Delete"
-                              aria-label="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canUpdate("regulatory-compliance") && (
+                              <button
+                                type="button"
+                                onClick={() => openViewEditModal(person)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                                title="Edit"
+                                aria-label="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete("regulatory-compliance") && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDeletePersonnel(person.id)
+                                }
+                                className="p-2 text-red-600 hover:bg-red-50 rounded"
+                                title="Delete"
+                                aria-label="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1962,21 +1970,26 @@ export function PersonnelAuthorization() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleCreateSubmit}
-                disabled={saving}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm inline-flex items-center justify-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save"
-                )}
-              </button>
+              {((!editingPersonnel &&
+                canCreate("regulatory-compliance")) ||
+                (editingPersonnel &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleCreateSubmit}
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm inline-flex items-center justify-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save"
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

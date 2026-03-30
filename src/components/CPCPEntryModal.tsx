@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { X, ChevronDown } from "lucide-react";
 import { getAtlList, type AtlItem } from "../api/atlApi";
 import { SpinnerIcon } from "./ui/spinner";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface CPCPEntryModalProps {
   isOpen: boolean;
@@ -50,6 +51,7 @@ export function CPCPEntryModal({
   initialData,
   aircraftId,
 }: CPCPEntryModalProps) {
+  const { canUpdate, canCreate } = useUserPermissions();
   const [formData, setFormData] = useState(defaultFormData);
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
@@ -393,12 +395,15 @@ export function CPCPEntryModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-            >
-              {submitLabel}
-            </button>
+            {((isEdit && canUpdate("maintenance")) ||
+              (!isEdit && canCreate("maintenance"))) && (
+              <button
+                type="submit"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                {submitLabel}
+              </button>
+            )}
           </div>
         </form>
       </div>

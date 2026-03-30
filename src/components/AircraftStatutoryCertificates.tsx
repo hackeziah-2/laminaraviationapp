@@ -27,6 +27,7 @@ import { getAircrafts } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { LinkButton } from "./ui/LinkButton";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -112,6 +113,7 @@ function toDateInputValue(dateStr: string | null | undefined): string {
 }
 
 export function AircraftStatutoryCertificates() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -675,14 +677,16 @@ export function AircraftStatutoryCertificates() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            type="button"
-            onClick={handleAddCertificate}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Certificate</span>
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              type="button"
+              onClick={handleAddCertificate}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Certificate</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -897,16 +901,18 @@ export function AircraftStatutoryCertificates() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(cert)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                            title="Edit"
-                            aria-label="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          {certId && (
+                          {canUpdate("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(cert)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {certId && canDelete("regulatory-compliance") && (
                             <button
                               type="button"
                               onClick={() => handleDelete(certId)}
@@ -1321,15 +1327,20 @@ export function AircraftStatutoryCertificates() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
-              >
-                {isSaving && <Loader className="w-4 h-4 animate-spin" />}
-                Save Document
-              </button>
+              {((!editingCertificate &&
+                canCreate("regulatory-compliance")) ||
+                (editingCertificate &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+                >
+                  {isSaving && <Loader className="w-4 h-4 animate-spin" />}
+                  Save Document
+                </button>
+              )}
             </div>
           </div>
         </div>

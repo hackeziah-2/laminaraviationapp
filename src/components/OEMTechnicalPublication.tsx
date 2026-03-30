@@ -25,6 +25,7 @@ import {
   type SortOrder,
   getOemApiErrorMessage,
 } from "../api/oemTechnicalPublicationApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -62,6 +63,7 @@ function toApiDate(value: string | null | undefined): string {
 }
 
 export function OEMTechnicalPublication() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -318,13 +320,15 @@ export function OEMTechnicalPublication() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Publication</span>
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Publication</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -470,24 +474,28 @@ export function OEMTechnicalPublication() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => openViewEditModal(pub)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                            title="Edit"
-                            aria-label="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeletePublication(pub.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded"
-                            title="Delete"
-                            aria-label="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canUpdate("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => openViewEditModal(pub)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {canDelete("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePublication(pub.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -729,23 +737,28 @@ export function OEMTechnicalPublication() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSaveDocument}
-                disabled={
-                  saving || !addForm.itemFk || !addForm.expiryDate?.trim()
-                }
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Document"
-                )}
-              </button>
+              {((!editingPublication &&
+                canCreate("regulatory-compliance")) ||
+                (editingPublication &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleSaveDocument}
+                  disabled={
+                    saving || !addForm.itemFk || !addForm.expiryDate?.trim()
+                  }
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Document"
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

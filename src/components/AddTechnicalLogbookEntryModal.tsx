@@ -24,6 +24,7 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -31,6 +32,8 @@ interface AddTechnicalLogbookEntryModalProps {
   editEntry?: AircraftTechnicalLog | null;
   onSuccess?: () => void;
   aircraftId?: number; // Optional aircraft ID from useParams
+  /** Module code for role Update permission (e.g. operation, logbook). Required when editEntry is set. */
+  permissionModuleCode?: string;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -39,7 +42,14 @@ export function AddTechnicalLogbookEntryModal({
   editEntry,
   onSuccess,
   aircraftId,
+  permissionModuleCode,
 }: AddTechnicalLogbookEntryModalProps) {
+  const { canUpdate, canCreate } = useUserPermissions();
+  const mod = permissionModuleCode;
+  const allowSubmit =
+    (!editEntry &&
+      (!mod || canCreate(mod))) ||
+    (!!editEntry && Boolean(mod) && canUpdate(mod as string));
   const [formData, setFormData] = useState({
     seqNo: "",
     workStatus: "FOR_REVIEW",
@@ -4205,12 +4215,14 @@ export function AddTechnicalLogbookEntryModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {editEntry ? "Update Entry" : "Save Entry"}
-            </button>
+            {allowSubmit && (
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {editEntry ? "Update Entry" : "Save Entry"}
+              </button>
+            )}
           </div>
         </form>
       </div>

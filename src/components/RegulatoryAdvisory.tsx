@@ -13,8 +13,10 @@ import {
   type AdvisorySortOrder,
 } from "../api/advisoryApi";
 import { Spinner } from "./ui/spinner";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 export function RegulatoryAdvisory() {
+  const { canUpdate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -431,92 +433,96 @@ export function RegulatoryAdvisory() {
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openRenewModal(advisory);
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                          title="Renew"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          RENEW
-                        </button>
-                        <button
-                          type="button"
-                          disabled={withholdSubmitting}
-                          onClick={async (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const itemLabel = advisory.item ?? "this item";
-                            const result = await Swal.fire({
-                              icon: "warning",
-                              title: "Are you sure?",
-                              text: `You want to WITHHOLD - ${itemLabel}`,
-                              showCancelButton: true,
-                              confirmButtonColor: "#dc2626",
-                              cancelButtonColor: "#6b7280",
-                              confirmButtonText: "Yes, withhold",
-                              cancelButtonText: "Cancel",
-                            });
-                            if (result.isConfirmed) {
-                              setWithholdSubmitting(true);
-                              try {
-                                await withholdAdvisory(
-                                  advisory.id,
-                                  advisory.regulatory_compliance
-                                );
-                                await Swal.fire({
-                                  icon: "success",
-                                  title: "Withheld",
-                                  text: "Advisory has been withheld successfully.",
-                                  timer: 2000,
-                                  showConfirmButton: false,
-                                });
-                                const typeParam =
-                                  filterType === "all" ? undefined : filterType;
-                                getAdvisoryPaged(
-                                  currentPage,
-                                  itemsPerPage,
-                                  searchTerm,
-                                  typeParam,
-                                  sortBy,
-                                  sortOrder
-                                )
-                                  .then((res) => {
-                                    setItems(res.items);
-                                    setTotal(res.total);
-                                    setTotalPages(res.pages);
-                                  })
-                                  .catch(() => {});
-                              } catch (err: unknown) {
-                                const message =
-                                  (
-                                    err as {
-                                      response?: {
-                                        data?: { detail?: string };
-                                      };
-                                    }
-                                  )?.response?.data?.detail ??
-                                  (err as Error)?.message ??
-                                  "Failed to withhold advisory";
-                                await Swal.fire({
-                                  icon: "error",
-                                  title: "Error",
-                                  text: message,
-                                });
-                              } finally {
-                                setWithholdSubmitting(false);
+                        {canUpdate("regulatory-compliance") && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openRenewModal(advisory);
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                            title="Renew"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            RENEW
+                          </button>
+                        )}
+                        {canDelete("regulatory-compliance") && (
+                          <button
+                            type="button"
+                            disabled={withholdSubmitting}
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const itemLabel = advisory.item ?? "this item";
+                              const result = await Swal.fire({
+                                icon: "warning",
+                                title: "Are you sure?",
+                                text: `You want to WITHHOLD - ${itemLabel}`,
+                                showCancelButton: true,
+                                confirmButtonColor: "#dc2626",
+                                cancelButtonColor: "#6b7280",
+                                confirmButtonText: "Yes, withhold",
+                                cancelButtonText: "Cancel",
+                              });
+                              if (result.isConfirmed) {
+                                setWithholdSubmitting(true);
+                                try {
+                                  await withholdAdvisory(
+                                    advisory.id,
+                                    advisory.regulatory_compliance
+                                  );
+                                  await Swal.fire({
+                                    icon: "success",
+                                    title: "Withheld",
+                                    text: "Advisory has been withheld successfully.",
+                                    timer: 2000,
+                                    showConfirmButton: false,
+                                  });
+                                  const typeParam =
+                                    filterType === "all" ? undefined : filterType;
+                                  getAdvisoryPaged(
+                                    currentPage,
+                                    itemsPerPage,
+                                    searchTerm,
+                                    typeParam,
+                                    sortBy,
+                                    sortOrder
+                                  )
+                                    .then((res) => {
+                                      setItems(res.items);
+                                      setTotal(res.total);
+                                      setTotalPages(res.pages);
+                                    })
+                                    .catch(() => {});
+                                } catch (err: unknown) {
+                                  const message =
+                                    (
+                                      err as {
+                                        response?: {
+                                          data?: { detail?: string };
+                                        };
+                                      }
+                                    )?.response?.data?.detail ??
+                                    (err as Error)?.message ??
+                                    "Failed to withhold advisory";
+                                  await Swal.fire({
+                                    icon: "error",
+                                    title: "Error",
+                                    text: message,
+                                  });
+                                } finally {
+                                  setWithholdSubmitting(false);
+                                }
                               }
-                            }
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:pointer-events-none"
-                          title="Withhold"
-                        >
-                          WITHHOLD
-                        </button>
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                            title="Withhold"
+                          >
+                            WITHHOLD
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -641,20 +647,22 @@ export function RegulatoryAdvisory() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleRenewSubmit}
-                disabled={
-                  renewSubmitting ||
-                  renewDetailLoading ||
-                  !renewUpdate.expiry.trim()
-                }
-                className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: "#2563EB" }}
-              >
-                <RotateCcw className="w-4 h-4" />
-                {renewSubmitting ? "Renewing…" : "RENEW"}
-              </button>
+              {canUpdate("regulatory-compliance") && (
+                <button
+                  type="button"
+                  onClick={handleRenewSubmit}
+                  disabled={
+                    renewSubmitting ||
+                    renewDetailLoading ||
+                    !renewUpdate.expiry.trim()
+                  }
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: "#2563EB" }}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  {renewSubmitting ? "Renewing…" : "RENEW"}
+                </button>
+              )}
             </div>
           </div>
         </div>
