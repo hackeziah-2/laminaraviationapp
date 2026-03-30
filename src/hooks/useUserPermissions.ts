@@ -14,8 +14,8 @@ export interface UserPermissionsState {
   loading: boolean;
   error: string | null;
   canAccess: (moduleCode: string) => boolean;
-  canWrite: (moduleCode: string) => boolean;
-  canApprove: (moduleCode: string) => boolean;
+  canCreate: (moduleCode: string) => boolean;
+  canUpdate: (moduleCode: string) => boolean;
   canDelete: (moduleCode: string) => boolean;
   refetch: () => Promise<void>;
 }
@@ -86,15 +86,15 @@ export function useUserPermissions(): UserPermissionsState {
     [permissions, loading]
   );
 
-  const canWrite = useCallback(
+  const canCreate = useCallback(
     (moduleCode: string) =>
-      matchPermission(permissions, moduleCode, (p) => p.write),
+      matchPermission(permissions, moduleCode, (p) => p.create),
     [permissions]
   );
 
-  const canApprove = useCallback(
+  const canUpdate = useCallback(
     (moduleCode: string) =>
-      matchPermission(permissions, moduleCode, (p) => p.approve),
+      matchPermission(permissions, moduleCode, (p) => p.update),
     [permissions]
   );
 
@@ -110,8 +110,8 @@ export function useUserPermissions(): UserPermissionsState {
     loading,
     error,
     canAccess,
-    canWrite,
-    canApprove,
+    canCreate,
+    canUpdate,
     canDelete,
     refetch: load,
   };

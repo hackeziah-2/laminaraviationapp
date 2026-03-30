@@ -11,8 +11,8 @@ export interface Role {
 export interface Permission {
   module: string;
   read: boolean;
-  write: boolean;
-  approve: boolean;
+  create: boolean;
+  update: boolean;
   /** Remove records in this module (API may send `delete` or `can_delete`). */
   delete: boolean;
 }
@@ -69,12 +69,23 @@ export const getRole = async (roleId: number): Promise<RoleWithPermissions> => {
 function normalizePermission(raw: Record<string, unknown>): Permission {
   const module = String(raw.module ?? "");
   const read = Boolean(raw.read);
-  const write = Boolean(raw.write);
-  const approve = Boolean(raw.approve);
   const del = Boolean(
     raw.delete ?? raw.can_delete ?? raw.canDelete ?? false
   );
-  return { module, read, write, approve, delete: del };
+  const hasCreate = raw.create !== undefined && raw.create !== null;
+  const hasUpdate = raw.update !== undefined && raw.update !== null;
+  let create: boolean;
+  let update: boolean;
+  if (hasCreate || hasUpdate) {
+    create = Boolean(raw.create);
+    update = Boolean(raw.update);
+  } else {
+    const write = Boolean(raw.write);
+    const approve = Boolean(raw.approve);
+    create = write;
+    update = write || approve;
+  }
+  return { module, read, create, update, delete: del };
 }
 
 function normalizeRoleWithPermissions(raw: Record<string, unknown>): RoleWithPermissions {

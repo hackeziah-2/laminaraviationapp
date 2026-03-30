@@ -22,6 +22,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
 import { useAircrafts } from "../hooks/useAircrafts";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 import { AircraftForm } from "../types/Aircraft";
 import {
   createAircraft,
@@ -34,6 +35,7 @@ import { dateToday, snakeAllKeys } from "../utility/utils";
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
+  const { canAccess, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -536,26 +538,30 @@ export function AircraftFleetProfile() {
             className="hidden"
             onChange={handleImportExcel}
           />
-          <button
-            type="button"
-            onClick={() => importFileInputRef.current?.click()}
-            disabled={importLoading}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {importLoading ? (
-              <Loader className="w-4 h-4 text-gray-600 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4 text-gray-600" />
-            )}
-            <span className="text-gray-700 hidden sm:inline">Import</span>
-          </button>
-          <button
-            onClick={() => setShowAddAircraftModal(true)}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Aircraft</span>
-          </button>
+          {canCreate("profile") && (
+            <button
+              type="button"
+              onClick={() => importFileInputRef.current?.click()}
+              disabled={importLoading}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {importLoading ? (
+                <Loader className="w-4 h-4 text-gray-600 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 text-gray-600" />
+              )}
+              <span className="text-gray-700 hidden sm:inline">Import</span>
+            </button>
+          )}
+          {canCreate("profile") && (
+            <button
+              onClick={() => setShowAddAircraftModal(true)}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Aircraft</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -681,26 +687,38 @@ export function AircraftFleetProfile() {
                               className="px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-700 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
                             >
                               <option value="">View</option>
-                              <option value="detail">
-                                General Information
-                              </option>
-                              <option value="operation">
-                                Fleet Time Monitoring
-                              </option>
-                              <option value="maintenance">Maintenance</option>
-                              <option value="logbook">
-                                Maintenance Logbook
-                              </option>
+                              {canAccess("profile") && (
+                                <option value="detail">
+                                  General Information
+                                </option>
+                              )}
+                              {canAccess("operation") && (
+                                <option value="operation">
+                                  Fleet Time Monitoring
+                                </option>
+                              )}
+                              {canAccess("maintenance") && (
+                                <option value="maintenance">
+                                  Maintenance
+                                </option>
+                              )}
+                              {canAccess("logbook") && (
+                                <option value="logbook">
+                                  Maintenance Logbook
+                                </option>
+                              )}
                             </select>
-                            <button
-                              onClick={() => {
-                                if (ac?.id != null) handleDeleteAircraft(ac);
-                              }}
-                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canDelete("profile") && (
+                              <button
+                                onClick={() => {
+                                  if (ac?.id != null) handleDeleteAircraft(ac);
+                                }}
+                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
