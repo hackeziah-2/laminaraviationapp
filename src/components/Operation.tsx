@@ -251,6 +251,8 @@ export function Operation() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [searchQuery, setSearchQuery] = useState("");
+  /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
+  const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
     AircraftTechnicalLog[]
   >([]);
@@ -428,7 +430,8 @@ export function Operation() {
           itemsPerPage,
           searchQuery,
           aircraftId,
-          sortParam
+          sortParam,
+          workStatusFilter || undefined
         );
         setFleetTimeRecords(response.items);
         setTotalRecords(response.total);
@@ -450,12 +453,13 @@ export function Operation() {
     searchQuery,
     refreshKey,
     sequenceSort,
+    workStatusFilter,
   ]);
 
-  // Reset to page 1 when search query changes
+  // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, workStatusFilter]);
 
   const paginatedRecords = fleetTimeRecords;
 
@@ -692,7 +696,8 @@ export function Operation() {
           itemsPerPage,
           searchQuery,
           aircraftId,
-          sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
+          sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+          workStatusFilter || undefined
         ),
       ]);
       setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
@@ -923,6 +928,27 @@ export function Operation() {
               </div>
               <div className="flex items-center gap-2">
                 <label
+                  htmlFor="fleet-work-status"
+                  className="text-gray-700 text-sm font-medium whitespace-nowrap"
+                >
+                  Work Status
+                </label>
+                <select
+                  id="fleet-work-status"
+                  value={workStatusFilter}
+                  onChange={(e) => setWorkStatusFilter(e.target.value)}
+                  className="px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 min-w-[200px]"
+                >
+                  <option value="">All</option>
+                  {FLEET_WORK_STATUS_KEYS.map((key) => (
+                    <option key={key} value={key}>
+                      {formatFleetWorkStatus(key)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label
                   htmlFor="group-by"
                   className="text-gray-700 text-sm font-medium whitespace-nowrap"
                 >
@@ -966,11 +992,17 @@ export function Operation() {
                         setLoading(true);
                         setError(null);
                         try {
+                          const sortParam =
+                            sequenceSort === "asc"
+                              ? "sequence_no"
+                              : "-sequence_no";
                           const response = await getAircraftTechnicalLogs(
                             currentPage,
                             itemsPerPage,
                             searchQuery,
-                            aircraftId
+                            aircraftId,
+                            sortParam,
+                            workStatusFilter || undefined
                           );
                           setFleetTimeRecords(response.items);
                           setTotalRecords(response.total);
