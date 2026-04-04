@@ -31,9 +31,10 @@ import { isAtlEditAllowedForRoleAndWorkStatus } from "../utility/atlEditRbac";
 
 interface LogbookEntry {
   id: number;
-  // line: number;
   seqNo: string;
+  /** Flight / station date (used by view modal fallbacks) */
   date: string;
+  createdAt: string;
   acReg: string;
   route: string;
   origin: string;
@@ -41,7 +42,6 @@ interface LogbookEntry {
   fltTime: string;
   pilot: string;
   workStatus?: string;
-  // status: "Serviceable" | "Under Maintenance";
 }
 
 export function AircraftTechnicalLogbook() {
@@ -79,6 +79,16 @@ export function AircraftTechnicalLogbook() {
         .padStart(2, "0")}/${date.getFullYear()}`;
     };
 
+    const formatCreatedAtDateOnly = (dateStr: string | undefined) => {
+      if (!dateStr) return "—";
+      const date = new Date(dateStr);
+      if (Number.isNaN(date.getTime())) return "—";
+      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
+        .getDate()
+        .toString()
+        .padStart(2, "0")}/${date.getFullYear()}`;
+    };
+
     // Format route from stations
     const route = `${apiEntry.originStation || ""} → ${
       apiEntry.destinationStation || ""
@@ -109,6 +119,7 @@ export function AircraftTechnicalLogbook() {
       id: apiEntry.id,
       seqNo: apiEntry.sequenceNo || "",
       date: formatDate(apiEntry.originDate || apiEntry.destinationDate || ""),
+      createdAt: formatCreatedAtDateOnly(apiEntry.createdAt),
       acReg: apiEntry.aircraft?.registration || "",
       route: route,
       origin: apiEntry?.originStation || "",
@@ -471,15 +482,12 @@ export function AircraftTechnicalLogbook() {
                       <b>A/C REG</b>
                       {getSortIndicator("aircraft_registration")}
                     </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      ORIGIN
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      DESTINATION
-                    </th>
-
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      FLT TIME
+                    <th
+                      className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("work_status")}
+                    >
+                      <b>WORK STATUS</b>
+                      {getSortIndicator("work_status")}
                     </th>
                     <th
                       className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
@@ -489,7 +497,7 @@ export function AircraftTechnicalLogbook() {
                       {getSortIndicator("created_at")}
                     </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      ACTIONS
+                      ACTION
                     </th>
                   </tr>
                 </thead>
@@ -497,7 +505,7 @@ export function AircraftTechnicalLogbook() {
                   {error ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={5}
                         className="px-6 py-12 text-center text-red-600"
                       >
                         Error loading entries: {error}
@@ -516,16 +524,10 @@ export function AircraftTechnicalLogbook() {
                           {entry.acReg}
                         </td>
                         <td className="px-6 py-3.5 text-gray-900">
-                          {entry.origin}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {entry.destination}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {entry.fltTime}
+                          {entry.workStatus?.trim() || "—"}
                         </td>
                         <td className="px-6 py-3.5 text-gray-600">
-                          {entry.date}
+                          {entry.createdAt}
                         </td>
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-2">
@@ -567,7 +569,7 @@ export function AircraftTechnicalLogbook() {
                   ) : (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={5}
                         className="px-6 py-12 text-center text-gray-500"
                       >
                         No entries found matching your search criteria

@@ -54,6 +54,7 @@ import {
   type AtlWorkStatusKey,
 } from "../utility/atlEditRbac";
 import { getAllAccounts, Account } from "../api/accountApi";
+import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 type GroupByOption =
@@ -110,8 +111,32 @@ export function Operation() {
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
+  /** Role name from GET /auth/me — aligns ATL edit RBAC with login session (same as Edit modal). */
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const operationAtlRole = useMemo(
+    () => sessionRoleName || user?.role?.trim() || undefined,
+    [sessionRoleName, user?.role]
+  );
+
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
-    isAtlEditAllowedForRoleAndWorkStatus(user?.role, record.workStatus);
+    isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
 
   const handleBack = () => {
     navigate("/profile");
@@ -2532,7 +2557,7 @@ export function Operation() {
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
           permissionModuleCode="logbook"
-          viewerRole={user?.role}
+          viewerRole={operationAtlRole}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);

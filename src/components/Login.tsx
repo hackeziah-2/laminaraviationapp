@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { login as loginApi } from "../api/authApi";
+import { getMe, getPostLoginPath, login as loginApi } from "../api/authApi";
 import laminarAviationLogo from "../assets/laminar-aviation-logo.png";
 
 interface LoginProps {
@@ -64,7 +64,12 @@ export function Login({ onLogin }: LoginProps) {
       const resolvedUsername =
         response?.user?.username ?? response?.user?.email ?? username.trim();
       onLogin(resolvedUsername);
-      navigate("/dashboard");
+      try {
+        const me = await getMe();
+        navigate(getPostLoginPath(me.role));
+      } catch {
+        navigate("/dashboard");
+      }
     } catch (err) {
       const fallback = "Invalid username or password";
       const detail = (

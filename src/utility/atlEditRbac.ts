@@ -53,6 +53,27 @@ function normalizeRoleNameForMatch(raw: string | undefined): string {
     .trim();
 }
 
+/**
+ * White ATL / DFP file upload in Add/Edit ATL entry: allowed only for Admin and Technical Publication (incl. OEM variants).
+ */
+export function canUploadWhiteAtlAndDfpFiles(
+  userRole: string | undefined
+): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  if (n === "admin" || n.endsWith(" admin")) return true;
+  if (
+    n === "technical publication" ||
+    n === "tech publication" ||
+    n === "oem technical publication" ||
+    n === "oem tech publication" ||
+    n.endsWith(" technical publication")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return null;

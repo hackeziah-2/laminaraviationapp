@@ -25,6 +25,9 @@ export interface AuthUserCreate {
   role_id: number;
   status: boolean;
   password: string;
+  /** Optional; sent when present (bulk JSON / extended register) */
+  auth_initial_doi?: string;
+  auth_stamp?: string;
 }
 
 export interface AuthUserUpdate {
@@ -165,9 +168,19 @@ export const token = async (username?: string, password?: string): Promise<unkno
   return response.data;
 };
 
-/** Current user: GET /api/v1/auth/me (or similar) */
+/** Default route after sign-in: mechanics land on fleet profile, others on dashboard. */
+export function getPostLoginPath(role: string | undefined | null): string {
+  return role?.trim() === "Mechanic" ? "/profile" : "/dashboard";
+}
+
+/**
+ * Current user: GET /api/v1/auth/me
+ * Request URL: `{VITE_API_URL}auth/me` (default `http://localhost:8000/api/v1/` + `auth/me`).
+ */
 export const getMe = async (): Promise<AuthUser> => {
-  const response = await apiClient.get("auth/me");
+  const response = await apiClient.get("auth/me", {
+    headers: { Accept: "application/json" },
+  });
   const data = response.data as Record<string, unknown> | undefined;
   const raw =
     (data?.user && typeof data.user === "object"
@@ -176,9 +189,9 @@ export const getMe = async (): Promise<AuthUser> => {
   return normalizeUser(raw);
 };
 
-/** Register: POST /api/v1/auth/register */
+/** Register: POST /api/v1/auth/register/ (trailing slash matches auth/login/ and Django-style routes) */
 export const registerUser = async (payload: AuthUserCreate): Promise<AuthUser> => {
-  const body = {
+  const body: Record<string, string | number | boolean | undefined> = {
     first_name: payload.first_name,
     last_name: payload.last_name,
     middle_name: payload.middle_name,
@@ -190,9 +203,17 @@ export const registerUser = async (payload: AuthUserCreate): Promise<AuthUser> =
     status: payload.status,
     password: payload.password,
   };
-  const response = await apiClient.post("auth/register", body);
+  const doi = payload.auth_initial_doi?.trim();
+  if (doi) body.auth_initial_doi = doi;
+  const stamp = payload.auth_stamp?.trim();
+  if (stamp) body.auth_stamp = stamp;
+  const response = await apiClient.post("auth/register/", body, {
+    headers: { "Content-Type": "application/json" },
+  });
   const raw = response.data?.user ?? response.data ?? {};
-  return normalizeUser(raw);
+  return normalizeUser(
+    typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {}
+  );
 };
 
 /** Update user: PUT /api/v1/auth/users/:id/ or PATCH */

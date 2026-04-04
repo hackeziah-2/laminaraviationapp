@@ -19,6 +19,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Braces,
 } from "lucide-react";
 import * as authApi from "../api/authApi";
 import * as rolesApi from "../api/rolesApi";
@@ -132,6 +133,306 @@ interface CreateRoleModalProps {
 
 const SELECT_BASE_CLASS =
   "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-9 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat";
+
+const BULK_JSON_PLACEHOLDER = `[
+  {
+    "first_name": "string",
+    "last_name": "string",
+    "middle_name": "string",
+    "username": "string",
+    "email": "string",
+    "designation": "string",
+    "license_no": "string",
+    "auth_stamp": "string",
+    "auth_initial_doi": "2026-04-01",
+    "role_id": 0,
+    "status": true,
+    "password": "string"
+  }
+]`;
+
+const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Map one JSON object to POST /auth/register/ body (same shape as registerUser). */
+function bulkJsonRowToAuthCreate(o: Record<string, unknown>): authApi.AuthUserCreate {
+  const email = String(o.email ?? "").trim();
+  const localPart =
+    email.includes("@") ? email.slice(0, Math.max(0, email.indexOf("@"))) : email;
+  const roleRaw = o.role_id;
+  let role_id = 0;
+  if (typeof roleRaw === "number" && !Number.isNaN(roleRaw)) role_id = roleRaw;
+  else if (typeof roleRaw === "string" && roleRaw.trim() !== "") {
+    const n = Number(roleRaw);
+    if (!Number.isNaN(n)) role_id = n;
+  }
+  const statusRaw = o.status;
+  const status =
+    typeof statusRaw === "boolean" ? statusRaw : statusRaw == null ? true : Boolean(statusRaw);
+  const auth_initial_doi = String(o.auth_initial_doi ?? "").trim();
+  const auth_stamp = String(o.auth_stamp ?? "").trim();
+  return {
+    first_name: String(o.first_name ?? "").trim(),
+    last_name: String(o.last_name ?? "").trim(),
+    middle_name: String(o.middle_name ?? "").trim(),
+    username: String(o.username ?? "").trim() || localPart || "user",
+    email,
+    designation: String(o.designation ?? "").trim(),
+    license_no: String(o.license_no ?? "").trim(),
+    role_id,
+    status,
+    password: String(o.password ?? ""),
+    ...(auth_initial_doi ? { auth_initial_doi } : {}),
+    ...(auth_stamp ? { auth_stamp } : {}),
+  };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatBulkRegisterError(err: unknown): string {
+  const e = err as {
+    code?: string;
+    message?: string;
+    response?: { data?: { message?: string; detail?: unknown } };
+  };
+  if (e?.code === "ERR_NETWORK" || e?.message === "Network Error") {
+    return "Failed to connect to server.";
+  }
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) =>
+        typeof item === "object" && item !== null && "msg" in item
+          ? String((item as { msg: unknown }).msg)
+          : JSON.stringify(item)
+      )
+      .join("; ");
+  }
+  const msg = e?.response?.data?.message;
+  if (typeof msg === "string") return msg;
+  return e?.message || "Request failed";
+}
+
+interface AddUsersByJsonModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onComplete: () => void | Promise<void>;
+}
+
+function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModalProps) {
+  const [jsonText, setJsonText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+
+  if (!isOpen) return null;
+
+  const handleClose = () => {
+    if (submitting) return;
+    setJsonText("");
+    setProgress({ current: 0, total: 0 });
+    onClose();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonText.trim() || "null");
+    } catch {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid JSON",
+        text: "Invalid JSON format. Please check your input.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    if (!Array.isArray(parsed)) {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid JSON",
+        text: "Invalid JSON format. Please check your input.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    if (parsed.length === 0) {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid input",
+        text: "Provide at least one user object in the array.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    const validationErrors: string[] = [];
+    const rows: authApi.AuthUserCreate[] = [];
+
+    parsed.forEach((item, index) => {
+      const row = index + 1;
+      if (item === null || typeof item !== "object") {
+        validationErrors.push(`Row ${row}: must be an object.`);
+        return;
+      }
+      const o = item as Record<string, unknown>;
+      const email = String(o.email ?? "").trim();
+      const password = String(o.password ?? "");
+      if (!email) validationErrors.push(`Row ${row}: email is required.`);
+      else if (!EMAIL_FORMAT_RE.test(email))
+        validationErrors.push(`Row ${row}: invalid email format.`);
+      if (!password) validationErrors.push(`Row ${row}: password is required.`);
+      else if (password.length < 8)
+        validationErrors.push(`Row ${row}: password must be at least 8 characters.`);
+      if (
+        email &&
+        password.length >= 8 &&
+        EMAIL_FORMAT_RE.test(email)
+      ) {
+        rows.push(bulkJsonRowToAuthCreate(o));
+      }
+    });
+
+    if (validationErrors.length) {
+      await Swal.fire({
+        icon: "error",
+        title: "Validation error",
+        html: `<ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:240px;overflow:auto;font-size:14px">${validationErrors.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>`,
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    setProgress({ current: 0, total: rows.length });
+    const failures: { email: string; message: string }[] = [];
+    let successCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      setProgress({ current: i + 1, total: rows.length });
+      try {
+        await authApi.registerUser(row);
+        successCount += 1;
+      } catch (err) {
+        failures.push({ email: row.email, message: formatBulkRegisterError(err) });
+      }
+    }
+
+    setSubmitting(false);
+    setProgress({ current: 0, total: 0 });
+
+    await Promise.resolve(onComplete());
+
+    if (failures.length === 0) {
+      setJsonText("");
+      onClose();
+      await Swal.fire({
+        icon: "success",
+        title: "Success",
+        text: "Users successfully created!",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    if (successCount === 0) {
+      const allNetwork = failures.every((f) => f.message === "Failed to connect to server.");
+      if (allNetwork) {
+        await Swal.fire({
+          icon: "error",
+          title: "Connection error",
+          text: "Failed to connect to server.",
+          confirmButtonColor: "#1f2937",
+        });
+      } else {
+        await Swal.fire({
+          icon: "error",
+          title: "Could not create users",
+          html: `<p style="margin-bottom:8px">Some users failed to create.</p><ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:220px;overflow:auto;font-size:13px">${failures.map((f) => `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(f.message)}</li>`).join("")}</ul>`,
+          confirmButtonColor: "#1f2937",
+        });
+      }
+      return;
+    }
+
+    await Swal.fire({
+      icon: "warning",
+      title: "Partial success",
+      html: `<p>Some users failed to create.</p><p style="margin-top:8px;font-size:14px">${successCount} created, ${failures.length} failed.</p><ul style="text-align:left;margin:12px 0 0;padding-left:1.25rem;max-height:200px;overflow:auto;font-size:13px">${failures.map((f) => `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(f.message)}</li>`).join("")}</ul>`,
+      confirmButtonColor: "#1f2937",
+    });
+    setJsonText("");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-xl border border-gray-100">
+        <div className="px-8 pt-8 pb-6 border-b border-gray-200 shrink-0">
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+            Add Users via JSON
+          </h2>
+          <p className="text-sm text-gray-600 mt-3 leading-relaxed">
+            Paste a JSON array of user objects. Each entry must include{" "}
+            <span className="font-semibold text-gray-900">email</span> and{" "}
+            <span className="font-semibold text-gray-900">password</span>; email format is
+            validated before requests run.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="px-8 py-6">
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              JSON
+            </label>
+            <textarea
+              value={jsonText}
+              onChange={(e) => setJsonText(e.target.value)}
+              placeholder={BULK_JSON_PLACEHOLDER}
+              disabled={submitting}
+              spellCheck={false}
+              rows={16}
+              className="w-full min-h-[280px] max-h-[min(420px,52vh)] px-4 py-3.5 border border-gray-300 rounded-xl text-sm font-mono text-gray-900 placeholder:text-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500 resize-y overflow-y-auto leading-relaxed"
+            />
+            {submitting && progress.total > 0 && (
+              <p className="text-sm text-blue-700 mt-3">
+                Creating users... ({progress.current}/{progress.total})
+              </p>
+            )}
+          </div>
+
+          <div className="flex gap-3 px-8 pb-8 pt-2 border-t border-gray-200 shrink-0">
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={submitting}
+              className="flex-[9] px-4 py-3 border border-gray-300 text-gray-800 rounded-xl text-sm font-medium bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-[11] px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
+              Submit
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 // Add User Modal
 function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
@@ -1501,6 +1802,7 @@ export function Settings() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>("Admin");
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAddUsersByJsonModal, setShowAddUsersByJsonModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
@@ -1905,14 +2207,24 @@ export function Settings() {
                   />
                 </div>
                 {canCreate("settings") && (
-                  <button
-                    onClick={() => setShowAddUserModal(true)}
-                    type="button"
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add User
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => setShowAddUserModal(true)}
+                      type="button"
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add User
+                    </button>
+                    <button
+                      onClick={() => setShowAddUsersByJsonModal(true)}
+                      type="button"
+                      className="flex items-center gap-2 px-4 py-2 border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors"
+                    >
+                      <Braces className="w-4 h-4" />
+                      Add User by JSON
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -2378,6 +2690,12 @@ export function Settings() {
       </div>
 
       {/* Modals */}
+      <AddUsersByJsonModal
+        isOpen={showAddUsersByJsonModal}
+        onClose={() => setShowAddUsersByJsonModal(false)}
+        onComplete={fetchUsersList}
+      />
+
       <AddUserModal
         isOpen={showAddUserModal}
         onClose={() => setShowAddUserModal(false)}

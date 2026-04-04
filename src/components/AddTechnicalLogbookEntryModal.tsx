@@ -38,6 +38,7 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
+  canUploadWhiteAtlAndDfpFiles,
 } from "../utility/atlEditRbac";
 
 interface AddTechnicalLogbookEntryModalProps {
@@ -75,7 +76,7 @@ export function AddTechnicalLogbookEntryModal({
   const [atlAuthRole, setAtlAuthRole] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!isOpen || !editEntry) {
+    if (!isOpen) {
       setAtlAuthRole(undefined);
       return;
     }
@@ -90,16 +91,18 @@ export function AddTechnicalLogbookEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editEntry?.id]);
+  }, [isOpen]);
 
   /** Prefer /me (login), then permissions hook, then parent prop — all should match after load. */
   const atlRoleForWorkStatus = useMemo(
     () =>
-      atlAuthRole ||
-      permUser?.role?.trim() ||
-      viewerRole?.trim() ||
-      undefined,
+      atlAuthRole || permUser?.role?.trim() || viewerRole?.trim() || undefined,
     [atlAuthRole, permUser?.role, viewerRole]
+  );
+
+  const canUploadAtlAttachments = useMemo(
+    () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
+    [atlRoleForWorkStatus]
   );
 
   const mod = permissionModuleCode;
@@ -1043,12 +1046,12 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for Remarks (Pilot and Maintenance Engineer)
+  // Fetch accounts for Remarks (Pilot and Mechanic)
   const fetchRemarksAccounts = async (search: string = "") => {
     setLoadingRemarksAccounts(true);
     try {
       const accounts = await getAccountsByDesignation(
-        ["Pilot", "Maintenance Engineer"],
+        ["Pilot", "Mechanic"],
         search
       );
       setRemarksAccounts(accounts);
@@ -1060,14 +1063,11 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for Actions Taken (Maintenance Engineer only)
+  // Fetch accounts for Actions Taken (Mechanic only)
   const fetchActionsTakenAccounts = async (search: string = "") => {
     setLoadingActionsTakenAccounts(true);
     try {
-      const accounts = await getAccountsByDesignation(
-        ["Maintenance Engineer"],
-        search
-      );
+      const accounts = await getAccountsByDesignation(["Mechanic"], search);
       setActionsTakenAccounts(accounts);
     } catch (err) {
       console.error("Error fetching actions taken accounts:", err);
@@ -1091,12 +1091,12 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for RTS Name (Maintenance Engineer or Mechanic)
+  // Fetch accounts for RTS Name (Mechanic or Mechanic)
   const fetchRtsAccounts = async (search: string = "") => {
     setLoadingRtsAccounts(true);
     try {
       const accounts = await getAccountsByDesignation(
-        ["Maintenance Engineer", "Mechanic"],
+        ["Mechanic", "Mechanic"],
         search
       );
       setRtsAccounts(accounts);
@@ -1855,7 +1855,8 @@ export function AddTechnicalLogbookEntryModal({
       const apiDataSnake = snakeAllKeys(apiDataCamel);
 
       const files =
-        formData.whiteAtl instanceof File || formData.dfp instanceof File
+        canUploadAtlAttachments &&
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File)
           ? {
               whiteAtl:
                 formData.whiteAtl instanceof File ? formData.whiteAtl : null,
@@ -4055,7 +4056,7 @@ export function AddTechnicalLogbookEntryModal({
                               ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                               : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                           }`}
-                          placeholder="Search maintenance engineer or mechanic..."
+                          placeholder="Search Mechanic or mechanic..."
                         />
                         <button
                           type="button"
@@ -4174,7 +4175,7 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             </div>
 
-            {/* White ATL / DFP */}
+            {/* White ATL / DFP — upload only for Admin / Technical Publication */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
                 <label className="block text-gray-700 mb-2">White ATL</label>
@@ -4186,22 +4187,32 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("whiteAtl", e.target.files?.[0] || null)
                     }
                     className="hidden"
+                    disabled={!canUploadAtlAttachments}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
-                    htmlFor="white-atl-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                    htmlFor={
+                      canUploadAtlAttachments ? "white-atl-file" : undefined
+                    }
+                    className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                      canUploadAtlAttachments
+                        ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                        : "cursor-not-allowed opacity-60 pointer-events-none"
+                    }`}
                   >
                     <span
                       className={
                         whiteAtlFileName ? "text-gray-900" : "text-gray-400"
                       }
                     >
-                      {whiteAtlFileName || "Choose file or N/A"}
+                      {whiteAtlFileName ||
+                        (canUploadAtlAttachments
+                          ? "Choose file or N/A"
+                          : "Upload not permitted for your role")}
                     </span>
                     <Upload className="w-4 h-4 text-gray-400" />
                   </label>
-                  {whiteAtlFileName && (
+                  {canUploadAtlAttachments && whiteAtlFileName && (
                     <button
                       type="button"
                       onClick={() => handleRemoveFile("whiteAtl")}
@@ -4252,22 +4263,30 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("dfp", e.target.files?.[0] || null)
                     }
                     className="hidden"
+                    disabled={!canUploadAtlAttachments}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
-                    htmlFor="dfp-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                    htmlFor={canUploadAtlAttachments ? "dfp-file" : undefined}
+                    className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                      canUploadAtlAttachments
+                        ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                        : "cursor-not-allowed opacity-60 pointer-events-none"
+                    }`}
                   >
                     <span
                       className={
                         dfpFileName ? "text-gray-900" : "text-gray-400"
                       }
                     >
-                      {dfpFileName || "Choose file or N/A"}
+                      {dfpFileName ||
+                        (canUploadAtlAttachments
+                          ? "Choose file or N/A"
+                          : "Upload not permitted for your role")}
                     </span>
                     <Upload className="w-4 h-4 text-gray-400" />
                   </label>
-                  {dfpFileName && (
+                  {canUploadAtlAttachments && dfpFileName && (
                     <button
                       type="button"
                       onClick={() => handleRemoveFile("dfp")}

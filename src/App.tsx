@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
@@ -6,7 +6,9 @@ import {
   Navigate,
   useParams,
   useLocation,
+  useNavigate,
 } from 'react-router-dom';
+import { getMe, getPostLoginPath } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
@@ -30,10 +32,35 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Bell, Copy, Menu } from 'lucide-react';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
 import { NotificationsPanel } from './components/NotificationsPanel';
+import { SpinnerIcon } from './components/ui/spinner';
 
 function RedirectToMaintenanceLdnd() {
   const { id } = useParams<{ id: string }>();
   return <Navigate to={`/profile/${id ?? ""}/maintenance-ldnd`} replace />;
+}
+
+/** Authenticated user opened /login — send them to the same default as post-sign-in. */
+function PostLoginRedirect() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await getMe();
+        if (!cancelled) navigate(getPostLoginPath(me.role), { replace: true });
+      } catch {
+        if (!cancelled) navigate("/dashboard", { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <SpinnerIcon size="lg" />
+    </div>
+  );
 }
 
 function AppContent() {
@@ -48,7 +75,7 @@ function AppContent() {
   }
 
   if (isLoginPage && isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <PostLoginRedirect />;
   }
 
   if (isLoginPage) {
