@@ -50,6 +50,7 @@ import {
 import {
   ATL_WORK_STATUS_KEYS,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
 } from "../utility/atlEditRbac";
@@ -133,6 +134,10 @@ export function Operation() {
   const operationAtlRole = useMemo(
     () => sessionRoleName || user?.role?.trim() || undefined,
     [sessionRoleName, user?.role]
+  );
+
+  const operationTechPubUploadOnly = isTechnicalPublicationRole(
+    operationAtlRole
   );
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
@@ -1378,7 +1383,8 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {canUpdate("logbook") && (
+                                      {(canUpdate("logbook") ||
+                                        operationTechPubUploadOnly) && (
                                         <>
                                           <span className="text-gray-400">|</span>
                                           <button
@@ -1926,7 +1932,7 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {canUpdate("logbook") && (
+                                    {(canUpdate("logbook") || operationTechPubUploadOnly) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -2113,7 +2119,7 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {canUpdate("logbook") && (
+                                      {(canUpdate("logbook") || operationTechPubUploadOnly) && (
                                         <>
                                           <span className="text-gray-400">|</span>
                                           <button
@@ -2322,7 +2328,7 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {canUpdate("logbook") && (
+                                    {(canUpdate("logbook") || operationTechPubUploadOnly) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -2558,6 +2564,7 @@ export function Operation() {
           aircraftId={aircraftId}
           permissionModuleCode="logbook"
           viewerRole={operationAtlRole}
+          editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);

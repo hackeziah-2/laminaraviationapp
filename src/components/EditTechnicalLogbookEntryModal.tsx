@@ -15,6 +15,8 @@ interface EditTechnicalLogbookEntryModalProps {
   permissionModuleCode: string;
   /** Logged-in role name (e.g. from auth); used with work_status to enforce ATL edit RBAC */
   viewerRole?: string;
+  /** Operation: Technical Publication may only change White ATL / DFP uploads in this modal. */
+  editRestrictedToWhiteAtlDfpOnly?: boolean;
 }
 
 /**
@@ -30,6 +32,7 @@ export function EditTechnicalLogbookEntryModal({
   onSuccess,
   permissionModuleCode,
   viewerRole,
+  editRestrictedToWhiteAtlDfpOnly = false,
 }: EditTechnicalLogbookEntryModalProps) {
   const { user: permUser } = useUserPermissions();
   const [meRole, setMeRole] = useState<string | undefined>(undefined);
@@ -162,6 +165,7 @@ export function EditTechnicalLogbookEntryModal({
         onSuccess={onSuccess}
         permissionModuleCode={permissionModuleCode}
         viewerRole={effectiveViewerRole}
+        editRestrictedToWhiteAtlDfpOnly={editRestrictedToWhiteAtlDfpOnly}
       />
     );
   }

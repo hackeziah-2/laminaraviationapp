@@ -168,9 +168,11 @@ export const token = async (username?: string, password?: string): Promise<unkno
   return response.data;
 };
 
-/** Default route after sign-in: mechanics land on fleet profile, others on dashboard. */
+/** Default route after sign-in: mechanics and technical publication on fleet profile, others on dashboard. */
 export function getPostLoginPath(role: string | undefined | null): string {
-  return role?.trim() === "Mechanic" ? "/profile" : "/dashboard";
+  const r = role?.trim();
+  if (r === "Mechanic" || r === "Technical Publication") return "/profile";
+  return "/dashboard";
 }
 
 /**

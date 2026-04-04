@@ -39,6 +39,7 @@ import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   canUploadWhiteAtlAndDfpFiles,
+  normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
 interface AddTechnicalLogbookEntryModalProps {
@@ -51,6 +52,11 @@ interface AddTechnicalLogbookEntryModalProps {
   permissionModuleCode?: string;
   /** When editing, limits Work Status options to statuses allowed for this role (see atlEditRbac). */
   viewerRole?: string;
+  /**
+   * Operation / Technical Publication: edit modal only allows uploading White ATL and DFP;
+   * all other fields are read-only and Update requires a new file selection.
+   */
+  editRestrictedToWhiteAtlDfpOnly?: boolean;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -61,6 +67,7 @@ export function AddTechnicalLogbookEntryModal({
   aircraftId,
   permissionModuleCode,
   viewerRole,
+  editRestrictedToWhiteAtlDfpOnly = false,
 }: AddTechnicalLogbookEntryModalProps) {
   const {
     canUpdate,
@@ -105,10 +112,12 @@ export function AddTechnicalLogbookEntryModal({
     [atlRoleForWorkStatus]
   );
 
+  const attachmentsOnlyLocked = Boolean(
+    editRestrictedToWhiteAtlDfpOnly && editEntry
+  );
+
   const mod = permissionModuleCode;
-  const allowSubmit =
-    (!editEntry && (!mod || canCreate(mod))) ||
-    (!!editEntry && Boolean(mod) && canUpdate(mod as string));
+
   const [formData, setFormData] = useState({
     seqNo: "",
     workStatus: "FOR_REVIEW",
@@ -194,6 +203,29 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitEngine: "",
     lifeTimeLimitPropeller: "",
   });
+
+  const allowSubmit = useMemo(
+    () =>
+      (!editEntry && (!mod || canCreate(mod))) ||
+      (!!editEntry &&
+        Boolean(mod) &&
+        (attachmentsOnlyLocked
+          ? canUploadAtlAttachments &&
+            (formData.whiteAtl instanceof File ||
+              formData.dfp instanceof File)
+          : canUpdate(mod as string))),
+    [
+      editEntry,
+      mod,
+      canCreate,
+      canUpdate,
+      attachmentsOnlyLocked,
+      canUploadAtlAttachments,
+      formData.whiteAtl,
+      formData.dfp,
+    ]
+  );
+
   const workStatusDropdownKeys = useMemo(
     () =>
       getAtlWorkStatusDropdownKeysForRole(atlRoleForWorkStatus, {
@@ -460,10 +492,14 @@ export function AddTechnicalLogbookEntryModal({
       // Populate form data from editEntry (normalize workStatus: API may return "FOR REVIEW" or "FOR_REVIEW")
       setFormData({
         seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
-        workStatus:
-          (editEntry.workStatus === "FOR REVIEW"
-            ? "FOR_REVIEW"
-            : editEntry.workStatus) || "",
+        workStatus: (() => {
+          const raw =
+            editEntry.workStatus === "FOR REVIEW"
+              ? "FOR_REVIEW"
+              : String(editEntry.workStatus ?? "").trim();
+          const key = normalizeAtlWorkStatus(raw);
+          return key || raw || "";
+        })(),
         acReg: editEntry.aircraft?.registration || "",
         // null/empty from API -> "" (-); VOID from API -> "VOID"; normalize TR W/ PIREM -> TR_WITH_PIREM
         natureOfFlight: (() => {
@@ -1581,15 +1617,23 @@ export function AddTechnicalLogbookEntryModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate form (for both create and update) – errors shown on fields only, no SweetAlert
-    const validationResult = validateForm();
-    if (!validationResult.isValid) {
-      return;
+    if (attachmentsOnlyLocked) {
+      if (
+        !(formData.whiteAtl instanceof File || formData.dfp instanceof File)
+      ) {
+        return;
+      }
+      setValidationErrors({});
+    } else {
+      const validationResult = validateForm();
+      if (!validationResult.isValid) {
+        return;
+      }
     }
 
     // Before creating/editing ATL: engine/propeller limits + Engine TSO/TSN + Propeller TSO/TSN on aircraft master
     const aid = aircraftId ?? selectedAircraftId ?? null;
-    if (aid != null) {
+    if (aid != null && !attachmentsOnlyLocked) {
       try {
         const res = await getAircraftById(aid);
         const aircraftCamel = toCamel(res.data) as Aircraft;
@@ -1849,6 +1893,17 @@ export function AddTechnicalLogbookEntryModal({
         apiDataCamel.workStatus = "FOR_REVIEW";
         if (createdByAccountId != null)
           apiDataCamel.createdBy = createdByAccountId;
+      }
+
+      // Operation / Technical Publication: new White ATL or DFP implies Pending if status left blank
+      if (
+        editEntry &&
+        attachmentsOnlyLocked &&
+        canUploadAtlAttachments &&
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File) &&
+        !(String(apiDataCamel.workStatus ?? "").trim())
+      ) {
+        apiDataCamel.workStatus = "PENDING";
       }
 
       // Convert camelCase to snake_case before sending to API
@@ -2121,7 +2176,18 @@ export function AddTechnicalLogbookEntryModal({
     field: "pilotSignature" | "mechanicSignature" | "whiteAtl" | "dfp",
     file: File | null
   ) => {
-    setFormData((prev) => ({ ...prev, [field]: file }));
+    setFormData((prev) => {
+      const next: typeof prev = { ...prev, [field]: file };
+      if (
+        attachmentsOnlyLocked &&
+        editEntry &&
+        (field === "whiteAtl" || field === "dfp") &&
+        file instanceof File
+      ) {
+        next.workStatus = "PENDING";
+      }
+      return next;
+    });
     if (field === "whiteAtl") {
       setWhiteAtlFileName(file ? file.name : "");
     } else if (field === "dfp") {
@@ -2355,6 +2421,9 @@ export function AddTechnicalLogbookEntryModal({
         {/* Form Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
+            <div
+              className={`space-y-6 ${attachmentsOnlyLocked ? "pointer-events-none select-none opacity-[0.92]" : ""}`}
+            >
             {/* Sequence No. | Work Status | A/C Registration (same order in View / Add / Edit) */}
             <div
               className={`grid gap-4 ${
@@ -2391,7 +2460,13 @@ export function AddTechnicalLogbookEntryModal({
                   </p>
                 )}
               </div>
-              <div>
+              <div
+                className={
+                  attachmentsOnlyLocked
+                    ? "pointer-events-auto relative z-[1]"
+                    : undefined
+                }
+              >
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Work Status
                 </label>
@@ -4174,6 +4249,15 @@ export function AddTechnicalLogbookEntryModal({
                 </div>
               </div>
             </div>
+            </div>
+            {attachmentsOnlyLocked && (
+              <p className="text-sm text-gray-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                As Technical Publication, choose <strong>White ATL</strong> or{" "}
+                <strong>DFP</strong> below — work status defaults to{" "}
+                <strong>Pending</strong> (you can change it above). Then click Update
+                Entry.
+              </p>
+            )}
 
             {/* White ATL / DFP — upload only for Admin / Technical Publication */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

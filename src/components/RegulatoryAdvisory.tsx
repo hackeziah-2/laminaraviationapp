@@ -15,8 +15,30 @@ import {
 import { Spinner } from "./ui/spinner";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
+/** Renew / Withhold on advisory list always for this role (aligns with ATL tech-pub role variants). */
+function isTechnicalPublicationAdvisoryRole(
+  role: string | undefined | null
+): boolean {
+  const n = (role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    n === "technical publication" ||
+    n === "tech publication" ||
+    n === "oem technical publication" ||
+    n === "oem tech publication" ||
+    n.endsWith(" technical publication")
+  );
+}
+
 export function RegulatoryAdvisory() {
-  const { canUpdate, canDelete } = useUserPermissions();
+  const { canUpdate, canDelete, user } = useUserPermissions();
+  const showAdvisoryRenewWithholdActions = isTechnicalPublicationAdvisoryRole(
+    user?.role
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -433,7 +455,8 @@ export function RegulatoryAdvisory() {
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {canUpdate("regulatory-compliance") && (
+                        {(showAdvisoryRenewWithholdActions ||
+                          canUpdate("regulatory-compliance")) && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -448,7 +471,8 @@ export function RegulatoryAdvisory() {
                             RENEW
                           </button>
                         )}
-                        {canDelete("regulatory-compliance") && (
+                        {(showAdvisoryRenewWithholdActions ||
+                          canDelete("regulatory-compliance")) && (
                           <button
                             type="button"
                             disabled={withholdSubmitting}

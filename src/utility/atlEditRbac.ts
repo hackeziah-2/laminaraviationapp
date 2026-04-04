@@ -53,6 +53,21 @@ function normalizeRoleNameForMatch(raw: string | undefined): string {
     .trim();
 }
 
+/** Technical Publication role variants (incl. OEM) — used for ATL work-status RBAC and upload-only Operation edit. */
+export function isTechnicalPublicationRole(
+  userRole: string | undefined
+): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return (
+    n === "technical publication" ||
+    n === "tech publication" ||
+    n === "oem technical publication" ||
+    n === "oem tech publication" ||
+    n.endsWith(" technical publication")
+  );
+}
+
 /**
  * White ATL / DFP file upload in Add/Edit ATL entry: allowed only for Admin and Technical Publication (incl. OEM variants).
  */
@@ -62,16 +77,7 @@ export function canUploadWhiteAtlAndDfpFiles(
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
   if (n === "admin" || n.endsWith(" admin")) return true;
-  if (
-    n === "technical publication" ||
-    n === "tech publication" ||
-    n === "oem technical publication" ||
-    n === "oem tech publication" ||
-    n.endsWith(" technical publication")
-  ) {
-    return true;
-  }
-  return false;
+  return isTechnicalPublicationRole(userRole);
 }
 
 function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
@@ -91,13 +97,7 @@ function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
     n.endsWith(" maintenance manager");
   if (isMaintManager) return "maintenance_manager";
 
-  if (
-    n === "technical publication" ||
-    n === "tech publication" ||
-    n === "oem technical publication" ||
-    n === "oem tech publication" ||
-    n.endsWith(" technical publication")
-  ) {
+  if (isTechnicalPublicationRole(userRole)) {
     return "technical_publication";
   }
 
