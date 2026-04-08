@@ -1,18 +1,44 @@
-import { useState, useEffect } from "react";
-import { Search, Download, Filter, RotateCcw, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Search, Download, Filter, RotateCcw, X, Loader2 } from "lucide-react";
 import Swal from "sweetalert2";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   getAdvisoryPaged,
+  getAdvisoryById,
   renewAdvisory,
   withholdAdvisory,
+  advisoryExpiryToDateInputValue,
   type AdvisoryItem,
   type AdvisorySortBy,
   type AdvisorySortOrder,
 } from "../api/advisoryApi";
 import { Spinner } from "./ui/spinner";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+
+/** Renew / Withhold on advisory list always for this role (aligns with ATL tech-pub role variants). */
+function isTechnicalPublicationAdvisoryRole(
+  role: string | undefined | null
+): boolean {
+  const n = (role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    n === "technical publication" ||
+    n === "tech publication" ||
+    n === "oem technical publication" ||
+    n === "oem tech publication" ||
+    n.endsWith(" technical publication")
+  );
+}
 
 export function RegulatoryAdvisory() {
+  const { canUpdate, canDelete, user } = useUserPermissions();
+  const showAdvisoryRenewWithholdActions = isTechnicalPublicationAdvisoryRole(
+    user?.role
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -25,15 +51,22 @@ export function RegulatoryAdvisory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRenewModal, setShowRenewModal] = useState(false);
-  const [renewAdvisoryRow, setRenewAdvisoryRow] = useState<AdvisoryItem | null>(null);
-  /** Holds id, expiry (editable), category_type from item, regulatory_compliance from row when present. */
+  const [renewAdvisoryRow, setRenewAdvisoryRow] = useState<AdvisoryItem | null>(
+    null
+  );
+  /** Holds id, expiry (editable), category_type, optional regulatory_compliance and web_link for PUT. */
   const [renewUpdate, setRenewUpdate] = useState<{
     id: number;
     expiry: string;
     category_type: string;
     regulatory_compliance?: string;
+    web_link: string;
   } | null>(null);
   const [renewSubmitting, setRenewSubmitting] = useState(false);
+  /** GET advisory/{id}/ to load current web_link (and fields) for renew form. */
+  const [renewDetailLoading, setRenewDetailLoading] = useState(false);
+  /** Ignore late responses when Renew is opened for another row before fetch finishes. */
+  const renewDetailSeqRef = useRef(0);
   const [withholdSubmitting, setWithholdSubmitting] = useState(false);
 
   useEffect(() => {
@@ -82,9 +115,6 @@ export function RegulatoryAdvisory() {
       .trim()
       .toUpperCase();
 
-  const startIndex = total === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-  const endIndex = Math.min(currentPage * itemsPerPage, total);
-
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
     setCurrentPage(1);
@@ -125,23 +155,58 @@ export function RegulatoryAdvisory() {
     }
   };
 
-  const openRenewModal = (advisory: AdvisoryItem) => {
+  const openRenewModal = async (advisory: AdvisoryItem) => {
+    const openedId = advisory.id;
+    const seq = ++renewDetailSeqRef.current;
     setRenewAdvisoryRow(advisory);
+    const listWebLink = String(advisory.web_link ?? "").trim();
     setRenewUpdate({
-      id: advisory.id,
-      expiry: advisory.expiry ?? "",
+      id: openedId,
+      expiry: advisoryExpiryToDateInputValue(advisory.expiry ?? ""),
       category_type: advisory.category_type ?? advisory.type ?? "",
+      web_link: listWebLink,
       ...(advisory.regulatory_compliance
         ? { regulatory_compliance: advisory.regulatory_compliance }
         : {}),
     });
     setShowRenewModal(true);
+    setRenewDetailLoading(true);
+    try {
+      const detail = await getAdvisoryById(openedId);
+      if (renewDetailSeqRef.current !== seq) return;
+
+      if (!detail) return;
+
+      setRenewAdvisoryRow({ ...detail, id: openedId });
+      setRenewUpdate((prev) => {
+        if (!prev || Number(prev.id) !== Number(openedId)) return prev;
+        const detailLink = String(detail.web_link ?? "").trim();
+        const detailExpiryNorm = advisoryExpiryToDateInputValue(detail.expiry);
+        return {
+          id: openedId,
+          expiry: detailExpiryNorm !== "" ? detailExpiryNorm : prev.expiry,
+          category_type:
+            detail.category_type ?? detail.type ?? prev.category_type,
+          web_link: detailLink !== "" ? detailLink : prev.web_link,
+          ...(detail.regulatory_compliance
+            ? { regulatory_compliance: detail.regulatory_compliance }
+            : prev.regulatory_compliance
+            ? { regulatory_compliance: prev.regulatory_compliance }
+            : {}),
+        };
+      });
+    } finally {
+      if (renewDetailSeqRef.current === seq) {
+        setRenewDetailLoading(false);
+      }
+    }
   };
 
   const closeRenewModal = () => {
     setShowRenewModal(false);
     setRenewAdvisoryRow(null);
     setRenewUpdate(null);
+    setRenewDetailLoading(false);
   };
 
   const handleRenewSubmit = async () => {
@@ -155,6 +220,7 @@ export function RegulatoryAdvisory() {
         ...(renewUpdate.category_type
           ? { category_type: renewUpdate.category_type }
           : {}),
+        web_link: renewUpdate.web_link.trim(),
       });
       closeRenewModal();
       await Swal.fire({
@@ -237,7 +303,7 @@ export function RegulatoryAdvisory() {
         style={{ backgroundColor: "#2563EB" }}
       >
         <span className="tracking-wide text-sm sm:text-base">ADVISORY</span>
-        <span className="text-sm">DATE: 27 FEB 26</span>
+        <span className="text-sm" />
       </div>
 
       {/* Search and Filter */}
@@ -253,7 +319,8 @@ export function RegulatoryAdvisory() {
               placeholder="Search by item"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:opacity-60"
             />
           </div>
           <div className="w-full md:w-56">
@@ -264,7 +331,8 @@ export function RegulatoryAdvisory() {
             <select
               value={filterType}
               onChange={(e) => handleFilterChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
             >
               <option value="all">All Types</option>
               <option value="CERTIFICATE">CERTIFICATE</option>
@@ -278,11 +346,6 @@ export function RegulatoryAdvisory() {
         </div>
       </div>
 
-      {/* Table Header Info */}
-      <div className="text-gray-600">
-        Showing {total > 0 ? startIndex : 0} to {endIndex} of {total} items
-      </div>
-
       {/* Error */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
@@ -292,101 +355,108 @@ export function RegulatoryAdvisory() {
 
       {/* Advisory Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="px-6 py-12">
-            <Spinner compact label="Loading advisories…" />
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => handleSort("item")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    ITEM
+                    {sortBy === "item" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => handleSort("type")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    TYPE
+                    {sortBy === "type" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  EXPIRY
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  <button
+                    type="button"
+                    onClick={() => handleSort("remaining_validity")}
+                    className="inline-flex items-center gap-1 hover:text-gray-900 font-medium"
+                  >
+                    <span
+                      className="inline-block w-2 h-2 bg-blue-600"
+                      style={{
+                        clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
+                      }}
+                    />
+                    REMAINING VALIDITY
+                    {sortBy === "remaining_validity" && (
+                      <span className="text-blue-600">
+                        {sortOrder === "asc" ? "↑" : "↓"}
+                      </span>
+                    )}
+                  </button>
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  ACTIONS
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {loading ? (
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => handleSort("item")}
-                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
-                    >
-                      ITEM
-                      {sortBy === "item" && (
-                        <span className="text-gray-400">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => handleSort("type")}
-                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
-                    >
-                      TYPE
-                      {sortBy === "type" && (
-                        <span className="text-gray-400">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    EXPIRY
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => handleSort("remaining_validity")}
-                      className="inline-flex items-center gap-1 font-medium hover:text-gray-900 transition-colors"
-                    >
-                      REMAINING VALIDITY
-                      {sortBy === "remaining_validity" && (
-                        <span className="text-gray-400">
-                          {sortOrder === "asc" ? "↑" : "↓"}
-                        </span>
-                      )}
-                    </button>
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                    ACTION
-                  </th>
+                  <td colSpan={5} className="px-6 py-12">
+                    <Spinner />
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {items.length > 0 ? (
-                  items.map((advisory, index) => (
-                    <tr
-                      key={`advisory-${advisory.id}-${index}`}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-6 py-3.5 text-gray-900 font-medium">
-                        {advisory.item}
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <span
-                          className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(
-                            advisory.type
-                          )}`}
-                        >
-                          {advisory.type}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3.5 text-gray-900">
-                        {advisory.expiry}
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <span
-                          className={getValidityColor(
-                            advisory.remainingValidity
-                          )}
-                        >
-                          {advisory.remainingValidity === "Expired" ||
-                          advisory.remainingValidity === ""
-                            ? "Expired"
-                            : `${advisory.remainingValidity} DAYS`}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-2 flex-wrap">
+              ) : items.length > 0 ? (
+                items.map((advisory, index) => (
+                  <tr
+                    key={`advisory-${advisory.id}-${index}`}
+                    className="hover:bg-gray-50 transition-colors"
+                  >
+                    <td className="px-6 py-3.5 text-gray-900 font-medium">
+                      {advisory.item}
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <span
+                        className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(
+                          advisory.type
+                        )}`}
+                      >
+                        {advisory.type}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3.5 text-gray-900">
+                      {advisory.expiry}
+                    </td>
+                    <td className="px-6 py-3.5">
+                      <span
+                        className={getValidityColor(advisory.remainingValidity)}
+                      >
+                        {advisory.remainingValidity === "Expired" ||
+                        advisory.remainingValidity === ""
+                          ? "Expired"
+                          : `${advisory.remainingValidity} DAYS`}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3.5 whitespace-nowrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {(showAdvisoryRenewWithholdActions ||
+                          canUpdate("regulatory-compliance")) && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -400,6 +470,9 @@ export function RegulatoryAdvisory() {
                             <RotateCcw className="w-4 h-4" />
                             RENEW
                           </button>
+                        )}
+                        {(showAdvisoryRenewWithholdActions ||
+                          canDelete("regulatory-compliance")) && (
                           <button
                             type="button"
                             disabled={withholdSubmitting}
@@ -449,9 +522,13 @@ export function RegulatoryAdvisory() {
                                     .catch(() => {});
                                 } catch (err: unknown) {
                                   const message =
-                                    (err as {
-                                      response?: { data?: { detail?: string } };
-                                    })?.response?.data?.detail ??
+                                    (
+                                      err as {
+                                        response?: {
+                                          data?: { detail?: string };
+                                        };
+                                      }
+                                    )?.response?.data?.detail ??
                                     (err as Error)?.message ??
                                     "Failed to withhold advisory";
                                   await Swal.fire({
@@ -469,28 +546,28 @@ export function RegulatoryAdvisory() {
                           >
                             WITHHOLD
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-6 py-12 text-center text-gray-500"
-                    >
-                      No advisory items found matching your search criteria
+                        )}
+                      </div>
                     </td>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-6 py-12 text-center text-gray-500"
+                  >
+                    No advisory items found matching your search criteria
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
 
         <DataTablePagination
           currentPage={currentPage}
-          totalPages={totalPages}
+          totalPages={Math.max(1, totalPages)}
           onPageChange={setCurrentPage}
           totalItems={total}
           totalLabel="items"
@@ -514,11 +591,14 @@ export function RegulatoryAdvisory() {
           aria-labelledby="renew-advisory-title"
         >
           <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-sm p-5 relative"
+            className="bg-white rounded-lg shadow-xl w-full max-w-md p-5 relative"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
-              <h2 id="renew-advisory-title" className="text-lg font-semibold text-gray-900">
+              <h2
+                id="renew-advisory-title"
+                className="text-lg font-semibold text-gray-900"
+              >
                 Renew Advisory
               </h2>
               <button
@@ -533,8 +613,14 @@ export function RegulatoryAdvisory() {
 
             <div className="space-y-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
                   Expiration date
+                  {renewDetailLoading && (
+                    <Loader2
+                      className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0"
+                      aria-label="Loading expiration from advisory"
+                    />
+                  )}
                 </label>
                 <input
                   type="date"
@@ -544,8 +630,34 @@ export function RegulatoryAdvisory() {
                       prev ? { ...prev, expiry: e.target.value } : null
                     )
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
+                  disabled={renewDetailLoading}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 disabled:opacity-60"
                   placeholder="e.g. 27 FEB 26"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                  Weblink
+                  {renewDetailLoading && (
+                    <Loader2
+                      className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0"
+                      aria-label="Loading advisory details"
+                    />
+                  )}
+                </label>
+                <input
+                  type="text"
+                  inputMode="url"
+                  autoComplete="url"
+                  value={renewUpdate.web_link}
+                  onChange={(e) =>
+                    setRenewUpdate((prev) =>
+                      prev ? { ...prev, web_link: e.target.value } : null
+                    )
+                  }
+                  disabled={renewDetailLoading}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 disabled:opacity-60"
+                  placeholder="https://…"
                 />
               </div>
             </div>
@@ -559,16 +671,22 @@ export function RegulatoryAdvisory() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleRenewSubmit}
-                disabled={renewSubmitting || !renewUpdate.expiry.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
-                style={{ backgroundColor: "#2563EB" }}
-              >
-                <RotateCcw className="w-4 h-4" />
-                {renewSubmitting ? "Renewing…" : "RENEW"}
-              </button>
+              {canUpdate("regulatory-compliance") && (
+                <button
+                  type="button"
+                  onClick={handleRenewSubmit}
+                  disabled={
+                    renewSubmitting ||
+                    renewDetailLoading ||
+                    !renewUpdate.expiry.trim()
+                  }
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: "#2563EB" }}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  {renewSubmitting ? "Renewing…" : "RENEW"}
+                </button>
+              )}
             </div>
           </div>
         </div>

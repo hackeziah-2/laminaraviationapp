@@ -31,6 +31,7 @@ function normalizeItem(raw: Record<string, unknown> | null | undefined): Aircraf
       createdAt: null,
       updatedAt: null,
       isWithhold: false,
+      ascHistory: undefined,
     };
   }
   const c = (deepToCamel(raw) as Record<string, unknown>) ?? {};
@@ -56,6 +57,12 @@ function normalizeItem(raw: Record<string, unknown> | null | undefined): Aircraf
     createdAt: (c.createdAt ?? item.created_at) ? String(c.createdAt ?? item.created_at) : null,
     updatedAt: (c.updatedAt ?? item.updated_at) ? String(c.updatedAt ?? item.updated_at) : null,
     isWithhold: Boolean(c.isWithhold ?? item.is_withhold ?? false),
+    ascHistory: (() => {
+      const v = c.ascHistory ?? item.asc_history;
+      if (v == null || v === "") return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
   };
 }
 
@@ -80,6 +87,36 @@ export interface AircraftStatutoryCertificate {
   createdAt?: string | null;
   updatedAt?: string | null;
   isWithhold?: boolean;
+  /** Parent id for history paged API when backend sends asc_history distinct from id */
+  ascHistory?: number;
+}
+
+const HISTORY_BASE = "aircraft-statutory-certificates-history";
+
+export interface AircraftStatutoryCertificateHistoryRow {
+  dateOfExpiration: string | null;
+  webLink: string | null;
+  createdAt: string | null;
+}
+
+export interface PaginatedStatutoryHistoryResponse {
+  items: AircraftStatutoryCertificateHistoryRow[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+function normalizeHistoryItem(raw: Record<string, unknown>): AircraftStatutoryCertificateHistoryRow {
+  const c = (deepToCamel(raw) as Record<string, unknown>) ?? {};
+  const dateRaw =
+    c.dateOfExpiration ?? raw.date_of_expiration ?? raw.expiry_date ?? c.expiryDate;
+  const linkRaw = c.webLink ?? raw.web_link;
+  const createdRaw = c.createdAt ?? raw.created_at;
+  return {
+    dateOfExpiration: dateRaw != null && String(dateRaw).trim() ? String(dateRaw) : null,
+    webLink: linkRaw != null && String(linkRaw).trim() ? String(linkRaw) : null,
+    createdAt: createdRaw != null && String(createdRaw).trim() ? String(createdRaw) : null,
+  };
 }
 
 export interface AircraftStatutoryCertificateCreate {
@@ -215,6 +252,37 @@ export const updateAircraftStatutoryCertificate = async (
 /** DELETE aircraft-statutory-certificates/{id}/ */
 export const deleteAircraftStatutoryCertificate = async (id: number): Promise<void> => {
   await apiClient.delete(`${BASE}/${id}/`);
+};
+
+/** GET aircraft-statutory-certificates-history/{asc_history}/paged */
+export const getAircraftStatutoryCertificateHistoryPaged = async (
+  ascHistory: number,
+  page = 1,
+  limit = 10
+): Promise<PaginatedStatutoryHistoryResponse> => {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  try {
+    const response = await apiClient.get(
+      `${HISTORY_BASE}/${ascHistory}/paged?${params.toString()}`
+    );
+    const data = response.data?.data ?? response.data ?? {};
+    const rawList = data.results ?? data.items ?? data.data ?? (Array.isArray(data) ? data : []);
+    const list = Array.isArray(rawList) ? rawList.filter(Boolean) : [];
+    const items = list.map((item: unknown) =>
+      normalizeHistoryItem(item as Record<string, unknown>)
+    );
+    const total = Number(data.count ?? data.total ?? items.length);
+    const pages = Number(data.pages ?? Math.max(1, Math.ceil(total / (limit || 1))));
+    return { items, total, page: Number(data.page ?? page), pages };
+  } catch (err: unknown) {
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String((err as Error).message)
+        : "Failed to load certificate history.";
+    throw new Error(message);
+  }
 };
 
 /** Normalize file path for download URL (strip prefixes, handle full URLs). Returns path suitable for URL path segment. */

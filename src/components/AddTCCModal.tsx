@@ -3,6 +3,7 @@ import { X, ChevronDown, Search } from "lucide-react";
 import type { ComponentItem } from "./TCCDetail";
 import { getAtlList, type AtlItem } from "../api/atlApi";
 import { SpinnerIcon } from "./ui/spinner";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface AddTCCModalProps {
   isOpen: boolean;
@@ -66,6 +67,7 @@ export function AddTCCModal({
   activeCategory = "",
   aircraftId,
 }: AddTCCModalProps) {
+  const { canUpdate, canCreate } = useUserPermissions();
   const [formData, setFormData] = useState(defaultFormData);
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
@@ -510,12 +512,15 @@ export function AddTCCModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-            >
-              {submitLabel}
-            </button>
+            {((isEdit && canUpdate("maintenance")) ||
+              (!isEdit && canCreate("maintenance"))) && (
+              <button
+                type="submit"
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                {submitLabel}
+              </button>
+            )}
           </div>
         </form>
       </div>

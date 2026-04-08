@@ -1,8 +1,22 @@
-import { X, Upload, Plus, Trash2, ChevronDown, Check, Loader2, Download, Eye } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import {
+  X,
+  Upload,
+  Plus,
+  Trash2,
+  ChevronDown,
+  Check,
+  Loader2,
+  Download,
+  Eye,
+} from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
-import { getAccountsByDesignation, getAllAccounts, Account } from "../api/accountApi";
+import {
+  getAccountsByDesignation,
+  getAllAccounts,
+  Account,
+} from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import {
   getLatestAircraftTechnicalLog,
@@ -12,11 +26,7 @@ import {
   updateAircraftTechnicalLog,
   AircraftTechnicalLogUpdate,
 } from "../api/aircraftTechnicalLogApi";
-import {
-  snakeAllKeys,
-  computeTotalBlockTime,
-  toCamel,
-} from "../utility/utils";
+import { snakeAllKeys, computeTotalBlockTime, toCamel } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
   buildAircraftDetailsRequiredForAtlHtml,
@@ -24,6 +34,13 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+import {
+  formatAtlWorkStatusLabel,
+  getAtlWorkStatusDropdownKeysForRole,
+  canUploadWhiteAtlAndDfpFiles,
+  normalizeAtlWorkStatus,
+} from "../utility/atlEditRbac";
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -31,6 +48,15 @@ interface AddTechnicalLogbookEntryModalProps {
   editEntry?: AircraftTechnicalLog | null;
   onSuccess?: () => void;
   aircraftId?: number; // Optional aircraft ID from useParams
+  /** Module code for role Update permission (e.g. operation, logbook). Required when editEntry is set. */
+  permissionModuleCode?: string;
+  /** When editing, limits Work Status options to statuses allowed for this role (see atlEditRbac). */
+  viewerRole?: string;
+  /**
+   * Operation / Technical Publication: edit modal only allows uploading White ATL and DFP;
+   * all other fields are read-only and Update requires a new file selection.
+   */
+  editRestrictedToWhiteAtlDfpOnly?: boolean;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -39,7 +65,59 @@ export function AddTechnicalLogbookEntryModal({
   editEntry,
   onSuccess,
   aircraftId,
+  permissionModuleCode,
+  viewerRole,
+  editRestrictedToWhiteAtlDfpOnly = false,
 }: AddTechnicalLogbookEntryModalProps) {
+  const {
+    canUpdate,
+    canCreate,
+    user: permUser,
+    loading: permLoading,
+  } = useUserPermissions();
+
+  /**
+   * Role name from GET /auth/me while editing — source of truth for Work Status dropdown RBAC
+   * (matches logged-in user’s role from the session).
+   */
+  const [atlAuthRole, setAtlAuthRole] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAtlAuthRole(undefined);
+      return;
+    }
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setAtlAuthRole(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setAtlAuthRole(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  /** Prefer /me (login), then permissions hook, then parent prop — all should match after load. */
+  const atlRoleForWorkStatus = useMemo(
+    () =>
+      atlAuthRole || permUser?.role?.trim() || viewerRole?.trim() || undefined,
+    [atlAuthRole, permUser?.role, viewerRole]
+  );
+
+  const canUploadAtlAttachments = useMemo(
+    () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
+    [atlRoleForWorkStatus]
+  );
+
+  const attachmentsOnlyLocked = Boolean(
+    editRestrictedToWhiteAtlDfpOnly && editEntry
+  );
+
+  const mod = permissionModuleCode;
+
   const [formData, setFormData] = useState({
     seqNo: "",
     workStatus: "FOR_REVIEW",
@@ -125,6 +203,37 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitEngine: "",
     lifeTimeLimitPropeller: "",
   });
+
+  const allowSubmit = useMemo(
+    () =>
+      (!editEntry && (!mod || canCreate(mod))) ||
+      (!!editEntry &&
+        Boolean(mod) &&
+        (attachmentsOnlyLocked
+          ? canUploadAtlAttachments &&
+            (formData.whiteAtl instanceof File ||
+              formData.dfp instanceof File)
+          : canUpdate(mod as string))),
+    [
+      editEntry,
+      mod,
+      canCreate,
+      canUpdate,
+      attachmentsOnlyLocked,
+      canUploadAtlAttachments,
+      formData.whiteAtl,
+      formData.dfp,
+    ]
+  );
+
+  const workStatusDropdownKeys = useMemo(
+    () =>
+      getAtlWorkStatusDropdownKeysForRole(atlRoleForWorkStatus, {
+        pendingRole: Boolean(editEntry && permLoading && !atlRoleForWorkStatus),
+        currentWorkStatus: formData.workStatus,
+      }),
+    [editEntry, permLoading, atlRoleForWorkStatus, formData.workStatus]
+  );
 
   // Component Records state
   interface ComponentRecord {
@@ -237,8 +346,7 @@ export function AddTechnicalLogbookEntryModal({
             const response = await getAircraftById(aircraftId);
             const aircraftData = response.data;
             const aircraftCamel = toCamel(aircraftData) as Aircraft;
-            const missing =
-              getMissingAircraftFieldsForNewAtl(aircraftCamel);
+            const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
             if (missing.length > 0) {
               await Swal.fire({
                 icon: "warning",
@@ -384,16 +492,23 @@ export function AddTechnicalLogbookEntryModal({
       // Populate form data from editEntry (normalize workStatus: API may return "FOR REVIEW" or "FOR_REVIEW")
       setFormData({
         seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
-        workStatus:
-          (editEntry.workStatus === "FOR REVIEW" ? "FOR_REVIEW" : editEntry.workStatus) || "",
+        workStatus: (() => {
+          const raw =
+            editEntry.workStatus === "FOR REVIEW"
+              ? "FOR_REVIEW"
+              : String(editEntry.workStatus ?? "").trim();
+          const key = normalizeAtlWorkStatus(raw);
+          return key || raw || "";
+        })(),
         acReg: editEntry.aircraft?.registration || "",
         // null/empty from API -> "" (-); VOID from API -> "VOID"; normalize TR W/ PIREM -> TR_WITH_PIREM
-        natureOfFlight:
-          editEntry.natureOfFlight === "VOID"
-            ? "VOID"
-            : editEntry.natureOfFlight === "TR W/ PIREM" || editEntry.natureOfFlight === "TR_WITH_PIREM"
-              ? "TR_WITH_PIREM"
-              : editEntry.natureOfFlight?.trim() || "",
+        natureOfFlight: (() => {
+          const nof = String(editEntry.natureOfFlight ?? "").trim();
+          if (nof === "VOID") return "VOID";
+          if (nof === "TR W/ PIREM" || nof === "TR_WITH_PIREM")
+            return "TR_WITH_PIREM";
+          return nof;
+        })(),
         offBlocksDate: editEntry.originDate || "",
         offBlocksTime: formatTimeFromAPI(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
@@ -459,7 +574,10 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
         engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
         engineRunTime: editEntry.engineRunTime?.toString() || "",
-        engineTsn: editEntry.engineTsn != null && editEntry.engineTsn !== "" ? String(editEntry.engineTsn) : "0.0",
+        engineTsn:
+          editEntry.engineTsn != null && editEntry.engineTsn !== ""
+            ? String(editEntry.engineTsn)
+            : "0.0",
         engineTso: editEntry.engineTso?.toString() || "",
         engineTbo: editEntry.engineTbo?.toString() || "",
         propellerPrevTime:
@@ -654,7 +772,12 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
+            engineTsn:
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? String(latestEntry.engineTsn)
+                : prev.engineTsn != null
+                ? String(prev.engineTsn)
+                : "0.0",
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -918,7 +1041,12 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
+            engineTsn:
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? String(latestEntry.engineTsn)
+                : prev.engineTsn != null
+                ? String(prev.engineTsn)
+                : "0.0",
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -954,12 +1082,12 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for Remarks (Pilot and Maintenance Engineer)
+  // Fetch accounts for Remarks (Pilot and Mechanic)
   const fetchRemarksAccounts = async (search: string = "") => {
     setLoadingRemarksAccounts(true);
     try {
       const accounts = await getAccountsByDesignation(
-        ["Pilot", "Maintenance Engineer"],
+        ["Pilot", "Mechanic"],
         search
       );
       setRemarksAccounts(accounts);
@@ -971,14 +1099,11 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for Actions Taken (Maintenance Engineer only)
+  // Fetch accounts for Actions Taken (Mechanic only)
   const fetchActionsTakenAccounts = async (search: string = "") => {
     setLoadingActionsTakenAccounts(true);
     try {
-      const accounts = await getAccountsByDesignation(
-        ["Maintenance Engineer"],
-        search
-      );
+      const accounts = await getAccountsByDesignation(["Mechanic"], search);
       setActionsTakenAccounts(accounts);
     } catch (err) {
       console.error("Error fetching actions taken accounts:", err);
@@ -1002,12 +1127,12 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for RTS Name (Maintenance Engineer or Mechanic)
+  // Fetch accounts for RTS Name (Mechanic or Mechanic)
   const fetchRtsAccounts = async (search: string = "") => {
     setLoadingRtsAccounts(true);
     try {
       const accounts = await getAccountsByDesignation(
-        ["Maintenance Engineer", "Mechanic"],
+        ["Mechanic", "Mechanic"],
         search
       );
       setRtsAccounts(accounts);
@@ -1367,7 +1492,8 @@ export function AddTechnicalLogbookEntryModal({
       const latestNumLen = getLatestNumericLength(latestSequenceNo);
       const enteredNumLen = seqTrim.length;
       if (latestNumLen > 0 && enteredNumLen !== latestNumLen) {
-        const latestNumPart = (latestSequenceNo || "").trim().match(/(\d+)$/)?.[1] ?? "";
+        const latestNumPart =
+          (latestSequenceNo || "").trim().match(/(\d+)$/)?.[1] ?? "";
         errors.seqNo = `Sequence No. must be the same length as the latest entry (e.g. ${latestNumPart}). Expected ${latestNumLen} digit(s).`;
       }
 
@@ -1384,7 +1510,7 @@ export function AddTechnicalLogbookEntryModal({
         enteredNum > latestNum + 15
       ) {
         const maxNum = latestNum + 15;
-        const padLen = (latestNumMatch[1] || "").length;
+        const padLen = (latestNumMatch?.[1] || "").length;
         const maxSeq = (latestSequenceNo || "").replace(
           /\d+$/,
           String(maxNum).padStart(padLen, "0")
@@ -1491,15 +1617,23 @@ export function AddTechnicalLogbookEntryModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate form (for both create and update) – errors shown on fields only, no SweetAlert
-    const validationResult = validateForm();
-    if (!validationResult.isValid) {
-      return;
+    if (attachmentsOnlyLocked) {
+      if (
+        !(formData.whiteAtl instanceof File || formData.dfp instanceof File)
+      ) {
+        return;
+      }
+      setValidationErrors({});
+    } else {
+      const validationResult = validateForm();
+      if (!validationResult.isValid) {
+        return;
+      }
     }
 
     // Before creating/editing ATL: engine/propeller limits + Engine TSO/TSN + Propeller TSO/TSN on aircraft master
     const aid = aircraftId ?? selectedAircraftId ?? null;
-    if (aid != null) {
+    if (aid != null && !attachmentsOnlyLocked) {
       try {
         const res = await getAircraftById(aid);
         const aircraftCamel = toCamel(res.data) as Aircraft;
@@ -1539,19 +1673,26 @@ export function AddTechnicalLogbookEntryModal({
             if (username) {
               const accounts = await getAllAccounts();
               const account = accounts.find(
-                (a) => a.username?.toLowerCase() === String(username).toLowerCase()
+                (a) =>
+                  a.username?.toLowerCase() === String(username).toLowerCase()
               );
               if (account) createdByAccountId = account.id;
             }
           }
         } catch (err) {
-          console.warn("Could not resolve current user account_information_id:", err);
+          console.warn(
+            "Could not resolve current user account_information_id:",
+            err
+          );
         }
       }
 
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const aircraftFkValue = aircraftId ?? selectedAircraftId;
-      if (!editEntry && (aircraftFkValue == null || aircraftFkValue === undefined)) {
+      if (
+        !editEntry &&
+        (aircraftFkValue == null || aircraftFkValue === undefined)
+      ) {
         setIsSubmitting(false);
         Swal.fire({
           icon: "error",
@@ -1750,14 +1891,27 @@ export function AddTechnicalLogbookEntryModal({
       // Fleet Time Monitoring: on create only, default work_status FOR_REVIEW (API enum name); on update workStatus is already in apiDataCamel from form
       if (!editEntry) {
         apiDataCamel.workStatus = "FOR_REVIEW";
-        if (createdByAccountId != null) apiDataCamel.createdBy = createdByAccountId;
+        if (createdByAccountId != null)
+          apiDataCamel.createdBy = createdByAccountId;
+      }
+
+      // Operation / Technical Publication: new White ATL or DFP implies Pending if status left blank
+      if (
+        editEntry &&
+        attachmentsOnlyLocked &&
+        canUploadAtlAttachments &&
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File) &&
+        !(String(apiDataCamel.workStatus ?? "").trim())
+      ) {
+        apiDataCamel.workStatus = "PENDING";
       }
 
       // Convert camelCase to snake_case before sending to API
       const apiDataSnake = snakeAllKeys(apiDataCamel);
 
       const files =
-        formData.whiteAtl instanceof File || formData.dfp instanceof File
+        canUploadAtlAttachments &&
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File)
           ? {
               whiteAtl:
                 formData.whiteAtl instanceof File ? formData.whiteAtl : null,
@@ -1795,7 +1949,10 @@ export function AddTechnicalLogbookEntryModal({
       }
 
       // Create new entry — payload is snake_case for backend; work_status FOR_REVIEW and createdBy set above
-      const createdEntry = await createAircraftTechnicalLog(apiDataSnake, files);
+      const createdEntry = await createAircraftTechnicalLog(
+        apiDataSnake,
+        files
+      );
 
       // Show success message
       await Swal.fire({
@@ -2019,7 +2176,18 @@ export function AddTechnicalLogbookEntryModal({
     field: "pilotSignature" | "mechanicSignature" | "whiteAtl" | "dfp",
     file: File | null
   ) => {
-    setFormData((prev) => ({ ...prev, [field]: file }));
+    setFormData((prev) => {
+      const next: typeof prev = { ...prev, [field]: file };
+      if (
+        attachmentsOnlyLocked &&
+        editEntry &&
+        (field === "whiteAtl" || field === "dfp") &&
+        file instanceof File
+      ) {
+        next.workStatus = "PENDING";
+      }
+      return next;
+    });
     if (field === "whiteAtl") {
       setWhiteAtlFileName(file ? file.name : "");
     } else if (field === "dfp") {
@@ -2043,7 +2211,10 @@ export function AddTechnicalLogbookEntryModal({
     displayName?: string
   ) => {
     if (!filePath?.trim()) return;
-    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    let path = filePath
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${path}`;
     try {
       const response = await apiClient.get(endpoint, {
@@ -2064,7 +2235,10 @@ export function AddTechnicalLogbookEntryModal({
       Swal.fire({
         icon: "error",
         title: "Download Failed",
-        text: err?.response?.data?.detail || err?.message || "Failed to download file.",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to download file.",
       });
     }
   };
@@ -2086,14 +2260,20 @@ export function AddTechnicalLogbookEntryModal({
   };
 
   /** View file in modal (image popup; other types get download/open link) */
-  const handleViewAtlFile = async (folder: "white_atl" | "dfp", filePath: string) => {
+  const handleViewAtlFile = async (
+    folder: "white_atl" | "dfp",
+    filePath: string
+  ) => {
     if (!filePath?.trim()) return;
     setFileViewLoading(true);
     setFileViewError(null);
     setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
-    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    let path = filePath
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${path}`;
     try {
       const response = await apiClient.get(endpoint, {
@@ -2102,15 +2282,19 @@ export function AddTechnicalLogbookEntryModal({
       });
       const blob = response.data as Blob;
       const url = window.URL.createObjectURL(blob);
-      const serverType = blob.type || (response as any).headers?.["content-type"] || null;
-      const isOctetStream = !serverType || serverType === "application/octet-stream";
+      const serverType =
+        blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream =
+        !serverType || serverType === "application/octet-stream";
       const mimeType = isOctetStream ? getMimeFromFilename(path) : serverType;
       setFileViewBlobUrl(url);
       setFileViewMimeType(mimeType ?? null);
       setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
-      setFileViewError(err?.response?.data?.detail || err?.message || "Failed to open file.");
+      setFileViewError(
+        err?.response?.data?.detail || err?.message || "Failed to open file."
+      );
       setFileViewBlobUrl(null);
       setFileViewMimeType(null);
     } finally {
@@ -2237,6 +2421,9 @@ export function AddTechnicalLogbookEntryModal({
         {/* Form Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
+            <div
+              className={`space-y-6 ${attachmentsOnlyLocked ? "pointer-events-none select-none opacity-[0.92]" : ""}`}
+            >
             {/* Sequence No. | Work Status | A/C Registration (same order in View / Add / Edit) */}
             <div
               className={`grid gap-4 ${
@@ -2273,7 +2460,13 @@ export function AddTechnicalLogbookEntryModal({
                   </p>
                 )}
               </div>
-              <div>
+              <div
+                className={
+                  attachmentsOnlyLocked
+                    ? "pointer-events-auto relative z-[1]"
+                    : undefined
+                }
+              >
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Work Status
                 </label>
@@ -2287,13 +2480,11 @@ export function AddTechnicalLogbookEntryModal({
                     aria-label="Work status"
                   >
                     <option value="">— Select —</option>
-                    <option value="FOR_REVIEW">FOR REVIEW</option>
-                    <option value="REJECTED_MAINTENANCE">REJECTED_MAINTENANCE</option>
-                    <option value="APPROVED">APPROVED</option>
-                    <option value="AWAITING_ATTACHMENT">AWAITING_ATTACHMENT</option>
-                    <option value="REJECTED_QUALITY">REJECTED_QUALITY</option>
-                    <option value="PENDING">PENDING</option>
-                    <option value="COMPLETED">COMPLETED</option>
+                    {workStatusDropdownKeys.map((key) => (
+                      <option key={key} value={key}>
+                        {formatAtlWorkStatusLabel(key)}
+                      </option>
+                    ))}
                   </select>
                 ) : (
                   <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
@@ -3940,7 +4131,7 @@ export function AddTechnicalLogbookEntryModal({
                               ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                               : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                           }`}
-                          placeholder="Search maintenance engineer or mechanic..."
+                          placeholder="Search Mechanic or mechanic..."
                         />
                         <button
                           type="button"
@@ -4058,8 +4249,17 @@ export function AddTechnicalLogbookEntryModal({
                 </div>
               </div>
             </div>
+            </div>
+            {attachmentsOnlyLocked && (
+              <p className="text-sm text-gray-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                As Technical Publication, choose <strong>White ATL</strong> or{" "}
+                <strong>DFP</strong> below — work status defaults to{" "}
+                <strong>Pending</strong> (you can change it above). Then click Update
+                Entry.
+              </p>
+            )}
 
-            {/* White ATL / DFP */}
+            {/* White ATL / DFP — upload only for Admin / Technical Publication */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
                 <label className="block text-gray-700 mb-2">White ATL</label>
@@ -4071,22 +4271,32 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("whiteAtl", e.target.files?.[0] || null)
                     }
                     className="hidden"
+                    disabled={!canUploadAtlAttachments}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
-                    htmlFor="white-atl-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                    htmlFor={
+                      canUploadAtlAttachments ? "white-atl-file" : undefined
+                    }
+                    className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                      canUploadAtlAttachments
+                        ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                        : "cursor-not-allowed opacity-60 pointer-events-none"
+                    }`}
                   >
                     <span
                       className={
                         whiteAtlFileName ? "text-gray-900" : "text-gray-400"
                       }
                     >
-                      {whiteAtlFileName || "Choose file or N/A"}
+                      {whiteAtlFileName ||
+                        (canUploadAtlAttachments
+                          ? "Choose file or N/A"
+                          : "Upload not permitted for your role")}
                     </span>
                     <Upload className="w-4 h-4 text-gray-400" />
                   </label>
-                  {whiteAtlFileName && (
+                  {canUploadAtlAttachments && whiteAtlFileName && (
                     <button
                       type="button"
                       onClick={() => handleRemoveFile("whiteAtl")}
@@ -4137,22 +4347,30 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("dfp", e.target.files?.[0] || null)
                     }
                     className="hidden"
+                    disabled={!canUploadAtlAttachments}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
-                    htmlFor="dfp-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                    htmlFor={canUploadAtlAttachments ? "dfp-file" : undefined}
+                    className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                      canUploadAtlAttachments
+                        ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                        : "cursor-not-allowed opacity-60 pointer-events-none"
+                    }`}
                   >
                     <span
                       className={
                         dfpFileName ? "text-gray-900" : "text-gray-400"
                       }
                     >
-                      {dfpFileName || "Choose file or N/A"}
+                      {dfpFileName ||
+                        (canUploadAtlAttachments
+                          ? "Choose file or N/A"
+                          : "Upload not permitted for your role")}
                     </span>
                     <Upload className="w-4 h-4 text-gray-400" />
                   </label>
-                  {dfpFileName && (
+                  {canUploadAtlAttachments && dfpFileName && (
                     <button
                       type="button"
                       onClick={() => handleRemoveFile("dfp")}
@@ -4205,12 +4423,14 @@ export function AddTechnicalLogbookEntryModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {editEntry ? "Update Entry" : "Save Entry"}
-            </button>
+            {allowSubmit && (
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {editEntry ? "Update Entry" : "Save Entry"}
+              </button>
+            )}
           </div>
         </form>
       </div>
@@ -4230,7 +4450,9 @@ export function AddTechnicalLogbookEntryModal({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">View file</span>
+              <span className="text-sm font-medium text-gray-900">
+                View file
+              </span>
               <button
                 type="button"
                 onClick={closeFileViewModal}

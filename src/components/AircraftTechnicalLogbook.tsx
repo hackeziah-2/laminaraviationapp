@@ -26,22 +26,26 @@ import {
   deleteAircraftTechnicalLog,
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+import { isAtlEditAllowedForRoleAndWorkStatus } from "../utility/atlEditRbac";
 
 interface LogbookEntry {
   id: number;
-  // line: number;
   seqNo: string;
+  /** Flight / station date (used by view modal fallbacks) */
   date: string;
+  createdAt: string;
   acReg: string;
   route: string;
   origin: string;
   destination: string;
   fltTime: string;
   pilot: string;
-  // status: "Serviceable" | "Under Maintenance";
+  workStatus?: string;
 }
 
 export function AircraftTechnicalLogbook() {
+  const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
@@ -69,6 +73,16 @@ export function AircraftTechnicalLogbook() {
     const formatDate = (dateStr: string) => {
       if (!dateStr) return "";
       const date = new Date(dateStr);
+      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
+        .getDate()
+        .toString()
+        .padStart(2, "0")}/${date.getFullYear()}`;
+    };
+
+    const formatCreatedAtDateOnly = (dateStr: string | undefined) => {
+      if (!dateStr) return "—";
+      const date = new Date(dateStr);
+      if (Number.isNaN(date.getTime())) return "—";
       return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
         .getDate()
         .toString()
@@ -105,12 +119,14 @@ export function AircraftTechnicalLogbook() {
       id: apiEntry.id,
       seqNo: apiEntry.sequenceNo || "",
       date: formatDate(apiEntry.originDate || apiEntry.destinationDate || ""),
+      createdAt: formatCreatedAtDateOnly(apiEntry.createdAt),
       acReg: apiEntry.aircraft?.registration || "",
       route: route,
       origin: apiEntry?.originStation || "",
       destination: apiEntry?.destinationStation || "",
       fltTime: fltTime,
       pilot: pilotName,
+      workStatus: apiEntry.workStatus,
       // status: status,
     };
   };
@@ -258,8 +274,12 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
+  const allowAtlEditForEntry = (entry: LogbookEntry) =>
+    isAtlEditAllowedForRoleAndWorkStatus(user?.role, entry.workStatus);
+
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
+    if (!allowAtlEditForEntry(entry)) return;
     setSelectedEntry(entry);
     setIsEditModalOpen(true);
   };
@@ -361,13 +381,15 @@ export function AircraftTechnicalLogbook() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New Entry</span>
-          </button>
+          {canCreate("logbook") && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">New Entry</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -460,15 +482,12 @@ export function AircraftTechnicalLogbook() {
                       <b>A/C REG</b>
                       {getSortIndicator("aircraft_registration")}
                     </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      ORIGIN
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      DESTINATION
-                    </th>
-
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      FLT TIME
+                    <th
+                      className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleSort("work_status")}
+                    >
+                      <b>WORK STATUS</b>
+                      {getSortIndicator("work_status")}
                     </th>
                     <th
                       className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
@@ -478,7 +497,7 @@ export function AircraftTechnicalLogbook() {
                       {getSortIndicator("created_at")}
                     </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      ACTIONS
+                      ACTION
                     </th>
                   </tr>
                 </thead>
@@ -486,7 +505,7 @@ export function AircraftTechnicalLogbook() {
                   {error ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={5}
                         className="px-6 py-12 text-center text-red-600"
                       >
                         Error loading entries: {error}
@@ -505,16 +524,10 @@ export function AircraftTechnicalLogbook() {
                           {entry.acReg}
                         </td>
                         <td className="px-6 py-3.5 text-gray-900">
-                          {entry.origin}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {entry.destination}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {entry.fltTime}
+                          {entry.workStatus?.trim() || "—"}
                         </td>
                         <td className="px-6 py-3.5 text-gray-600">
-                          {entry.date}
+                          {entry.createdAt}
                         </td>
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-2">
@@ -525,20 +538,30 @@ export function AircraftTechnicalLogbook() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleEditEntry(entry)}
-                              className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteEntry(entry)}
-                              className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canUpdate("logbook") && (
+                              <button
+                                type="button"
+                                disabled={!allowAtlEditForEntry(entry)}
+                                onClick={() => handleEditEntry(entry)}
+                                className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
+                                title={
+                                  allowAtlEditForEntry(entry)
+                                    ? "Edit"
+                                    : "Editing is not allowed for your role at this work status."
+                                }
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete("logbook") && (
+                              <button
+                                onClick={() => handleDeleteEntry(entry)}
+                                className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -546,7 +569,7 @@ export function AircraftTechnicalLogbook() {
                   ) : (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={5}
                         className="px-6 py-12 text-center text-gray-500"
                       >
                         No entries found matching your search criteria
@@ -636,6 +659,7 @@ export function AircraftTechnicalLogbook() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleCreateSuccess}
+        permissionModuleCode="logbook"
       />
 
       {/* Edit Entry Modal – READ + UPDATE */}
@@ -649,6 +673,8 @@ export function AircraftTechnicalLogbook() {
           }}
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
+          permissionModuleCode="logbook"
+          viewerRole={user?.role}
         />
       )}
 

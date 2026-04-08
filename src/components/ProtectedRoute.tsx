@@ -1,6 +1,6 @@
-import { Navigate } from "react-router-dom";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { SpinnerIcon } from "./ui/spinner";
+import { ModuleAccessDenied } from "./ModuleAccessDenied";
 
 interface ProtectedRouteProps {
   /** Module code from constants/modulePermissions (e.g. dashboard, profile, settings). */
@@ -10,10 +10,11 @@ interface ProtectedRouteProps {
 
 /**
  * Renders children only if the current user's role has read access to the given module.
- * Otherwise redirects to /dashboard.
+ * When the backend returned explicit permissions and read is false for this module,
+ * shows an access message instead of the list/view (no data display).
  */
 export function ProtectedRoute({ moduleCode, children }: ProtectedRouteProps) {
-  const { canAccess, loading } = useUserPermissions();
+  const { canAccess, loading, permissions } = useUserPermissions();
 
   if (loading) {
     return (
@@ -23,8 +24,8 @@ export function ProtectedRoute({ moduleCode, children }: ProtectedRouteProps) {
     );
   }
 
-  if (!canAccess(moduleCode)) {
-    return <Navigate to="/dashboard" replace />;
+  if (permissions.length > 0 && !canAccess(moduleCode)) {
+    return <ModuleAccessDenied />;
   }
 
   return <>{children}</>;

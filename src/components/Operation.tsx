@@ -47,7 +47,16 @@ import {
   ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
   resolveAircraftEnginePropHour,
 } from "../utility/atlAircraftPrerequisites";
+import {
+  ATL_WORK_STATUS_KEYS,
+  isAtlEditAllowedForRoleAndWorkStatus,
+  isTechnicalPublicationRole,
+  normalizeAtlWorkStatus,
+  type AtlWorkStatusKey,
+} from "../utility/atlEditRbac";
 import { getAllAccounts, Account } from "../api/accountApi";
+import { getMe } from "../api/authApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 type GroupByOption =
   | "allColumns"
@@ -69,34 +78,8 @@ function formatFleetWorkStatus(status: string | undefined): string {
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
 
-const FLEET_WORK_STATUS_KEYS = [
-  "FOR_REVIEW",
-  "REJECTED_MAINTENANCE",
-  "APPROVED",
-  "AWAITING_ATTACHMENT",
-  "REJECTED_QUALITY",
-  "PENDING",
-  "COMPLETED",
-] as const;
-
-type FleetWorkStatusKey = (typeof FLEET_WORK_STATUS_KEYS)[number];
-
-/** Normalize API / display variants to a single enum key for styling */
-function normalizeFleetWorkStatusKey(
-  status: string | undefined
-): FleetWorkStatusKey | "" {
-  if (!status || status.trim() === "") return "";
-  const key = status
-    .trim()
-    .replace(/[-\s]+/g, "_")
-    .toUpperCase();
-  return (FLEET_WORK_STATUS_KEYS as readonly string[]).includes(key)
-    ? (key as FleetWorkStatusKey)
-    : "";
-}
-
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
-const FLEET_WORK_STATUS_STYLE: Record<FleetWorkStatusKey, CSSProperties> = {
+const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
   FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
   REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
   APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
@@ -110,7 +93,7 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
   className: string;
   style: CSSProperties | undefined;
 } {
-  const key = normalizeFleetWorkStatusKey(status);
+  const key = normalizeAtlWorkStatus(status);
   if (!key) {
     return {
       className: `${FLEET_WORK_STATUS_BASE_TD} bg-white text-gray-900`,
@@ -126,7 +109,39 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
+
+  /** Role name from GET /auth/me — aligns ATL edit RBAC with login session (same as Edit modal). */
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const operationAtlRole = useMemo(
+    () => sessionRoleName || user?.role?.trim() || undefined,
+    [sessionRoleName, user?.role]
+  );
+
+  const operationTechPubUploadOnly = isTechnicalPublicationRole(
+    operationAtlRole
+  );
+
+  const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
+    isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
 
   const handleBack = () => {
     navigate("/profile");
@@ -249,6 +264,8 @@ export function Operation() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [searchQuery, setSearchQuery] = useState("");
+  /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
+  const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
     AircraftTechnicalLog[]
   >([]);
@@ -426,7 +443,8 @@ export function Operation() {
           itemsPerPage,
           searchQuery,
           aircraftId,
-          sortParam
+          sortParam,
+          workStatusFilter || undefined
         );
         setFleetTimeRecords(response.items);
         setTotalRecords(response.total);
@@ -448,12 +466,13 @@ export function Operation() {
     searchQuery,
     refreshKey,
     sequenceSort,
+    workStatusFilter,
   ]);
 
-  // Reset to page 1 when search query changes
+  // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, workStatusFilter]);
 
   const paginatedRecords = fleetTimeRecords;
 
@@ -690,7 +709,8 @@ export function Operation() {
           itemsPerPage,
           searchQuery,
           aircraftId,
-          sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
+          sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+          workStatusFilter || undefined
         ),
       ]);
       setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
@@ -811,47 +831,53 @@ export function Operation() {
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              <input
-                type="file"
-                ref={importFileInputRef}
-                onChange={handleImportFileChange}
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                aria-label="Import ATL from Excel"
-              />
-              <button
-                type="button"
-                onClick={handleImportClick}
-                disabled={importLoading}
-                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Import Aircraft Technical Log from Excel"
-              >
-                <Upload
-                  className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
-                />
-                <span className="hidden sm:inline">
-                  {importLoading ? "Importing…" : "Import"}
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  const missing = getMissingAircraftFieldsForNewAtl(aircraft);
-                  if (missing.length > 0) {
-                    Swal.fire({
-                      icon: "warning",
-                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-                      html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
-                      confirmButtonColor: "#2563eb",
-                    });
-                    return;
-                  }
-                  setShowAddRecordModal(true);
-                }}
-                className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add Record</span>
-              </button>
+              {canCreate("logbook") && (
+                <>
+                  <input
+                    type="file"
+                    ref={importFileInputRef}
+                    onChange={handleImportFileChange}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    aria-label="Import ATL from Excel"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImportClick}
+                    disabled={importLoading}
+                    className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Import Aircraft Technical Log from Excel"
+                  >
+                    <Upload
+                      className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
+                    />
+                    <span className="hidden sm:inline">
+                      {importLoading ? "Importing…" : "Import"}
+                    </span>
+                  </button>
+                </>
+              )}
+              {canCreate("logbook") && (
+                <button
+                  onClick={() => {
+                    const missing = getMissingAircraftFieldsForNewAtl(aircraft);
+                    if (missing.length > 0) {
+                      Swal.fire({
+                        icon: "warning",
+                        title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                        html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
+                        confirmButtonColor: "#2563eb",
+                      });
+                      return;
+                    }
+                    setShowAddRecordModal(true);
+                  }}
+                  className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add Record</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -915,6 +941,27 @@ export function Operation() {
               </div>
               <div className="flex items-center gap-2">
                 <label
+                  htmlFor="fleet-work-status"
+                  className="text-gray-700 text-sm font-medium whitespace-nowrap"
+                >
+                  Work Status
+                </label>
+                <select
+                  id="fleet-work-status"
+                  value={workStatusFilter}
+                  onChange={(e) => setWorkStatusFilter(e.target.value)}
+                  className="px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 min-w-[200px]"
+                >
+                  <option value="">All</option>
+                  {ATL_WORK_STATUS_KEYS.map((key) => (
+                    <option key={key} value={key}>
+                      {formatFleetWorkStatus(key)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label
                   htmlFor="group-by"
                   className="text-gray-700 text-sm font-medium whitespace-nowrap"
                 >
@@ -958,11 +1005,17 @@ export function Operation() {
                         setLoading(true);
                         setError(null);
                         try {
+                          const sortParam =
+                            sequenceSort === "asc"
+                              ? "sequence_no"
+                              : "-sequence_no";
                           const response = await getAircraftTechnicalLogs(
                             currentPage,
                             itemsPerPage,
                             searchQuery,
-                            aircraftId
+                            aircraftId,
+                            sortParam,
+                            workStatusFilter || undefined
                           );
                           setFleetTimeRecords(response.items);
                           setTotalRecords(response.total);
@@ -1330,25 +1383,40 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowEditModal(true);
-                                        }}
-                                        className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                        title="Edit"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => handleDeleteAtl(record)}
-                                        className="text-red-600 hover:underline text-xs"
-                                        title="Delete"
-                                      >
-                                        Delete
-                                      </button>
+                                      {(canUpdate("logbook") ||
+                                        operationTechPubUploadOnly) && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            type="button"
+                                            disabled={!allowAtlEditForRecord(record)}
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDelete("logbook") && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            onClick={() => handleDeleteAtl(record)}
+                                            className="text-red-600 hover:underline text-xs"
+                                            title="Delete"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
@@ -1864,23 +1932,38 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {(canUpdate("logbook") || operationTechPubUploadOnly) && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          type="button"
+                                          disabled={!allowAtlEditForRecord(record)}
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDelete("logbook") && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() => handleDeleteAtl(record)}
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -2036,23 +2119,38 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowEditModal(true);
-                                        }}
-                                        className="hover:underline text-xs"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => handleDeleteAtl(record)}
-                                        className="text-red-600 hover:underline text-xs"
-                                      >
-                                        Delete
-                                      </button>
+                                      {(canUpdate("logbook") || operationTechPubUploadOnly) && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            type="button"
+                                            disabled={!allowAtlEditForRecord(record)}
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDelete("logbook") && (
+                                        <>
+                                          <span className="text-gray-400">|</span>
+                                          <button
+                                            onClick={() => handleDeleteAtl(record)}
+                                            className="text-red-600 hover:underline text-xs"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </td>
@@ -2230,23 +2328,38 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {(canUpdate("logbook") || operationTechPubUploadOnly) && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          type="button"
+                                          disabled={!allowAtlEditForRecord(record)}
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDelete("logbook") && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() => handleDeleteAtl(record)}
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -2432,6 +2545,7 @@ export function Operation() {
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={aircraftId}
+        permissionModuleCode="logbook"
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -2448,6 +2562,9 @@ export function Operation() {
           }}
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
+          permissionModuleCode="logbook"
+          viewerRole={operationAtlRole}
+          editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);

@@ -9,6 +9,7 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  History,
 } from "lucide-react";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { Spinner } from "./ui/spinner";
@@ -21,11 +22,14 @@ import {
   deleteOrganizationalApproval,
   getCertificateCategoryTypesList,
   createCertificateCategoryType,
+  getOrganizationalApprovalsHistoryPaged,
   type OrganizationalApproval,
+  type OrganizationalApprovalHistoryRow,
   type OrganizationalApprovalSortBy,
   type SortOrder,
   type CertificateTypeOption,
 } from "../api/organizationalApprovalApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /** Format expiry string (ISO or other) for display e.g. "16 Aug 30" */
 function formatExpiryDisplay(expiry: string | null | undefined): string {
@@ -48,8 +52,10 @@ function toApiDate(value: string | null | undefined): string {
 }
 
 const SEARCH_DEBOUNCE_MS = 400;
+const OA_HISTORY_PAGE_SIZE = 10;
 
 export function OrganizationalApprovals() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -81,6 +87,18 @@ export function OrganizationalApprovals() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [historyTarget, setHistoryTarget] = useState<{
+    oaHistoryId: number;
+    subtitle: string;
+  } | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRows, setHistoryRows] = useState<OrganizationalApprovalHistoryRow[]>(
+    []
+  );
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const certificateOptions = useMemo(() => {
     const byId = new Map<number, { id: number; name: string }>();
@@ -186,6 +204,77 @@ export function OrganizationalApprovals() {
     setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
     setCurrentPage(1);
   };
+
+  /** Path param for organizational-approvals-history/{oa_history}/paged */
+  const getOaHistoryId = (approval: OrganizationalApproval): number | null => {
+    if (approval.oaHistory != null && approval.oaHistory > 0)
+      return approval.oaHistory;
+    const raw = (approval as { oa_history?: unknown }).oa_history;
+    if (raw != null && !isNaN(Number(raw)) && Number(raw) > 0)
+      return Number(raw);
+    return approval.id > 0 ? approval.id : null;
+  };
+
+  const openHistoryModal = (approval: OrganizationalApproval) => {
+    const oaId = getOaHistoryId(approval);
+    if (!oaId) {
+      Swal.fire({
+        icon: "warning",
+        title: "Unavailable",
+        text: "History is not available for this record.",
+      });
+      return;
+    }
+    setHistoryTarget({
+      oaHistoryId: oaId,
+      subtitle:
+        approval.approvalTypeName ?? approval.certificate ?? `Approval #${approval.id}`,
+    });
+    setHistoryPage(1);
+  };
+
+  const closeHistoryModal = () => {
+    setHistoryTarget(null);
+    setHistoryRows([]);
+    setHistoryTotal(0);
+    setHistoryTotalPages(1);
+    setHistoryPage(1);
+  };
+
+  useEffect(() => {
+    if (!historyTarget) return;
+    let cancelled = false;
+    (async () => {
+      setHistoryLoading(true);
+      try {
+        const res = await getOrganizationalApprovalsHistoryPaged(
+          historyTarget.oaHistoryId,
+          historyPage,
+          OA_HISTORY_PAGE_SIZE
+        );
+        if (cancelled) return;
+        setHistoryRows(res.items);
+        setHistoryTotal(res.total);
+        setHistoryTotalPages(Math.max(1, res.pages));
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setHistoryRows([]);
+        setHistoryTotal(0);
+        setHistoryTotalPages(1);
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text:
+            error instanceof Error ? error.message : "Failed to load history.",
+        });
+      } finally {
+        if (!cancelled) setHistoryLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [historyTarget, historyPage]);
 
   const openAddModal = () => {
     setEditingApproval(null);
@@ -393,14 +482,16 @@ export function OrganizationalApprovals() {
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
 
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Approval</span>
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Approval</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -412,7 +503,7 @@ export function OrganizationalApprovals() {
         <span className="tracking-wide text-sm sm:text-base">
           ORGANIZATIONAL APPROVALS
         </span>
-        <span className="text-sm">DATE: 27 FEB 26</span>
+        <span className="text-sm"></span>
       </div>
 
       {/* Search and Filter */}
@@ -506,6 +597,9 @@ export function OrganizationalApprovals() {
                   FILE
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                  HISTORY
+                </th>
+                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   ACTIONS
                 </th>
               </tr>
@@ -513,78 +607,112 @@ export function OrganizationalApprovals() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12">
+                  <td colSpan={6} className="px-6 py-12">
                     <Spinner />
                   </td>
                 </tr>
               ) : paginatedApprovals.length > 0 ? (
                 paginatedApprovals.map((approval) => {
-                  const isWithhold = approval.isWithhold ?? (approval as { is_withhold?: boolean }).is_withhold ?? false;
-                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
-                  const cellClass = `px-6 py-3.5 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+                  const isWithhold =
+                    approval.isWithhold ??
+                    (approval as { is_withhold?: boolean }).is_withhold ??
+                    false;
+                  const rowBg = isWithhold
+                    ? "bg-red-100 hover:bg-red-200"
+                    : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 ${
+                    isWithhold ? "text-red-900" : "text-gray-900"
+                  }`;
                   return (
-                  <tr
-                    key={approval.id}
-                    className={`${rowBg} transition-colors`}
-                  >
-                    <td className={`${cellClass} font-medium`}>
-                      {approval.approvalTypeName ?? approval.certificate}
-                    </td>
-                    <td className={cellClass}>
-                      {approval.number || (
-                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {formatExpiryDisplay(
-                        approval.expiryDate ?? approval.expiry
-                      )}
-                    </td>
-                    <td className={cellClass}>
-                      {approval.fileLink && approval.fileLink !== "#" ? (
-                        <LinkButton href={approval.fileLink} />
-                      ) : (
-                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
-                      )}
-                    </td>
-                    <td className={`${cellClass} whitespace-nowrap`}>
-                      <div className="flex items-center gap-1">
+                    <tr
+                      key={approval.id}
+                      className={`${rowBg} transition-colors`}
+                    >
+                      <td className={`${cellClass} font-medium`}>
+                        {approval.approvalTypeName ?? approval.certificate}
+                      </td>
+                      <td className={cellClass}>
+                        {approval.number || (
+                          <span
+                            className={
+                              isWithhold ? "text-red-600" : "text-gray-400"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {formatExpiryDisplay(
+                          approval.expiryDate ?? approval.expiry
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {approval.fileLink && approval.fileLink !== "#" ? (
+                          <LinkButton href={approval.fileLink} />
+                        ) : (
+                          <span
+                            className={
+                              isWithhold ? "text-red-600" : "text-gray-400"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className={cellClass}>
                         <button
                           type="button"
-                          onClick={() => openViewModal(approval)}
-                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-                          title="View details"
-                          aria-label="View"
+                          onClick={() => openHistoryModal(approval)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors"
+                          title="View history"
                         >
-                          <Eye className="w-4 h-4" />
+                          <History className="w-3.5 h-3.5" />
+                          History
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => openViewEditModal(approval)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Edit"
-                          aria-label="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteApproval(approval.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Delete"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className={`${cellClass} whitespace-nowrap`}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openViewModal(approval)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                            title="View details"
+                            aria-label="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          {canUpdate("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => openViewEditModal(approval)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {canDelete("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteApproval(approval.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               ) : (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No approvals found matching your search criteria
@@ -681,6 +809,110 @@ export function OrganizationalApprovals() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approval history (paged) */}
+      {historyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+            onClick={closeHistoryModal}
+          />
+          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Approval history
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {historyTarget.subtitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeHistoryModal}
+                className="p-1 hover:bg-gray-100 rounded"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {historyLoading ? (
+                <div className="py-12 flex justify-center">
+                  <Spinner />
+                </div>
+              ) : (
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Date of expiration
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Web link
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wide">
+                          Created at
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {historyRows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={3}
+                            className="px-4 py-8 text-center text-gray-500"
+                          >
+                            No history entries
+                          </td>
+                        </tr>
+                      ) : (
+                        historyRows.map((row, idx) => (
+                          <tr
+                            key={`${row.createdAt ?? ""}-${idx}`}
+                            className="hover:bg-gray-50/80"
+                          >
+                            <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                              {formatExpiryDisplay(row.dateOfExpiration)}
+                            </td>
+                            <td className="px-4 py-3 text-gray-900">
+                              {row.webLink ? (
+                                <LinkButton
+                                  href={row.webLink}
+                                  className="text-sm"
+                                />
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                              {formatExpiryDisplay(row.createdAt)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="border-t border-gray-200 bg-white px-6 py-3">
+              <DataTablePagination
+                currentPage={historyPage}
+                totalPages={Math.max(1, historyTotalPages)}
+                onPageChange={setHistoryPage}
+                totalItems={historyTotal}
+                totalLabel="entries"
+                itemsPerPage={OA_HISTORY_PAGE_SIZE}
+                disabled={historyLoading}
+                showRangeText
+                maxVisiblePages={5}
+              />
             </div>
           </div>
         </div>
@@ -791,26 +1023,31 @@ export function OrganizationalApprovals() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSaveDocument}
-                disabled={
-                  saving ||
-                  !formData.certificateFk ||
-                  !formData.number?.trim() ||
-                  !formData.expiryDate?.trim()
-                }
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center justify-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Document"
-                )}
-              </button>
+              {((!editingApproval &&
+                canCreate("regulatory-compliance")) ||
+                (editingApproval &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleSaveDocument}
+                  disabled={
+                    saving ||
+                    !formData.certificateFk ||
+                    !formData.number?.trim() ||
+                    !formData.expiryDate?.trim()
+                  }
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center justify-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Document"
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

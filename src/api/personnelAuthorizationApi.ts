@@ -2,6 +2,8 @@ import apiClient from "./index";
 
 /** CRUD + paged list: /api/v1/personnel-compliance/ */
 const COMPLIANCE = "personnel-compliance";
+/** Matrix 2 (wide) list: /api/v1/personnel-compliance-matrix-2/paged */
+const COMPLIANCE_MATRIX_2 = "personnel-compliance-matrix-2";
 
 /** Filter values for personnel-compliance/paged `item_type` query param. */
 export const PERSONNEL_COMPLIANCE_ITEM_TYPES = [
@@ -49,6 +51,8 @@ export interface PersonnelAuthorizationRecord {
   authorizationScope: string;
   /** List view: separate expiry (expiry_date), distinct from auth expiry. */
   expiryDate: string;
+  /** When item_type is OTHERS: API `others_expiry_date`. */
+  othersExpiryDate: string;
 }
 
 /**
@@ -63,6 +67,7 @@ export interface PersonnelCompliancePayload {
   authorization_scope_others_id?: number | null;
   auth_issue_date?: string;
   expiry_date?: string;
+  others_expiry_date?: string;
 }
 
 export type PersonnelAuthorizationCreate = PersonnelCompliancePayload;
@@ -230,6 +235,7 @@ function normalizeItem(
       itemType: "",
       authorizationScope: "",
       expiryDate: "",
+      othersExpiryDate: "",
     };
   }
   const id = Number(raw.id ?? 0);
@@ -257,9 +263,36 @@ function normalizeItem(
   const scopeBaronId = getScopeId(raw, "authorization_scope_baron_id", "authorization_scope_baron");
   const scopeOthersId = getScopeId(raw, "authorization_scope_others_id", "authorization_scope_others");
 
-  const scopeCessnaName = getScopeName(raw, ["scopeCessna", "scope_cessna"], "authorization_scope_cessna");
-  const scopeBaronName = getScopeName(raw, ["scopeBaron", "scope_baron"], "authorization_scope_baron");
-  const scopeOthersName = getScopeName(raw, ["scopeOthers", "scope_others"], "authorization_scope_others");
+  const scopeCessnaName = getScopeName(
+    raw,
+    [
+      "scopeCessna",
+      "scope_cessna",
+      "authorizationScopeCessna",
+      "authorization_scope_cessna",
+    ],
+    "authorization_scope_cessna"
+  );
+  const scopeBaronName = getScopeName(
+    raw,
+    [
+      "scopeBaron",
+      "scope_baron",
+      "authorizationScopeBaron",
+      "authorization_scope_baron",
+    ],
+    "authorization_scope_baron"
+  );
+  const scopeOthersName = getScopeName(
+    raw,
+    [
+      "scopeOthers",
+      "scope_others",
+      "authorizationScopeOthers",
+      "authorization_scope_others",
+    ],
+    "authorization_scope_others"
+  );
   const combinedScope = [scopeCessnaName, scopeBaronName, scopeOthersName]
     .filter((s) => s.length > 0)
     .join(" · ");
@@ -279,6 +312,12 @@ function normalizeItem(
   );
 
   const expiryDateApi = getStr(raw, "expiryDate", "expiry_date", "EXPIRY_DATE");
+  let othersExpiryDate = getStr(
+    raw,
+    "othersExpiryDate",
+    "others_expiry_date",
+    "OTHERS_EXPIRY_DATE"
+  );
   let authExpiryDate = getStr(raw, "authExpiryDate", "auth_expiry_date");
   let caapLicExpiry = getStr(raw, "caapLicExpiry", "caap_license_expiry", "caap_lic_expiry");
   let hfTrainingExpiry = getStr(raw, "hfTrainingExpiry", "human_factors_training_expiry", "hf_training_expiry");
@@ -287,8 +326,8 @@ function normalizeItem(
 
   if (expiryDateApi) {
     const u = itemTypeStr.trim().toUpperCase().replace(/\s+/g, "_");
-    if (!authExpiryDate && (u === "AUTH_EXPIRY" || u === "OTHERS"))
-      authExpiryDate = expiryDateApi;
+    if (!authExpiryDate && u === "AUTH_EXPIRY") authExpiryDate = expiryDateApi;
+    if (!othersExpiryDate && u === "OTHERS") othersExpiryDate = expiryDateApi;
     if (!caapLicExpiry && u === "CAAP_LICENSE") caapLicExpiry = expiryDateApi;
     if (!hfTrainingExpiry && u === "HF_TRAINING") hfTrainingExpiry = expiryDateApi;
     if (!typeTrainingCessna && u === "CESSNA") typeTrainingCessna = expiryDateApi;
@@ -319,6 +358,7 @@ function normalizeItem(
     itemType: itemTypeStr,
     authorizationScope: authorizationScopeResolved,
     expiryDate: expiryDateApi,
+    othersExpiryDate,
   };
 }
 
@@ -343,6 +383,10 @@ export interface GetPersonnelAuthorizationsOptions {
   /** When set, sent as `item_type` on personnel-compliance/paged. */
   itemType?: PersonnelComplianceItemType | "";
   /**
+   * When set, sent as `name` on personnel-compliance/paged (person name search).
+   */
+  name?: string;
+  /**
    * Order by EXPIRY_DATE on personnel-compliance/paged:
    * - asc → `sort=expiry_date`
    * - desc → `sort=-expiry_date`
@@ -350,27 +394,35 @@ export interface GetPersonnelAuthorizationsOptions {
   sortExpiryDate?: "asc" | "desc";
 }
 
-/**
- * GET list for table. API: /api/v1/personnel-compliance/paged?page=&limit=&item_type=&sort=
- * Fetches all pages and merges (UI still paginates client-side).
- */
-export async function getPersonnelAuthorizations(
-  options?: GetPersonnelAuthorizationsOptions
+/** Matrix 2 list does not use `item_type` (wide row per person). */
+export type GetPersonnelMatrix2ListOptions = Omit<
+  GetPersonnelAuthorizationsOptions,
+  "itemType"
+>;
+
+function sortParamFromExpiryOrder(
+  sortExpiry?: "asc" | "desc"
+): string {
+  if (sortExpiry === "asc") return "expiry_date";
+  if (sortExpiry === "desc") return "-expiry_date";
+  return "";
+}
+
+async function fetchPersonnelCompliancePagedAll(
+  resourceBase: string,
+  options: {
+    itemTypeFilter?: string;
+    nameFilter?: string;
+    sortParam?: string;
+  },
+  logLabel: string
 ): Promise<PersonnelAuthorizationRecord[]> {
   const limit = 100;
   const maxPages = 500;
   const all: PersonnelAuthorizationRecord[] = [];
-  const itemTypeFilter =
-    options?.itemType && String(options.itemType).trim() !== ""
-      ? String(options.itemType).trim()
-      : "";
-  const sortExpiry = options?.sortExpiryDate;
-  const sortParam =
-    sortExpiry === "asc"
-      ? "expiry_date"
-      : sortExpiry === "desc"
-        ? "-expiry_date"
-        : "";
+  const itemTypeFilter = options.itemTypeFilter?.trim() ?? "";
+  const nameFilter = options.nameFilter?.trim() ?? "";
+  const sortParam = options.sortParam ?? "";
 
   try {
     let page = 1;
@@ -380,8 +432,9 @@ export async function getPersonnelAuthorizations(
       params.set("page", String(page));
       params.set("limit", String(limit));
       if (itemTypeFilter) params.set("item_type", itemTypeFilter);
+      if (nameFilter) params.set("name", nameFilter);
       if (sortParam) params.set("sort", sortParam);
-      const path = `${COMPLIANCE}/paged?${params.toString()}`;
+      const path = `${resourceBase}/paged?${params.toString()}`;
       const res = await apiClient.get(path, {
         headers: { Accept: "application/json" },
       });
@@ -403,9 +456,56 @@ export async function getPersonnelAuthorizations(
 
     return all;
   } catch (err) {
-    console.error("personnel-compliance/paged list failed:", err);
+    console.error(`${logLabel} list failed:`, err);
     return [];
   }
+}
+
+/**
+ * GET Matrix 1 list (long / per item_type rows). API: /api/v1/personnel-compliance/paged?page=&limit=&item_type=&name=&sort=
+ * Fetches all pages and merges (UI still paginates client-side).
+ */
+export async function getPersonnelAuthorizations(
+  options?: GetPersonnelAuthorizationsOptions
+): Promise<PersonnelAuthorizationRecord[]> {
+  const nameFilter =
+    options?.name != null && String(options.name).trim() !== ""
+      ? String(options.name).trim()
+      : "";
+  const itemTypeFilter =
+    options?.itemType != null && String(options.itemType).trim() !== ""
+      ? String(options.itemType).trim()
+      : "";
+  return fetchPersonnelCompliancePagedAll(
+    COMPLIANCE,
+    {
+      itemTypeFilter: itemTypeFilter || undefined,
+      nameFilter,
+      sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
+    },
+    "personnel-compliance/paged"
+  );
+}
+
+/**
+ * GET Matrix 2 (wide) list. API: /api/v1/personnel-compliance-matrix-2/paged?page=&limit=&name=&sort=
+ * Fetches all pages and merges (UI still paginates client-side).
+ */
+export async function getPersonnelAuthorizationsMatrix2(
+  options?: GetPersonnelMatrix2ListOptions
+): Promise<PersonnelAuthorizationRecord[]> {
+  const nameFilter =
+    options?.name != null && String(options.name).trim() !== ""
+      ? String(options.name).trim()
+      : "";
+  return fetchPersonnelCompliancePagedAll(
+    COMPLIANCE_MATRIX_2,
+    {
+      nameFilter,
+      sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
+    },
+    "personnel-compliance-matrix-2/paged"
+  );
 }
 
 /**
@@ -452,6 +552,8 @@ function buildPersonnelComplianceBody(
   if (issue) body.auth_issue_date = issue;
   const exp = payload.expiry_date?.trim();
   if (exp) body.expiry_date = exp;
+  const othersExp = payload.others_expiry_date?.trim();
+  if (othersExp) body.others_expiry_date = othersExp;
   return body;
 }
 

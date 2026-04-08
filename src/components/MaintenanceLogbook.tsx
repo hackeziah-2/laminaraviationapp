@@ -61,6 +61,7 @@ import {
 import { Spinner } from "./ui/spinner";
 import { snakeAllKeys } from "../utility/utils";
 import apiClient from "../api/index";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface LogEntry {
   id: number;
@@ -155,6 +156,7 @@ function getMechanicDisplay(
 export function MaintenanceLogbook() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
   const handleBack = () => {
@@ -1325,13 +1327,15 @@ export function MaintenanceLogbook() {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <button
-            onClick={() => setShowAddEntryModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            Add Entry
-          </button>
+          {canCreate("logbook") && (
+            <button
+              onClick={() => setShowAddEntryModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              Add Entry
+            </button>
+          )}
         </div>
       </div>
 
@@ -1445,26 +1449,30 @@ export function MaintenanceLogbook() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEdit(entry.id);
-                              }}
-                              className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(entry.id);
-                              }}
-                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canUpdate("logbook") && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEdit(entry.id);
+                                }}
+                                className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete("logbook") && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(entry.id);
+                                }}
+                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -3454,14 +3462,17 @@ export function MaintenanceLogbook() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSaveEntry}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving && <Loader className="w-4 h-4 animate-spin" />}
-                {editingEntry ? "Update Entry" : "Save Entry"}
-              </button>
+              {((!editingEntry && canCreate("logbook")) ||
+                (editingEntry && canUpdate("logbook"))) && (
+                <button
+                  onClick={handleSaveEntry}
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSaving && <Loader className="w-4 h-4 animate-spin" />}
+                  {editingEntry ? "Update Entry" : "Save Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>

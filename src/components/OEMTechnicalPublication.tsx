@@ -3,7 +3,6 @@ import {
   Search,
   Plus,
   Download,
-  Filter,
   X,
   Eye,
   Pencil,
@@ -26,6 +25,7 @@ import {
   type SortOrder,
   getOemApiErrorMessage,
 } from "../api/oemTechnicalPublicationApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -63,9 +63,9 @@ function toApiDate(value: string | null | undefined): string {
 }
 
 export function OEMTechnicalPublication() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [sortBy, setSortBy] =
@@ -300,39 +300,9 @@ export function OEMTechnicalPublication() {
     setCurrentPage(1);
   };
 
-  const displayType = (p: OemTechnicalPublication) =>
-    p.categoryType ?? p.type ?? "";
-
-  const filteredForDisplay = publications.filter((pub) => {
-    const type = displayType(pub);
-    const matchesFilter =
-      filterType === "all" || type?.toLowerCase() === filterType.toLowerCase();
-    return matchesFilter;
-  });
-
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedPublications = filteredForDisplay;
 
   const handleSearchChange = (value: string) => setSearchTerm(value);
-  const handleFilterChange = (value: string) => {
-    setFilterType(value);
-    setCurrentPage(1);
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "CERTIFICATE":
-        return "bg-violet-500/10 text-violet-700 border border-violet-200";
-      case "SUBSCRIPTION":
-        return "bg-blue-500/10 text-blue-700 border border-blue-200";
-      case "REGULATORY_CORRESPONDENCE_NON_CERT":
-        return "bg-amber-500/10 text-amber-700 border border-amber-200";
-      case "LICENSE":
-        return "bg-emerald-500/10 text-emerald-700 border border-emerald-200";
-      default:
-        return "bg-gray-500/10 text-gray-700 border border-gray-200";
-    }
-  };
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
@@ -350,13 +320,15 @@ export function OEMTechnicalPublication() {
             <Download className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Export</span>
           </button>
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Publication</span>
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Publication</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -367,7 +339,7 @@ export function OEMTechnicalPublication() {
         <span className="tracking-wide text-sm sm:text-base">
           OEM TECHNICAL PUBLICATION
         </span>
-        <span className="text-sm">DATE: 27 FEB 26</span>
+        <span className="text-sm"></span>
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -379,29 +351,11 @@ export function OEMTechnicalPublication() {
             </label>
             <input
               type="text"
-              placeholder="Search by item, type, or expiry..."
+              placeholder="Search by item or expiry..."
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
             />
-          </div>
-          <div className="w-full md:w-56">
-            <label className="block text-gray-700 mb-2 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-500" />
-              Filter by Type
-            </label>
-            <select
-              value={filterType}
-              onChange={(e) => handleFilterChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-            >
-              <option value="all">All Types</option>
-              {CATEGORY_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
       </div>
@@ -437,9 +391,6 @@ export function OEMTechnicalPublication() {
                   </button>
                 </th>
                 <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                  TYPE
-                </th>
-                <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                   <button
                     type="button"
                     onClick={() => handleSortChange("date_of_expiration")}
@@ -470,83 +421,90 @@ export function OEMTechnicalPublication() {
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
+                  <td colSpan={4} className="px-6 py-12 text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
                     <p className="text-gray-500 mt-2 text-sm">
                       Loading publications...
                     </p>
                   </td>
                 </tr>
-              ) : paginatedPublications.length > 0 ? (
-                paginatedPublications.map((pub) => {
-                  const isWithhold = pub.isWithhold ?? (pub as { is_withhold?: boolean }).is_withhold ?? false;
-                  const rowBg = isWithhold ? "bg-red-100 hover:bg-red-200" : "hover:bg-gray-50";
-                  const cellClass = `px-6 py-3.5 ${isWithhold ? "text-red-900" : "text-gray-900"}`;
+              ) : publications.length > 0 ? (
+                publications.map((pub) => {
+                  const isWithhold =
+                    pub.isWithhold ??
+                    (pub as { is_withhold?: boolean }).is_withhold ??
+                    false;
+                  const rowBg = isWithhold
+                    ? "bg-red-100 hover:bg-red-200"
+                    : "hover:bg-gray-50";
+                  const cellClass = `px-6 py-3.5 ${
+                    isWithhold ? "text-red-900" : "text-gray-900"
+                  }`;
                   return (
-                  <tr
-                    key={pub.id}
-                    className={`${rowBg} transition-colors`}
-                  >
-                    <td className={`${cellClass} font-medium`}>
-                      {pub.itemName || pub.itemFk}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <span
-                        className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getTypeColor(
-                          pub.categoryType ?? pub.type
-                        )} ${isWithhold ? "bg-red-200 text-red-900" : ""}`}
-                      >
-                        {getCategoryTypeLabel(pub.categoryType ?? pub.type)}
-                      </span>
-                    </td>
-                    <td className={cellClass}>
-                      {formatExpiryDisplay(pub.dateOfExpiration ?? pub.expiry)}
-                    </td>
-                    <td className={cellClass}>
-                      {pub.linkToManual && pub.linkToManual !== "#" ? (
-                        <LinkButton href={pub.linkToManual} />
-                      ) : (
-                        <span className={isWithhold ? "text-red-600" : "text-gray-400"}>—</span>
-                      )}
-                    </td>
-                    <td className={`${cellClass} whitespace-nowrap`}>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openViewModal(pub)}
-                          className="p-2 text-gray-600 hover:bg-gray-100 rounded"
-                          title="View Publication"
-                          aria-label="View"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openViewEditModal(pub)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Edit"
-                          aria-label="Edit"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePublication(pub.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Delete"
-                          aria-label="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    <tr key={pub.id} className={`${rowBg} transition-colors`}>
+                      <td className={`${cellClass} font-medium`}>
+                        {pub.itemName || pub.itemFk}
+                      </td>
+                      <td className={cellClass}>
+                        {formatExpiryDisplay(
+                          pub.dateOfExpiration ?? pub.expiry
+                        )}
+                      </td>
+                      <td className={cellClass}>
+                        {pub.linkToManual && pub.linkToManual !== "#" ? (
+                          <LinkButton href={pub.linkToManual} />
+                        ) : (
+                          <span
+                            className={
+                              isWithhold ? "text-red-600" : "text-gray-400"
+                            }
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className={`${cellClass} whitespace-nowrap`}>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openViewModal(pub)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                            title="View Publication"
+                            aria-label="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          {canUpdate("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => openViewEditModal(pub)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit"
+                              aria-label="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {canDelete("regulatory-compliance") && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePublication(pub.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete"
+                              aria-label="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })
               ) : (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={4}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No publications found matching your search criteria
@@ -779,23 +737,28 @@ export function OEMTechnicalPublication() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSaveDocument}
-                disabled={
-                  saving || !addForm.itemFk || !addForm.expiryDate?.trim()
-                }
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
-              >
-                {saving ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Document"
-                )}
-              </button>
+              {((!editingPublication &&
+                canCreate("regulatory-compliance")) ||
+                (editingPublication &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleSaveDocument}
+                  disabled={
+                    saving || !addForm.itemFk || !addForm.expiryDate?.trim()
+                  }
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Document"
+                  )}
+                </button>
+              )}
             </div>
           </div>
 

@@ -132,7 +132,14 @@ export function Sidebar({
   onMobileMenuClose,
 }: SidebarProps) {
   const location = useLocation();
-  const { canAccess } = useUserPermissions();
+  const { canAccess, user: meUser, loading: meLoading } = useUserPermissions();
+
+  const headerDisplayName =
+    meUser?.name?.trim() ||
+    meUser?.email?.trim() ||
+    (meLoading ? "…" : "User");
+  const headerRole =
+    meUser?.role?.trim() || (meLoading ? "…" : "—");
   const [regulatoryExpanded, setRegulatoryExpanded] = useState(false);
   const regulatoryCloseTimeoutRef = useRef<ReturnType<
     typeof setTimeout
@@ -183,9 +190,19 @@ export function Sidebar({
             <Plane className="w-5 h-5 text-white" />
           </div>
           {!isCollapsed && (
-            <div className="flex-1">
-              <h1 className="text-gray-900">Laminar</h1>
-              <p className="text-xs text-gray-500">Aviation</p>
+            <div className="flex-1 min-w-0">
+              <h1
+                className="text-gray-900 text-base font-semibold leading-tight truncate"
+                title={headerDisplayName}
+              >
+                {headerDisplayName}
+              </h1>
+              <p
+                className="text-xs text-gray-500 mt-0.5 truncate"
+                title={headerRole}
+              >
+                {headerRole}
+              </p>
             </div>
           )}
           {/* Mobile Close Button */}

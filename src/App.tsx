@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
@@ -6,14 +6,15 @@ import {
   Navigate,
   useParams,
   useLocation,
+  useNavigate,
 } from 'react-router-dom';
+import { getMe, getPostLoginPath } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { AircraftFleetProfile } from './components/AircraftFleetProfile';
 import { AircraftFleetDailyUpdate } from './components/AircraftFleetDailyUpdate';
 import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook';
-import { AircraftDocumentOnBoard } from './components/AircraftDocumentOnBoard';
 import { AircraftStatutoryCertificates } from './components/AircraftStatutoryCertificates';
 import { RegulatoryAdvisory } from './components/RegulatoryAdvisory';
 import { OrganizationalApprovals } from './components/OrganizationalApprovals';
@@ -31,10 +32,35 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Bell, Copy, Menu } from 'lucide-react';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
 import { NotificationsPanel } from './components/NotificationsPanel';
+import { SpinnerIcon } from './components/ui/spinner';
 
 function RedirectToMaintenanceLdnd() {
   const { id } = useParams<{ id: string }>();
   return <Navigate to={`/profile/${id ?? ""}/maintenance-ldnd`} replace />;
+}
+
+/** Authenticated user opened /login — send them to the same default as post-sign-in. */
+function PostLoginRedirect() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await getMe();
+        if (!cancelled) navigate(getPostLoginPath(me.role), { replace: true });
+      } catch {
+        if (!cancelled) navigate("/dashboard", { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <SpinnerIcon size="lg" />
+    </div>
+  );
 }
 
 function AppContent() {
@@ -49,7 +75,7 @@ function AppContent() {
   }
 
   if (isLoginPage && isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <PostLoginRedirect />;
   }
 
   if (isLoginPage) {
@@ -200,7 +226,6 @@ function AuthenticatedShell({
           <Route path="/profile/:id/maintenance-cpcp" element={<ProtectedRoute moduleCode="maintenance"><Maintenance /></ProtectedRoute>} />
           <Route path="/profile/:id/operation" element={<ProtectedRoute moduleCode="operation"><Operation /></ProtectedRoute>} />
           <Route path="/profile/:id/operation/reliability/:recordId" element={<ProtectedRoute moduleCode="operation"><ReliabilityMonitoring /></ProtectedRoute>} />
-          <Route path="/profile/:aircraft_id/document_on_board" element={<ProtectedRoute moduleCode="profile"><AircraftDocumentOnBoard /></ProtectedRoute>} />
           <Route path="/daily-update" element={<ProtectedRoute moduleCode="daily-update"><AircraftFleetDailyUpdate /></ProtectedRoute>} />
           <Route path="/technical-logbook" element={<ProtectedRoute moduleCode="logbook"><AircraftTechnicalLogbook /></ProtectedRoute>} />
           <Route path="/regulatory-compliance" element={<Navigate to="/regulatory-compliance/advisory" replace />} />

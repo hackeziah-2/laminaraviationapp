@@ -3,6 +3,7 @@ import { toCamel } from "../utility/utils";
 
 /** Path under apiClient baseURL (api/v1/). Full endpoint: /api/v1/organizational-approvals/ */
 const BASE = "organizational-approvals";
+const HISTORY_BASE = "organizational-approvals-history";
 
 /** Single organizational approval. API returns certificate_fk, date_of_expiration, nested certificate { id, name }. */
 export interface OrganizationalApproval {
@@ -23,6 +24,8 @@ export interface OrganizationalApproval {
   createdAt?: string | null;
   updatedAt?: string | null;
   isWithhold?: boolean;
+  /** Parent id for GET organizational-approvals-history/{oa_history}/paged when distinct from id */
+  oaHistory?: number;
 }
 
 /** Create payload: api/v1/organizational-approvals/ */
@@ -82,6 +85,7 @@ function normalizeItem(
       expiry: "",
       fileLink: "#",
       isWithhold: false,
+      oaHistory: undefined,
     };
   }
   const c = toCamel(raw as Record<string, any>) as Record<string, unknown>;
@@ -134,7 +138,101 @@ function normalizeItem(
         ? String(c.updatedAt ?? raw.updated_at)
         : null,
     isWithhold: Boolean((c as any).isWithhold ?? (raw as any).is_withhold ?? false),
+    oaHistory: (() => {
+      const v = (c as any).oaHistory ?? (raw as any).oa_history;
+      if (v == null || v === "") return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
   };
+}
+
+export interface OrganizationalApprovalHistoryRow {
+  dateOfExpiration: string | null;
+  webLink: string | null;
+  createdAt: string | null;
+}
+
+export interface OrganizationalApprovalHistoryPagedResponse {
+  items: OrganizationalApprovalHistoryRow[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+function normalizeHistoryRow(
+  raw: Record<string, unknown>
+): OrganizationalApprovalHistoryRow {
+  const c = toCamel(raw as Record<string, any>) as Record<string, unknown>;
+  const dateRaw =
+    (raw as any).date_of_expiration ??
+    c.dateOfExpiration ??
+    (raw as any).expiry_date;
+  const linkRaw = (raw as any).web_link ?? c.webLink;
+  const createdRaw = (raw as any).created_at ?? c.createdAt;
+  return {
+    dateOfExpiration:
+      dateRaw != null && String(dateRaw).trim()
+        ? String(dateRaw)
+        : null,
+    webLink:
+      linkRaw != null && String(linkRaw).trim()
+        ? String(linkRaw)
+        : null,
+    createdAt:
+      createdRaw != null && String(createdRaw).trim()
+        ? String(createdRaw)
+        : null,
+  };
+}
+
+/**
+ * GET api/v1/organizational-approvals-history/{oa_history}/paged
+ */
+export async function getOrganizationalApprovalsHistoryPaged(
+  oaHistory: number,
+  page = 1,
+  limit = 10
+): Promise<OrganizationalApprovalHistoryPagedResponse> {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  try {
+    const response = await apiClient.get(
+      `${HISTORY_BASE}/${oaHistory}/paged?${params.toString()}`,
+      { headers: { Accept: "application/json" } }
+    );
+    const data = response.data?.data ?? response.data ?? {};
+    const dataObj =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : {};
+    const rawList =
+      dataObj.results ??
+      dataObj.items ??
+      dataObj.data ??
+      (Array.isArray(data) ? data : []);
+    const list = Array.isArray(rawList) ? rawList.filter(Boolean) : [];
+    const items = list.map((item: unknown) =>
+      normalizeHistoryRow(item as Record<string, unknown>)
+    );
+    const total = Number(dataObj.count ?? dataObj.total ?? items.length);
+    const pages = Number(
+      dataObj.pages ?? Math.max(1, Math.ceil(total / (limit || 1)))
+    );
+    return {
+      items,
+      total,
+      page: Number(dataObj.page ?? page),
+      pages,
+    };
+  } catch (err: unknown) {
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String((err as Error).message)
+        : "Failed to load approval history.";
+    throw new Error(message);
+  }
 }
 
 /**

@@ -31,6 +31,7 @@ import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 import { cn } from "./ui/utils";
 import Swal from "sweetalert2";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 function toDateInputValue(s: string | null | undefined): string {
   if (s == null || String(s).trim() === "") return "";
@@ -54,6 +55,7 @@ function formatDateDisplay(s: string | null | undefined): string {
 export function ADWorkOrders() {
   const params = useParams<{ id: string; ad_monitoring_id: string }>();
   const navigate = useNavigate();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraft_fk = parseInt(params.id ?? "0", 10);
   const ad_monitoring_fk = parseInt(params.ad_monitoring_id ?? "0", 10);
   const hasValidParams = aircraft_fk > 0 && ad_monitoring_fk > 0;
@@ -339,17 +341,19 @@ export function ADWorkOrders() {
             Back to List
           </button>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                resetForm();
-                setShowAddModal(true);
-              }}
-              disabled={!hasValidParams}
-              className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus className="w-4 h-4" />
-              Add Work Order
-            </button>
+            {canCreate("maintenance") && (
+              <button
+                onClick={() => {
+                  resetForm();
+                  setShowAddModal(true);
+                }}
+                disabled={!hasValidParams}
+                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                Add Work Order
+              </button>
+            )}
             <button className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
               <Printer className="w-4 h-4" />
               Print
@@ -482,22 +486,26 @@ export function ADWorkOrders() {
                               <Loader className="w-5 h-5 text-gray-400 animate-spin" />
                             ) : (
                               <>
-                                <button
-                                  type="button"
-                                  onClick={() => openEdit(wo)}
-                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                  title="Edit"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDelete(wo)}
-                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {canUpdate("maintenance") && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEdit(wo)}
+                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {canDelete("maintenance") && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDelete(wo)}
+                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -849,22 +857,25 @@ export function ADWorkOrders() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleCreateOrUpdate}
-                disabled={saving}
-                className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm disabled:opacity-50 flex items-center gap-2 min-w-[140px]"
-              >
-                {saving ? (
-                  <>
-                    <Loader className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : editingWorkOrder ? (
-                  "Update Entry"
-                ) : (
-                  "Add Work Order"
-                )}
-              </button>
+              {((!editingWorkOrder && canCreate("maintenance")) ||
+                (editingWorkOrder && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleCreateOrUpdate}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 text-sm disabled:opacity-50 flex items-center gap-2 min-w-[140px]"
+                >
+                  {saving ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : editingWorkOrder ? (
+                    "Update Entry"
+                  ) : (
+                    "Add Work Order"
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

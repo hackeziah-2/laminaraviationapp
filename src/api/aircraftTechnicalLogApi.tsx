@@ -265,7 +265,8 @@ export const getAircraftTechnicalLogs = async (
   limit = 10,
   search = "",
   aircraftFk?: number,
-  sort = ""
+  sort = "",
+  workStatus?: string
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
@@ -282,6 +283,10 @@ export const getAircraftTechnicalLogs = async (
 
     if (sort) {
       params.append("sort", sort);
+    }
+
+    if (workStatus != null && workStatus.trim() !== "") {
+      params.append("work_status", workStatus.trim());
     }
 
     const response = await apiClient.get(

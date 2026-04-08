@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { useUserPermissions } from '../hooks/useUserPermissions';
 
 const defaultFormData = {
   inspectionType: '',
@@ -23,6 +24,7 @@ interface AddInspectionModalProps {
 }
 
 export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: AddInspectionModalProps) {
+  const { canUpdate, canCreate } = useUserPermissions();
   const [formData, setFormData] = useState(() => ({
     ...defaultFormData,
     ...(initialData && typeof initialData === 'object' ? initialData : {}),
@@ -236,12 +238,15 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 text-sm bg-gray-900 text-white hover:bg-gray-800 rounded-lg transition-colors"
-            >
-              {isEdit ? "Update Entry" : "Add Inspection"}
-            </button>
+            {((isEdit && canUpdate('maintenance')) ||
+              (!isEdit && canCreate('maintenance'))) && (
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm bg-gray-900 text-white hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                {isEdit ? "Update Entry" : "Add Inspection"}
+              </button>
+            )}
           </div>
         </form>
       </div>

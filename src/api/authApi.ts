@@ -25,6 +25,9 @@ export interface AuthUserCreate {
   role_id: number;
   status: boolean;
   password: string;
+  /** Optional; sent when present (bulk JSON / extended register) */
+  auth_initial_doi?: string;
+  auth_stamp?: string;
 }
 
 export interface AuthUserUpdate {
@@ -32,6 +35,26 @@ export interface AuthUserUpdate {
   email?: string;
   role?: string;
   status?: "active" | "inactive";
+}
+
+/** Role label from /me — backends vary: `role`, `role_name`, nested `role.name`, etc. */
+function pickRoleString(raw: Record<string, unknown>): string {
+  const asTrimmed = (v: unknown): string | undefined => {
+    if (typeof v !== "string") return undefined;
+    const t = v.trim();
+    return t || undefined;
+  };
+  const nestedName =
+    raw.role && typeof raw.role === "object" && raw.role !== null
+      ? asTrimmed((raw.role as Record<string, unknown>).name)
+      : undefined;
+  return (
+    asTrimmed(raw.role) ??
+    asTrimmed(raw.role_name) ??
+    asTrimmed(raw.roleName) ??
+    nestedName ??
+    "Viewer"
+  );
 }
 
 function normalizeUser(raw: Record<string, unknown>): AuthUser {
@@ -47,7 +70,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     id: isNaN(id) ? 0 : id,
     name: getStr("name") || getStr("full_name") || composedName || getStr("username", ""),
     email: getStr("email"),
-    role: getStr("role", "Viewer"),
+    role: pickRoleString(raw),
     roleId: isNaN(roleId) ? undefined : roleId,
     status: (getStr("status", "active").toLowerCase() === "inactive" ? "inactive" : "active") as "active" | "inactive",
     lastLogin: getStr("last_login") || getStr("lastLogin", "Never"),
@@ -145,16 +168,32 @@ export const token = async (username?: string, password?: string): Promise<unkno
   return response.data;
 };
 
-/** Current user: GET /api/v1/auth/me (or similar) */
+/** Default route after sign-in: mechanics and technical publication on fleet profile, others on dashboard. */
+export function getPostLoginPath(role: string | undefined | null): string {
+  const r = role?.trim();
+  if (r === "Mechanic" || r === "Technical Publication") return "/profile";
+  return "/dashboard";
+}
+
+/**
+ * Current user: GET /api/v1/auth/me
+ * Request URL: `{VITE_API_URL}auth/me` (default `http://localhost:8000/api/v1/` + `auth/me`).
+ */
 export const getMe = async (): Promise<AuthUser> => {
-  const response = await apiClient.get("auth/me");
-  const raw = response.data ?? {};
+  const response = await apiClient.get("auth/me", {
+    headers: { Accept: "application/json" },
+  });
+  const data = response.data as Record<string, unknown> | undefined;
+  const raw =
+    (data?.user && typeof data.user === "object"
+      ? (data.user as Record<string, unknown>)
+      : data) ?? {};
   return normalizeUser(raw);
 };
 
-/** Register: POST /api/v1/auth/register */
+/** Register: POST /api/v1/auth/register/ (trailing slash matches auth/login/ and Django-style routes) */
 export const registerUser = async (payload: AuthUserCreate): Promise<AuthUser> => {
-  const body = {
+  const body: Record<string, string | number | boolean | undefined> = {
     first_name: payload.first_name,
     last_name: payload.last_name,
     middle_name: payload.middle_name,
@@ -166,9 +205,17 @@ export const registerUser = async (payload: AuthUserCreate): Promise<AuthUser> =
     status: payload.status,
     password: payload.password,
   };
-  const response = await apiClient.post("auth/register", body);
+  const doi = payload.auth_initial_doi?.trim();
+  if (doi) body.auth_initial_doi = doi;
+  const stamp = payload.auth_stamp?.trim();
+  if (stamp) body.auth_stamp = stamp;
+  const response = await apiClient.post("auth/register/", body, {
+    headers: { "Content-Type": "application/json" },
+  });
   const raw = response.data?.user ?? response.data ?? {};
-  return normalizeUser(raw);
+  return normalizeUser(
+    typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {}
+  );
 };
 
 /** Update user: PUT /api/v1/auth/users/:id/ or PATCH */
