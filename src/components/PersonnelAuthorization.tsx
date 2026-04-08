@@ -1032,7 +1032,8 @@ export function PersonnelAuthorization() {
                   </td>
                 </tr>
               ) : personnel.length > 0 ? (
-                personnelPage.map((person) => {
+                personnelPage.map((person, rowIndex) => {
+                  const rowKey = `${(currentPage - 1) * itemsPerPage + rowIndex}-${person.id}-${person.itemType || ""}-${person.expiryDate || ""}-${person.authorizationNo || ""}`;
                   const isWithhold =
                     person.isWithhold ??
                     (person as { is_withhold?: boolean }).is_withhold ??
@@ -1052,7 +1053,7 @@ export function PersonnelAuthorization() {
                   if (listGroupBy === "matrix1") {
                     return (
                       <tr
-                        key={person.id}
+                        key={rowKey}
                         className={`group ${rowBg} transition-colors`}
                       >
                         <td
@@ -1166,7 +1167,7 @@ export function PersonnelAuthorization() {
                   }
                   return (
                     <tr
-                      key={person.id}
+                      key={rowKey}
                       className={`group ${rowBg} transition-colors`}
                     >
                       <td

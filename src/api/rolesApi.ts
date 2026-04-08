@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from "axios";
 import apiClient from "./index";
 
 export interface Role {
@@ -39,23 +40,32 @@ function normalizeRole(raw: Record<string, unknown>): Role {
   };
 }
 
-/** List roles: GET /api/v1/roles/ (fallback: GET roles/roles-list if roles/ returns 404) */
+/** List roles: try GET roles/roles-list and roles/paged first (many backends use POST-only on roles/). */
 export const getRoles = async (): Promise<Role[]> => {
   const toList = (raw: unknown) => {
     const data = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.results ?? (raw as Record<string, unknown>)?.items ?? (raw as Record<string, unknown>)?.data ?? [];
     return (Array.isArray(data) ? data : []).map((item: Record<string, unknown>) => normalizeRole(item));
   };
-  try {
-    const response = await apiClient.get("roles/");
-    return toList(response.data ?? {});
-  } catch (e) {
-    const status = (e as { response?: { status?: number } })?.response?.status;
-    if (status === 404 || status === 405) {
-      const response = await apiClient.get("roles/roles-list");
+  const silent = {
+    skipGlobalErrorLog: true,
+  } as AxiosRequestConfig & { skipGlobalErrorLog?: boolean };
+  const paths = [
+    "roles/roles-list",
+    "roles/paged/?page=1&limit=500",
+    "roles/",
+  ] as const;
+  let lastError: unknown;
+  for (const path of paths) {
+    try {
+      const response = await apiClient.get(path, silent);
       return toList(response.data ?? {});
+    } catch (e) {
+      lastError = e;
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status !== 404 && status !== 405) throw e;
     }
-    throw e;
   }
+  throw lastError ?? new Error("Failed to load roles");
 };
 
 /** Get role with permissions: GET /api/v1/roles/{role_id}/ */
