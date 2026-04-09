@@ -197,3 +197,104 @@ export function computeTotalBlockTime(
   const mins = diff % 60;
   return `${hrs}:${mins.toString().padStart(2, "0")}`;
 }
+
+/** Normalize API or form date strings to UTC calendar YYYY-MM-DD. */
+function normalizeUtcDateInput(d: string | undefined): string {
+  const t = (d || "").trim();
+  if (!t) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const head = t.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+  const ms = Date.parse(t);
+  if (Number.isNaN(ms)) return "";
+  const dt = new Date(ms);
+  const y = dt.getUTCFullYear();
+  const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+/** UTC epoch ms at start of that calendar day + Zulu time (time-of-day only). */
+function utcInstantFromYmdAndZulu(
+  dateYmd: string,
+  zuluTime: string
+): number | null {
+  const mins = parseZuluTimeToMinutes(zuluTime);
+  if (mins === -1) return null;
+  const [y, mo, day] = dateYmd.split("-").map((x) => parseInt(x, 10));
+  if (
+    Number.isNaN(y) ||
+    Number.isNaN(mo) ||
+    Number.isNaN(day) ||
+    mo < 1 ||
+    mo > 12
+  ) {
+    return null;
+  }
+  return Date.UTC(y, mo - 1, day, Math.floor(mins / 60), mins % 60, 0, 0);
+}
+
+/**
+ * Total block/flight time from origin and destination UTC dates + Zulu times.
+ * Uses full calendar span when both dates are present; otherwise falls back to
+ * time-of-day difference with +24h wrap (same as {@link computeTotalBlockTime}).
+ */
+export function computeTotalBlockTimeFromUtc(
+  originDate: string | undefined,
+  originTime: string | undefined,
+  destinationDate: string | undefined,
+  destinationTime: string | undefined
+): string {
+  const ot = (originTime || "").trim();
+  const dt = (destinationTime || "").trim();
+  if (!ot || !dt) return "0";
+
+  const od = normalizeUtcDateInput(originDate);
+  const dd = normalizeUtcDateInput(destinationDate);
+  if (!od || !dd) {
+    return computeTotalBlockTime(ot, dt);
+  }
+
+  const originMs = utcInstantFromYmdAndZulu(od, ot);
+  const destMs = utcInstantFromYmdAndZulu(dd, dt);
+  if (originMs === null || destMs === null) {
+    return computeTotalBlockTime(ot, dt);
+  }
+
+  let diffMin = Math.round((destMs - originMs) / 60000);
+  if (diffMin < 0) {
+    if (od === dd) {
+      diffMin += 1440;
+    } else {
+      return "0";
+    }
+  }
+
+  const hrs = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  return `${hrs}:${mins.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Decimal flight hours from UTC dates + Zulu times (see {@link computeTotalBlockTimeFromUtc}).
+ */
+export function computeTotalFlightHoursDecimalFromUtc(
+  originDate?: string,
+  originTime?: string,
+  destinationDate?: string,
+  destinationTime?: string
+): number {
+  const block = computeTotalBlockTimeFromUtc(
+    originDate,
+    originTime,
+    destinationDate,
+    destinationTime
+  );
+  if (block === "0") return 0;
+  const parts = block.split(":");
+  if (parts.length !== 2) return 0;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return 0;
+  return Math.round((h + m / 60) * 100) / 100;
+}

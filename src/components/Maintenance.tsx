@@ -563,7 +563,10 @@ export function Maintenance() {
   };
 
   /** AD file download — same pattern as Fleet Time Monitoring (Operation): folder/download/filename */
-  const handleADDownloadFile = async (filePath: string, displayName?: string) => {
+  const handleADDownloadFile = async (
+    filePath: string,
+    displayName?: string
+  ) => {
     if (!filePath?.trim()) {
       await Swal.fire({
         icon: "error",
@@ -574,7 +577,10 @@ export function Maintenance() {
     }
     try {
       const downloadFileName =
-        displayName || extractADFilename(filePath) || filePath.split("/").pop() || "download";
+        displayName ||
+        extractADFilename(filePath) ||
+        filePath.split("/").pop() ||
+        "download";
       const responseBlob = await downloadAdMonitoringFile(aircraftId, filePath);
       const blob = new Blob([responseBlob]);
       const url = window.URL.createObjectURL(blob);
@@ -1420,6 +1426,13 @@ export function Maintenance() {
                                   <Pencil className="w-4 h-4" />
                                 </button>
                               )}
+
+                              <button
+                                onClick={() => handleViewADWorkOrders(item.id)}
+                                className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
                               {canDelete("maintenance") && (
                                 <button
                                   type="button"
@@ -1430,13 +1443,6 @@ export function Maintenance() {
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               )}
-                              <button
-                                onClick={() => handleViewADWorkOrders(item.id)}
-                                className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm"
-                              >
-                                <Eye className="w-4 h-4" />
-                                View
-                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1740,10 +1746,7 @@ export function Maintenance() {
                   <button
                     type="button"
                     onClick={() => {
-                      handleADDownloadFile(
-                        adViewFilePath,
-                        adViewFileName
-                      );
+                      handleADDownloadFile(adViewFilePath, adViewFileName);
                     }}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 text-gray-700"
                   >
@@ -1903,7 +1906,9 @@ export function Maintenance() {
                   }}
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                 />
-                {editingADEntry && getADFilePath(editingADEntry) && !adUploadFile ? (
+                {editingADEntry &&
+                getADFilePath(editingADEntry) &&
+                !adUploadFile ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
                       <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />

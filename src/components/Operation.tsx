@@ -29,6 +29,7 @@ import {
   deleteAircraftTechnicalLog,
   importAircraftTechnicalLogExcel,
   AircraftTechnicalLog,
+  type AtlListViewComputedComponentTimes,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
@@ -38,8 +39,8 @@ import { Aircraft } from "../types/Aircraft";
 import {
   toCamelDeep,
   formatTimeZulu,
-  computeTotalBlockTime,
-  computeTotalFlightHoursDecimal,
+  computeTotalBlockTimeFromUtc,
+  computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
@@ -136,9 +137,8 @@ export function Operation() {
     [sessionRoleName, user?.role]
   );
 
-  const operationTechPubUploadOnly = isTechnicalPublicationRole(
-    operationAtlRole
-  );
+  const operationTechPubUploadOnly =
+    isTechnicalPublicationRole(operationAtlRole);
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
@@ -261,6 +261,9 @@ export function Operation() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedEntry, setSelectedEntry] =
     useState<AircraftTechnicalLog | null>(null);
+  /** Row’s list-computed component times (TSN/TSO, etc.) passed into Edit so the form matches the grid. */
+  const [editListComputedTimes, setEditListComputedTimes] =
+    useState<AtlListViewComputedComponentTimes | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [searchQuery, setSearchQuery] = useState("");
@@ -849,7 +852,9 @@ export function Operation() {
                     title="Import Aircraft Technical Log from Excel"
                   >
                     <Upload
-                      className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
+                      className={`w-4 h-4 ${
+                        importLoading ? "animate-pulse" : ""
+                      }`}
                     />
                     <span className="hidden sm:inline">
                       {importLoading ? "Importing…" : "Import"}
@@ -1386,12 +1391,21 @@ export function Operation() {
                                       {(canUpdate("logbook") ||
                                         operationTechPubUploadOnly) && (
                                         <>
-                                          <span className="text-gray-400">|</span>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
                                           <button
                                             type="button"
-                                            disabled={!allowAtlEditForRecord(record)}
+                                            disabled={
+                                              !allowAtlEditForRecord(record)
+                                            }
                                             onClick={() => {
                                               setSelectedEntry(record);
+                                              setEditListComputedTimes(
+                                                computedEnginePropellerList[
+                                                  rowIndex
+                                                ] ?? null
+                                              );
                                               setShowEditModal(true);
                                             }}
                                             className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
@@ -1407,9 +1421,13 @@ export function Operation() {
                                       )}
                                       {canDelete("logbook") && (
                                         <>
-                                          <span className="text-gray-400">|</span>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
                                           <button
-                                            onClick={() => handleDeleteAtl(record)}
+                                            onClick={() =>
+                                              handleDeleteAtl(record)
+                                            }
                                             className="text-red-600 hover:underline text-xs"
                                             title="Delete"
                                           >
@@ -1471,8 +1489,10 @@ export function Operation() {
                                   {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {computeTotalBlockTime(
+                                  {computeTotalBlockTimeFromUtc(
+                                    record.originDate,
                                     record.originTime,
+                                    record.destinationDate,
                                     record.destinationTime
                                   )}
                                 </td>
@@ -1915,7 +1935,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, rowIndex) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
@@ -1932,14 +1952,22 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {(canUpdate("logbook") || operationTechPubUploadOnly) && (
+                                    {(canUpdate("logbook") ||
+                                      operationTechPubUploadOnly) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
                                           type="button"
-                                          disabled={!allowAtlEditForRecord(record)}
+                                          disabled={
+                                            !allowAtlEditForRecord(record)
+                                          }
                                           onClick={() => {
                                             setSelectedEntry(record);
+                                            setEditListComputedTimes(
+                                              computedEnginePropellerList[
+                                                rowIndex
+                                              ] ?? null
+                                            );
                                             setShowEditModal(true);
                                           }}
                                           className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
@@ -1957,7 +1985,9 @@ export function Operation() {
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
-                                          onClick={() => handleDeleteAtl(record)}
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
                                           className="text-red-600 hover:underline text-xs"
                                         >
                                           Delete
@@ -2003,8 +2033,10 @@ export function Operation() {
                                   : ""}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTime(
+                                {computeTotalBlockTimeFromUtc(
+                                  record.originDate,
                                   record.originTime,
+                                  record.destinationDate,
                                   record.destinationTime
                                 )}
                               </td>
@@ -2119,14 +2151,22 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {(canUpdate("logbook") || operationTechPubUploadOnly) && (
+                                      {(canUpdate("logbook") ||
+                                        operationTechPubUploadOnly) && (
                                         <>
-                                          <span className="text-gray-400">|</span>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
                                           <button
                                             type="button"
-                                            disabled={!allowAtlEditForRecord(record)}
+                                            disabled={
+                                              !allowAtlEditForRecord(record)
+                                            }
                                             onClick={() => {
                                               setSelectedEntry(record);
+                                              setEditListComputedTimes(
+                                                comp ?? null
+                                              );
                                               setShowEditModal(true);
                                             }}
                                             className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
@@ -2142,9 +2182,13 @@ export function Operation() {
                                       )}
                                       {canDelete("logbook") && (
                                         <>
-                                          <span className="text-gray-400">|</span>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
                                           <button
-                                            onClick={() => handleDeleteAtl(record)}
+                                            onClick={() =>
+                                              handleDeleteAtl(record)
+                                            }
                                             className="text-red-600 hover:underline text-xs"
                                           >
                                             Delete
@@ -2328,14 +2372,22 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {(canUpdate("logbook") || operationTechPubUploadOnly) && (
+                                    {(canUpdate("logbook") ||
+                                      operationTechPubUploadOnly) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
                                           type="button"
-                                          disabled={!allowAtlEditForRecord(record)}
+                                          disabled={
+                                            !allowAtlEditForRecord(record)
+                                          }
                                           onClick={() => {
                                             setSelectedEntry(record);
+                                            setEditListComputedTimes(
+                                              computedEnginePropellerList[
+                                                rowIndex
+                                              ] ?? null
+                                            );
                                             setShowEditModal(true);
                                           }}
                                           className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
@@ -2353,7 +2405,9 @@ export function Operation() {
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
-                                          onClick={() => handleDeleteAtl(record)}
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
                                           className="text-red-600 hover:underline text-xs"
                                         >
                                           Delete
@@ -2377,8 +2431,10 @@ export function Operation() {
                                 )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTime(
+                                {computeTotalBlockTimeFromUtc(
+                                  record.originDate,
                                   record.originTime,
+                                  record.destinationDate,
                                   record.destinationTime
                                 )}
                               </td>
@@ -2559,15 +2615,18 @@ export function Operation() {
           onClose={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
+            setEditListComputedTimes(null);
           }}
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
           permissionModuleCode="logbook"
           viewerRole={operationAtlRole}
           editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
+          listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
+            setEditListComputedTimes(null);
             refreshPage();
           }}
         />
@@ -2591,8 +2650,10 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: `${computeTotalFlightHoursDecimal(
+            fltTime: `${computeTotalFlightHoursDecimalFromUtc(
+              selectedEntry.originDate,
               selectedEntry.originTime,
+              selectedEntry.destinationDate,
               selectedEntry.destinationTime
             ).toFixed(2)}h`,
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",

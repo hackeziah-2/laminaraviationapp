@@ -1,5 +1,5 @@
 import apiClient from "./index";
-import { toCamel } from "../utility/utils";
+import { toCamel, toCamelDeep } from "../utility/utils";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -115,6 +115,20 @@ export interface AircraftTechnicalLog {
   createdBy?: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** Per-row component times as shown on Operation ATL list (client-computed when API omits cumulative fields). */
+export interface AtlListViewComputedComponentTimes {
+  airframeRunTime: number | null;
+  airframeAftt: number | null;
+  engineRunTime: number | null;
+  engineTsn: number | null;
+  engineTso: number | null;
+  engineTbo: number | null;
+  propellerRunTime: number | null;
+  propellerTsn: number | null;
+  propellerTso: number | null;
+  propellerTbo: number | null;
 }
 
 export interface AircraftTechnicalLogCreate {
@@ -332,25 +346,9 @@ export const getAircraftTechnicalLogById = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const response = await apiClient.get(`aircraft-technical-log/${logId}`);
+    const raw = response.data?.data ?? response.data;
 
-    // Transform the response to camelCase (recursively handle nested objects and arrays)
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          result[camel] = transformToCamel(obj[key]);
-        }
-        console.log(result);
-        return result;
-      }
-      return obj;
-    };
-
-    return transformToCamel(response.data);
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
