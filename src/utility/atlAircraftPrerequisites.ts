@@ -73,8 +73,7 @@ export function getMissingAircraftFieldsForNewAtl(
 ): string[] {
   const a = (aircraft ?? {}) as Record<string, unknown>;
   const missing: string[] = [];
-  const engineLimit =
-    aircraft?.engineLifeTimeLimit ?? a.life_time_limit_engine;
+  const engineLimit = aircraft?.engineLifeTimeLimit ?? a.life_time_limit_engine;
   const propellerLimit =
     aircraft?.propellerLifeTimeLimit ?? a.life_time_limit_propeller;
   if (isMissingLifeLimitForAtl(engineLimit)) {
@@ -110,8 +109,7 @@ export function buildAircraftDetailsRequiredForAtlHtml(
   aircraft: Aircraft | null | undefined
 ): string {
   const a = (aircraft ?? {}) as Record<string, unknown>;
-  const engineLimit =
-    aircraft?.engineLifeTimeLimit ?? a.life_time_limit_engine;
+  const engineLimit = aircraft?.engineLifeTimeLimit ?? a.life_time_limit_engine;
   const propellerLimit =
     aircraft?.propellerLifeTimeLimit ?? a.life_time_limit_propeller;
   const engineTso = resolveAircraftEnginePropHour(aircraft, "engineTso");
@@ -130,8 +128,8 @@ export function buildAircraftDetailsRequiredForAtlHtml(
   const list = rows.map(([label, val]) => `${label}: ${val}`).join("<br/>");
 
   return (
-    '<p style="margin:0 0 0.75em 0"><strong>Engine and Propeller Details Must Be Completed</strong></p>' +
-    '<p style="margin:0 0 1em 0">ATL entry cannot be created until all required values are provided. Life time limits cannot be 0 or empty. <strong>Engine TSO</strong> and <strong>Propeller TSO</strong> must each be a non-zero value (not 0.00). Engine TSN and Propeller TSN are optional.</p>' +
+    '<p style="margin:0 0 0.75em 0"><strong>Complete Engine & Propeller Details</strong></p>' +
+    '<p style="margin:0 0 1em 0">ATL entry requires valid Lifetime Limits, <strong>Engine TSO</strong>, and <strong>Propeller TSO</strong> (must be greater than 0). <strong>Engine TSN</strong> and <strong>Propeller TSN</strong> are optional.</p>' +
     '<div style="text-align:left;line-height:1.65">' +
     list +
     "</div>"
