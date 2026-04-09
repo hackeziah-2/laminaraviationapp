@@ -40,6 +40,7 @@ import {
   type ADMonitoring,
 } from "../api/adMonitoringApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
@@ -1214,33 +1215,17 @@ export function Maintenance() {
               )}
             </div>
 
-            {/* Pagination */}
+            {/* Pagination Controls */}
             {ldndTotal > 0 && !ldndLoading && (
-              <div className="px-5 py-3 border-t border-gray-200 flex items-center justify-center gap-2">
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={currentPage === 1 || ldndLoading}
-                  className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {currentPage} of {totalPages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) =>
-                      Math.min(totalPages || 1, prev + 1)
-                    )
-                  }
-                  disabled={currentPage >= (totalPages || 1) || ldndLoading}
-                  className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages || 1}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                showRangeText={false}
+                disabled={ldndLoading}
+              />
             )}
           </>
         )}
@@ -1455,31 +1440,15 @@ export function Maintenance() {
 
             {/* Pagination Controls */}
             {adTotal > 0 && !adLoading && (
-              <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
-                <button
-                  onClick={() =>
-                    setAdCurrentPage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={adCurrentPage === 1 || adLoading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {adCurrentPage} of {adTotalPages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setAdCurrentPage((prev) =>
-                      Math.min(adTotalPages || 1, prev + 1)
-                    )
-                  }
-                  disabled={adCurrentPage >= (adTotalPages || 1) || adLoading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
+              <DataTablePagination
+                currentPage={adCurrentPage}
+                totalPages={adTotalPages || 1}
+                onPageChange={setAdCurrentPage}
+                itemsPerPage={adItemsPerPage}
+                onItemsPerPageChange={setAdItemsPerPage}
+                showRangeText={false}
+                disabled={adLoading}
+              />
             )}
           </>
         )}
