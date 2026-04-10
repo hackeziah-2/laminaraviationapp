@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { getMe } from "../api/authApi";
-import { getAircraftTechnicalLogById, AircraftTechnicalLog } from "../api/aircraftTechnicalLogApi";
+import {
+  getAircraftTechnicalLogById,
+  AircraftTechnicalLog,
+  type AtlListViewComputedComponentTimes,
+} from "../api/aircraftTechnicalLogApi";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
 import { isAtlEditAllowedForRoleAndWorkStatus } from "../utility/atlEditRbac";
@@ -17,6 +21,8 @@ interface EditTechnicalLogbookEntryModalProps {
   viewerRole?: string;
   /** Operation: Technical Publication may only change White ATL / DFP uploads in this modal. */
   editRestrictedToWhiteAtlDfpOnly?: boolean;
+  /** Operation: per-row list computed component times when API omits cumulative values. */
+  listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
 }
 
 /**
@@ -33,6 +39,7 @@ export function EditTechnicalLogbookEntryModal({
   permissionModuleCode,
   viewerRole,
   editRestrictedToWhiteAtlDfpOnly = false,
+  listViewComputedTimes = null,
 }: EditTechnicalLogbookEntryModalProps) {
   const { user: permUser } = useUserPermissions();
   const [meRole, setMeRole] = useState<string | undefined>(undefined);
@@ -166,6 +173,7 @@ export function EditTechnicalLogbookEntryModal({
         permissionModuleCode={permissionModuleCode}
         viewerRole={effectiveViewerRole}
         editRestrictedToWhiteAtlDfpOnly={editRestrictedToWhiteAtlDfpOnly}
+        listViewComputedTimes={listViewComputedTimes}
       />
     );
   }

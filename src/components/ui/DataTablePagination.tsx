@@ -83,7 +83,7 @@ export function DataTablePagination({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-t border-gray-200 bg-gray-50",
+        "flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-t border-gray-200 bg-white",
         className
       )}
     >
@@ -111,8 +111,8 @@ export function DataTablePagination({
           </div>
         )}
         {showRangeText && totalItems >= 0 && (
-          <div className="text-sm text-gray-700">
-            Showing {startItem} to {endItem} of {totalItems} {totalLabel}
+          <div className="text-sm font-medium text-[#6C757D]">
+            Showing {startItem}-{endItem} of {totalItems} {totalLabel}
           </div>
         )}
       </div>
@@ -124,9 +124,9 @@ export function DataTablePagination({
             onClick={() => onPageChange(Math.max(1, currentPage - 1))}
             disabled={!canPrev}
             aria-label="Previous page"
-            className="px-3 py-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-500"
+            className="px-3 py-1.5 text-sm font-medium text-[#6C757D] hover:text-gray-900 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#6C757D]"
           >
-            <ChevronLeft className="w-4 h-4" />
+            Previous
           </button>
           {pageNumbers.map((page) => (
             <button
@@ -165,10 +165,9 @@ export function DataTablePagination({
             onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
             disabled={!canNext}
             aria-label="Next page"
-            className="px-3 py-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-500 flex items-center gap-1"
+            className="px-3 py-1.5 text-sm font-medium text-[#6C757D] hover:text-gray-900 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#6C757D]"
           >
-            <span className="text-sm">Next</span>
-            <ChevronRight className="w-4 h-4" />
+            Next
           </button>
         </div>
       )}

@@ -19,6 +19,7 @@ import {
   type TCCMonitoring,
 } from "../api/tccMonitoringApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 

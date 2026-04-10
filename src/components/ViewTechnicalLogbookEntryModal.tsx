@@ -7,7 +7,7 @@ import {
 import { Spinner } from "./ui/spinner";
 import {
   formatTimeZuluMilitary,
-  computeTotalBlockTime,
+  computeTotalBlockTimeFromUtc,
 } from "../utility/utils";
 
 interface LogbookEntry {
@@ -188,8 +188,10 @@ export function ViewTechnicalLogbookEntryModal({
           ? formatTimeZulu(entryData.destinationTime)
           : "N/A",
         onBlocksStation: displayValue(entryData.destinationStation),
-        totalFlightTime: computeTotalBlockTime(
+        totalFlightTime: computeTotalBlockTimeFromUtc(
+          entryData.originDate,
           entryData.originTime,
+          entryData.destinationDate,
           entryData.destinationTime
         ),
         numberOfLandings: displayValue(entryData.numberOfLandings),

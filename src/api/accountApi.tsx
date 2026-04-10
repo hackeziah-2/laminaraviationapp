@@ -36,11 +36,15 @@ export interface AccountListResponse {
 
 function normalizeAccount(raw: Record<string, unknown>): Account {
   const getStr = (k: string, fallback = "") =>
-    String(raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback);
+    String(
+      raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback
+    );
   const firstName = getStr("first_name");
   const middleName = getStr("middle_name");
   const lastName = getStr("last_name");
-  const composed = `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, " ").trim();
+  const composed = `${firstName} ${middleName} ${lastName}`
+    .replace(/\s+/g, " ")
+    .trim();
   const id = Number(raw.id ?? 0);
   return {
     id: isNaN(id) ? 0 : id,
@@ -65,23 +69,31 @@ export const getAccountsByDesignation = async (
   search: string = ""
 ): Promise<Account[]> => {
   const params = new URLSearchParams();
-  designations.forEach((d) => params.append("designation", d));
+  designations.forEach((d) => params.append("role", d));
   if (search.trim()) params.append("search", search.trim());
   const response = await apiClient.get(
     `${BASE}/account-informations-list?${params.toString()}`
   );
-  const data = Array.isArray(response.data) ? response.data : response.data?.results ?? response.data?.items ?? [];
+  const data = Array.isArray(response.data)
+    ? response.data
+    : response.data?.results ?? response.data?.items ?? [];
   return (Array.isArray(data) ? data : [])
-    .filter((item: Record<string, unknown>) => item && (item.id ?? item.account_id))
+    .filter(
+      (item: Record<string, unknown>) => item && (item.id ?? item.account_id)
+    )
     .map((item: Record<string, unknown>) => normalizeAccount(item));
 };
 
 /** Get all accounts (list for dropdowns) */
 export const getAllAccounts = async (): Promise<Account[]> => {
   const response = await apiClient.get(`${BASE}/account-informations-list`);
-  const data = Array.isArray(response.data) ? response.data : response.data?.results ?? response.data?.items ?? [];
+  const data = Array.isArray(response.data)
+    ? response.data
+    : response.data?.results ?? response.data?.items ?? [];
   return (Array.isArray(data) ? data : [])
-    .filter((item: Record<string, unknown>) => item && (item.id ?? item.account_id))
+    .filter(
+      (item: Record<string, unknown>) => item && (item.id ?? item.account_id)
+    )
     .map((item: Record<string, unknown>) => normalizeAccount(item));
 };
 
@@ -106,10 +118,17 @@ export const getAccountsPaged = async (
   const raw = response.data ?? {};
   const data = raw.results ?? raw.items ?? raw.data ?? [];
   const list = Array.isArray(data) ? data : [];
-  const items = list.map((item: Record<string, unknown>) => normalizeAccount(item));
+  const items = list.map((item: Record<string, unknown>) =>
+    normalizeAccount(item)
+  );
   const total = raw.total ?? raw.count ?? items.length;
   const pages = raw.pages ?? Math.max(1, Math.ceil(Number(total) / limit));
-  return { items, total: Number(total), page: raw.page ?? page, pages: Number(pages) };
+  return {
+    items,
+    total: Number(total),
+    page: raw.page ?? page,
+    pages: Number(pages),
+  };
 };
 
 /** Get: GET /api/v1/account-information/{account_id} */
@@ -125,8 +144,7 @@ export const getAccountInformationById = async (
 ): Promise<{ auth_initial_doi?: string }> => {
   const response = await apiClient.get(`${BASE}/${accountId}`);
   const raw = (response.data ?? {}) as Record<string, unknown>;
-  const doi =
-    raw.auth_initial_doi ?? raw.authInitialDoi ?? raw.authInitialDOI;
+  const doi = raw.auth_initial_doi ?? raw.authInitialDoi ?? raw.authInitialDOI;
   return {
     auth_initial_doi:
       typeof doi === "string" ? doi.trim() || undefined : undefined,
@@ -192,7 +210,8 @@ export const updateAccount = async (
   if (payload.designation != null) body.designation = payload.designation;
   if (payload.roleId != null) body.role_id = payload.roleId;
   if (payload.status != null) body.status = payload.status;
-  if (payload.auth_initial_doi != null) body.auth_initial_doi = payload.auth_initial_doi.trim();
+  if (payload.auth_initial_doi != null)
+    body.auth_initial_doi = payload.auth_initial_doi.trim();
   const response = await apiClient.put(`${BASE}/${accountId}`, body);
   const raw = response.data ?? {};
   return normalizeAccount({ ...raw, id: accountId });
@@ -246,34 +265,55 @@ export const getAuthStampListFromAccountInformation = async (
   params.set("limit", String(Math.max(AUTH_STAMP_REQUEST_LIMIT, limit)));
   const url = `${BASE}/by-auth-stamp?${params.toString()}`;
   try {
-    const response = await apiClient.get(url, { headers: { Accept: "application/json" } });
+    const response = await apiClient.get(url, {
+      headers: { Accept: "application/json" },
+    });
     const raw = response.data;
     const data = Array.isArray(raw)
       ? raw
       : Array.isArray((raw as any)?.results)
-        ? (raw as any).results
-        : Array.isArray((raw as any)?.items)
-          ? (raw as any).items
-          : Array.isArray((raw as any)?.data)
-            ? (raw as any).data
-            : (raw && typeof raw === "object" && Array.isArray((raw as any).list) ? (raw as any).list : []);
-    const list = (Array.isArray(data) ? data : []).map((item: Record<string, unknown>) => {
-      const id = item.id ?? item.account_information_id ?? item.accountInformationId;
-      const account_information_id = typeof id === "number" && Number.isFinite(id) ? id : Number(id);
-      const rawDoi = item.auth_initial_doi ?? item.authInitialDoi ?? item.authInitialDOI ?? "";
-      const auth_initial_doi = typeof rawDoi === "string" ? rawDoi.trim() : "";
-      return {
-        account_information_id: Number.isFinite(account_information_id) ? account_information_id : 0,
-        auth_stamp: String(item.auth_stamp ?? item.authStamp ?? "").trim(),
-        full_name: String(item.full_name ?? item.fullName ?? item.name ?? "").trim(),
-        designation: String(item.designation ?? item.position ?? "").trim(),
-        license_no: String(item.license_no ?? item.licenseNo ?? item.license ?? "").trim(),
-        auth_initial_doi: auth_initial_doi || undefined,
-      };
-    });
+      ? (raw as any).results
+      : Array.isArray((raw as any)?.items)
+      ? (raw as any).items
+      : Array.isArray((raw as any)?.data)
+      ? (raw as any).data
+      : raw && typeof raw === "object" && Array.isArray((raw as any).list)
+      ? (raw as any).list
+      : [];
+    const list = (Array.isArray(data) ? data : []).map(
+      (item: Record<string, unknown>) => {
+        const id =
+          item.id ?? item.account_information_id ?? item.accountInformationId;
+        const account_information_id =
+          typeof id === "number" && Number.isFinite(id) ? id : Number(id);
+        const rawDoi =
+          item.auth_initial_doi ??
+          item.authInitialDoi ??
+          item.authInitialDOI ??
+          "";
+        const auth_initial_doi =
+          typeof rawDoi === "string" ? rawDoi.trim() : "";
+        return {
+          account_information_id: Number.isFinite(account_information_id)
+            ? account_information_id
+            : 0,
+          auth_stamp: String(item.auth_stamp ?? item.authStamp ?? "").trim(),
+          full_name: String(
+            item.full_name ?? item.fullName ?? item.name ?? ""
+          ).trim(),
+          designation: String(item.designation ?? item.position ?? "").trim(),
+          license_no: String(
+            item.license_no ?? item.licenseNo ?? item.license ?? ""
+          ).trim(),
+          auth_initial_doi: auth_initial_doi || undefined,
+        };
+      }
+    );
     const withStamp = list.filter((o) => o.auth_stamp.length > 0);
     const searchLower = searchTrimmed.toLowerCase();
-    const filtered = searchLower ? withStamp.filter((o) => authStampMatches(o, searchLower)) : withStamp;
+    const filtered = searchLower
+      ? withStamp.filter((o) => authStampMatches(o, searchLower))
+      : withStamp;
     return filtered.slice(0, Math.max(AUTH_STAMP_RETURN_LIMIT, limit));
   } catch (err) {
     console.error("by-auth-stamp search failed:", url, err);
