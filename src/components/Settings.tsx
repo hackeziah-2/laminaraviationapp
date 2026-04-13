@@ -1800,6 +1800,8 @@ export function Settings() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedUserRoleFilter, setSelectedUserRoleFilter] =
+    useState<string>("all");
   const [selectedRole, setSelectedRole] = useState<string>("Admin");
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAddUsersByJsonModal, setShowAddUsersByJsonModal] = useState(false);
@@ -1972,7 +1974,8 @@ export function Settings() {
       const res = await accountApi.getAccountsPaged(
         currentPage,
         itemsPerPage,
-        searchDebounced
+        searchDebounced,
+        selectedUserRoleFilter === "all" ? "" : selectedUserRoleFilter
       );
       setUsers(res.items.map(mapAccountToUser));
       setTotalUsers(res.total);
@@ -1998,11 +2001,21 @@ export function Settings() {
     } finally {
       setUsersLoading(false);
     }
-  }, [currentPage, itemsPerPage, searchDebounced, mapAccountToUser]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    mapAccountToUser,
+    searchDebounced,
+    selectedUserRoleFilter,
+  ]);
 
   useEffect(() => {
     fetchUsersList();
   }, [fetchUsersList]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedUserRoleFilter]);
 
   const fetchRoles = useCallback(() => {
     setRolesLoading(true);
@@ -2086,6 +2099,10 @@ export function Settings() {
     customPermissions[selectedRole] ?? permissionsByRole[selectedRole] ?? [];
 
   const filteredUsers = users;
+  const activeRoleLabel =
+    selectedUserRoleFilter === "all"
+      ? "All roles"
+      : selectedUserRoleFilter;
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -2194,34 +2211,87 @@ export function Settings() {
         {activeSection === "users" && (
           <div>
             {/* Search and Actions */}
-            <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-              <div className="flex items-center justify-between">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <div className="mb-6 rounded-[16px] border border-gray-200 bg-white px-6 py-5 shadow-sm sm:px-7">
+              {/* Title row */}
+              <div className="mb-4">
+                <h2 className="text-[1.35rem] font-semibold leading-snug text-slate-900">
+                  User Directory
+                </h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Search accounts and narrow results by assigned role.
+                </p>
+              </div>
+
+              {/* Stat + quick filter row */}
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <span className="text-sm font-semibold text-blue-600">
+                  {totalUsers} total users
+                </span>
+                <div className="relative">
+                  <select
+                    value={selectedUserRoleFilter}
+                    onChange={(e) => setSelectedUserRoleFilter(e.target.value)}
+                    className={`${SELECT_BASE_CLASS} h-9 rounded-lg border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500`}
+                    aria-label="Quick role summary"
+                  >
+                    <option value="all">All roles</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.name}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Search + filter + buttons row */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-nowrap">
+                {/* Search input */}
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search users by name, email, or role..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
+
+                {/* Role filter */}
+                <div className="sm:w-48 flex-none">
+                  <select
+                    value={selectedUserRoleFilter}
+                    onChange={(e) => setSelectedUserRoleFilter(e.target.value)}
+                    className={`${SELECT_BASE_CLASS} h-10 rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100 w-full`}
+                    aria-label="Filter users by role"
+                  >
+                    <option value="all">All roles</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.name}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Action buttons */}
                 {canCreate("settings") && (
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex gap-2 flex-none">
                     <button
                       onClick={() => setShowAddUserModal(true)}
                       type="button"
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="h-4 w-4" />
                       Add User
                     </button>
                     <button
                       onClick={() => setShowAddUsersByJsonModal(true)}
                       type="button"
-                      className="flex items-center gap-2 px-4 py-2 border border-blue-600 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors"
+                      className="flex h-10 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
                     >
-                      <Braces className="w-4 h-4" />
+                      <Braces className="h-4 w-4" />
                       Add User by JSON
                     </button>
                   </div>
@@ -2269,136 +2339,149 @@ export function Settings() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredUsers.map((user) => (
-                      <React.Fragment key={user.id}>
-                        <tr className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">
-                                {user.name}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {user.email}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-gray-700">
-                              {user.designation || "-"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
-                                user.role
-                              )}`}
-                            >
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`px-2.5 py-1 rounded text-xs font-medium ${
-                                user.status === "active"
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {user.status === "active" ? "Active" : "Inactive"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {user.lastDone}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {user.createdDate}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() =>
-                                  setExpandedUser(
-                                    expandedUser === user.id ? null : user.id
-                                  )
-                                }
-                                type="button"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="More actions"
-                              >
-                                {expandedUser === user.id ? (
-                                  <ChevronUp className="w-4 h-4 text-gray-600" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4 text-gray-600" />
-                                )}
-                              </button>
-                              {canUpdate("settings") && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedUser(user);
-                                    setShowEditUserModal(true);
-                                  }}
-                                  type="button"
-                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                  title="Edit user"
-                                >
-                                  <Edit2 className="w-4 h-4 text-gray-600" />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setShowResetPasswordModal(true);
-                                }}
-                                type="button"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="Reset password"
-                              >
-                                <Lock className="w-4 h-4 text-gray-600" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setShowDeactivateModal(true);
-                                }}
-                                type="button"
-                                className={`p-1.5 rounded-lg transition-colors ${
-                                  user.status === "active"
-                                    ? "hover:bg-red-50 text-red-600"
-                                    : "hover:bg-green-50 text-green-600"
-                                }`}
-                                title={
-                                  user.status === "active"
-                                    ? "Deactivate user"
-                                    : "Activate user"
-                                }
-                              >
-                                {user.status === "active" ? (
-                                  <UserX className="w-4 h-4" />
-                                ) : (
-                                  <UserPlus className="w-4 h-4" />
-                                )}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        {expandedUser === user.id && (
-                          <tr>
-                            <td colSpan={7} className="px-6 py-4 bg-gray-50">
-                              <div className="space-y-3">
-                                <div className="flex gap-3">
-                                  <button
-                                    type="button"
-                                    className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                                  >
-                                    View Audit Trail
-                                  </button>
+                    {filteredUsers.length > 0 ? (
+                      filteredUsers.map((user) => (
+                        <React.Fragment key={user.id}>
+                          <tr className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {user.name}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {user.email}
                                 </div>
                               </div>
                             </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-gray-700">
+                                {user.designation || "-"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
+                                  user.role
+                                )}`}
+                              >
+                                {user.role}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`px-2.5 py-1 rounded text-xs font-medium ${
+                                  user.status === "active"
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-red-100 text-red-700"
+                                }`}
+                              >
+                                {user.status === "active" ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {user.lastDone}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {user.createdDate}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() =>
+                                    setExpandedUser(
+                                      expandedUser === user.id ? null : user.id
+                                    )
+                                  }
+                                  type="button"
+                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="More actions"
+                                >
+                                  {expandedUser === user.id ? (
+                                    <ChevronUp className="w-4 h-4 text-gray-600" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                                  )}
+                                </button>
+                                {canUpdate("settings") && (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setShowEditUserModal(true);
+                                    }}
+                                    type="button"
+                                    className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                    title="Edit user"
+                                  >
+                                    <Edit2 className="w-4 h-4 text-gray-600" />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(user);
+                                    setShowResetPasswordModal(true);
+                                  }}
+                                  type="button"
+                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="Reset password"
+                                >
+                                  <Lock className="w-4 h-4 text-gray-600" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(user);
+                                    setShowDeactivateModal(true);
+                                  }}
+                                  type="button"
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    user.status === "active"
+                                      ? "hover:bg-red-50 text-red-600"
+                                      : "hover:bg-green-50 text-green-600"
+                                  }`}
+                                  title={
+                                    user.status === "active"
+                                      ? "Deactivate user"
+                                      : "Activate user"
+                                  }
+                                >
+                                  {user.status === "active" ? (
+                                    <UserX className="w-4 h-4" />
+                                  ) : (
+                                    <UserPlus className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
+                          {expandedUser === user.id && (
+                            <tr>
+                              <td colSpan={7} className="px-6 py-4 bg-gray-50">
+                                <div className="space-y-3">
+                                  <div className="flex gap-3">
+                                    <button
+                                      type="button"
+                                      className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                                    >
+                                      View Audit Trail
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center">
+                          <div className="text-sm font-medium text-gray-700">
+                            No users found
+                          </div>
+                          <div className="mt-1 text-sm text-gray-500">
+                            Try adjusting the search term or selected role.
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               )}
