@@ -40,7 +40,9 @@ import {
   type ADMonitoring,
 } from "../api/adMonitoringApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface LDNDItem {
   id: number;
@@ -94,6 +96,7 @@ export function Maintenance() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
   // Derive active category from URL path (profile/:id/maintenance-ldnd -> LDND, etc.)
@@ -561,7 +564,10 @@ export function Maintenance() {
   };
 
   /** AD file download — same pattern as Fleet Time Monitoring (Operation): folder/download/filename */
-  const handleADDownloadFile = async (filePath: string, displayName?: string) => {
+  const handleADDownloadFile = async (
+    filePath: string,
+    displayName?: string
+  ) => {
     if (!filePath?.trim()) {
       await Swal.fire({
         icon: "error",
@@ -572,7 +578,10 @@ export function Maintenance() {
     }
     try {
       const downloadFileName =
-        displayName || extractADFilename(filePath) || filePath.split("/").pop() || "download";
+        displayName ||
+        extractADFilename(filePath) ||
+        filePath.split("/").pop() ||
+        "download";
       const responseBlob = await downloadAdMonitoringFile(aircraftId, filePath);
       const blob = new Blob([responseBlob]);
       const url = window.URL.createObjectURL(blob);
@@ -1024,24 +1033,26 @@ export function Maintenance() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingLdndEntry(null);
-                    setNewEntry({
-                      type: "",
-                      unit: "HRS",
-                      lastDoneTachDue: "",
-                      lastDoneTachDone: "",
-                      nextDueTachHours: "",
-                      performedDateStart: "",
-                    });
-                    setShowAddModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Entry
-                </button>
+                {canCreate("maintenance") && (
+                  <button
+                    onClick={() => {
+                      setEditingLdndEntry(null);
+                      setNewEntry({
+                        type: "",
+                        unit: "HRS",
+                        lastDoneTachDue: "",
+                        lastDoneTachDone: "",
+                        nextDueTachHours: "",
+                        performedDateStart: "",
+                      });
+                      setShowAddModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Entry
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1174,22 +1185,26 @@ export function Maintenance() {
                           </td>
                           <td className="px-3 py-2 text-center border-l border-gray-300">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditLdnd(item)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleLdndDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditLdnd(item)}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLdndDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1200,33 +1215,17 @@ export function Maintenance() {
               )}
             </div>
 
-            {/* Pagination */}
+            {/* Pagination Controls */}
             {ldndTotal > 0 && !ldndLoading && (
-              <div className="px-5 py-3 border-t border-gray-200 flex items-center justify-center gap-2">
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={currentPage === 1 || ldndLoading}
-                  className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {currentPage} of {totalPages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) =>
-                      Math.min(totalPages || 1, prev + 1)
-                    )
-                  }
-                  disabled={currentPage >= (totalPages || 1) || ldndLoading}
-                  className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages || 1}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                showRangeText={false}
+                disabled={ldndLoading}
+              />
             )}
           </>
         )}
@@ -1250,24 +1249,26 @@ export function Maintenance() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingADEntry(null);
-                    setNewADEntry({
-                      adNumber: "",
-                      subject: "",
-                      inspectionInterval: "",
-                      compliDate: "",
-                    });
-                    setAdUploadFile(null);
-                    setAdUploadFileName("");
-                    setShowADModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Entry
-                </button>
+                {canCreate("maintenance") && (
+                  <button
+                    onClick={() => {
+                      setEditingADEntry(null);
+                      setNewADEntry({
+                        adNumber: "",
+                        subject: "",
+                        inspectionInterval: "",
+                        compliDate: "",
+                      });
+                      setAdUploadFile(null);
+                      setAdUploadFileName("");
+                      setShowADModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Entry
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1316,7 +1317,7 @@ export function Maintenance() {
                         Inspection Interval
                       </th>
                       <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                        Compli Date
+                        DATE OF EFFECTIVITY
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
                         Work Orders
@@ -1400,29 +1401,33 @@ export function Maintenance() {
                           </td>
                           <td className="px-5 py-4 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditAD(item)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleADDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditAD(item)}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+
                               <button
                                 onClick={() => handleViewADWorkOrders(item.id)}
                                 className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm"
                               >
                                 <Eye className="w-4 h-4" />
-                                View
                               </button>
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleADDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1435,31 +1440,15 @@ export function Maintenance() {
 
             {/* Pagination Controls */}
             {adTotal > 0 && !adLoading && (
-              <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
-                <button
-                  onClick={() =>
-                    setAdCurrentPage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={adCurrentPage === 1 || adLoading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {adCurrentPage} of {adTotalPages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setAdCurrentPage((prev) =>
-                      Math.min(adTotalPages || 1, prev + 1)
-                    )
-                  }
-                  disabled={adCurrentPage >= (adTotalPages || 1) || adLoading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
+              <DataTablePagination
+                currentPage={adCurrentPage}
+                totalPages={adTotalPages || 1}
+                onPageChange={setAdCurrentPage}
+                itemsPerPage={adItemsPerPage}
+                onItemsPerPageChange={setAdItemsPerPage}
+                showRangeText={false}
+                disabled={adLoading}
+              />
             )}
           </>
         )}
@@ -1665,17 +1654,20 @@ export function Maintenance() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleLdndCreateOrUpdate}
-                disabled={ldndSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {ldndSaving
-                  ? "Saving..."
-                  : editingLdndEntry
-                  ? "Update Entry"
-                  : "Add Entry"}
-              </button>
+              {((!editingLdndEntry && canCreate("maintenance")) ||
+                (editingLdndEntry && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleLdndCreateOrUpdate}
+                  disabled={ldndSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {ldndSaving
+                    ? "Saving..."
+                    : editingLdndEntry
+                    ? "Update Entry"
+                    : "Add Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1723,10 +1715,7 @@ export function Maintenance() {
                   <button
                     type="button"
                     onClick={() => {
-                      handleADDownloadFile(
-                        adViewFilePath,
-                        adViewFileName
-                      );
+                      handleADDownloadFile(adViewFilePath, adViewFileName);
                     }}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 text-gray-700"
                   >
@@ -1886,7 +1875,9 @@ export function Maintenance() {
                   }}
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                 />
-                {editingADEntry && getADFilePath(editingADEntry) && !adUploadFile ? (
+                {editingADEntry &&
+                getADFilePath(editingADEntry) &&
+                !adUploadFile ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
                       <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
@@ -1966,17 +1957,20 @@ export function Maintenance() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleADCreateOrUpdate}
-                disabled={adSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {adSaving
-                  ? "Saving..."
-                  : editingADEntry
-                  ? "Update Entry"
-                  : "Add Entry"}
-              </button>
+              {((!editingADEntry && canCreate("maintenance")) ||
+                (editingADEntry && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleADCreateOrUpdate}
+                  disabled={adSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {adSaving
+                    ? "Saving..."
+                    : editingADEntry
+                    ? "Update Entry"
+                    : "Add Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>

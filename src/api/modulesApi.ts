@@ -21,13 +21,24 @@ function normalizeModule(raw: Record<string, unknown>): Module {
   };
 }
 
-/** List (dropdowns): GET /api/v1/modules/modules-list */
+/** List (dropdowns): GET /api/v1/modules/module-list (fallback: modules-list) */
 export const getModulesList = async (): Promise<Module[]> => {
-  const response = await apiClient.get(`${BASE}/modules-list`);
-  const raw = response.data ?? {};
-  const data = Array.isArray(raw) ? raw : raw.results ?? raw.items ?? raw.data ?? [];
-  const list = Array.isArray(data) ? data : [];
-  return list.map((item: Record<string, unknown>) => normalizeModule(item));
+  const parse = (raw: unknown): Module[] => {
+    const data = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.results ?? (raw as Record<string, unknown>)?.items ?? (raw as Record<string, unknown>)?.data ?? [];
+    const list = Array.isArray(data) ? data : [];
+    return list.map((item: Record<string, unknown>) => normalizeModule(item));
+  };
+  try {
+    const response = await apiClient.get(`${BASE}/module-list`);
+    return parse(response.data ?? {});
+  } catch {
+    try {
+      const response = await apiClient.get(`${BASE}/modules-list`);
+      return parse(response.data ?? {});
+    } catch {
+      return [];
+    }
+  }
 };
 
 export interface PaginatedModulesResponse {

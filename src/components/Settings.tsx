@@ -19,12 +19,16 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Braces,
 } from "lucide-react";
 import * as authApi from "../api/authApi";
 import * as rolesApi from "../api/rolesApi";
+import type { Permission } from "../api/rolesApi";
 import * as accountApi from "../api/accountApi";
 import * as modulesApi from "../api/modulesApi";
 import { MODULE_PERMISSIONS_LIST } from "../constants/modulePermissions";
+import { DataTablePagination } from "./ui/DataTablePagination";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface User {
   id: number;
@@ -41,17 +45,11 @@ interface User {
   status: "active" | "inactive";
   lastDone: string;
   createdDate: string;
+  auth_initial_doi?: string;
 }
 
 /** Role (including user_count from GET /v1/roles/roles-list) */
 type Role = rolesApi.Role;
-
-interface Permission {
-  module: string;
-  read: boolean;
-  write: boolean;
-  approve: boolean;
-}
 
 /** Build permission list from modules (all false). Uses API modules when provided, else static list. */
 function getDefaultModulePermissions(apiModules?: modulesApi.Module[]): Permission[] {
@@ -59,15 +57,17 @@ function getDefaultModulePermissions(apiModules?: modulesApi.Module[]): Permissi
     return apiModules.map((m) => ({
       module: m.name || m.code || String(m.id),
       read: false,
-      write: false,
-      approve: false,
+      create: false,
+      update: false,
+      delete: false,
     }));
   }
   return MODULE_PERMISSIONS_LIST.map(({ label }) => ({
     module: label,
     read: false,
-    write: false,
-    approve: false,
+    create: false,
+    update: false,
+    delete: false,
   }));
 }
 
@@ -87,6 +87,7 @@ interface AddUserModalProps {
     status: boolean;
     password: string;
     confirmPassword: string;
+    auth_initial_doi: string;
   }) => void | Promise<void>;
 }
 
@@ -116,6 +117,8 @@ interface EditRoleModalProps {
   isOpen: boolean;
   onClose: () => void;
   role: Role | null;
+  /** Modules from API (module-list) for permission rows; used to merge with role's permissions. */
+  moduleList: Array<{ id?: number; name: string; code?: string }>;
   permissions: Permission[];
   onUpdate: (role: Role, permissions: Permission[]) => void | Promise<void>;
 }
@@ -131,6 +134,306 @@ interface CreateRoleModalProps {
 const SELECT_BASE_CLASS =
   "w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-9 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat";
 
+const BULK_JSON_PLACEHOLDER = `[
+  {
+    "first_name": "string",
+    "last_name": "string",
+    "middle_name": "string",
+    "username": "string",
+    "email": "string",
+    "designation": "string",
+    "license_no": "string",
+    "auth_stamp": "string",
+    "auth_initial_doi": "2026-04-01",
+    "role_id": 0,
+    "status": true,
+    "password": "string"
+  }
+]`;
+
+const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Map one JSON object to POST /auth/register/ body (same shape as registerUser). */
+function bulkJsonRowToAuthCreate(o: Record<string, unknown>): authApi.AuthUserCreate {
+  const email = String(o.email ?? "").trim();
+  const localPart =
+    email.includes("@") ? email.slice(0, Math.max(0, email.indexOf("@"))) : email;
+  const roleRaw = o.role_id;
+  let role_id = 0;
+  if (typeof roleRaw === "number" && !Number.isNaN(roleRaw)) role_id = roleRaw;
+  else if (typeof roleRaw === "string" && roleRaw.trim() !== "") {
+    const n = Number(roleRaw);
+    if (!Number.isNaN(n)) role_id = n;
+  }
+  const statusRaw = o.status;
+  const status =
+    typeof statusRaw === "boolean" ? statusRaw : statusRaw == null ? true : Boolean(statusRaw);
+  const auth_initial_doi = String(o.auth_initial_doi ?? "").trim();
+  const auth_stamp = String(o.auth_stamp ?? "").trim();
+  return {
+    first_name: String(o.first_name ?? "").trim(),
+    last_name: String(o.last_name ?? "").trim(),
+    middle_name: String(o.middle_name ?? "").trim(),
+    username: String(o.username ?? "").trim() || localPart || "user",
+    email,
+    designation: String(o.designation ?? "").trim(),
+    license_no: String(o.license_no ?? "").trim(),
+    role_id,
+    status,
+    password: String(o.password ?? ""),
+    ...(auth_initial_doi ? { auth_initial_doi } : {}),
+    ...(auth_stamp ? { auth_stamp } : {}),
+  };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatBulkRegisterError(err: unknown): string {
+  const e = err as {
+    code?: string;
+    message?: string;
+    response?: { data?: { message?: string; detail?: unknown } };
+  };
+  if (e?.code === "ERR_NETWORK" || e?.message === "Network Error") {
+    return "Failed to connect to server.";
+  }
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) =>
+        typeof item === "object" && item !== null && "msg" in item
+          ? String((item as { msg: unknown }).msg)
+          : JSON.stringify(item)
+      )
+      .join("; ");
+  }
+  const msg = e?.response?.data?.message;
+  if (typeof msg === "string") return msg;
+  return e?.message || "Request failed";
+}
+
+interface AddUsersByJsonModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onComplete: () => void | Promise<void>;
+}
+
+function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModalProps) {
+  const [jsonText, setJsonText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+
+  if (!isOpen) return null;
+
+  const handleClose = () => {
+    if (submitting) return;
+    setJsonText("");
+    setProgress({ current: 0, total: 0 });
+    onClose();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonText.trim() || "null");
+    } catch {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid JSON",
+        text: "Invalid JSON format. Please check your input.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    if (!Array.isArray(parsed)) {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid JSON",
+        text: "Invalid JSON format. Please check your input.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    if (parsed.length === 0) {
+      await Swal.fire({
+        icon: "error",
+        title: "Invalid input",
+        text: "Provide at least one user object in the array.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    const validationErrors: string[] = [];
+    const rows: authApi.AuthUserCreate[] = [];
+
+    parsed.forEach((item, index) => {
+      const row = index + 1;
+      if (item === null || typeof item !== "object") {
+        validationErrors.push(`Row ${row}: must be an object.`);
+        return;
+      }
+      const o = item as Record<string, unknown>;
+      const email = String(o.email ?? "").trim();
+      const password = String(o.password ?? "");
+      if (!email) validationErrors.push(`Row ${row}: email is required.`);
+      else if (!EMAIL_FORMAT_RE.test(email))
+        validationErrors.push(`Row ${row}: invalid email format.`);
+      if (!password) validationErrors.push(`Row ${row}: password is required.`);
+      else if (password.length < 8)
+        validationErrors.push(`Row ${row}: password must be at least 8 characters.`);
+      if (
+        email &&
+        password.length >= 8 &&
+        EMAIL_FORMAT_RE.test(email)
+      ) {
+        rows.push(bulkJsonRowToAuthCreate(o));
+      }
+    });
+
+    if (validationErrors.length) {
+      await Swal.fire({
+        icon: "error",
+        title: "Validation error",
+        html: `<ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:240px;overflow:auto;font-size:14px">${validationErrors.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>`,
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    setProgress({ current: 0, total: rows.length });
+    const failures: { email: string; message: string }[] = [];
+    let successCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      setProgress({ current: i + 1, total: rows.length });
+      try {
+        await authApi.registerUser(row);
+        successCount += 1;
+      } catch (err) {
+        failures.push({ email: row.email, message: formatBulkRegisterError(err) });
+      }
+    }
+
+    setSubmitting(false);
+    setProgress({ current: 0, total: 0 });
+
+    await Promise.resolve(onComplete());
+
+    if (failures.length === 0) {
+      setJsonText("");
+      onClose();
+      await Swal.fire({
+        icon: "success",
+        title: "Success",
+        text: "Users successfully created!",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    if (successCount === 0) {
+      const allNetwork = failures.every((f) => f.message === "Failed to connect to server.");
+      if (allNetwork) {
+        await Swal.fire({
+          icon: "error",
+          title: "Connection error",
+          text: "Failed to connect to server.",
+          confirmButtonColor: "#1f2937",
+        });
+      } else {
+        await Swal.fire({
+          icon: "error",
+          title: "Could not create users",
+          html: `<p style="margin-bottom:8px">Some users failed to create.</p><ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:220px;overflow:auto;font-size:13px">${failures.map((f) => `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(f.message)}</li>`).join("")}</ul>`,
+          confirmButtonColor: "#1f2937",
+        });
+      }
+      return;
+    }
+
+    await Swal.fire({
+      icon: "warning",
+      title: "Partial success",
+      html: `<p>Some users failed to create.</p><p style="margin-top:8px;font-size:14px">${successCount} created, ${failures.length} failed.</p><ul style="text-align:left;margin:12px 0 0;padding-left:1.25rem;max-height:200px;overflow:auto;font-size:13px">${failures.map((f) => `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(f.message)}</li>`).join("")}</ul>`,
+      confirmButtonColor: "#1f2937",
+    });
+    setJsonText("");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-xl border border-gray-100">
+        <div className="px-8 pt-8 pb-6 border-b border-gray-200 shrink-0">
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
+            Add Users via JSON
+          </h2>
+          <p className="text-sm text-gray-600 mt-3 leading-relaxed">
+            Paste a JSON array of user objects. Each entry must include{" "}
+            <span className="font-semibold text-gray-900">email</span> and{" "}
+            <span className="font-semibold text-gray-900">password</span>; email format is
+            validated before requests run.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <div className="px-8 py-6">
+            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+              JSON
+            </label>
+            <textarea
+              value={jsonText}
+              onChange={(e) => setJsonText(e.target.value)}
+              placeholder={BULK_JSON_PLACEHOLDER}
+              disabled={submitting}
+              spellCheck={false}
+              rows={16}
+              className="w-full min-h-[280px] max-h-[min(420px,52vh)] px-4 py-3.5 border border-gray-300 rounded-xl text-sm font-mono text-gray-900 placeholder:text-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500 resize-y overflow-y-auto leading-relaxed"
+            />
+            {submitting && progress.total > 0 && (
+              <p className="text-sm text-blue-700 mt-3">
+                Creating users... ({progress.current}/{progress.total})
+              </p>
+            )}
+          </div>
+
+          <div className="flex gap-3 px-8 pb-8 pt-2 border-t border-gray-200 shrink-0">
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={submitting}
+              className="flex-[9] px-4 py-3 border border-gray-300 text-gray-800 rounded-xl text-sm font-medium bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex-[11] px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
+              Submit
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // Add User Modal
 function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
   const [formData, setFormData] = useState({
@@ -145,6 +448,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
     status: true,
     password: "",
     confirmPassword: "",
+    auth_initial_doi: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -196,6 +500,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
         status: true,
         password: "",
         confirmPassword: "",
+        auth_initial_doi: "",
       });
       setErrors({});
       onClose();
@@ -354,6 +659,20 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Authorization Initial DOI (Date of Issuance)
+            </label>
+            <input
+              type="date"
+              value={formData.auth_initial_doi}
+              onChange={(e) =>
+                setFormData({ ...formData, auth_initial_doi: e.target.value })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Role *
             </label>
             <select
@@ -457,6 +776,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
                   status: true,
                   password: "",
                   confirmPassword: "",
+                  auth_initial_doi: "",
                 });
                 setErrors({});
               }}
@@ -499,12 +819,14 @@ function EditUserModal({
     license_no: user?.licenseNo || "",
     role_id: user?.roleId || 0,
     status: user?.status || "active",
+    auth_initial_doi: user?.auth_initial_doi || "",
   });
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
     if (user) {
-      setFormData({
+      setFormData((prev) => ({
+        ...prev,
         first_name: user.firstName || "",
         last_name: user.lastName || "",
         middle_name: user.middleName || "",
@@ -514,9 +836,24 @@ function EditUserModal({
         license_no: user.licenseNo || "",
         role_id: user.roleId || 0,
         status: user.status || "active",
-      });
+        auth_initial_doi: user.auth_initial_doi || "",
+      }));
     }
   }, [user]);
+
+  // Load auth_initial_doi when opening edit (not returned by list API)
+  React.useEffect(() => {
+    if (!isOpen || !user?.id) return;
+    accountApi
+      .getAccountInformationById(user.id)
+      .then((info) => {
+        setFormData((prev) => ({
+          ...prev,
+          auth_initial_doi: info.auth_initial_doi || "",
+        }));
+      })
+      .catch(() => {});
+  }, [isOpen, user?.id]);
 
   if (!isOpen || !user) return null;
   const handleSubmit = async (e: React.FormEvent) => {
@@ -541,6 +878,7 @@ function EditUserModal({
           roleId: formData.role_id,
           role: resolvedRole,
           status: formData.status as "active" | "inactive",
+          auth_initial_doi: formData.auth_initial_doi || undefined,
         })
       );
       onClose();
@@ -649,6 +987,19 @@ function EditUserModal({
               value={formData.license_no}
               onChange={(e) =>
                 setFormData({ ...formData, license_no: e.target.value })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Authorization Initial DOI (Date of Issuance)
+            </label>
+            <input
+              type="date"
+              value={formData.auth_initial_doi}
+              onChange={(e) =>
+                setFormData({ ...formData, auth_initial_doi: e.target.value })
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -998,11 +1349,36 @@ function ResetPasswordModal({
   );
 }
 
+/** Merge API module list with role's existing permissions (match by module name/code). */
+function mergePermissionsWithModuleList(
+  moduleList: Array<{ id?: number; name: string; code?: string }>,
+  permissions: Permission[]
+): Permission[] {
+  if (!moduleList?.length) return permissions;
+  return moduleList.map((m) => {
+    const moduleName = m.name || m.code || String(m.id ?? "");
+    const existing = permissions.find(
+      (p) =>
+        p.module === moduleName ||
+        p.module === m.name ||
+        (m.code && p.module === m.code)
+    );
+    return {
+      module: moduleName,
+      read: existing?.read ?? false,
+      create: existing?.create ?? false,
+      update: existing?.update ?? false,
+      delete: existing?.delete ?? false,
+    };
+  });
+}
+
 // Edit Role Modal
 function EditRoleModal({
   isOpen,
   onClose,
   role,
+  moduleList,
   permissions,
   onUpdate,
 }: EditRoleModalProps) {
@@ -1010,8 +1386,11 @@ function EditRoleModal({
     name: role?.name || "",
     description: role?.description || "",
   });
-  const [rolePermissions, setRolePermissions] =
-    useState<Permission[]>(permissions);
+  const merged = React.useMemo(
+    () => mergePermissionsWithModuleList(moduleList, permissions),
+    [moduleList, permissions]
+  );
+  const [rolePermissions, setRolePermissions] = useState<Permission[]>(merged);
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
@@ -1020,9 +1399,9 @@ function EditRoleModal({
         name: role.name,
         description: role.description,
       });
-      setRolePermissions(permissions);
+      setRolePermissions(mergePermissionsWithModuleList(moduleList, permissions));
     }
-  }, [role, permissions]);
+  }, [role, permissions, moduleList]);
 
   if (!isOpen || !role) return null;
 
@@ -1042,7 +1421,7 @@ function EditRoleModal({
 
   const togglePermission = (
     index: number,
-    field: "read" | "write" | "approve"
+    field: "read" | "create" | "update" | "delete"
   ) => {
     const updated = [...rolePermissions];
     updated[index] = { ...updated[index], [field]: !updated[index][field] };
@@ -1051,7 +1430,7 @@ function EditRoleModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">Edit Role</h2>
           <p className="text-sm text-gray-600 mt-1">
@@ -1116,10 +1495,13 @@ function EditRoleModal({
                       Read
                     </th>
                     <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
-                      Write
+                      Create
                     </th>
                     <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
-                      Approve
+                      Update
+                    </th>
+                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
+                      Delete
                     </th>
                   </tr>
                 </thead>
@@ -1140,16 +1522,24 @@ function EditRoleModal({
                       <td className="px-4 py-2 text-center">
                         <input
                           type="checkbox"
-                          checked={perm.write}
-                          onChange={() => togglePermission(index, "write")}
+                          checked={perm.create}
+                          onChange={() => togglePermission(index, "create")}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
                       <td className="px-4 py-2 text-center">
                         <input
                           type="checkbox"
-                          checked={perm.approve}
-                          onChange={() => togglePermission(index, "approve")}
+                          checked={perm.update}
+                          onChange={() => togglePermission(index, "update")}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={perm.delete}
+                          onChange={() => togglePermission(index, "delete")}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
@@ -1199,14 +1589,16 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
         ? moduleList.map((m) => ({
             module: m.name || m.code || String(m.id ?? ""),
             read: false,
-            write: false,
-            approve: false,
+            create: false,
+            update: false,
+            delete: false,
           }))
         : MODULE_PERMISSIONS_LIST.map(({ label }) => ({
             module: label,
             read: false,
-            write: false,
-            approve: false,
+            create: false,
+            update: false,
+            delete: false,
           })),
     [moduleList]
   );
@@ -1223,7 +1615,7 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
 
   const togglePermission = (
     index: number,
-    field: "read" | "write" | "approve"
+    field: "read" | "create" | "update" | "delete"
   ) => {
     const updated = [...permissions];
     updated[index] = { ...updated[index], [field]: !updated[index][field] };
@@ -1257,7 +1649,7 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900">
             Create New Role
@@ -1317,10 +1709,13 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
                       Read
                     </th>
                     <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
-                      Write
+                      Create
                     </th>
                     <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
-                      Approve
+                      Update
+                    </th>
+                    <th className="px-4 py-2 text-center text-xs font-semibold text-gray-700 uppercase">
+                      Delete
                     </th>
                   </tr>
                 </thead>
@@ -1341,16 +1736,24 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
                       <td className="px-4 py-2 text-center">
                         <input
                           type="checkbox"
-                          checked={perm.write}
-                          onChange={() => togglePermission(index, "write")}
+                          checked={perm.create}
+                          onChange={() => togglePermission(index, "create")}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
                       <td className="px-4 py-2 text-center">
                         <input
                           type="checkbox"
-                          checked={perm.approve}
-                          onChange={() => togglePermission(index, "approve")}
+                          checked={perm.update}
+                          onChange={() => togglePermission(index, "update")}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={perm.delete}
+                          onChange={() => togglePermission(index, "delete")}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
@@ -1390,14 +1793,18 @@ function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleMo
 }
 
 export function Settings() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [activeSection, setActiveSection] = useState<
     "users" | "roles" | "matrix"
   >("users");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedUserRoleFilter, setSelectedUserRoleFilter] =
+    useState<string>("all");
   const [selectedRole, setSelectedRole] = useState<string>("Admin");
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAddUsersByJsonModal, setShowAddUsersByJsonModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
@@ -1567,7 +1974,8 @@ export function Settings() {
       const res = await accountApi.getAccountsPaged(
         currentPage,
         itemsPerPage,
-        searchDebounced
+        searchDebounced,
+        selectedUserRoleFilter === "all" ? "" : selectedUserRoleFilter
       );
       setUsers(res.items.map(mapAccountToUser));
       setTotalUsers(res.total);
@@ -1593,11 +2001,21 @@ export function Settings() {
     } finally {
       setUsersLoading(false);
     }
-  }, [currentPage, itemsPerPage, searchDebounced, mapAccountToUser]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    mapAccountToUser,
+    searchDebounced,
+    selectedUserRoleFilter,
+  ]);
 
   useEffect(() => {
     fetchUsersList();
   }, [fetchUsersList]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedUserRoleFilter]);
 
   const fetchRoles = useCallback(() => {
     setRolesLoading(true);
@@ -1620,7 +2038,7 @@ export function Settings() {
   }, [fetchRoles]);
 
   useEffect(() => {
-    // GET /api/v1/modules/modules-list — for Create/Edit Role permission matrix
+    // GET /api/v1/modules/module-list — for Create/Edit Role permission matrix
     modulesApi
       .getModulesList()
       .then((data) => setModulesList(Array.isArray(data) ? data : []))
@@ -1631,52 +2049,49 @@ export function Settings() {
     Admin: MODULE_PERMISSIONS_LIST.map(({ label }) => ({
       module: label,
       read: true,
-      write: true,
-      approve: true,
+      create: true,
+      update: true,
+      delete: true,
     })),
     Planner: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: true, approve: false },
-      { module: "Operation", read: true, write: true, approve: false },
-      { module: "Maintenance", read: true, write: true, approve: true },
-      { module: "Logbook", read: true, write: true, approve: false },
-      { module: "Document On Board", read: true, write: true, approve: false },
-      { module: "Certificate Monitoring", read: true, write: true, approve: false },
-      { module: "Daily Update", read: true, write: true, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, create: false, update: false, delete: false },
+      { module: "General Information", read: true, create: true, update: true, delete: true },
+      { module: "Operation", read: true, create: true, update: true, delete: true },
+      { module: "Maintenance", read: true, create: true, update: true, delete: true },
+      { module: "Logbook", read: true, create: true, update: true, delete: true },
+      { module: "Certificate Monitoring", read: true, create: true, update: true, delete: true },
+      { module: "Daily Update", read: true, create: true, update: true, delete: true },
+      { module: "System Settings", read: false, create: false, update: false, delete: false },
     ],
     Mechanic: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: false, approve: false },
-      { module: "Operation", read: true, write: false, approve: false },
-      { module: "Maintenance", read: true, write: false, approve: false },
-      { module: "Logbook", read: true, write: true, approve: false },
-      { module: "Document On Board", read: true, write: false, approve: false },
-      { module: "Certificate Monitoring", read: true, write: false, approve: false },
-      { module: "Daily Update", read: true, write: false, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, create: false, update: false, delete: false },
+      { module: "General Information", read: true, create: false, update: false, delete: false },
+      { module: "Operation", read: true, create: false, update: false, delete: false },
+      { module: "Maintenance", read: true, create: false, update: false, delete: false },
+      { module: "Logbook", read: true, create: true, update: true, delete: true },
+      { module: "Certificate Monitoring", read: true, create: false, update: false, delete: false },
+      { module: "Daily Update", read: true, create: false, update: false, delete: false },
+      { module: "System Settings", read: false, create: false, update: false, delete: false },
     ],
     Viewer: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: false, approve: false },
-      { module: "Operation", read: true, write: false, approve: false },
-      { module: "Maintenance", read: true, write: false, approve: false },
-      { module: "Logbook", read: true, write: false, approve: false },
-      { module: "Document On Board", read: true, write: false, approve: false },
-      { module: "Certificate Monitoring", read: true, write: false, approve: false },
-      { module: "Daily Update", read: true, write: false, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, create: false, update: false, delete: false },
+      { module: "General Information", read: true, create: false, update: false, delete: false },
+      { module: "Operation", read: true, create: false, update: false, delete: false },
+      { module: "Maintenance", read: true, create: false, update: false, delete: false },
+      { module: "Logbook", read: true, create: false, update: false, delete: false },
+      { module: "Certificate Monitoring", read: true, create: false, update: false, delete: false },
+      { module: "Daily Update", read: true, create: false, update: false, delete: false },
+      { module: "System Settings", read: false, create: false, update: false, delete: false },
     ],
     Auditor: [
-      { module: "Dashboard", read: true, write: false, approve: false },
-      { module: "General Information", read: true, write: false, approve: true },
-      { module: "Operation", read: true, write: false, approve: false },
-      { module: "Maintenance", read: true, write: false, approve: false },
-      { module: "Logbook", read: true, write: false, approve: true },
-      { module: "Document On Board", read: true, write: false, approve: false },
-      { module: "Certificate Monitoring", read: true, write: false, approve: true },
-      { module: "Daily Update", read: true, write: false, approve: false },
-      { module: "System Settings", read: false, write: false, approve: false },
+      { module: "Dashboard", read: true, create: false, update: false, delete: false },
+      { module: "General Information", read: true, create: false, update: true, delete: false },
+      { module: "Operation", read: true, create: false, update: false, delete: false },
+      { module: "Maintenance", read: true, create: false, update: false, delete: false },
+      { module: "Logbook", read: true, create: false, update: true, delete: false },
+      { module: "Certificate Monitoring", read: true, create: false, update: true, delete: false },
+      { module: "Daily Update", read: true, create: false, update: false, delete: false },
+      { module: "System Settings", read: false, create: false, update: false, delete: false },
     ],
   };
 
@@ -1684,6 +2099,10 @@ export function Settings() {
     customPermissions[selectedRole] ?? permissionsByRole[selectedRole] ?? [];
 
   const filteredUsers = users;
+  const activeRoleLabel =
+    selectedUserRoleFilter === "all"
+      ? "All roles"
+      : selectedUserRoleFilter;
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -1792,26 +2211,91 @@ export function Settings() {
         {activeSection === "users" && (
           <div>
             {/* Search and Actions */}
-            <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-              <div className="flex items-center justify-between">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <div className="mb-6 rounded-[16px] border border-gray-200 bg-white px-6 py-5 shadow-sm sm:px-7">
+              {/* Title row */}
+              <div className="mb-4">
+                <h2 className="text-[1.35rem] font-semibold leading-snug text-slate-900">
+                  User Directory
+                </h2>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Search accounts and narrow results by assigned role.
+                </p>
+              </div>
+
+              {/* Stat + quick filter row */}
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <span className="text-sm font-semibold text-blue-600">
+                  {totalUsers} total users
+                </span>
+                <div className="relative">
+                  <select
+                    value={selectedUserRoleFilter}
+                    onChange={(e) => setSelectedUserRoleFilter(e.target.value)}
+                    className={`${SELECT_BASE_CLASS} h-9 rounded-lg border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500`}
+                    aria-label="Quick role summary"
+                  >
+                    <option value="all">All roles</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.name}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Search + filter + buttons row */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-nowrap">
+                {/* Search input */}
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search users by name, email, or role..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
-                <button
-                  onClick={() => setShowAddUserModal(true)}
-                  type="button"
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add User
-                </button>
+
+                {/* Role filter */}
+                <div className="sm:w-48 flex-none">
+                  <select
+                    value={selectedUserRoleFilter}
+                    onChange={(e) => setSelectedUserRoleFilter(e.target.value)}
+                    className={`${SELECT_BASE_CLASS} h-10 rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100 w-full`}
+                    aria-label="Filter users by role"
+                  >
+                    <option value="all">All roles</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.name}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Action buttons */}
+                {canCreate("settings") && (
+                  <div className="flex gap-2 flex-none">
+                    <button
+                      onClick={() => setShowAddUserModal(true)}
+                      type="button"
+                      className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add User
+                    </button>
+                    <button
+                      onClick={() => setShowAddUsersByJsonModal(true)}
+                      type="button"
+                      className="flex h-10 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                    >
+                      <Braces className="h-4 w-4" />
+                      Add User by JSON
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1855,235 +2339,164 @@ export function Settings() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredUsers.map((user) => (
-                      <React.Fragment key={user.id}>
-                        <tr className="hover:bg-gray-50 transition-colors">
-                          <td className="px-6 py-4">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">
-                                {user.name}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {user.email}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-gray-700">
-                              {user.designation || "-"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
-                                user.role
-                              )}`}
-                            >
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span
-                              className={`px-2.5 py-1 rounded text-xs font-medium ${
-                                user.status === "active"
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {user.status === "active" ? "Active" : "Inactive"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {user.lastDone}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">
-                            {user.createdDate}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() =>
-                                  setExpandedUser(
-                                    expandedUser === user.id ? null : user.id
-                                  )
-                                }
-                                type="button"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="More actions"
-                              >
-                                {expandedUser === user.id ? (
-                                  <ChevronUp className="w-4 h-4 text-gray-600" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4 text-gray-600" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setShowEditUserModal(true);
-                                }}
-                                type="button"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="Edit user"
-                              >
-                                <Edit2 className="w-4 h-4 text-gray-600" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setShowResetPasswordModal(true);
-                                }}
-                                type="button"
-                                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                title="Reset password"
-                              >
-                                <Lock className="w-4 h-4 text-gray-600" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedUser(user);
-                                  setShowDeactivateModal(true);
-                                }}
-                                type="button"
-                                className={`p-1.5 rounded-lg transition-colors ${
-                                  user.status === "active"
-                                    ? "hover:bg-red-50 text-red-600"
-                                    : "hover:bg-green-50 text-green-600"
-                                }`}
-                                title={
-                                  user.status === "active"
-                                    ? "Deactivate user"
-                                    : "Activate user"
-                                }
-                              >
-                                {user.status === "active" ? (
-                                  <UserX className="w-4 h-4" />
-                                ) : (
-                                  <UserPlus className="w-4 h-4" />
-                                )}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                        {expandedUser === user.id && (
-                          <tr>
-                            <td colSpan={7} className="px-6 py-4 bg-gray-50">
-                              <div className="space-y-3">
-                                <div className="flex gap-3">
-                                  <button
-                                    type="button"
-                                    className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                                  >
-                                    View Audit Trail
-                                  </button>
+                    {filteredUsers.length > 0 ? (
+                      filteredUsers.map((user) => (
+                        <React.Fragment key={user.id}>
+                          <tr className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {user.name}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  {user.email}
                                 </div>
                               </div>
                             </td>
+                            <td className="px-6 py-4">
+                              <span className="text-sm text-gray-700">
+                                {user.designation || "-"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
+                                  user.role
+                                )}`}
+                              >
+                                {user.role}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span
+                                className={`px-2.5 py-1 rounded text-xs font-medium ${
+                                  user.status === "active"
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-red-100 text-red-700"
+                                }`}
+                              >
+                                {user.status === "active" ? "Active" : "Inactive"}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {user.lastDone}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">
+                              {user.createdDate}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() =>
+                                    setExpandedUser(
+                                      expandedUser === user.id ? null : user.id
+                                    )
+                                  }
+                                  type="button"
+                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="More actions"
+                                >
+                                  {expandedUser === user.id ? (
+                                    <ChevronUp className="w-4 h-4 text-gray-600" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                                  )}
+                                </button>
+                                {canUpdate("settings") && (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setShowEditUserModal(true);
+                                    }}
+                                    type="button"
+                                    className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                    title="Edit user"
+                                  >
+                                    <Edit2 className="w-4 h-4 text-gray-600" />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(user);
+                                    setShowResetPasswordModal(true);
+                                  }}
+                                  type="button"
+                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="Reset password"
+                                >
+                                  <Lock className="w-4 h-4 text-gray-600" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setSelectedUser(user);
+                                    setShowDeactivateModal(true);
+                                  }}
+                                  type="button"
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    user.status === "active"
+                                      ? "hover:bg-red-50 text-red-600"
+                                      : "hover:bg-green-50 text-green-600"
+                                  }`}
+                                  title={
+                                    user.status === "active"
+                                      ? "Deactivate user"
+                                      : "Activate user"
+                                  }
+                                >
+                                  {user.status === "active" ? (
+                                    <UserX className="w-4 h-4" />
+                                  ) : (
+                                    <UserPlus className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
+                            </td>
                           </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
+                          {expandedUser === user.id && (
+                            <tr>
+                              <td colSpan={7} className="px-6 py-4 bg-gray-50">
+                                <div className="space-y-3">
+                                  <div className="flex gap-3">
+                                    <button
+                                      type="button"
+                                      className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                                    >
+                                      View Audit Trail
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center">
+                          <div className="text-sm font-medium text-gray-700">
+                            No users found
+                          </div>
+                          <div className="mt-1 text-sm text-gray-500">
+                            Try adjusting the search term or selected role.
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               )}
               {!usersLoading &&
                 (filteredUsers.length > 0 || totalUsers > 0) && (
-                  <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="text-sm text-gray-600">
-                          {totalUsers > 0
-                            ? `Showing ${
-                                (currentPage - 1) * itemsPerPage + 1
-                              }–${Math.min(
-                                currentPage * itemsPerPage,
-                                totalUsers
-                              )} of ${totalUsers}`
-                            : "No users found"}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">
-                            Items per page:
-                          </span>
-                          <select
-                            value={itemsPerPage}
-                            onChange={(e) => {
-                              setItemsPerPage(Number(e.target.value));
-                              setCurrentPage(1);
-                            }}
-                            className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-7 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat"
-                          >
-                            <option value={10}>10</option>
-                            <option value={20}>20</option>
-                            <option value={50}>50</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() =>
-                            setCurrentPage((p) => Math.max(1, p - 1))
-                          }
-                          disabled={currentPage <= 1}
-                          className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Previous
-                        </button>
-
-                        {Array.from(
-                          { length: Math.min(totalPages, 5) },
-                          (_, i) => {
-                            let pageNum = currentPage;
-                            if (totalPages <= 5) {
-                              pageNum = i + 1;
-                            } else if (currentPage <= 3) {
-                              pageNum = i + 1;
-                            } else if (currentPage >= totalPages - 2) {
-                              pageNum = totalPages - 4 + i;
-                            } else {
-                              pageNum = currentPage - 2 + i;
-                            }
-                            return (
-                              <button
-                                key={pageNum}
-                                onClick={() => setCurrentPage(pageNum)}
-                                className={`min-w-[2rem] px-3 py-1.5 rounded text-sm transition-colors ${
-                                  currentPage === pageNum
-                                    ? "bg-blue-600 text-white"
-                                    : "text-gray-700 hover:bg-gray-100"
-                                }`}
-                              >
-                                {pageNum}
-                              </button>
-                            );
-                          }
-                        )}
-
-                        {totalPages > 5 && currentPage < totalPages - 2 && (
-                          <>
-                            <span className="px-1 text-gray-500">...</span>
-                            <button
-                              onClick={() => setCurrentPage(totalPages)}
-                              className="min-w-[2rem] px-3 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-100 transition-colors"
-                            >
-                              {totalPages}
-                            </button>
-                          </>
-                        )}
-
-                        <button
-                          onClick={() =>
-                            setCurrentPage((p) => Math.min(totalPages, p + 1))
-                          }
-                          disabled={currentPage >= totalPages}
-                          className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <DataTablePagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={setCurrentPage}
+                    totalItems={totalUsers}
+                    totalLabel="items"
+                    itemsPerPage={itemsPerPage}
+                    onItemsPerPageChange={setItemsPerPage}
+                    pageSizeOptions={[10, 20, 50]}
+                  />
                 )}
             </div>
           </div>
@@ -2127,83 +2540,87 @@ export function Settings() {
                       </span>
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          try {
-                            const roleWithPerms = await rolesApi.getRole(role.id);
-                            const perms =
-                              roleWithPerms.permissions?.length > 0
-                                ? roleWithPerms.permissions
-                                : getDefaultModulePermissions(modulesList);
-                            setCustomPermissions((prev) => ({
-                              ...prev,
-                              [role.name]: perms,
-                            }));
-                            setSelectedRoleForEdit(role);
-                            setShowEditRoleModal(true);
-                          } catch {
-                            setCustomPermissions((prev) => ({
-                              ...prev,
-                              [role.name]: getDefaultModulePermissions(modulesList),
-                            }));
-                            setSelectedRoleForEdit(role);
-                            setShowEditRoleModal(true);
-                          }
-                        }}
-                        type="button"
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                        Edit Permissions
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const hasUsers = (role.userCount ?? 0) > 0;
-                          const result = await Swal.fire({
-                            title: "Delete role?",
-                            html: hasUsers
-                              ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
-                              : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
-                            icon: "warning",
-                            showCancelButton: true,
-                            confirmButtonColor: "#dc2626",
-                            cancelButtonColor: "#6b7280",
-                            confirmButtonText: "Yes, delete",
-                            cancelButtonText: "Cancel",
-                          });
-                          if (!result.isConfirmed) return;
-                          try {
-                            await rolesApi.deleteRole(role.id);
-                            setCustomPermissions((prev) => {
-                              const next = { ...prev };
-                              delete next[role.name];
-                              return next;
+                      {canUpdate("settings") && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              const roleWithPerms = await rolesApi.getRole(role.id);
+                              const perms =
+                                roleWithPerms.permissions?.length > 0
+                                  ? roleWithPerms.permissions
+                                  : getDefaultModulePermissions(modulesList);
+                              setCustomPermissions((prev) => ({
+                                ...prev,
+                                [role.name]: perms,
+                              }));
+                              setSelectedRoleForEdit(role);
+                              setShowEditRoleModal(true);
+                            } catch {
+                              setCustomPermissions((prev) => ({
+                                ...prev,
+                                [role.name]: getDefaultModulePermissions(modulesList),
+                              }));
+                              setSelectedRoleForEdit(role);
+                              setShowEditRoleModal(true);
+                            }
+                          }}
+                          type="button"
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          Edit Permissions
+                        </button>
+                      )}
+                      {canDelete("settings") && (
+                        <button
+                          onClick={async () => {
+                            const hasUsers = (role.userCount ?? 0) > 0;
+                            const result = await Swal.fire({
+                              title: "Delete role?",
+                              html: hasUsers
+                                ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
+                                : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
+                              icon: "warning",
+                              showCancelButton: true,
+                              confirmButtonColor: "#dc2626",
+                              cancelButtonColor: "#6b7280",
+                              confirmButtonText: "Yes, delete",
+                              cancelButtonText: "Cancel",
                             });
-                            fetchRoles();
-                            await Swal.fire({
-                              title: "Deleted",
-                              text: `Role ${role.name} has been removed.`,
-                              icon: "success",
-                              confirmButtonColor: "#1f2937",
-                            });
-                          } catch (err: unknown) {
-                            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
-                            const msg =
-                              (typeof data?.message === "string" ? data.message : null) ||
-                              (typeof data?.detail === "string" ? data.detail : null) ||
-                              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
-                              (err as Error)?.message ||
-                              "Failed to delete role";
-                            await Swal.fire({ icon: "error", title: "Error", text: msg });
-                          }
-                        }}
-                        type="button"
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
-                        title="Delete role"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </button>
+                            if (!result.isConfirmed) return;
+                            try {
+                              await rolesApi.deleteRole(role.id);
+                              setCustomPermissions((prev) => {
+                                const next = { ...prev };
+                                delete next[role.name];
+                                return next;
+                              });
+                              fetchRoles();
+                              await Swal.fire({
+                                title: "Deleted",
+                                text: `Role ${role.name} has been removed.`,
+                                icon: "success",
+                                confirmButtonColor: "#1f2937",
+                              });
+                            } catch (err: unknown) {
+                              const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
+                              const msg =
+                                (typeof data?.message === "string" ? data.message : null) ||
+                                (typeof data?.detail === "string" ? data.detail : null) ||
+                                (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
+                                (err as Error)?.message ||
+                                "Failed to delete role";
+                              await Swal.fire({ icon: "error", title: "Error", text: msg });
+                            }
+                          }}
+                          type="button"
+                          className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                          title="Delete role"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2211,23 +2628,25 @@ export function Settings() {
             )}
 
             {/* Add New Role */}
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => setShowCreateRoleModal(true)}
-              onKeyDown={(e) =>
-                e.key === "Enter" && setShowCreateRoleModal(true)
-              }
-              className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
-            >
-              <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <h3 className="text-gray-700 font-medium mb-1">
-                Create New Role
-              </h3>
-              <p className="text-sm text-gray-500">
-                Define custom roles with specific permissions
-              </p>
-            </div>
+            {canCreate("settings") && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setShowCreateRoleModal(true)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && setShowCreateRoleModal(true)
+                }
+                className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
+              >
+                <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <h3 className="text-gray-700 font-medium mb-1">
+                  Create New Role
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Define custom roles with specific permissions
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -2264,10 +2683,13 @@ export function Settings() {
                       Read
                     </th>
                     <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Write
+                      Create
                     </th>
                     <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Approve
+                      Update
+                    </th>
+                    <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                      Delete
                     </th>
                   </tr>
                 </thead>
@@ -2292,7 +2714,7 @@ export function Settings() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {permission.write ? (
+                        {permission.create ? (
                           <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
                             <Check className="w-4 h-4 text-green-600" />
                           </div>
@@ -2303,7 +2725,18 @@ export function Settings() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {permission.approve ? (
+                        {permission.update ? (
+                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
+                            <Check className="w-4 h-4 text-green-600" />
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
+                            <X className="w-4 h-4 text-red-600" />
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {permission.delete ? (
                           <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
                             <Check className="w-4 h-4 text-green-600" />
                           </div>
@@ -2340,6 +2773,12 @@ export function Settings() {
       </div>
 
       {/* Modals */}
+      <AddUsersByJsonModal
+        isOpen={showAddUsersByJsonModal}
+        onClose={() => setShowAddUsersByJsonModal(false)}
+        onComplete={fetchUsersList}
+      />
+
       <AddUserModal
         isOpen={showAddUserModal}
         onClose={() => setShowAddUserModal(false)}
@@ -2360,6 +2799,7 @@ export function Settings() {
               roleId: newUser.role_id,
               status: true,
               password: newUser.password,
+              auth_initial_doi: newUser.auth_initial_doi?.trim() || undefined,
             });
             setShowAddUserModal(false);
             await fetchUsersList();
@@ -2401,6 +2841,7 @@ export function Settings() {
               licenseNo: updatedUser.licenseNo || "",
               roleId: updatedUser.roleId,
               status: updatedUser.status === "active",
+              auth_initial_doi: updatedUser.auth_initial_doi ?? "",
             });
             setShowEditUserModal(false);
             setSelectedUser(null);
@@ -2505,6 +2946,7 @@ export function Settings() {
           setSelectedRoleForEdit(null);
         }}
         role={selectedRoleForEdit}
+        moduleList={modulesList.length > 0 ? modulesList : MODULE_PERMISSIONS_LIST.map((m) => ({ name: m.label, code: m.code }))}
         permissions={
           selectedRoleForEdit
             ? customPermissions[selectedRoleForEdit.name] ??

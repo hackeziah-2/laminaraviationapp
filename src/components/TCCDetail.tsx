@@ -19,7 +19,9 @@ import {
   type TCCMonitoring,
 } from "../api/tccMonitoringApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 export interface ComponentItem {
   id: number;
@@ -231,6 +233,7 @@ export function TCCDetailContent({
   aircraftId,
   showAddButton = true,
 }: TCCDetailContentProps) {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   /* Filter state: default to empty (All) or specific category */
   const [activeTab, setActiveTab] = useState<string>("");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -511,7 +514,7 @@ export function TCCDetailContent({
             </select>
           </div>
         </div>
-        {showAddButton && (
+        {showAddButton && canCreate("maintenance") && (
           <button
             type="button"
             onClick={openAddModal}
@@ -629,7 +632,7 @@ export function TCCDetailContent({
                     NEXT DUE
                   </th>
                   <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
-                    REFERENCE
+                    ATL REFERENCE
                   </th>
                   <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200 w-24">
                     Actions
@@ -825,22 +828,26 @@ export function TCCDetailContent({
                       {/* Actions: Edit, Delete */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 whitespace-nowrap">
                         <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(item)}
-                            className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
-                            title="Edit"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTCC(item)}
-                            className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canUpdate("maintenance") && (
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(item)}
+                              className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
+                          {canDelete("maintenance") && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTCC(item)}
+                              className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

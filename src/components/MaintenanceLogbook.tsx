@@ -59,8 +59,10 @@ import {
   type Mechanic,
 } from "../api/logbooksApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { snakeAllKeys } from "../utility/utils";
 import apiClient from "../api/index";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface LogEntry {
   id: number;
@@ -155,6 +157,7 @@ function getMechanicDisplay(
 export function MaintenanceLogbook() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
   const handleBack = () => {
@@ -556,7 +559,8 @@ export function MaintenanceLogbook() {
 
   // Component records (for Airframe, Avionics, Engine – Create/Update/Read) – matches backend component_parts schema
   interface ComponentRecordRow {
-    id: string;
+    id: string; // for UI list keys
+    dbId?: number; // the real backend ID
     qty: string;
     unit: string;
     nomenclature: string;
@@ -873,6 +877,7 @@ export function MaintenanceLogbook() {
               const sn = p as unknown as Record<string, unknown>;
               return {
                 id: `cr-edit-${i}-${p.id ?? i}`,
+                dbId: p.id,
                 qty: String(p.qty ?? ""),
                 unit: p.unit ?? "",
                 nomenclature: p.nomenclature ?? "",
@@ -1135,19 +1140,25 @@ export function MaintenanceLogbook() {
         activeCategory === "ENGINE";
       // Backend schema: qty (number), unit, nomenclature, removed_part_no, removed_serial_no, installed_part_no, installed_serial_no, ata_chapter
       const componentPartsPayload = isComponentCategory
-        ? componentRecords.map((r) => ({
-            qty: (() => {
-              const n = parseFloat(r.qty);
-              return Number.isFinite(n) ? n : 0;
-            })(),
-            unit: r.unit || "",
-            nomenclature: r.nomenclature || "",
-            removed_part_no: r.removedPartNo || "",
-            removed_serial_no: r.removedSerialNo || "",
-            installed_part_no: r.installedPartNo || "",
-            installed_serial_no: r.installedSerialNo || "",
-            ata_chapter: r.ataChapter || "",
-          }))
+        ? componentRecords.map((r) => {
+            const payload: Record<string, any> = {
+              qty: (() => {
+                const n = parseFloat(r.qty);
+                return Number.isFinite(n) ? n : 0;
+              })(),
+              unit: r.unit || "",
+              nomenclature: r.nomenclature || "",
+              removed_part_no: r.removedPartNo || "",
+              removed_serial_no: r.removedSerialNo || "",
+              installed_part_no: r.installedPartNo || "",
+              installed_serial_no: r.installedSerialNo || "",
+              ata_chapter: r.ataChapter || "",
+            };
+            if (r.dbId !== undefined) {
+              payload.id = r.dbId;
+            }
+            return payload;
+          })
         : [];
 
       if (isComponentCategory) {
@@ -1325,13 +1336,15 @@ export function MaintenanceLogbook() {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <button
-            onClick={() => setShowAddEntryModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            Add Entry
-          </button>
+          {canCreate("logbook") && (
+            <button
+              onClick={() => setShowAddEntryModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              Add Entry
+            </button>
+          )}
         </div>
       </div>
 
@@ -1445,26 +1458,30 @@ export function MaintenanceLogbook() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEdit(entry.id);
-                              }}
-                              className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(entry.id);
-                              }}
-                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canUpdate("logbook") && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEdit(entry.id);
+                                }}
+                                className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete("logbook") && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(entry.id);
+                                }}
+                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1475,67 +1492,15 @@ export function MaintenanceLogbook() {
             </div>
 
             {/* Pagination */}
-            <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">Items per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    disabled={loading}
-                    className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </div>
-                <div className="text-sm text-gray-700">
-                  Showing page {currentPage} of {totalPages} ({totalRecords}{" "}
-                  total records)
-                </div>
-              </div>
-              {totalPages > 1 && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                    disabled={currentPage === 1 || loading}
-                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Previous
-                  </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                    (page) => (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        disabled={loading}
-                        className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                          currentPage === page
-                            ? "bg-blue-600 text-white"
-                            : "text-gray-700 hover:text-gray-900 hover:bg-gray-100"
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        {page}
-                      </button>
-                    )
-                  )}
-                  <button
-                    onClick={() =>
-                      setCurrentPage(Math.min(totalPages, currentPage + 1))
-                    }
-                    disabled={currentPage === totalPages || loading}
-                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalRecords}
+              totalLabel="records"
+              onPageChange={setCurrentPage}
+              showRangeText={true}
+              disabled={loading}
+            />
           </>
         )}
       </div>
@@ -3454,14 +3419,17 @@ export function MaintenanceLogbook() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSaveEntry}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving && <Loader className="w-4 h-4 animate-spin" />}
-                {editingEntry ? "Update Entry" : "Save Entry"}
-              </button>
+              {((!editingEntry && canCreate("logbook")) ||
+                (editingEntry && canUpdate("logbook"))) && (
+                <button
+                  onClick={handleSaveEntry}
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSaving && <Loader className="w-4 h-4 animate-spin" />}
+                  {editingEntry ? "Update Entry" : "Save Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>

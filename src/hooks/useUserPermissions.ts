@@ -14,8 +14,9 @@ export interface UserPermissionsState {
   loading: boolean;
   error: string | null;
   canAccess: (moduleCode: string) => boolean;
-  canWrite: (moduleCode: string) => boolean;
-  canApprove: (moduleCode: string) => boolean;
+  canCreate: (moduleCode: string) => boolean;
+  canUpdate: (moduleCode: string) => boolean;
+  canDelete: (moduleCode: string) => boolean;
   refetch: () => Promise<void>;
 }
 
@@ -32,8 +33,12 @@ function matchPermission(
 }
 
 /**
- * Load current user and their role's permissions. Use for Sidebar filtering and route guards.
- * If backend does not return role permissions, all modules are allowed (fallback).
+ * Load current user and their role's permissions. Use for Sidebar filtering, route guards, and UI:
+ * - read (canAccess): ProtectedRoute shows no list when read is false for the module.
+ * - create (canCreate): hide Add/Create actions.
+ * - update (canUpdate): hide Edit/Update actions.
+ * - delete (canDelete): hide Delete actions.
+ * If the backend returns no permission rows, read/create/update/delete checks stay permissive for access (fallback).
  */
 export function useUserPermissions(): UserPermissionsState {
   const [user, setUser] = useState<authApi.AuthUser | null>(null);
@@ -46,16 +51,32 @@ export function useUserPermissions(): UserPermissionsState {
     setError(null);
     try {
       const me = await authApi.getMe();
-      setUser(me);
-
       let roleId = me.roleId;
-      if (roleId == null || roleId === 0) {
+      let userOut = me;
+
+      const needsRoleList =
+        (!me.role?.trim() && !!me.roleId) ||
+        roleId == null ||
+        roleId === 0;
+
+      if (needsRoleList) {
         const roles = await rolesApi.getRoles();
-        const byName = roles.find(
-          (r) => r.name.toLowerCase() === (me.role || "").toLowerCase()
-        );
-        roleId = byName?.id ?? 0;
+        if (!me.role?.trim() && me.roleId) {
+          const byId = roles.find((r) => r.id === me.roleId);
+          if (byId?.name?.trim()) {
+            userOut = { ...me, role: byId.name.trim(), roleId: me.roleId };
+          }
+        }
+        if (roleId == null || roleId === 0) {
+          const byName = roles.find(
+            (r) =>
+              r.name.toLowerCase() === (userOut.role || "").toLowerCase()
+          );
+          roleId = byName?.id ?? 0;
+        }
       }
+
+      setUser(userOut);
 
       if (roleId) {
         const perms = await rolesApi.getRolePermissions(roleId);
@@ -85,15 +106,21 @@ export function useUserPermissions(): UserPermissionsState {
     [permissions, loading]
   );
 
-  const canWrite = useCallback(
+  const canCreate = useCallback(
     (moduleCode: string) =>
-      matchPermission(permissions, moduleCode, (p) => p.write),
+      matchPermission(permissions, moduleCode, (p) => p.create),
     [permissions]
   );
 
-  const canApprove = useCallback(
+  const canUpdate = useCallback(
     (moduleCode: string) =>
-      matchPermission(permissions, moduleCode, (p) => p.approve),
+      matchPermission(permissions, moduleCode, (p) => p.update),
+    [permissions]
+  );
+
+  const canDelete = useCallback(
+    (moduleCode: string) =>
+      matchPermission(permissions, moduleCode, (p) => p.delete),
     [permissions]
   );
 
@@ -103,8 +130,9 @@ export function useUserPermissions(): UserPermissionsState {
     loading,
     error,
     canAccess,
-    canWrite,
-    canApprove,
+    canCreate,
+    canUpdate,
+    canDelete,
     refetch: load,
   };
 }

@@ -1,5 +1,5 @@
 import apiClient from "./index";
-import { toCamel } from "../utility/utils";
+import { toCamel, toCamelDeep } from "../utility/utils";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -115,6 +115,20 @@ export interface AircraftTechnicalLog {
   createdBy?: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** Per-row component times as shown on Operation ATL list (client-computed when API omits cumulative fields). */
+export interface AtlListViewComputedComponentTimes {
+  airframeRunTime: number | null;
+  airframeAftt: number | null;
+  engineRunTime: number | null;
+  engineTsn: number | null;
+  engineTso: number | null;
+  engineTbo: number | null;
+  propellerRunTime: number | null;
+  propellerTsn: number | null;
+  propellerTso: number | null;
+  propellerTbo: number | null;
 }
 
 export interface AircraftTechnicalLogCreate {
@@ -252,6 +266,7 @@ export interface AircraftTechnicalLogSearchAircraft {
 export interface AircraftTechnicalLogSearchResult {
   sequenceNo: string;
   aircraft: AircraftTechnicalLogSearchAircraft;
+  natureOfFlight?: string;
 }
 
 // CRUD Operations
@@ -264,7 +279,8 @@ export const getAircraftTechnicalLogs = async (
   limit = 10,
   search = "",
   aircraftFk?: number,
-  sort = ""
+  sort = "",
+  workStatus?: string
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
@@ -283,6 +299,10 @@ export const getAircraftTechnicalLogs = async (
       params.append("sort", sort);
     }
 
+    if (workStatus != null && workStatus.trim() !== "") {
+      params.append("work_status", workStatus.trim());
+    }
+
     const response = await apiClient.get(
       `aircraft-technical-log/paged?${params.toString()}`
     );
@@ -296,7 +316,6 @@ export const getAircraftTechnicalLogs = async (
         const result: any = {};
         for (const key in obj) {
           const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          console.log(camel, "camelcamelcamelcamel");
           result[camel] = transformToCamel(obj[key]);
         }
         return result;
@@ -327,25 +346,9 @@ export const getAircraftTechnicalLogById = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const response = await apiClient.get(`aircraft-technical-log/${logId}`);
+    const raw = response.data?.data ?? response.data;
 
-    // Transform the response to camelCase (recursively handle nested objects and arrays)
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          result[camel] = transformToCamel(obj[key]);
-        }
-        console.log(result);
-        return result;
-      }
-      return obj;
-    };
-
-    return transformToCamel(response.data);
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
@@ -396,6 +399,8 @@ export const searchAircraftTechnicalLogBySequence = async (
         sequenceNo:
           item.sequence_no ?? item.sequenceNo ?? item.sequence_number ?? "",
         aircraft: aircraftObj,
+        natureOfFlight:
+          item.nature_of_flight ?? item.natureOfFlight ?? undefined,
       };
     });
   } catch (error) {
@@ -421,8 +426,7 @@ export const createAircraftTechnicalLog = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const hasFiles =
-      files &&
-      (files.whiteAtl instanceof File || files.dfp instanceof File);
+      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
       const formData = new FormData();
       formData.append("json_data", JSON.stringify(data));
@@ -432,10 +436,14 @@ export const createAircraftTechnicalLog = async (
       if (files.dfp instanceof File) {
         formData.append("dfp", files.dfp);
       }
-      const response = await apiClient.post("aircraft-technical-log/", formData, {
-        headers: { Accept: "application/json" },
-        // Do not set Content-Type — browser sets multipart/form-data with boundary
-      });
+      const response = await apiClient.post(
+        "aircraft-technical-log/",
+        formData,
+        {
+          headers: { Accept: "application/json" },
+          // Do not set Content-Type — browser sets multipart/form-data with boundary
+        }
+      );
       return toCamel(response.data);
     }
     const response = await apiClient.post("aircraft-technical-log/", data);
@@ -473,8 +481,7 @@ export const updateAircraftTechnicalLog = async (
     };
 
     const hasFiles =
-      files &&
-      (files.whiteAtl instanceof File || files.dfp instanceof File);
+      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
       const formData = new FormData();
       formData.append("json_data", JSON.stringify(data));

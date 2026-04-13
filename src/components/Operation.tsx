@@ -1,4 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -23,6 +29,7 @@ import {
   deleteAircraftTechnicalLog,
   importAircraftTechnicalLogExcel,
   AircraftTechnicalLog,
+  type AtlListViewComputedComponentTimes,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
@@ -30,12 +37,27 @@ import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import {
-  toCamel,
+  toCamelDeep,
   formatTimeZulu,
-  computeTotalBlockTime,
-  computeTotalFlightHoursDecimal,
+  computeTotalBlockTimeFromUtc,
+  computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
+import {
+  getMissingAircraftFieldsForNewAtl,
+  buildAircraftDetailsRequiredForAtlHtml,
+  ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+  resolveAircraftEnginePropHour,
+} from "../utility/atlAircraftPrerequisites";
+import {
+  ATL_WORK_STATUS_KEYS,
+  isAtlEditAllowedForRoleAndWorkStatus,
+  isTechnicalPublicationRole,
+  normalizeAtlWorkStatus,
+  type AtlWorkStatusKey,
+} from "../utility/atlEditRbac";
 import { getAllAccounts, Account } from "../api/accountApi";
+import { getMe } from "../api/authApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 type GroupByOption =
   | "allColumns"
@@ -48,10 +70,88 @@ const STICKY_SEQ_CLASS =
 const STICKY_SEQ_CELL_CLASS =
   "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
 
+/** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
+function formatFleetWorkStatus(status: string | undefined): string {
+  if (!status || status.trim() === "") return "-";
+  return status.replace(/_/g, " ");
+}
+
+const FLEET_WORK_STATUS_BASE_TD =
+  "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
+
+/** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
+const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
+  FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
+  REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
+  APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
+  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
+  REJECTED_QUALITY: { backgroundColor: "#fff1f2", color: "#9f1239" },
+  PENDING: { backgroundColor: "#f5f3ff", color: "#5b21b6" },
+  COMPLETED: { backgroundColor: "#f0fdf4", color: "#166534" },
+};
+
+function getFleetWorkStatusCellProps(status: string | undefined): {
+  className: string;
+  style: CSSProperties | undefined;
+} {
+  const key = normalizeAtlWorkStatus(status);
+  if (!key) {
+    return {
+      className: `${FLEET_WORK_STATUS_BASE_TD} bg-white text-gray-900`,
+      style: undefined,
+    };
+  }
+  return {
+    className: FLEET_WORK_STATUS_BASE_TD,
+    style: FLEET_WORK_STATUS_STYLE[key],
+  };
+}
+
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
+
+  /** Role name from GET /auth/me — aligns ATL edit RBAC with login session (same as Edit modal). */
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const operationAtlRole = useMemo(
+    () => sessionRoleName || user?.role?.trim() || undefined,
+    [sessionRoleName, user?.role]
+  );
+
+  const operationTechPubUploadOnly =
+    isTechnicalPublicationRole(operationAtlRole);
+
+  const canCreateOperationAtl =
+    canCreate("operation") || canCreate("logbook");
+  const canUpdateOperationAtl =
+    canUpdate("operation") || canUpdate("logbook");
+  const canDeleteOperationAtl =
+    canDelete("operation") || canDelete("logbook");
+  const operationAtlPermissionModuleCode = canUpdate("operation")
+    ? "operation"
+    : "logbook";
+
+  const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
+    isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
 
   const handleBack = () => {
     navigate("/profile");
@@ -87,11 +187,14 @@ export function Operation() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error("Download error:", err);
-      alert(
-        err?.response?.data?.detail ||
+      await Swal.fire({
+        icon: "error",
+        title: "Download failed",
+        text:
+          err?.response?.data?.detail ||
           err?.message ||
-          "Failed to download file."
-      );
+          "Failed to download file.",
+      });
     }
   };
 
@@ -168,9 +271,14 @@ export function Operation() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedEntry, setSelectedEntry] =
     useState<AircraftTechnicalLog | null>(null);
+  /** Row’s list-computed component times (TSN/TSO, etc.) passed into Edit so the form matches the grid. */
+  const [editListComputedTimes, setEditListComputedTimes] =
+    useState<AtlListViewComputedComponentTimes | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [searchQuery, setSearchQuery] = useState("");
+  /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
+  const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
     AircraftTechnicalLog[]
   >([]);
@@ -209,19 +317,22 @@ export function Operation() {
     const run =
       computed?.airframeRunTime != null
         ? Number(computed.airframeRunTime).toFixed(2)
-        : (r as any).airframe?.hrsTime != null || (r as any).airframe?.run != null
-          ? toFormat2(Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run))
-          : r.airframeRunTime != null || r.airframeTotalTime != null
-            ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
-            : (r as any).airframeRun != null
-              ? toFormat2(Number((r as any).airframeRun))
-              : "-";
+        : (r as any).airframe?.hrsTime != null ||
+          (r as any).airframe?.run != null
+        ? toFormat2(
+            Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run)
+          )
+        : r.airframeRunTime != null || r.airframeTotalTime != null
+        ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
+        : (r as any).airframeRun != null
+        ? toFormat2(Number((r as any).airframeRun))
+        : "-";
     const aftt =
       computed?.airframeAftt != null
         ? Number(computed.airframeAftt).toFixed(2)
         : r.airframeAftt != null || (r as any).airframeTotalTime != null
-          ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
-          : "-";
+        ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
+        : "-";
     return `${run} / ${aftt}`;
   };
   const getEngineDisplay = (
@@ -232,30 +343,32 @@ export function Operation() {
       computed?.engineRunTime != null
         ? Number(computed.engineRunTime).toFixed(2)
         : (r as any).engine?.hrsTime != null || (r as any).engine?.run != null
-          ? toFormat2(Number((r as any).engine?.hrsTime ?? (r as any).engine?.run))
-          : r.engineRunTime != null || r.engineTotalTime != null
-            ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
-            : (r as any).engineRun != null
-              ? toFormat2(Number((r as any).engineRun))
-              : "-";
+        ? toFormat2(
+            Number((r as any).engine?.hrsTime ?? (r as any).engine?.run)
+          )
+        : r.engineRunTime != null || r.engineTotalTime != null
+        ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
+        : (r as any).engineRun != null
+        ? toFormat2(Number((r as any).engineRun))
+        : "-";
     const tsn =
       computed?.engineTsn != null
         ? Number(computed.engineTsn).toFixed(2)
         : (r as any).engine?.tsn != null || r.engineTsn != null
-          ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
-          : "-";
+        ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
+        : "-";
     const tso =
       computed?.engineTso != null
         ? Number(computed.engineTso).toFixed(2)
         : (r as any).engine?.tso != null || r.engineTso != null
-          ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
-          : "-";
+        ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
+        : "-";
     const tbo =
       computed?.engineTbo != null
         ? Number(computed.engineTbo).toFixed(2)
         : (r as any).engine?.tbo != null || r.engineTbo != null
-          ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
-          : "-";
+        ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
+        : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
   const getPropellerDisplay = (
@@ -265,31 +378,34 @@ export function Operation() {
     const run =
       computed?.propellerRunTime != null
         ? Number(computed.propellerRunTime).toFixed(2)
-        : (r as any).propeller?.hrsTime != null || (r as any).propeller?.run != null
-          ? toFormat2(Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run))
-          : r.propellerRunTime != null || r.propellerTotalTime != null
-            ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
-            : (r as any).propellerRun != null
-              ? toFormat2(Number((r as any).propellerRun))
-              : "-";
+        : (r as any).propeller?.hrsTime != null ||
+          (r as any).propeller?.run != null
+        ? toFormat2(
+            Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run)
+          )
+        : r.propellerRunTime != null || r.propellerTotalTime != null
+        ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
+        : (r as any).propellerRun != null
+        ? toFormat2(Number((r as any).propellerRun))
+        : "-";
     const tsn =
       computed?.propellerTsn != null
         ? Number(computed.propellerTsn).toFixed(2)
         : (r as any).propeller?.tsn != null || r.propellerTsn != null
-          ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
-          : "-";
+        ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
+        : "-";
     const tso =
       computed?.propellerTso != null
         ? Number(computed.propellerTso).toFixed(2)
         : (r as any).propeller?.tso != null || r.propellerTso != null
-          ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
-          : "-";
+        ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
+        : "-";
     const tbo =
       computed?.propellerTbo != null
         ? Number(computed.propellerTbo).toFixed(2)
         : (r as any).propeller?.tbo != null || r.propellerTbo != null
-          ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
-          : "-";
+        ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
+        : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
 
@@ -299,7 +415,7 @@ export function Operation() {
       if (!aircraftId) return;
       try {
         const response = await getAircraftById(aircraftId);
-        setAircraft(toCamel(response.data));
+        setAircraft(toCamelDeep(response.data) as Aircraft);
       } catch (err) {
         console.error("Error fetching aircraft:", err);
       }
@@ -340,7 +456,8 @@ export function Operation() {
           itemsPerPage,
           searchQuery,
           aircraftId,
-          sortParam
+          sortParam,
+          workStatusFilter || undefined
         );
         setFleetTimeRecords(response.items);
         setTotalRecords(response.total);
@@ -362,12 +479,13 @@ export function Operation() {
     searchQuery,
     refreshKey,
     sequenceSort,
+    workStatusFilter,
   ]);
 
-  // Reset to page 1 when search query changes
+  // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [searchQuery, workStatusFilter]);
 
   const paginatedRecords = fleetTimeRecords;
 
@@ -425,8 +543,7 @@ export function Operation() {
       let airframeAftt: number | null;
       if (i === 0) {
         airframeAftt =
-          toNum(r.airframeAftt) ??
-          (airframeRun != null ? airframeRun : null);
+          toNum(r.airframeAftt) ?? (airframeRun != null ? airframeRun : null);
       } else {
         const prev = list[i - 1];
         airframeAftt =
@@ -501,9 +618,15 @@ export function Operation() {
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
     console.log("Adding record to reliability tracking:", record);
-    alert(
-      `Record #${record.sequenceNo ?? record.id} added to reliability tracking`
-    );
+    Swal.fire({
+      icon: "success",
+      title: "Added",
+      text: `Record #${
+        record.sequenceNo ?? record.id
+      } added to reliability tracking`,
+      timer: 2000,
+      showConfirmButton: false,
+    });
   };
 
   const handleSeeReliability = (record: AircraftTechnicalLog) => {
@@ -599,10 +722,11 @@ export function Operation() {
           itemsPerPage,
           searchQuery,
           aircraftId,
-          sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
+          sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+          workStatusFilter || undefined
         ),
       ]);
-      setAircraft(toCamel(aircraftRes.data));
+      setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
       setFleetTimeRecords(recordsRes.items);
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
@@ -618,8 +742,8 @@ export function Operation() {
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <button
             onClick={handleBack}
             className="p-2 hover:bg-gray-100 rounded transition-colors"
@@ -672,6 +796,30 @@ export function Operation() {
                         )
                       : "-"}
                   </span>
+                  <span>
+                    Engine TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTso")
+                    )}
+                  </span>
+                  <span>
+                    Engine TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTsn")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTso")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
+                    )}
+                  </span>
                 </div>
               )}
             </div>
@@ -683,7 +831,9 @@ export function Operation() {
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Refresh list and recalculate computed values"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                />
                 <span className="hidden sm:inline">Refresh</span>
               </button>
               <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
@@ -694,56 +844,55 @@ export function Operation() {
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              <input
-                type="file"
-                ref={importFileInputRef}
-                onChange={handleImportFileChange}
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                aria-label="Import ATL from Excel"
-              />
-              <button
-                type="button"
-                onClick={handleImportClick}
-                disabled={importLoading}
-                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Import Aircraft Technical Log from Excel"
-              >
-                <Upload className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`} />
-                <span className="hidden sm:inline">{importLoading ? "Importing…" : "Import"}</span>
-              </button>
-              <button
-                onClick={() => {
-                  const engineLimit =
-                    aircraft?.engineLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_engine;
-                  const propellerLimit =
-                    aircraft?.propellerLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_propeller;
-                  const engineMissing =
-                    engineLimit == null ||
-                    engineLimit === "" ||
-                    Number(engineLimit) === 0;
-                  const propellerMissing =
-                    propellerLimit == null ||
-                    propellerLimit === "" ||
-                    Number(propellerLimit) === 0;
-                  if (engineMissing || propellerMissing) {
-                    Swal.fire({
-                      icon: "warning",
-                      title: "Aircraft limits required",
-                      html: "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating an ATL entry.<br/><br/>",
-                      confirmButtonColor: "#2563eb",
-                    });
-                    return;
-                  }
-                  setShowAddRecordModal(true);
-                }}
-                className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add Record</span>
-              </button>
+              {canCreateOperationAtl && (
+                <>
+                  <input
+                    type="file"
+                    ref={importFileInputRef}
+                    onChange={handleImportFileChange}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    aria-label="Import ATL from Excel"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImportClick}
+                    disabled={importLoading}
+                    className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Import Aircraft Technical Log from Excel"
+                  >
+                    <Upload
+                      className={`w-4 h-4 ${
+                        importLoading ? "animate-pulse" : ""
+                      }`}
+                    />
+                    <span className="hidden sm:inline">
+                      {importLoading ? "Importing…" : "Import"}
+                    </span>
+                  </button>
+                </>
+              )}
+              {canCreateOperationAtl && (
+                <button
+                  onClick={() => {
+                    const missing = getMissingAircraftFieldsForNewAtl(aircraft);
+                    if (missing.length > 0) {
+                      Swal.fire({
+                        icon: "warning",
+                        title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                        html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
+                        confirmButtonColor: "#2563eb",
+                      });
+                      return;
+                    }
+                    setShowAddRecordModal(true);
+                  }}
+                  className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add Record</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -807,6 +956,27 @@ export function Operation() {
               </div>
               <div className="flex items-center gap-2">
                 <label
+                  htmlFor="fleet-work-status"
+                  className="text-gray-700 text-sm font-medium whitespace-nowrap"
+                >
+                  Work Status
+                </label>
+                <select
+                  id="fleet-work-status"
+                  value={workStatusFilter}
+                  onChange={(e) => setWorkStatusFilter(e.target.value)}
+                  className="px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 min-w-[200px]"
+                >
+                  <option value="">All</option>
+                  {ATL_WORK_STATUS_KEYS.map((key) => (
+                    <option key={key} value={key}>
+                      {formatFleetWorkStatus(key)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label
                   htmlFor="group-by"
                   className="text-gray-700 text-sm font-medium whitespace-nowrap"
                 >
@@ -850,11 +1020,17 @@ export function Operation() {
                         setLoading(true);
                         setError(null);
                         try {
+                          const sortParam =
+                            sequenceSort === "asc"
+                              ? "sequence_no"
+                              : "-sequence_no";
                           const response = await getAircraftTechnicalLogs(
                             currentPage,
                             itemsPerPage,
                             searchQuery,
-                            aircraftId
+                            aircraftId,
+                            sortParam,
+                            workStatusFilter || undefined
                           );
                           setFleetTimeRecords(response.items);
                           setTotalRecords(response.total);
@@ -906,6 +1082,14 @@ export function Operation() {
                                   <ChevronDown className="w-4 h-4 inline" />
                                 )}
                               </span>
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                            >
+                              WORK
+                              <br />
+                              STATUS
                             </th>
                             <th
                               rowSpan={2}
@@ -1184,7 +1368,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={50}
+                                colSpan={51}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -1214,27 +1398,62 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowEditModal(true);
-                                        }}
-                                        className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                        title="Edit"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => handleDeleteAtl(record)}
-                                        className="text-red-600 hover:underline text-xs"
-                                        title="Delete"
-                                      >
-                                        Delete
-                                      </button>
+                                      {(canUpdateOperationAtl ||
+                                        operationTechPubUploadOnly) && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              !allowAtlEditForRecord(record)
+                                            }
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setEditListComputedTimes(
+                                                computedEnginePropellerList[
+                                                  rowIndex
+                                                ] ?? null
+                                              );
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDeleteOperationAtl && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            onClick={() =>
+                                              handleDeleteAtl(record)
+                                            }
+                                            className="text-red-600 hover:underline text-xs"
+                                            title="Delete"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
+                                </td>
+                                <td
+                                  {...getFleetWorkStatusCellProps(
+                                    record.workStatus
+                                  )}
+                                >
+                                  {formatFleetWorkStatus(record.workStatus)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.natureOfFlight === "VOID"
@@ -1280,8 +1499,10 @@ export function Operation() {
                                   {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {computeTotalBlockTime(
+                                  {computeTotalBlockTimeFromUtc(
+                                    record.originDate,
                                     record.originTime,
+                                    record.destinationDate,
                                     record.destinationTime
                                   )}
                                 </td>
@@ -1335,7 +1556,8 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
                                     computedEnginePropellerList[rowIndex]
-                                      ?.airframeRunTime ?? record.airframeRunTime
+                                      ?.airframeRunTime ??
+                                      record.airframeRunTime
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
@@ -1371,7 +1593,8 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
                                     computedEnginePropellerList[rowIndex]
-                                      ?.propellerRunTime ?? record.propellerRunTime
+                                      ?.propellerRunTime ??
+                                      record.propellerRunTime
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
@@ -1722,7 +1945,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, rowIndex) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
@@ -1739,23 +1962,48 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {(canUpdateOperationAtl ||
+                                      operationTechPubUploadOnly) && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            !allowAtlEditForRecord(record)
+                                          }
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setEditListComputedTimes(
+                                              computedEnginePropellerList[
+                                                rowIndex
+                                              ] ?? null
+                                            );
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDeleteOperationAtl && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -1795,8 +2043,10 @@ export function Operation() {
                                   : ""}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTime(
+                                {computeTotalBlockTimeFromUtc(
+                                  record.originDate,
                                   record.originTime,
+                                  record.destinationDate,
                                   record.destinationTime
                                 )}
                               </td>
@@ -1830,27 +2080,54 @@ export function Operation() {
                   </div>
                 )}
 
-                {/* Maintenance Planning */}
+                {/* Maintenance Planning — separate columns: OFF BLOCKS, ON BLOCKS, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
                 {groupBy === "maintenancePlanning" && (
                   <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
-                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th className={`${STICKY_SEQ_CLASS} rounded-tl-lg`}>
+                            ATL SEQ
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             NATURE OF FLIGHT
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            OFF BLOCKS / ON BLOCKS
+
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DATE | OFF BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME (RUN / AFTT)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DATE | ON BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE (RUN / TSN / TSO / TBO)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME RUN
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER (RUN / TSN / TSO / TBO)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME AFTT
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE RUN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TSN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TSO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TBO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER RUN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER TSN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER TSO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap rounded-tr-lg">
+                            PROPELLER TBO
                           </th>
                         </tr>
                       </thead>
@@ -1858,98 +2135,189 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={6}
+                              colSpan={16}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
-                              <td className={STICKY_SEQ_CELL_CLASS}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">
-                                    {record.sequenceNo || "-"}
-                                  </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowViewModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      View
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                          paginatedRecords.map((record, rowIndex) => {
+                            const comp = computedEnginePropellerList[rowIndex];
+                            return (
+                              <tr key={record.id} className="hover:bg-gray-50">
+                                <td className={STICKY_SEQ_CELL_CLASS}>
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">
+                                      {record.sequenceNo || "-"}
+                                    </span>
+                                    <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedEntry(record);
+                                          setShowViewModal(true);
+                                        }}
+                                        className="hover:underline text-xs"
+                                      >
+                                        View
+                                      </button>
+                                      {(canUpdateOperationAtl ||
+                                        operationTechPubUploadOnly) && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              !allowAtlEditForRecord(record)
+                                            }
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setEditListComputedTimes(
+                                                comp ?? null
+                                              );
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDeleteOperationAtl && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            onClick={() =>
+                                              handleDeleteAtl(record)
+                                            }
+                                            className="text-red-600 hover:underline text-xs"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.originDate
-                                  ? new Date(record.originDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}{" "}
-                                /{" "}
-                                {record.destinationDate
-                                  ? new Date(record.destinationDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getEngineDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-sm">
-                                {getPropellerDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                            </tr>
-                          ))
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {record.natureOfFlight === "VOID"
+                                    ? "VOID"
+                                    : record.natureOfFlight?.trim()
+                                    ? record.natureOfFlight
+                                    : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                  {record.originDate
+                                    ? new Date(record.originDate)
+                                        .toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })
+                                        .replace(/ /g, "-")
+                                    : "-"}
+                                  {record.originTime
+                                    ? ` ${formatTimeZulu(record.originTime)}`
+                                    : ""}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                  {record.destinationDate
+                                    ? new Date(record.destinationDate)
+                                        .toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })
+                                        .replace(/ /g, "-")
+                                    : "-"}
+                                  {record.destinationTime
+                                    ? ` ${formatTimeZulu(
+                                        record.destinationTime
+                                      )}`
+                                    : ""}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.airframeRunTime != null
+                                    ? toFormat2(comp.airframeRunTime)
+                                    : getAirframeDisplay(record, comp)?.split(
+                                        " / "
+                                      )?.[0] ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.airframeAftt != null
+                                    ? toFormat2(comp.airframeAftt)
+                                    : getAirframeDisplay(record, comp)?.split(
+                                        " / "
+                                      )?.[1] ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineRunTime != null
+                                    ? toFormat2(comp.engineRunTime)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[0]
+                                        ?.replace("RUN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineTsn != null
+                                    ? toFormat2(comp.engineTsn)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[1]
+                                        ?.replace("TSN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineTso != null
+                                    ? toFormat2(comp.engineTso)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[2]
+                                        ?.replace("TSO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.engineTbo != null
+                                    ? toFormat2(comp.engineTbo)
+                                    : getEngineDisplay(record, comp)
+                                        ?.split(" / ")?.[3]
+                                        ?.replace("TBO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.propellerRunTime != null
+                                    ? toFormat2(comp.propellerRunTime)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[0]
+                                        ?.replace("RUN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.propellerTsn != null
+                                    ? toFormat2(comp.propellerTsn)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[1]
+                                        ?.replace("TSN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {comp?.propellerTso != null
+                                    ? toFormat2(comp.propellerTso)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[2]
+                                        ?.replace("TSO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm">
+                                  {comp?.propellerTbo != null
+                                    ? toFormat2(comp.propellerTbo)
+                                    : getPropellerDisplay(record, comp)
+                                        ?.split(" / ")?.[3]
+                                        ?.replace("TBO ", "") ?? "-"}
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -2014,23 +2382,48 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {(canUpdateOperationAtl ||
+                                      operationTechPubUploadOnly) && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            !allowAtlEditForRecord(record)
+                                          }
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setEditListComputedTimes(
+                                              computedEnginePropellerList[
+                                                rowIndex
+                                              ] ?? null
+                                            );
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDeleteOperationAtl && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -2048,8 +2441,10 @@ export function Operation() {
                                 )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTime(
+                                {computeTotalBlockTimeFromUtc(
+                                  record.originDate,
                                   record.originTime,
+                                  record.destinationDate,
                                   record.destinationTime
                                 )}
                               </td>
@@ -2216,6 +2611,7 @@ export function Operation() {
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={aircraftId}
+        permissionModuleCode={operationAtlPermissionModuleCode}
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -2229,12 +2625,18 @@ export function Operation() {
           onClose={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
+            setEditListComputedTimes(null);
           }}
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
+          permissionModuleCode={operationAtlPermissionModuleCode}
+          viewerRole={operationAtlRole}
+          editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
+          listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
+            setEditListComputedTimes(null);
             refreshPage();
           }}
         />
@@ -2258,8 +2660,10 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: `${computeTotalFlightHoursDecimal(
+            fltTime: `${computeTotalFlightHoursDecimalFromUtc(
+              selectedEntry.originDate,
               selectedEntry.originTime,
+              selectedEntry.destinationDate,
               selectedEntry.destinationTime
             ).toFixed(2)}h`,
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",

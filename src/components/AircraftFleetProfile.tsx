@@ -22,6 +22,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
 import { useAircrafts } from "../hooks/useAircrafts";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 import { AircraftForm } from "../types/Aircraft";
 import {
   createAircraft,
@@ -34,6 +35,7 @@ import { dateToday, snakeAllKeys } from "../utility/utils";
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
+  const { canAccess, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,11 +154,16 @@ export function AircraftFleetProfile() {
       });
       refresh();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail ?? err?.response?.data?.message ?? err?.message ?? "Import failed. Please try again.";
+      const msg =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Import failed. Please try again.";
+
       Swal.fire({
         icon: "error",
         title: "Import Failed",
-        text: msg,
+        text: "Failed in import file.",
         confirmButtonText: "OK",
       });
     } finally {
@@ -179,9 +186,6 @@ export function AircraftFleetProfile() {
       case "operation":
         navigate(`/profile/${aircraftId}/operation`);
         break;
-      case "document_on_board":
-        navigate(`/profile/${aircraftId}/document_on_board`);
-        break;
       default:
         navigate(`/profile/${aircraftId}`);
     }
@@ -200,11 +204,16 @@ export function AircraftFleetProfile() {
     setCurrentPage(1);
   };
 
-  const handleDeleteAircraft = async (ac: { id: number; registration?: string }) => {
+  const handleDeleteAircraft = async (ac: {
+    id: number;
+    registration?: string;
+  }) => {
     const result = await Swal.fire({
       icon: "warning",
       title: "Delete Aircraft",
-      html: `Are you sure you want to delete aircraft <strong>${ac.registration ?? ac.id}</strong>? This action cannot be undone.`,
+      html: `Are you sure you want to delete aircraft <strong>${
+        ac.registration ?? ac.id
+      }</strong>? This action cannot be undone.`,
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
       cancelButtonColor: "#6b7280",
@@ -223,8 +232,15 @@ export function AircraftFleetProfile() {
       });
       refresh();
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-      const msg = e?.response?.data?.detail ?? e?.response?.data?.message ?? e?.message ?? "Failed to delete aircraft.";
+      const e = err as {
+        response?: { data?: { detail?: string; message?: string } };
+        message?: string;
+      };
+      const msg =
+        e?.response?.data?.detail ??
+        e?.response?.data?.message ??
+        e?.message ??
+        "Failed to delete aircraft.";
       Swal.fire({
         icon: "error",
         title: "Delete Failed",
@@ -256,6 +272,9 @@ export function AircraftFleetProfile() {
     ownership: "",
     status: "Active",
 
+    // Aircraft Information
+    modelYear: "",
+
     // Airframe Information
     airframeServiceManual: "",
     airframeIpc: "",
@@ -264,11 +283,15 @@ export function AircraftFleetProfile() {
     engineModel: "",
     engineSerialNumber: "",
     engineLifeTimeLimit: "",
+    engineTsn: "",
+    engineTso: "",
 
     //  Propeller Information
     propellerModel: "",
     propellerSerialNumber: "",
     propellerLifeTimeLimit: "",
+    propellerTsn: "",
+    propellerTso: "",
 
     engineArc: null,
     propellerArc: null,
@@ -299,10 +322,18 @@ export function AircraftFleetProfile() {
     if (!form.model.trim()) newErrors.model = "Model is required";
     if (!form.msn.trim()) newErrors.msn = "MSN is required";
     if (!form.base.trim()) newErrors.base = "Base location is required";
-    if (form.engineLifeTimeLimit.trim() === "" || form.engineLifeTimeLimit == null)
-      newErrors.engineLifeTimeLimit = "Engine Life Time Limit (life_time_limit_engine) is required";
-    if (form.propellerLifeTimeLimit.trim() === "" || form.propellerLifeTimeLimit == null)
-      newErrors.propellerLifeTimeLimit = "Propeller Life Time Limit (life_time_limit_propeller) is required";
+    if (
+      form.engineLifeTimeLimit.trim() === "" ||
+      form.engineLifeTimeLimit == null
+    )
+      newErrors.engineLifeTimeLimit =
+        "Engine Life Time Limit (life_time_limit_engine) is required";
+    if (
+      form.propellerLifeTimeLimit.trim() === "" ||
+      form.propellerLifeTimeLimit == null
+    )
+      newErrors.propellerLifeTimeLimit =
+        "Propeller Life Time Limit (life_time_limit_propeller) is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -324,6 +355,36 @@ export function AircraftFleetProfile() {
         form.propellerLifeTimeLimit === ""
           ? null
           : parseFloat(form.propellerLifeTimeLimit),
+      modelYear:
+        form.modelYear === ""
+          ? null
+          : form.modelYear
+          ? parseInt(form.modelYear, 10)
+          : null,
+      engineTsn:
+        form.engineTsn === ""
+          ? null
+          : form.engineTsn
+          ? parseFloat(form.engineTsn)
+          : null,
+      engineTso:
+        form.engineTso === ""
+          ? null
+          : form.engineTso
+          ? parseFloat(form.engineTso)
+          : null,
+      propellerTsn:
+        form.propellerTsn === ""
+          ? null
+          : form.propellerTsn
+          ? parseFloat(form.propellerTsn)
+          : null,
+      propellerTso:
+        form.propellerTso === ""
+          ? null
+          : form.propellerTso
+          ? parseFloat(form.propellerTso)
+          : null,
     });
 
     // Append JSON data as string
@@ -354,14 +415,19 @@ export function AircraftFleetProfile() {
         base: "",
         ownership: "",
         status: "Active",
+        modelYear: "",
         airframeServiceManual: "",
         airframeIpc: "",
         engineModel: "",
         engineSerialNumber: "",
         engineLifeTimeLimit: "",
+        engineTsn: "",
+        engineTso: "",
         propellerModel: "",
         propellerSerialNumber: "",
         propellerLifeTimeLimit: "",
+        propellerTsn: "",
+        propellerTso: "",
         engineArc: null,
         propellerArc: null,
       });
@@ -410,7 +476,11 @@ export function AircraftFleetProfile() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error("Failed to generate report:", err);
-      alert(err.message || "Error generating report");
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: err.message || "Error generating report",
+      });
     } finally {
       // setLoading(false);
     }
@@ -468,26 +538,30 @@ export function AircraftFleetProfile() {
             className="hidden"
             onChange={handleImportExcel}
           />
-          <button
-            type="button"
-            onClick={() => importFileInputRef.current?.click()}
-            disabled={importLoading}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {importLoading ? (
-              <Loader className="w-4 h-4 text-gray-600 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4 text-gray-600" />
-            )}
-            <span className="text-gray-700 hidden sm:inline">Import</span>
-          </button>
-          <button
-            onClick={() => setShowAddAircraftModal(true)}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Add Aircraft</span>
-          </button>
+          {canCreate("profile") && (
+            <button
+              type="button"
+              onClick={() => importFileInputRef.current?.click()}
+              disabled={importLoading}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {importLoading ? (
+                <Loader className="w-4 h-4 text-gray-600 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 text-gray-600" />
+              )}
+              <span className="text-gray-700 hidden sm:inline">Import</span>
+            </button>
+          )}
+          {canCreate("profile") && (
+            <button
+              onClick={() => setShowAddAircraftModal(true)}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add Aircraft</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -568,20 +642,12 @@ export function AircraftFleetProfile() {
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
                       Status
                     </th>
-                    <th
-                      onClick={(e) => toggleSort("created_at", e.shiftKey)}
-                      className="cursor-pointer select-none px-6 py-3"
-                    >
-                      <div className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                        <b>CREATED AT</b>
-                        {renderSortIcon("created_at")}
-                      </div>
-                    </th>
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {Array.isArray(paginatedAircraft) && paginatedAircraft.length > 0 ? (
+                  {Array.isArray(paginatedAircraft) &&
+                  paginatedAircraft.length > 0 ? (
                     paginatedAircraft.map((ac) => (
                       <tr
                         key={ac?.id ?? Math.random()}
@@ -593,8 +659,12 @@ export function AircraftFleetProfile() {
                         <td className="px-6 py-3.5 text-gray-900">
                           {ac?.model ?? "-"}
                         </td>
-                        <td className="px-6 py-3.5 text-gray-600">{ac?.msn ?? "-"}</td>
-                        <td className="px-6 py-3.5 text-gray-900">{ac?.base ?? "-"}</td>
+                        <td className="px-6 py-3.5 text-gray-600">
+                          {ac?.msn ?? "-"}
+                        </td>
+                        <td className="px-6 py-3.5 text-gray-900">
+                          {ac?.base ?? "-"}
+                        </td>
 
                         <td className="px-6 py-3.5">
                           <span
@@ -604,9 +674,6 @@ export function AircraftFleetProfile() {
                           >
                             {ac?.status ?? "-"}
                           </span>
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {ac?.created_at ? String(ac.created_at).split("T")[0] : "-"}
                         </td>
                         <td className="px-6 py-3.5">
                           <div className="flex items-center gap-2">
@@ -620,27 +687,38 @@ export function AircraftFleetProfile() {
                               className="px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-700 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
                             >
                               <option value="">View</option>
-                              <option value="detail">
-                                General Information
-                              </option>
-                              <option value="operation">
-                                Fleet Time Monitoring
-                              </option>
-                              <option value="maintenance">Maintenance</option>
-                              <option value="logbook">
-                                Maintenance Logbook
-                              </option>
-                              <option value="document_on_board">
-                                Documents On Board
-                              </option>
+                              {canAccess("profile") && (
+                                <option value="detail">
+                                  General Information
+                                </option>
+                              )}
+                              {canAccess("operation") && (
+                                <option value="operation">
+                                  Fleet Time Monitoring
+                                </option>
+                              )}
+                              {canAccess("maintenance") && (
+                                <option value="maintenance">
+                                  Maintenance
+                                </option>
+                              )}
+                              {canAccess("logbook") && (
+                                <option value="logbook">
+                                  Maintenance Logbook
+                                </option>
+                              )}
                             </select>
-                            <button
-                              onClick={() => { if (ac?.id != null) handleDeleteAircraft(ac); }}
-                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canDelete("profile") && (
+                              <button
+                                onClick={() => {
+                                  if (ac?.id != null) handleDeleteAircraft(ac);
+                                }}
+                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -729,7 +807,9 @@ export function AircraftFleetProfile() {
 
                 <button
                   onClick={() =>
-                    setCurrentPage((prev) => Math.min(prev + 1, Math.max(1, totalPages)))
+                    setCurrentPage((prev) =>
+                      Math.min(prev + 1, Math.max(1, totalPages))
+                    )
                   }
                   disabled={totalPages === 0 || page >= totalPages}
                   className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
@@ -816,9 +896,9 @@ export function AircraftFleetProfile() {
                   </div>
                 </div>
 
-                {/* MSN & Registration Number */}
+                {/* MSN & Model Year */}
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
                         MSN (Required)
@@ -835,6 +915,25 @@ export function AircraftFleetProfile() {
                       {errors.msn && (
                         <p className="text-red-500 text-sm">{errors.msn}</p>
                       )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Model Year
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={4}
+                        value={form.modelYear}
+                        onChange={(e) => {
+                          const v = e.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, 4);
+                          handleChange("modelYear", v);
+                        }}
+                        placeholder="e.g., 2020"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
                     </div>
                   </div>
                 </div>
@@ -952,7 +1051,8 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Engine Life Time Limit <span className="text-red-500">*</span>
+                        Engine Life Time Limit{" "}
+                        <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -963,11 +1063,49 @@ export function AircraftFleetProfile() {
                           handleChange("engineLifeTimeLimit", e.target.value)
                         }
                         placeholder="e.g., 12000.50"
-                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${errors.engineLifeTimeLimit ? "border-red-500" : "border-gray-200"}`}
+                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${
+                          errors.engineLifeTimeLimit
+                            ? "border-red-500"
+                            : "border-gray-200"
+                        }`}
                       />
                       {errors.engineLifeTimeLimit && (
-                        <p className="text-red-500 text-xs mt-1">{errors.engineLifeTimeLimit}</p>
+                        <p className="text-red-500 text-xs mt-1">
+                          {errors.engineLifeTimeLimit}
+                        </p>
                       )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Engine TSN
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.engineTsn}
+                        onChange={(e) =>
+                          handleChange("engineTsn", e.target.value)
+                        }
+                        placeholder="Time Since New"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Engine TSO
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.engineTso}
+                        onChange={(e) =>
+                          handleChange("engineTso", e.target.value)
+                        }
+                        placeholder="Time Since Overhaul"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
                     </div>
                   </div>
                   <div>
@@ -1043,7 +1181,8 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Propeller Life Time Limit <span className="text-red-500">*</span>
+                        Propeller Life Time Limit{" "}
+                        <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="number"
@@ -1054,11 +1193,49 @@ export function AircraftFleetProfile() {
                           handleChange("propellerLifeTimeLimit", e.target.value)
                         }
                         placeholder="e.g., 8000.00"
-                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${errors.propellerLifeTimeLimit ? "border-red-500" : "border-gray-200"}`}
+                        className={`w-full px-3.5 py-2.5 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm ${
+                          errors.propellerLifeTimeLimit
+                            ? "border-red-500"
+                            : "border-gray-200"
+                        }`}
                       />
                       {errors.propellerLifeTimeLimit && (
-                        <p className="text-red-500 text-xs mt-1">{errors.propellerLifeTimeLimit}</p>
+                        <p className="text-red-500 text-xs mt-1">
+                          {errors.propellerLifeTimeLimit}
+                        </p>
                       )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Propeller TSN
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.propellerTsn}
+                        onChange={(e) =>
+                          handleChange("propellerTsn", e.target.value)
+                        }
+                        placeholder="Time Since New"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-sm mb-2">
+                        Propeller TSO
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.propellerTso}
+                        onChange={(e) =>
+                          handleChange("propellerTso", e.target.value)
+                        }
+                        placeholder="Time Since Overhaul"
+                        className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
+                      />
                     </div>
                   </div>
                   <div>
