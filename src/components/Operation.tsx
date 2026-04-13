@@ -140,6 +140,16 @@ export function Operation() {
   const operationTechPubUploadOnly =
     isTechnicalPublicationRole(operationAtlRole);
 
+  const canCreateOperationAtl =
+    canCreate("operation") || canCreate("logbook");
+  const canUpdateOperationAtl =
+    canUpdate("operation") || canUpdate("logbook");
+  const canDeleteOperationAtl =
+    canDelete("operation") || canDelete("logbook");
+  const operationAtlPermissionModuleCode = canUpdate("operation")
+    ? "operation"
+    : "logbook";
+
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
 
@@ -834,7 +844,7 @@ export function Operation() {
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              {canCreate("logbook") && (
+              {canCreateOperationAtl && (
                 <>
                   <input
                     type="file"
@@ -862,7 +872,7 @@ export function Operation() {
                   </button>
                 </>
               )}
-              {canCreate("logbook") && (
+              {canCreateOperationAtl && (
                 <button
                   onClick={() => {
                     const missing = getMissingAircraftFieldsForNewAtl(aircraft);
@@ -1388,7 +1398,7 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {(canUpdate("logbook") ||
+                                      {(canUpdateOperationAtl ||
                                         operationTechPubUploadOnly) && (
                                         <>
                                           <span className="text-gray-400">
@@ -1419,7 +1429,7 @@ export function Operation() {
                                           </button>
                                         </>
                                       )}
-                                      {canDelete("logbook") && (
+                                      {canDeleteOperationAtl && (
                                         <>
                                           <span className="text-gray-400">
                                             |
@@ -1952,7 +1962,7 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {(canUpdate("logbook") ||
+                                    {(canUpdateOperationAtl ||
                                       operationTechPubUploadOnly) && (
                                       <>
                                         <span className="text-gray-400">|</span>
@@ -1981,7 +1991,7 @@ export function Operation() {
                                         </button>
                                       </>
                                     )}
-                                    {canDelete("logbook") && (
+                                    {canDeleteOperationAtl && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -2151,7 +2161,7 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      {(canUpdate("logbook") ||
+                                      {(canUpdateOperationAtl ||
                                         operationTechPubUploadOnly) && (
                                         <>
                                           <span className="text-gray-400">
@@ -2180,7 +2190,7 @@ export function Operation() {
                                           </button>
                                         </>
                                       )}
-                                      {canDelete("logbook") && (
+                                      {canDeleteOperationAtl && (
                                         <>
                                           <span className="text-gray-400">
                                             |
@@ -2372,7 +2382,7 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    {(canUpdate("logbook") ||
+                                    {(canUpdateOperationAtl ||
                                       operationTechPubUploadOnly) && (
                                       <>
                                         <span className="text-gray-400">|</span>
@@ -2401,7 +2411,7 @@ export function Operation() {
                                         </button>
                                       </>
                                     )}
-                                    {canDelete("logbook") && (
+                                    {canDeleteOperationAtl && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -2601,7 +2611,7 @@ export function Operation() {
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={aircraftId}
-        permissionModuleCode="logbook"
+        permissionModuleCode={operationAtlPermissionModuleCode}
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -2619,7 +2629,7 @@ export function Operation() {
           }}
           entryId={selectedEntry.id}
           aircraftId={aircraftId}
-          permissionModuleCode="logbook"
+          permissionModuleCode={operationAtlPermissionModuleCode}
           viewerRole={operationAtlRole}
           editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
           listViewComputedTimes={editListComputedTimes}

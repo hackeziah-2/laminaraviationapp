@@ -108,12 +108,14 @@ export interface PaginatedAccountsResponse {
 export const getAccountsPaged = async (
   page = 1,
   limit = 10,
-  search = ""
+  search = "",
+  roles = ""
 ): Promise<PaginatedAccountsResponse> => {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("limit", String(limit));
   if (search.trim()) params.set("search", search.trim());
+  if (roles.trim()) params.set("roles", roles.trim());
   const response = await apiClient.get(`${BASE}/paged?${params.toString()}`);
   const raw = response.data ?? {};
   const data = raw.results ?? raw.items ?? raw.data ?? [];

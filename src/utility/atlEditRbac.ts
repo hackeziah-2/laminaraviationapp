@@ -2,7 +2,17 @@
  * ATL (Aircraft Technical Log) edit access by role and fleet work_status.
  * Work Status edit dropdown + edit gate use the logged-in user's role name (e.g. from GET /auth/me).
  *
- * Gated roles (exact allow lists):
+ * Gated roles use two related rule sets:
+ * - Current-status edit gate: whether the edit modal may open for the entry.
+ * - Dropdown targets: which work_status values the user may pick in the form.
+ *
+ * Current-status edit gate:
+ * - Maintenance Planner → APPROVED, AWAITING_ATTACHMENT
+ * - Maintenance Manager → FOR_REVIEW, APPROVED
+ * - Technical Publication → AWAITING_ATTACHMENT, PENDING
+ * - Quality Manager → PENDING
+ *
+ * Dropdown targets:
  * - Maintenance Planner → APPROVED, AWAITING_ATTACHMENT
  * - Maintenance Manager → FOR_REVIEW, APPROVED
  * - Technical Publication → AWAITING_ATTACHMENT, PENDING
@@ -110,7 +120,17 @@ function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
   return null;
 }
 
-const ATL_EDIT_ALLOWED_BY_ROLE: Record<
+const ATL_EDIT_OPEN_ALLOWED_BY_ROLE: Record<
+  AtlRbacRole,
+  ReadonlySet<AtlWorkStatusKey>
+> = {
+  maintenance_planner: new Set(["APPROVED", "AWAITING_ATTACHMENT"]),
+  maintenance_manager: new Set(["FOR_REVIEW", "APPROVED"]),
+  technical_publication: new Set(["AWAITING_ATTACHMENT", "PENDING"]),
+  quality_manager: new Set(["PENDING"]),
+};
+
+const ATL_EDIT_TARGET_ALLOWED_BY_ROLE: Record<
   AtlRbacRole,
   ReadonlySet<AtlWorkStatusKey>
 > = {
@@ -133,7 +153,7 @@ export function isAtlEditAllowedForRoleAndWorkStatus(
   if (!rbacRole) return true;
   const key = normalizeAtlWorkStatus(workStatus);
   if (!key) return false;
-  return ATL_EDIT_ALLOWED_BY_ROLE[rbacRole].has(key);
+  return ATL_EDIT_OPEN_ALLOWED_BY_ROLE[rbacRole].has(key);
 }
 
 /** Label for select options / display (underscores → spaces). */
@@ -169,7 +189,7 @@ export function getAtlWorkStatusDropdownKeysForRole(
   if (!rbacRole) return ATL_WORK_STATUS_KEYS;
 
   const allowed = ATL_WORK_STATUS_KEYS.filter((k) =>
-    ATL_EDIT_ALLOWED_BY_ROLE[rbacRole].has(k)
+    ATL_EDIT_TARGET_ALLOWED_BY_ROLE[rbacRole].has(k)
   );
 
   const cur = normalizeAtlWorkStatus(options?.currentWorkStatus);
