@@ -322,7 +322,7 @@ export function Maintenance() {
   }, [adSearchQuery]);
 
   const handleLdndCreateOrUpdate = async () => {
-    const type = String(newEntry.type).trim();
+    const type = String(newEntry.type).replace(/\r\n?/g, "\n").trim();
     if (!type) {
       await Swal.fire({
         icon: "warning",
@@ -384,6 +384,19 @@ export function Maintenance() {
       });
     } finally {
       setLdndSaving(false);
+    }
+  };
+
+  const handleLdndEnterKey = (
+    e:
+      | React.KeyboardEvent<HTMLInputElement>
+      | React.KeyboardEvent<HTMLSelectElement>
+      | React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (!ldndSaving) {
+      void handleLdndCreateOrUpdate();
     }
   };
 
@@ -1165,8 +1178,18 @@ export function Maintenance() {
                           style={{ backgroundColor: "#E8F5E9" }}
                           className="border-b border-gray-200"
                         >
-                          <td className="px-3 py-2 text-gray-900 text-sm">
-                            {item.type}
+                          <td className="px-3 py-2 text-gray-900 text-sm align-top">
+                            <div className="space-y-1">
+                              {String(item.type ?? "")
+                                .replace(/\r\n?/g, "\n")
+                                .split("\n")
+                                .filter((line) => line.trim() !== "")
+                                .map((line, index) => (
+                                  <div key={`${item.id}-type-${index}`}>
+                                    {line}
+                                  </div>
+                                ))}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.unit}
@@ -1513,15 +1536,21 @@ export function Maintenance() {
                     <label className="block text-gray-600 text-xs mb-1.5">
                       Type
                     </label>
-                    <input
-                      type="text"
+                    <textarea
                       value={newEntry.type}
                       onChange={(e) =>
                         setNewEntry({ ...newEntry, type: e.target.value })
                       }
-                      placeholder="e.g., 5H"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      rows={5}
+                      spellCheck={false}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[120px]"
                     />
+                    <div className="mt-2 space-y-1 text-xs text-gray-500">
+                      <p>
+                        Enter one value per line. Press Enter to create a new
+                        line and separate entries by Enter, not by comma.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -1543,6 +1572,7 @@ export function Maintenance() {
                             unit: e.target.value as "HRS" | "CYCLES",
                           })
                         }
+                        onKeyDown={handleLdndEnterKey}
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none cursor-pointer"
                         style={{
                           backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
@@ -1570,6 +1600,7 @@ export function Maintenance() {
                             lastDoneTachDue: e.target.value,
                           })
                         }
+                        onKeyDown={handleLdndEnterKey}
                         placeholder="Optional"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                       />
@@ -1588,6 +1619,7 @@ export function Maintenance() {
                             lastDoneTachDone: e.target.value,
                           })
                         }
+                        onKeyDown={handleLdndEnterKey}
                         placeholder="Optional"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                       />
@@ -1613,6 +1645,7 @@ export function Maintenance() {
                           performedDateStart: e.target.value,
                         })
                       }
+                      onKeyDown={handleLdndEnterKey}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -1637,6 +1670,7 @@ export function Maintenance() {
                           nextDueTachHours: e.target.value,
                         })
                       }
+                      onKeyDown={handleLdndEnterKey}
                       placeholder="Optional"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />

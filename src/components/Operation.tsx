@@ -5,7 +5,7 @@ import {
   useRef,
   type CSSProperties,
 } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
   Plus,
@@ -110,8 +110,13 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
-  const aircraftId = parseInt(id || "1");
+  const aircraftId = parseInt(id || "1", 10);
+  const navigationState = (location.state ?? {}) as {
+    aircraft_id?: number | string;
+    sequence_no?: string;
+  };
 
   /** Role name from GET /auth/me — aligns ATL edit RBAC with login session (same as Edit modal). */
   const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
@@ -276,7 +281,15 @@ export function Operation() {
     useState<AtlListViewComputedComponentTimes | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAircraftId, setSelectedAircraftId] = useState<number>(
+    Number.isFinite(aircraftId) ? aircraftId : 0
+  );
+  const [selectedSequenceNo, setSelectedSequenceNo] = useState<string>(
+    typeof navigationState.sequence_no === "string"
+      ? navigationState.sequence_no.trim()
+      : ""
+  );
+  const [searchQuery, setSearchQuery] = useState(selectedSequenceNo);
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
   const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
@@ -294,6 +307,33 @@ export function Operation() {
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
   const [importLoading, setImportLoading] = useState(false);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  const effectiveAircraftId =
+    Number.isFinite(selectedAircraftId) && selectedAircraftId > 0
+      ? selectedAircraftId
+      : aircraftId;
+
+  useEffect(() => {
+    if (Number.isFinite(aircraftId) && aircraftId > 0) {
+      setSelectedAircraftId(aircraftId);
+    }
+  }, [aircraftId]);
+
+  useEffect(() => {
+    const nextAircraftId = Number(navigationState.aircraft_id);
+    const normalizedAircraftId =
+      Number.isFinite(nextAircraftId) && nextAircraftId > 0
+        ? nextAircraftId
+        : aircraftId;
+    const nextSequenceNo =
+      typeof navigationState.sequence_no === "string"
+        ? navigationState.sequence_no.trim()
+        : "";
+
+    setSelectedAircraftId(normalizedAircraftId);
+    setSelectedSequenceNo(nextSequenceNo);
+    setSearchQuery(nextSequenceNo);
+    setCurrentPage(1);
+  }, [aircraftId, navigationState.aircraft_id, navigationState.sequence_no]);
 
   // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
   type ComputedRow =
@@ -412,16 +452,16 @@ export function Operation() {
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
-      if (!aircraftId) return;
+      if (!effectiveAircraftId) return;
       try {
-        const response = await getAircraftById(aircraftId);
+        const response = await getAircraftById(effectiveAircraftId);
         setAircraft(toCamelDeep(response.data) as Aircraft);
       } catch (err) {
         console.error("Error fetching aircraft:", err);
       }
     };
     fetchAircraft();
-  }, [aircraftId]);
+  }, [effectiveAircraftId]);
 
   // Fetch all accounts for lookup
   useEffect(() => {
@@ -444,7 +484,7 @@ export function Operation() {
   // Fetch ATL records from API
   useEffect(() => {
     const fetchRecords = async () => {
-      if (!aircraftId) return;
+      if (!effectiveAircraftId) return;
 
       setLoading(true);
       setError(null);
@@ -454,8 +494,8 @@ export function Operation() {
         const response = await getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
-          searchQuery,
-          aircraftId,
+          selectedSequenceNo,
+          effectiveAircraftId,
           sortParam,
           workStatusFilter || undefined
         );
@@ -473,10 +513,10 @@ export function Operation() {
 
     fetchRecords();
   }, [
-    aircraftId,
+    effectiveAircraftId,
     currentPage,
     itemsPerPage,
-    searchQuery,
+    selectedSequenceNo,
     refreshKey,
     sequenceSort,
     workStatusFilter,
@@ -485,7 +525,7 @@ export function Operation() {
   // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, workStatusFilter]);
+  }, [selectedSequenceNo, workStatusFilter]);
 
   const paginatedRecords = fleetTimeRecords;
 
@@ -681,10 +721,10 @@ export function Operation() {
   ) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !aircraftId) return;
+    if (!file || !effectiveAircraftId) return;
     setImportLoading(true);
     try {
-      await importAircraftTechnicalLogExcel(file, aircraftId);
+      await importAircraftTechnicalLogExcel(file, effectiveAircraftId);
       await refreshPage();
       await Swal.fire({
         icon: "success",
@@ -711,17 +751,17 @@ export function Operation() {
 
   // Refresh aircraft + records so list view recomputes (Engine TSN/TSO/TBO, Propeller, Airframe AFTT, etc.)
   const refreshPage = async () => {
-    if (!aircraftId) return;
+    if (!effectiveAircraftId) return;
     setLoading(true);
     setError(null);
     try {
       const [aircraftRes, recordsRes] = await Promise.all([
-        getAircraftById(aircraftId),
+        getAircraftById(effectiveAircraftId),
         getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
-          searchQuery,
-          aircraftId,
+          selectedSequenceNo,
+          effectiveAircraftId,
           sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
           workStatusFilter || undefined
         ),
@@ -942,12 +982,19 @@ export function Operation() {
                   type="text"
                   placeholder="Search by sequence number, tach time..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    const nextSequenceNo = e.target.value;
+                    setSearchQuery(nextSequenceNo);
+                    setSelectedSequenceNo(nextSequenceNo.trim());
+                  }}
                   className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSelectedSequenceNo("");
+                    }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     <X className="w-4 h-4" />
@@ -1016,7 +1063,7 @@ export function Operation() {
                       setCurrentPage(1);
                       // Trigger refetch
                       const fetchRecords = async () => {
-                        if (!aircraftId) return;
+                        if (!effectiveAircraftId) return;
                         setLoading(true);
                         setError(null);
                         try {
@@ -1027,8 +1074,8 @@ export function Operation() {
                           const response = await getAircraftTechnicalLogs(
                             currentPage,
                             itemsPerPage,
-                            searchQuery,
-                            aircraftId,
+                            selectedSequenceNo,
+                            effectiveAircraftId,
                             sortParam,
                             workStatusFilter || undefined
                           );
