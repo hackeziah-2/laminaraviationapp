@@ -271,10 +271,8 @@ export interface AircraftTechnicalLogSearchResult {
 
 // CRUD Operations
 
-/**
- * Get paginated list of Aircraft Technical Log entries
- */
-export const getAircraftTechnicalLogs = async (
+const fetchAircraftTechnicalLogs = async (
+  endpoint: string,
   page = 1,
   limit = 10,
   search = "",
@@ -303,9 +301,7 @@ export const getAircraftTechnicalLogs = async (
       params.append("work_status", workStatus.trim());
     }
 
-    const response = await apiClient.get(
-      `aircraft-technical-log/paged?${params.toString()}`
-    );
+    const response = await apiClient.get(`${endpoint}?${params.toString()}`);
 
     // Transform the response to camelCase (recursively handle nested objects and arrays)
     const transformToCamel = (obj: any): any => {
@@ -337,6 +333,48 @@ export const getAircraftTechnicalLogs = async (
     throw error;
   }
 };
+
+/**
+ * Get paginated list of Aircraft Technical Log entries for operation views
+ */
+export const getAircraftTechnicalLogs = async (
+  page = 1,
+  limit = 10,
+  search = "",
+  aircraftFk?: number,
+  sort = "",
+  workStatus?: string
+): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
+  fetchAircraftTechnicalLogs(
+    "aircraft-technical-log/paged",
+    page,
+    limit,
+    search,
+    aircraftFk,
+    sort,
+    workStatus
+  );
+
+/**
+ * Get paginated list of Aircraft Technical Log entries for manage/list views
+ */
+export const getManagedAircraftTechnicalLogs = async (
+  page = 1,
+  limit = 10,
+  search = "",
+  aircraftFk?: number,
+  sort = "",
+  workStatus?: string
+): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
+  fetchAircraftTechnicalLogs(
+    "aircraft-technical-log/manage/paged",
+    page,
+    limit,
+    search,
+    aircraftFk,
+    sort,
+    workStatus
+  );
 
 /**
  * Get a single Aircraft Technical Log entry by ID

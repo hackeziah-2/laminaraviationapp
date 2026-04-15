@@ -5,7 +5,7 @@ import {
   useRef,
   type CSSProperties,
 } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
   Plus,
@@ -35,6 +35,7 @@ import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
+import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
   toCamelDeep,
@@ -79,6 +80,28 @@ function formatFleetWorkStatus(status: string | undefined): string {
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
 
+type ComputedRow = {
+  airframeRunTime: number | null;
+  airframeAftt: number | null;
+  engineRunTime: number | null;
+  engineTsn: number | null;
+  engineTso: number | null;
+  engineTbo: number | null;
+  propellerRunTime: number | null;
+  propellerTsn: number | null;
+  propellerTso: number | null;
+  propellerTbo: number | null;
+};
+
+type ExportColumnDefinition = {
+  key: string;
+  label: string;
+  getValue: (
+    record: AircraftTechnicalLog,
+    computed: ComputedRow | undefined
+  ) => string;
+};
+
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
 const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
   FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
@@ -110,8 +133,13 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
-  const aircraftId = parseInt(id || "1");
+  const aircraftId = parseInt(id || "1", 10);
+  const navigationState = (location.state ?? {}) as {
+    aircraft_id?: number | string;
+    sequence_no?: string;
+  };
 
   /** Role name from GET /auth/me — aligns ATL edit RBAC with login session (same as Edit modal). */
   const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
@@ -276,7 +304,15 @@ export function Operation() {
     useState<AtlListViewComputedComponentTimes | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAircraftId, setSelectedAircraftId] = useState<number>(
+    Number.isFinite(aircraftId) ? aircraftId : 0
+  );
+  const [selectedSequenceNo, setSelectedSequenceNo] = useState<string>(
+    typeof navigationState.sequence_no === "string"
+      ? navigationState.sequence_no.trim()
+      : ""
+  );
+  const [searchQuery, setSearchQuery] = useState(selectedSequenceNo);
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
   const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
@@ -293,23 +329,41 @@ export function Operation() {
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
   const [importLoading, setImportLoading] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [selectedExportColumns, setSelectedExportColumns] = useState<string[]>(
+    []
+  );
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  const effectiveAircraftId =
+    Number.isFinite(selectedAircraftId) && selectedAircraftId > 0
+      ? selectedAircraftId
+      : aircraftId;
+
+  useEffect(() => {
+    if (Number.isFinite(aircraftId) && aircraftId > 0) {
+      setSelectedAircraftId(aircraftId);
+    }
+  }, [aircraftId]);
+
+  useEffect(() => {
+    const nextAircraftId = Number(navigationState.aircraft_id);
+    const normalizedAircraftId =
+      Number.isFinite(nextAircraftId) && nextAircraftId > 0
+        ? nextAircraftId
+        : aircraftId;
+    const nextSequenceNo =
+      typeof navigationState.sequence_no === "string"
+        ? navigationState.sequence_no.trim()
+        : "";
+
+    setSelectedAircraftId(normalizedAircraftId);
+    setSelectedSequenceNo(nextSequenceNo);
+    setSearchQuery(nextSequenceNo);
+    setCurrentPage(1);
+  }, [aircraftId, navigationState.aircraft_id, navigationState.sequence_no]);
 
   // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
-  type ComputedRow =
-    | {
-        airframeRunTime: number | null;
-        airframeAftt: number | null;
-        engineRunTime: number | null;
-        engineTsn: number | null;
-        engineTso: number | null;
-        engineTbo: number | null;
-        propellerRunTime: number | null;
-        propellerTsn: number | null;
-        propellerTso: number | null;
-        propellerTbo: number | null;
-      }
-    | undefined;
   const getAirframeDisplay = (
     r: AircraftTechnicalLog,
     computed?: ComputedRow
@@ -412,16 +466,16 @@ export function Operation() {
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
-      if (!aircraftId) return;
+      if (!effectiveAircraftId) return;
       try {
-        const response = await getAircraftById(aircraftId);
+        const response = await getAircraftById(effectiveAircraftId);
         setAircraft(toCamelDeep(response.data) as Aircraft);
       } catch (err) {
         console.error("Error fetching aircraft:", err);
       }
     };
     fetchAircraft();
-  }, [aircraftId]);
+  }, [effectiveAircraftId]);
 
   // Fetch all accounts for lookup
   useEffect(() => {
@@ -444,7 +498,7 @@ export function Operation() {
   // Fetch ATL records from API
   useEffect(() => {
     const fetchRecords = async () => {
-      if (!aircraftId) return;
+      if (!effectiveAircraftId) return;
 
       setLoading(true);
       setError(null);
@@ -454,8 +508,8 @@ export function Operation() {
         const response = await getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
-          searchQuery,
-          aircraftId,
+          selectedSequenceNo,
+          effectiveAircraftId,
           sortParam,
           workStatusFilter || undefined
         );
@@ -473,10 +527,10 @@ export function Operation() {
 
     fetchRecords();
   }, [
-    aircraftId,
+    effectiveAircraftId,
     currentPage,
     itemsPerPage,
-    searchQuery,
+    selectedSequenceNo,
     refreshKey,
     sequenceSort,
     workStatusFilter,
@@ -485,7 +539,7 @@ export function Operation() {
   // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, workStatusFilter]);
+  }, [selectedSequenceNo, workStatusFilter]);
 
   const paginatedRecords = fleetTimeRecords;
 
@@ -500,19 +554,48 @@ export function Operation() {
     const n = v != null && v !== "" ? Number(v) : null;
     return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
   };
-  const computedEnginePropellerList = useMemo(() => {
-    const list: Array<{
-      airframeRunTime: number | null;
-      airframeAftt: number | null;
-      engineRunTime: number | null;
-      engineTsn: number | null;
-      engineTso: number | null;
-      engineTbo: number | null;
-      propellerRunTime: number | null;
-      propellerTsn: number | null;
-      propellerTso: number | null;
-      propellerTbo: number | null;
-    }> = [];
+  const formatDisplayDate = (value?: string | null) =>
+    value
+      ? new Date(value)
+          .toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+          .replace(/ /g, "-")
+      : "-";
+
+  const getAccountDisplay = (accountId?: number | null) => {
+    if (!accountId || !accountsMap.has(accountId)) return "-";
+    const account = accountsMap.get(accountId)!;
+    return [account.fullName, account.licenseNo].filter(Boolean).join(" - ");
+  };
+
+  const getPilotDisplay = (record: AircraftTechnicalLog) => {
+    const pilotId = record.pilotAcceptedBy ?? record.pilotFk;
+    return getAccountDisplay(pilotId);
+  };
+
+  const getComponentRecordDisplay = (record: AircraftTechnicalLog) => {
+    if (!record.componentParts || record.componentParts.length === 0) return "-";
+    return record.componentParts
+      .map((part) =>
+        [
+          `Removed P/N: ${part.removedPartNo ?? "-"}`,
+          `Removed S/N: ${part.removedSerialNo ?? "-"}`,
+          `Installed P/N: ${part.installedPartNo ?? "-"}`,
+          `Installed S/N: ${part.installedSerialNo ?? "-"}`,
+          `Nomenclature: ${part.nomenclature ?? "-"}`,
+          `ATA Chapter: ${part.ataChapter ?? (part as any).ata_chapter ?? "-"}`,
+        ].join(" | ")
+      )
+      .join(" ; ");
+  };
+
+  const computeComponentTimes = (
+    records: AircraftTechnicalLog[]
+  ): ComputedRow[] => {
+    const list: ComputedRow[] = [];
     const engineLimit =
       aircraft != null
         ? toNum(
@@ -528,8 +611,8 @@ export function Operation() {
           ) ?? null
         : null;
 
-    for (let i = 0; i < paginatedRecords.length; i++) {
-      const r = paginatedRecords[i];
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
       const airframeRun =
         toNum(r.airframeRunTime) ??
         toNum(r.airframeTotalTime) ??
@@ -613,7 +696,298 @@ export function Operation() {
       });
     }
     return list;
-  }, [paginatedRecords, aircraft]);
+  };
+
+  const computedEnginePropellerList = useMemo(
+    () => computeComponentTimes(paginatedRecords),
+    [paginatedRecords, aircraft]
+  );
+
+  const exportColumnDefinitions = useMemo<ExportColumnDefinition[]>(
+    () => [
+      {
+        key: "sequenceNo",
+        label: "Sequence No",
+        getValue: (record) => record.sequenceNo || "-",
+      },
+      {
+        key: "workStatus",
+        label: "Work Status",
+        getValue: (record) => formatFleetWorkStatus(record.workStatus),
+      },
+      {
+        key: "natureOfFlight",
+        label: "Nature of Flight",
+        getValue: (record) =>
+          record.natureOfFlight === "VOID"
+            ? "VOID"
+            : record.natureOfFlight?.trim() || "-",
+      },
+      {
+        key: "nextInspectionDue",
+        label: "Next Insp. Date",
+        getValue: (record) => record.nextInspectionDue || "-",
+      },
+      {
+        key: "tachTimeDue",
+        label: "Tach Time",
+        getValue: (record) =>
+          record.tachTimeDue != null ? record.tachTimeDue.toFixed(1) : "-",
+      },
+      {
+        key: "originDate",
+        label: "Off Blocks Date",
+        getValue: (record) => formatDisplayDate(record.originDate),
+      },
+      {
+        key: "originTime",
+        label: "Off Blocks Time (Zulu)",
+        getValue: (record) => formatTimeZulu(record.originTime),
+      },
+      {
+        key: "destinationDate",
+        label: "On Blocks Date",
+        getValue: (record) => formatDisplayDate(record.destinationDate),
+      },
+      {
+        key: "destinationTime",
+        label: "On Blocks Time (Zulu)",
+        getValue: (record) => formatTimeZulu(record.destinationTime),
+      },
+      {
+        key: "totalFlightHours",
+        label: "Total Flight Hours",
+        getValue: (record) =>
+          computeTotalBlockTimeFromUtc(
+            record.originDate,
+            record.originTime,
+            record.destinationDate,
+            record.destinationTime
+          ),
+      },
+      {
+        key: "numberOfLandings",
+        label: "No. of Landings",
+        getValue: (record) => String(record.numberOfLandings ?? "-"),
+      },
+      {
+        key: "hobbsMeterStart",
+        label: "Hobbs Start",
+        getValue: (record) =>
+          record.hobbsMeterStart != null ? record.hobbsMeterStart.toFixed(1) : "-",
+      },
+      {
+        key: "hobbsMeterEnd",
+        label: "Hobbs End",
+        getValue: (record) =>
+          record.hobbsMeterEnd != null ? record.hobbsMeterEnd.toFixed(1) : "-",
+      },
+      {
+        key: "hobbsMeterTotal",
+        label: "Hobbs Total",
+        getValue: (record) =>
+          record.hobbsMeterStart != null && record.hobbsMeterEnd != null
+            ? (record.hobbsMeterEnd - record.hobbsMeterStart).toFixed(1)
+            : record.hobbsMeterTotal != null
+            ? record.hobbsMeterTotal.toFixed(1)
+            : "-",
+      },
+      {
+        key: "tachometerStart",
+        label: "Tachometer Start",
+        getValue: (record) =>
+          record.tachometerStart != null ? record.tachometerStart.toFixed(1) : "-",
+      },
+      {
+        key: "tachometerEnd",
+        label: "Tachometer End",
+        getValue: (record) =>
+          record.tachometerEnd != null ? record.tachometerEnd.toFixed(1) : "-",
+      },
+      {
+        key: "tachometerTotal",
+        label: "Tachometer Total",
+        getValue: (record) =>
+          record.tachometerStart != null && record.tachometerEnd != null
+            ? (record.tachometerEnd - record.tachometerStart).toFixed(1)
+            : record.tachometerTotal != null
+            ? record.tachometerTotal.toFixed(1)
+            : "-",
+      },
+      {
+        key: "airframeRun",
+        label: "Airframe Hrs Run",
+        getValue: (record, computed) =>
+          toFormat2(computed?.airframeRunTime ?? record.airframeRunTime),
+      },
+      {
+        key: "airframeAftt",
+        label: "Airframe AFTT",
+        getValue: (record, computed) =>
+          toFormat2(computed?.airframeAftt ?? record.airframeAftt),
+      },
+      {
+        key: "engineRun",
+        label: "Engine Hrs Run",
+        getValue: (record, computed) =>
+          toFormat2(computed?.engineRunTime ?? record.engineRunTime),
+      },
+      {
+        key: "engineTsn",
+        label: "Engine TSN",
+        getValue: (record, computed) =>
+          toFormat2(computed?.engineTsn ?? record.engineTsn),
+      },
+      {
+        key: "engineTso",
+        label: "Engine TSO",
+        getValue: (record, computed) =>
+          toFormat2(computed?.engineTso ?? record.engineTso),
+      },
+      {
+        key: "engineTbo",
+        label: "Engine TBO",
+        getValue: (record, computed) =>
+          toFormat2(computed?.engineTbo ?? record.engineTbo),
+      },
+      {
+        key: "propellerRun",
+        label: "Propeller Hrs Run",
+        getValue: (record, computed) =>
+          toFormat2(computed?.propellerRunTime ?? record.propellerRunTime),
+      },
+      {
+        key: "propellerTsn",
+        label: "Propeller TSN",
+        getValue: (record, computed) =>
+          toFormat2(computed?.propellerTsn ?? record.propellerTsn),
+      },
+      {
+        key: "propellerTso",
+        label: "Propeller TSO",
+        getValue: (record, computed) =>
+          toFormat2(computed?.propellerTso ?? record.propellerTso),
+      },
+      {
+        key: "propellerTbo",
+        label: "Propeller TBO",
+        getValue: (record, computed) =>
+          toFormat2(computed?.propellerTbo ?? record.propellerTbo),
+      },
+      {
+        key: "fuelQtyLeftUpliftQty",
+        label: "Fuel Uplift Qty Left",
+        getValue: (record) => String(record.fuelQtyLeftUpliftQty ?? "-"),
+      },
+      {
+        key: "fuelQtyRightUpliftQty",
+        label: "Fuel Uplift Qty Right",
+        getValue: (record) => String(record.fuelQtyRightUpliftQty ?? "-"),
+      },
+      {
+        key: "fuelQtyLeftPriorDeparture",
+        label: "Fuel Prior Dep. Left",
+        getValue: (record) => String(record.fuelQtyLeftPriorDeparture ?? "-"),
+      },
+      {
+        key: "fuelQtyRightPriorDeparture",
+        label: "Fuel Prior Dep. Right",
+        getValue: (record) => String(record.fuelQtyRightPriorDeparture ?? "-"),
+      },
+      {
+        key: "fuelQtyLeftAfterOnBlks",
+        label: "Fuel After On-Blks Left",
+        getValue: (record) => String(record.fuelQtyLeftAfterOnBlks ?? "-"),
+      },
+      {
+        key: "fuelQtyRightAfterOnBlks",
+        label: "Fuel After On-Blks Right",
+        getValue: (record) => String(record.fuelQtyRightAfterOnBlks ?? "-"),
+      },
+      {
+        key: "oilQtyUpliftQty",
+        label: "Oil Uplift Qty",
+        getValue: (record) => String(record.oilQtyUpliftQty ?? "-"),
+      },
+      {
+        key: "oilQtyPriorDeparture",
+        label: "Oil Prior Dep. QRE",
+        getValue: (record) => String(record.oilQtyPriorDeparture ?? "-"),
+      },
+      {
+        key: "oilQtyAfterOnBlks",
+        label: "Oil After On-Blks",
+        getValue: (record) => String(record.oilQtyAfterOnBlks ?? "-"),
+      },
+      {
+        key: "remarks",
+        label: "Remarks",
+        getValue: (record) => record.remarks || "-",
+      },
+      {
+        key: "remarkPerson",
+        label: "Remark Person",
+        getValue: (record) => getAccountDisplay(record.maintenanceFk),
+      },
+      {
+        key: "actionsTaken",
+        label: "Actions Taken",
+        getValue: (record) => record.actionsTaken || "-",
+      },
+      {
+        key: "actionTakenPerson",
+        label: "Action Taken Person",
+        getValue: (record) => getAccountDisplay(record.maintenanceFk),
+      },
+      {
+        key: "componentRecord",
+        label: "Component Record",
+        getValue: (record) => getComponentRecordDisplay(record),
+      },
+      {
+        key: "rtsSignedBy",
+        label: "Return To Service Name",
+        getValue: (record) => getAccountDisplay(record.rtsSignedBy),
+      },
+      {
+        key: "rtsDate",
+        label: "Return To Service Date",
+        getValue: (record) => record.rtsDate || "-",
+      },
+      {
+        key: "rtsTime",
+        label: "Return To Service Time (Zulu)",
+        getValue: (record) => formatTimeZulu(record.rtsTime),
+      },
+      {
+        key: "pilotAcceptedBy",
+        label: "Pilot Acceptance Name",
+        getValue: (record) => getPilotDisplay(record),
+      },
+      {
+        key: "pilotAcceptDate",
+        label: "Pilot Acceptance Date",
+        getValue: (record) => record.pilotAcceptDate?.trim() || "-",
+      },
+      {
+        key: "pilotAcceptTime",
+        label: "Pilot Acceptance Time (Zulu)",
+        getValue: (record) =>
+          record.pilotAcceptTime?.trim()
+            ? formatTimeZulu(record.pilotAcceptTime)
+            : "-",
+      },
+    ],
+    [accountsMap, aircraft]
+  );
+
+  useEffect(() => {
+    setSelectedExportColumns((current) => {
+      const availableKeys = exportColumnDefinitions.map((column) => column.key);
+      if (current.length === 0) return availableKeys;
+      return current.filter((key) => availableKeys.includes(key));
+    });
+  }, [exportColumnDefinitions]);
 
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
@@ -676,15 +1050,103 @@ export function Operation() {
     importFileInputRef.current?.click();
   };
 
+  const toggleExportColumn = (columnKey: string) => {
+    setSelectedExportColumns((current) =>
+      current.includes(columnKey)
+        ? current.filter((key) => key !== columnKey)
+        : [...current, columnKey]
+    );
+  };
+
+  const handleExport = async () => {
+    if (!effectiveAircraftId) return;
+    if (selectedExportColumns.length === 0) {
+      await Swal.fire({
+        icon: "warning",
+        title: "No columns selected",
+        text: "Choose at least one column to include in the export.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+
+    setExportLoading(true);
+    try {
+      const exportPageSize = Math.max(totalRecords, paginatedRecords.length, 1);
+      const recordsResponse = await getAircraftTechnicalLogs(
+        1,
+        exportPageSize,
+        selectedSequenceNo,
+        effectiveAircraftId,
+        sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+        workStatusFilter || undefined
+      );
+
+      if (!recordsResponse.items.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no records matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      const selectedColumns = exportColumnDefinitions.filter((column) =>
+        selectedExportColumns.includes(column.key)
+      );
+      const computedRows = computeComponentTimes(recordsResponse.items);
+      const escapeCsvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
+      const csvLines = [
+        selectedColumns.map((column) => escapeCsvValue(column.label)).join(","),
+        ...recordsResponse.items.map((record, index) =>
+          selectedColumns
+            .map((column) =>
+              escapeCsvValue(column.getValue(record, computedRows[index]))
+            )
+            .join(",")
+        ),
+      ];
+
+      const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = window.URL.createObjectURL(csvBlob);
+      const link = document.createElement("a");
+      const fileRegistration =
+        aircraft?.registration || `aircraft_${effectiveAircraftId}`;
+      link.href = url;
+      link.download = `${fileRegistration}_operation_export.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setShowExportModal(false);
+    } catch (err: any) {
+      console.error("Export error:", err);
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to export records.",
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const handleImportFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !aircraftId) return;
+    if (!file || !effectiveAircraftId) return;
     setImportLoading(true);
     try {
-      await importAircraftTechnicalLogExcel(file, aircraftId);
+      await importAircraftTechnicalLogExcel(file, effectiveAircraftId);
       await refreshPage();
       await Swal.fire({
         icon: "success",
@@ -711,17 +1173,17 @@ export function Operation() {
 
   // Refresh aircraft + records so list view recomputes (Engine TSN/TSO/TBO, Propeller, Airframe AFTT, etc.)
   const refreshPage = async () => {
-    if (!aircraftId) return;
+    if (!effectiveAircraftId) return;
     setLoading(true);
     setError(null);
     try {
       const [aircraftRes, recordsRes] = await Promise.all([
-        getAircraftById(aircraftId),
+        getAircraftById(effectiveAircraftId),
         getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
-          searchQuery,
-          aircraftId,
+          selectedSequenceNo,
+          effectiveAircraftId,
           sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
           workStatusFilter || undefined
         ),
@@ -840,7 +1302,11 @@ export function Operation() {
                 <Printer className="w-4 h-4" />
                 <span className="hidden sm:inline">Print</span>
               </button>
-              <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(true)}
+                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+              >
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
@@ -942,12 +1408,19 @@ export function Operation() {
                   type="text"
                   placeholder="Search by sequence number, tach time..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    const nextSequenceNo = e.target.value;
+                    setSearchQuery(nextSequenceNo);
+                    setSelectedSequenceNo(nextSequenceNo.trim());
+                  }}
                   className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSelectedSequenceNo("");
+                    }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     <X className="w-4 h-4" />
@@ -1016,7 +1489,7 @@ export function Operation() {
                       setCurrentPage(1);
                       // Trigger refetch
                       const fetchRecords = async () => {
-                        if (!aircraftId) return;
+                        if (!effectiveAircraftId) return;
                         setLoading(true);
                         setError(null);
                         try {
@@ -1027,8 +1500,8 @@ export function Operation() {
                           const response = await getAircraftTechnicalLogs(
                             currentPage,
                             itemsPerPage,
-                            searchQuery,
-                            aircraftId,
+                            selectedSequenceNo,
+                            effectiveAircraftId,
                             sortParam,
                             workStatusFilter || undefined
                           );
@@ -2671,6 +3144,97 @@ export function Operation() {
           }}
           fullEntry={selectedEntry}
         />
+      )}
+
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Export Columns
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Select the columns to include in the export. White ATL and DFP
+                  are intentionally excluded.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !exportLoading && setShowExportModal(false)}
+                className="rounded p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close export dialog"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="border-b border-gray-200 px-6 py-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedExportColumns(
+                      exportColumnDefinitions.map((column) => column.key)
+                    )
+                  }
+                  className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedExportColumns([])}
+                  className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  Clear All
+                </button>
+                <span className="self-center text-sm text-gray-500">
+                  {selectedExportColumns.length} of{" "}
+                  {exportColumnDefinitions.length} selected
+                </span>
+              </div>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {exportColumnDefinitions.map((column) => (
+                  <label
+                    key={column.key}
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+                  >
+                    <Checkbox
+                      checked={selectedExportColumns.includes(column.key)}
+                      onCheckedChange={() => toggleExportColumn(column.key)}
+                      className="mt-0.5 border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
+                    />
+                    <span className="text-sm text-gray-800">{column.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                disabled={exportLoading}
+                className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exportLoading}
+                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exportLoading ? "Exporting..." : "Export CSV"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}

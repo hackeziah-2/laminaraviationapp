@@ -32,6 +32,8 @@ export const getAircrafts = (
 export const getAircraftAll = (page = 1, limit = 10, search = "") =>
   apiClient.get(`aircraft/paged?limit=${limit}&page=${page}&search=${search}`);
 
+export const getAircraftList = () => apiClient.get("aircraft/list");
+
 // export const updateAircraft = async (id: number, data: any) => {
 //   try {
 //     const response = await apiClient.put<Aircraft>(`/aircraft/${id}`, data);
