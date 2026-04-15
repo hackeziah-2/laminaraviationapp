@@ -2719,95 +2719,106 @@ export function AddTechnicalLogbookEntryModal({
                     <label className="block text-gray-700 text-sm mb-1.5">
                       A/C Registration *
                     </label>
-                    <div className="relative" ref={aircraftDropdownRef}>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={
-                            isAircraftDropdownOpen
-                              ? aircraftSearchTerm
-                              : formData.acReg
-                          }
-                          onChange={(e) => {
-                            setAircraftSearchTerm(e.target.value);
-                            setIsAircraftDropdownOpen(true);
-                            // Clear error when user starts typing
-                            if (validationErrors.acReg) {
-                              setValidationErrors({
-                                ...validationErrors,
-                                acReg: "",
-                              });
+                    {editEntry ? (
+                      <input
+                        type="text"
+                        value={formData.acReg}
+                        readOnly
+                        disabled
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
+                        aria-label="A/C Registration"
+                      />
+                    ) : (
+                      <div className="relative" ref={aircraftDropdownRef}>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={
+                              isAircraftDropdownOpen
+                                ? aircraftSearchTerm
+                                : formData.acReg
                             }
-                          }}
-                          onFocus={() => {
-                            setIsAircraftDropdownOpen(true);
-                            setAircraftSearchTerm("");
-                          }}
-                          className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                            validationErrors.acReg
-                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                          }`}
-                          required
-                          placeholder="Search aircraft registration..."
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
-                          }
-                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                        >
-                          <ChevronDown
-                            className={`w-4 h-4 transition-transform ${
-                              isAircraftDropdownOpen ? "rotate-180" : ""
+                            onChange={(e) => {
+                              setAircraftSearchTerm(e.target.value);
+                              setIsAircraftDropdownOpen(true);
+                              // Clear error when user starts typing
+                              if (validationErrors.acReg) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  acReg: "",
+                                });
+                              }
+                            }}
+                            onFocus={() => {
+                              setIsAircraftDropdownOpen(true);
+                              setAircraftSearchTerm("");
+                            }}
+                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                              validationErrors.acReg
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                             }`}
+                            required
+                            placeholder="Search aircraft registration..."
                           />
-                        </button>
-                      </div>
-
-                      {isAircraftDropdownOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                          {loadingAircrafts ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              Loading aircrafts...
-                            </div>
-                          ) : filteredAircrafts.length === 0 ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              {aircraftSearchTerm
-                                ? "No aircrafts found"
-                                : "No aircrafts available"}
-                            </div>
-                          ) : (
-                            <ul className="py-1">
-                              {filteredAircrafts.map((aircraft) => (
-                                <li
-                                  key={aircraft.id}
-                                  onClick={() =>
-                                    handleAircraftSelect(
-                                      aircraft.id,
-                                      aircraft.registration
-                                    )
-                                  }
-                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                    formData.acReg === aircraft.registration
-                                      ? "bg-blue-50"
-                                      : ""
-                                  }`}
-                                >
-                                  <span className="text-gray-900">
-                                    {aircraft.registration}
-                                  </span>
-                                  {formData.acReg === aircraft.registration && (
-                                    <Check className="w-4 h-4 text-blue-600" />
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
+                            }
+                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform ${
+                                isAircraftDropdownOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
                         </div>
-                      )}
-                    </div>
+
+                        {isAircraftDropdownOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {loadingAircrafts ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                Loading aircrafts...
+                              </div>
+                            ) : filteredAircrafts.length === 0 ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                {aircraftSearchTerm
+                                  ? "No aircrafts found"
+                                  : "No aircrafts available"}
+                              </div>
+                            ) : (
+                              <ul className="py-1">
+                                {filteredAircrafts.map((aircraft) => (
+                                  <li
+                                    key={aircraft.id}
+                                    onClick={() =>
+                                      handleAircraftSelect(
+                                        aircraft.id,
+                                        aircraft.registration
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      formData.acReg === aircraft.registration
+                                        ? "bg-blue-50"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900">
+                                      {aircraft.registration}
+                                    </span>
+                                    {formData.acReg === aircraft.registration && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {validationErrors.acReg && (
                       <p className="mt-1 text-xs text-red-600">
                         {validationErrors.acReg}

@@ -240,14 +240,7 @@ export const setUserStatus = async (
   return normalizeUser({ ...raw, id });
 };
 
-/** Reset password: POST /api/v1/auth/users/:id/reset-password/ */
-export const resetUserPassword = async (
-  id: number,
-  newPassword: string,
-  forceChangeOnNextLogin: boolean
-): Promise<void> => {
-  await apiClient.post(`auth/users/${id}/reset-password/`, {
-    new_password: newPassword,
-    force_change_on_next_login: forceChangeOnNextLogin,
-  });
+/** Reset password: POST /api/v1/auth/users/:id/reset-password */
+export const resetUserPassword = async (id: number): Promise<void> => {
+  await apiClient.post(`auth/users/${id}/reset-password`, null);
 };
