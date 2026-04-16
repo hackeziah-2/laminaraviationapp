@@ -13,6 +13,7 @@ export interface Aircraft {
   modelYear?: number | null;
 
   // Airframe Information
+  airframeAftt?: number | null;
   airframeServiceManual: string;
   airframeIpc: string;
 
@@ -47,6 +48,7 @@ export interface AircraftForm {
   modelYear: string;
 
   // Airframe Information
+  airframeAftt: string;
   airframeServiceManual: string;
   airframeIpc: string;
 

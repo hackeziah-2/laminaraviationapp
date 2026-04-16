@@ -722,6 +722,13 @@ export function MaintenanceLogbook() {
     return cleanPath;
   };
 
+  const getExistingUploadDisplayName = (
+    filePath: string | undefined | null
+  ): string => {
+    if (!filePath) return "";
+    return extractFilenameFromPath(filePath);
+  };
+
   // Helper function to handle file download
   const handleFileDownload = async (
     filePath: string | undefined | null,
@@ -3397,6 +3404,29 @@ export function MaintenanceLogbook() {
                   <p className="mt-1 text-xs text-gray-500">
                     Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10MB)
                   </p>
+                  {existingUploadFile && !uploadFile && (
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-gray-500">Uploaded file</p>
+                        <p className="truncate text-sm text-gray-900">
+                          {getExistingUploadDisplayName(existingUploadFile)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleFileDownload(
+                            existingUploadFile,
+                            getExistingUploadDisplayName(existingUploadFile)
+                          )
+                        }
+                        className="shrink-0 flex items-center gap-2 px-3 py-2 border border-gray-300 rounded hover:bg-white transition-colors text-green-600"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

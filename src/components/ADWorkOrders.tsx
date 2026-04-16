@@ -18,7 +18,7 @@ import {
   useLayoutEffect,
   type FocusEvent,
 } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import {
   getWorkOrderAdMonitoring,
   createWorkOrderAdMonitoring,
@@ -87,6 +87,8 @@ export function ADWorkOrders() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [editingWorkOrder, setEditingWorkOrder] =
     useState<WorkOrderAdMonitoring | null>(null);
+  const [aircraft_id, setAircraftId] = useState<string>("");
+  const [sequence_no, setSequenceNo] = useState<string>("");
 
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
@@ -326,6 +328,17 @@ export function ADWorkOrders() {
     setShowAddModal(true);
   };
 
+  const handleAtlReferenceState = useCallback(
+    (atlReference: string | null | undefined) => {
+      const nextAircraftId = String(aircraft_fk ?? "").trim();
+      const nextSequenceNo = String(atlReference ?? "").trim();
+      if (!nextAircraftId || !nextSequenceNo) return;
+      setAircraftId(nextAircraftId);
+      setSequenceNo(nextSequenceNo);
+    },
+    [aircraft_fk]
+  );
+
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = Math.min(startIndex + itemsPerPage, total);
 
@@ -478,7 +491,24 @@ export function ADWorkOrders() {
                           {wo.nextDueTach}
                         </td>
                         <td className="px-5 py-3 text-sm">
-                          <span className="text-blue-600">{wo.atlRef}</span>
+                          {String(wo.atlRef ?? "").trim() ? (
+                            <Link
+                              to={`/profile/${aircraft_fk}/operation`}
+                              state={{
+                                aircraft_id:
+                                  aircraft_id || String(aircraft_fk),
+                                sequence_no:
+                                  sequence_no || String(wo.atlRef).trim(),
+                              }}
+                              onClick={() => handleAtlReferenceState(wo.atlRef)}
+                              className="text-blue-600 hover:text-blue-800 hover:underline"
+                              title={`Open ATL ${wo.atlRef}`}
+                            >
+                              {wo.atlRef}
+                            </Link>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-sm">
                           <div className="flex items-center justify-center gap-1">
