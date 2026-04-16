@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  History,
   Printer,
   Download,
   Pencil,
@@ -29,6 +30,7 @@ function numOrZero(v: unknown): number {
 function withEnginePropNumericDefaults(a: Aircraft): Aircraft {
   return {
     ...a,
+    airframeAftt: a.airframeAftt == null ? null : numOrZero(a.airframeAftt),
     engineLifeTimeLimit: numOrZero(a.engineLifeTimeLimit),
     engineTsn: numOrZero(a.engineTsn),
     engineTso: numOrZero(a.engineTso),
@@ -46,7 +48,7 @@ function numberInputValue(v: unknown): number | string {
 export function AircraftDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { canUpdate } = useUserPermissions();
+  const { canAccess, canUpdate } = useUserPermissions();
   const [isEditMode, setIsEditMode] = useState(false);
   const [editAircraft, setEditedAircraft] = useState<Aircraft | null>(null);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
@@ -98,6 +100,8 @@ export function AircraftDetail() {
           manufacturer: data.manufacturer,
           reportDescription: data.report_description,
           modelYear: data.model_year != null ? Number(data.model_year) : null,
+          airframeAftt:
+            data.airframe_aftt != null ? Number(data.airframe_aftt) : null,
           airframeServiceManual: data.airframe_service_manual,
           airframeIpc: data.airframe_ipc,
 
@@ -192,6 +196,9 @@ export function AircraftDetail() {
         editAircraft?.modelYear as number | string | null | undefined
       ),
 
+      airframe_aftt: toOptionalFloat(
+        editAircraft?.airframeAftt as number | string | null | undefined
+      ),
       airframe_service_manual: editAircraft?.airframeServiceManual,
       airframe_ipc: editAircraft?.airframeIpc,
 
@@ -291,6 +298,11 @@ export function AircraftDetail() {
 
   const handleBack = () => {
     navigate("/profile");
+  };
+
+  const handleHistoryClick = () => {
+    if (!id) return;
+    navigate(`/profile/${id}/history`);
   };
 
   const handleEngineCancel = () => {
@@ -477,6 +489,15 @@ export function AircraftDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {!isEditMode ? (
               <>
+                {canAccess("profile") && (
+                  <button
+                    onClick={handleHistoryClick}
+                    className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+                  >
+                    <History className="w-4 h-4" />
+                    <span>History</span>
+                  </button>
+                )}
                 {canUpdate("profile") && (
                   <button
                     onClick={handleEditClick}
@@ -700,6 +721,27 @@ export function AircraftDetail() {
                 Airframe Information
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 sm:gap-x-8 gap-y-4 sm:gap-y-5">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Airframe AFTT</p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={numberInputValue(editAircraft?.airframeAftt)}
+                      onChange={(e) =>
+                        handleInputChange("airframeAftt", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.airframeAftt != null
+                        ? numOrZero(aircraft.airframeAftt)
+                        : "N/A"}
+                    </p>
+                  )}
+                </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">
                     Service Manual Year

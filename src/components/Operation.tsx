@@ -30,6 +30,7 @@ import {
   importAircraftTechnicalLogExcel,
   AircraftTechnicalLog,
   type AtlListViewComputedComponentTimes,
+  resolveAtlComponentMetric,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
@@ -79,28 +80,26 @@ function formatFleetWorkStatus(status: string | undefined): string {
 
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
-
-type ComputedRow = {
-  airframeRunTime: number | null;
-  airframeAftt: number | null;
-  engineRunTime: number | null;
-  engineTsn: number | null;
-  engineTso: number | null;
-  engineTbo: number | null;
-  propellerRunTime: number | null;
-  propellerTsn: number | null;
-  propellerTso: number | null;
-  propellerTbo: number | null;
-};
+const OPERATION_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
 type ExportColumnDefinition = {
   key: string;
   label: string;
-  getValue: (
-    record: AircraftTechnicalLog,
-    computed: ComputedRow | undefined
-  ) => string;
+  getValue: (record: AircraftTechnicalLog) => string;
 };
+
+function toNullableMetricNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+/** Hobbs / tach / tach due: API may send numbers as strings; avoids `.toFixed` runtime errors. */
+function formatOptionalNumber1dp(value: unknown): string {
+  if (value == null || value === "") return "-";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(1) : "-";
+}
 
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
 const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
@@ -299,11 +298,10 @@ export function Operation() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedEntry, setSelectedEntry] =
     useState<AircraftTechnicalLog | null>(null);
-  /** Row’s list-computed component times (TSN/TSO, etc.) passed into Edit so the form matches the grid. */
-  const [editListComputedTimes, setEditListComputedTimes] =
-    useState<AtlListViewComputedComponentTimes | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState<number>(
+    OPERATION_PAGE_SIZE_OPTIONS[0]
+  );
   const [selectedAircraftId, setSelectedAircraftId] = useState<number>(
     Number.isFinite(aircraftId) ? aircraftId : 0
   );
@@ -364,104 +362,94 @@ export function Operation() {
   }, [aircraftId, navigationState.aircraft_id, navigationState.sequence_no]);
 
   // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
-  const getAirframeDisplay = (
-    r: AircraftTechnicalLog,
-    computed?: ComputedRow
-  ) => {
+  const getAirframeDisplay = (r: AircraftTechnicalLog) => {
     const run =
-      computed?.airframeRunTime != null
-        ? Number(computed.airframeRunTime).toFixed(2)
-        : (r as any).airframe?.hrsTime != null ||
-          (r as any).airframe?.run != null
-        ? toFormat2(
-            Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run)
-          )
-        : r.airframeRunTime != null || r.airframeTotalTime != null
-        ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
-        : (r as any).airframeRun != null
-        ? toFormat2(Number((r as any).airframeRun))
+      resolveAtlComponentMetric(r, "airframeRunTime") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeRunTime")))
         : "-";
     const aftt =
-      computed?.airframeAftt != null
-        ? Number(computed.airframeAftt).toFixed(2)
-        : r.airframeAftt != null || (r as any).airframeTotalTime != null
-        ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
+      resolveAtlComponentMetric(r, "airframeAftt") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeAftt")))
         : "-";
     return `${run} / ${aftt}`;
   };
-  const getEngineDisplay = (
-    r: AircraftTechnicalLog,
-    computed?: ComputedRow
-  ) => {
+  const getEngineDisplay = (r: AircraftTechnicalLog) => {
     const run =
-      computed?.engineRunTime != null
-        ? Number(computed.engineRunTime).toFixed(2)
-        : (r as any).engine?.hrsTime != null || (r as any).engine?.run != null
-        ? toFormat2(
-            Number((r as any).engine?.hrsTime ?? (r as any).engine?.run)
-          )
-        : r.engineRunTime != null || r.engineTotalTime != null
-        ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
-        : (r as any).engineRun != null
-        ? toFormat2(Number((r as any).engineRun))
+      resolveAtlComponentMetric(r, "engineRunTime") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineRunTime")))
         : "-";
     const tsn =
-      computed?.engineTsn != null
-        ? Number(computed.engineTsn).toFixed(2)
-        : (r as any).engine?.tsn != null || r.engineTsn != null
-        ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
+      resolveAtlComponentMetric(r, "engineTsn") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTsn")))
         : "-";
     const tso =
-      computed?.engineTso != null
-        ? Number(computed.engineTso).toFixed(2)
-        : (r as any).engine?.tso != null || r.engineTso != null
-        ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
+      resolveAtlComponentMetric(r, "engineTso") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTso")))
         : "-";
     const tbo =
-      computed?.engineTbo != null
-        ? Number(computed.engineTbo).toFixed(2)
-        : (r as any).engine?.tbo != null || r.engineTbo != null
-        ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
+      resolveAtlComponentMetric(r, "engineTbo") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTbo")))
         : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
-  const getPropellerDisplay = (
-    r: AircraftTechnicalLog,
-    computed?: ComputedRow
-  ) => {
+  const getPropellerDisplay = (r: AircraftTechnicalLog) => {
     const run =
-      computed?.propellerRunTime != null
-        ? Number(computed.propellerRunTime).toFixed(2)
-        : (r as any).propeller?.hrsTime != null ||
-          (r as any).propeller?.run != null
-        ? toFormat2(
-            Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run)
-          )
-        : r.propellerRunTime != null || r.propellerTotalTime != null
-        ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
-        : (r as any).propellerRun != null
-        ? toFormat2(Number((r as any).propellerRun))
+      resolveAtlComponentMetric(r, "propellerRunTime") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerRunTime")))
         : "-";
     const tsn =
-      computed?.propellerTsn != null
-        ? Number(computed.propellerTsn).toFixed(2)
-        : (r as any).propeller?.tsn != null || r.propellerTsn != null
-        ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
+      resolveAtlComponentMetric(r, "propellerTsn") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTsn")))
         : "-";
     const tso =
-      computed?.propellerTso != null
-        ? Number(computed.propellerTso).toFixed(2)
-        : (r as any).propeller?.tso != null || r.propellerTso != null
-        ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
+      resolveAtlComponentMetric(r, "propellerTso") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTso")))
         : "-";
     const tbo =
-      computed?.propellerTbo != null
-        ? Number(computed.propellerTbo).toFixed(2)
-        : (r as any).propeller?.tbo != null || r.propellerTbo != null
-        ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
+      resolveAtlComponentMetric(r, "propellerTbo") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTbo")))
         : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
+
+  const editListComputedTimes = useMemo<AtlListViewComputedComponentTimes | null>(
+    () =>
+      selectedEntry
+        ? {
+            airframeRunTime: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "airframeRunTime")
+            ),
+            airframeAftt: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "airframeAftt")
+            ),
+            engineRunTime: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "engineRunTime")
+            ),
+            engineTsn: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "engineTsn")
+            ),
+            engineTso: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "engineTso")
+            ),
+            engineTbo: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "engineTbo")
+            ),
+            propellerRunTime: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "propellerRunTime")
+            ),
+            propellerTsn: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "propellerTsn")
+            ),
+            propellerTso: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "propellerTso")
+            ),
+            propellerTbo: toNullableMetricNumber(
+              resolveAtlComponentMetric(selectedEntry, "propellerTbo")
+            ),
+          }
+        : null,
+    [selectedEntry]
+  );
 
   // Fetch aircraft information
   useEffect(() => {
@@ -495,7 +483,7 @@ export function Operation() {
     fetchAccounts();
   }, []);
 
-  // Fetch ATL records from API
+  // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
     const fetchRecords = async () => {
       if (!effectiveAircraftId) return;
@@ -513,7 +501,7 @@ export function Operation() {
           sortParam,
           workStatusFilter || undefined
         );
-        setFleetTimeRecords(response.items);
+        setFleetTimeRecords(Array.isArray(response.items) ? response.items : []);
         setTotalRecords(response.total);
         setTotalPages(response.pages);
       } catch (err: any) {
@@ -539,17 +527,11 @@ export function Operation() {
   // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSequenceNo, workStatusFilter]);
+  }, [selectedSequenceNo, workStatusFilter, itemsPerPage]);
 
   const paginatedRecords = fleetTimeRecords;
 
-  // List view computations: Engine Run = Airframe Run; TSN/TSO = Previous + Run; TBO = limit - current TSO (same for propeller)
-  const toNum = (v: unknown): number | null => {
-    if (v == null || v === "") return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
-  /** Format computation result always as 2 decimal places (.2f) */
+  /** Format ATL component values from the API with 2 decimal places. */
   const toFormat2 = (v: unknown): string => {
     const n = v != null && v !== "" ? Number(v) : null;
     return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
@@ -592,117 +574,6 @@ export function Operation() {
       .join(" ; ");
   };
 
-  const computeComponentTimes = (
-    records: AircraftTechnicalLog[]
-  ): ComputedRow[] => {
-    const list: ComputedRow[] = [];
-    const engineLimit =
-      aircraft != null
-        ? toNum(
-            (aircraft as any).engineLifeTimeLimit ??
-              (aircraft as any).life_time_limit_engine
-          ) ?? null
-        : null;
-    const propellerLimit =
-      aircraft != null
-        ? toNum(
-            (aircraft as any).propellerLifeTimeLimit ??
-              (aircraft as any).life_time_limit_propeller
-          ) ?? null
-        : null;
-
-    for (let i = 0; i < records.length; i++) {
-      const r = records[i];
-      const airframeRun =
-        toNum(r.airframeRunTime) ??
-        toNum(r.airframeTotalTime) ??
-        (r.tachometerStart != null && r.tachometerEnd != null
-          ? r.tachometerEnd - r.tachometerStart
-          : null);
-      const engineRunTime = airframeRun;
-      const propellerRunTime = airframeRun;
-
-      // Airframe AFTT = Previous Airframe AFTT + Airframe current run time
-      let airframeAftt: number | null;
-      if (i === 0) {
-        airframeAftt =
-          toNum(r.airframeAftt) ?? (airframeRun != null ? airframeRun : null);
-      } else {
-        const prev = list[i - 1];
-        airframeAftt =
-          prev.airframeAftt != null && airframeRun != null
-            ? prev.airframeAftt + airframeRun
-            : prev.airframeAftt ?? toNum(r.airframeAftt);
-      }
-
-      let engineTsn: number | null;
-      let engineTso: number | null;
-      let propellerTsn: number | null;
-      let propellerTso: number | null;
-
-      if (i === 0) {
-        engineTsn =
-          toNum(r.engineTsn) ?? (engineRunTime != null ? engineRunTime : null);
-        engineTso =
-          toNum(r.engineTso) ?? (engineRunTime != null ? engineRunTime : null);
-        propellerTsn =
-          toNum(r.propellerTsn) ??
-          (propellerRunTime != null ? propellerRunTime : null);
-        propellerTso =
-          toNum(r.propellerTso) ??
-          (propellerRunTime != null ? propellerRunTime : null);
-      } else {
-        const prev = list[i - 1];
-        engineTsn =
-          prev.engineTsn != null && engineRunTime != null
-            ? prev.engineTsn + engineRunTime
-            : prev.engineTsn ?? toNum(r.engineTsn);
-        engineTso =
-          prev.engineTso != null && engineRunTime != null
-            ? prev.engineTso + engineRunTime
-            : prev.engineTso ?? toNum(r.engineTso);
-        propellerTsn =
-          prev.propellerTsn != null && propellerRunTime != null
-            ? prev.propellerTsn + propellerRunTime
-            : prev.propellerTsn ?? toNum(r.propellerTsn);
-        propellerTso =
-          prev.propellerTso != null && propellerRunTime != null
-            ? prev.propellerTso + propellerRunTime
-            : prev.propellerTso ?? toNum(r.propellerTso);
-      }
-
-      // Engine TBO = life_time_limit_engine - ENGINE CURRENT TSO
-      const engineTbo =
-        engineLimit != null && engineTso != null
-          ? engineLimit - engineTso
-          : toNum(r.engineTbo) ?? null;
-      // Propeller TBO = life_time_limit_propeller - Propeller current TSO
-      const propellerTbo =
-        propellerLimit != null && propellerTso != null
-          ? propellerLimit - propellerTso
-          : toNum(r.propellerTbo) ?? null;
-
-      list.push({
-        airframeRunTime: airframeRun,
-        airframeAftt,
-        engineRunTime,
-        engineTsn,
-        engineTso,
-        engineTbo,
-        propellerRunTime,
-        propellerTsn,
-        propellerTso,
-        propellerTbo,
-      });
-    }
-    return list;
-  };
-
-  const computedEnginePropellerList = useMemo(
-    () => computeComponentTimes(paginatedRecords),
-    [paginatedRecords, aircraft]
-  );
-
   const exportColumnDefinitions = useMemo<ExportColumnDefinition[]>(
     () => [
       {
@@ -731,8 +602,7 @@ export function Operation() {
       {
         key: "tachTimeDue",
         label: "Tach Time",
-        getValue: (record) =>
-          record.tachTimeDue != null ? record.tachTimeDue.toFixed(1) : "-",
+        getValue: (record) => formatOptionalNumber1dp(record.tachTimeDue),
       },
       {
         key: "originDate",
@@ -773,106 +643,99 @@ export function Operation() {
       {
         key: "hobbsMeterStart",
         label: "Hobbs Start",
-        getValue: (record) =>
-          record.hobbsMeterStart != null ? record.hobbsMeterStart.toFixed(1) : "-",
+        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterStart),
       },
       {
         key: "hobbsMeterEnd",
         label: "Hobbs End",
-        getValue: (record) =>
-          record.hobbsMeterEnd != null ? record.hobbsMeterEnd.toFixed(1) : "-",
+        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterEnd),
       },
       {
         key: "hobbsMeterTotal",
         label: "Hobbs Total",
-        getValue: (record) =>
-          record.hobbsMeterStart != null && record.hobbsMeterEnd != null
-            ? (record.hobbsMeterEnd - record.hobbsMeterStart).toFixed(1)
-            : record.hobbsMeterTotal != null
-            ? record.hobbsMeterTotal.toFixed(1)
-            : "-",
+        getValue: (record) => {
+          const start = Number(record.hobbsMeterStart);
+          const end = Number(record.hobbsMeterEnd);
+          if (
+            record.hobbsMeterStart != null &&
+            record.hobbsMeterEnd != null &&
+            Number.isFinite(start) &&
+            Number.isFinite(end)
+          ) {
+            return (end - start).toFixed(1);
+          }
+          return formatOptionalNumber1dp(record.hobbsMeterTotal);
+        },
       },
       {
         key: "tachometerStart",
         label: "Tachometer Start",
-        getValue: (record) =>
-          record.tachometerStart != null ? record.tachometerStart.toFixed(1) : "-",
+        getValue: (record) => formatOptionalNumber1dp(record.tachometerStart),
       },
       {
         key: "tachometerEnd",
         label: "Tachometer End",
-        getValue: (record) =>
-          record.tachometerEnd != null ? record.tachometerEnd.toFixed(1) : "-",
-      },
-      {
-        key: "tachometerTotal",
-        label: "Tachometer Total",
-        getValue: (record) =>
-          record.tachometerStart != null && record.tachometerEnd != null
-            ? (record.tachometerEnd - record.tachometerStart).toFixed(1)
-            : record.tachometerTotal != null
-            ? record.tachometerTotal.toFixed(1)
-            : "-",
+        getValue: (record) => formatOptionalNumber1dp(record.tachometerEnd),
       },
       {
         key: "airframeRun",
         label: "Airframe Hrs Run",
-        getValue: (record, computed) =>
-          toFormat2(computed?.airframeRunTime ?? record.airframeRunTime),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "airframeRunTime")),
       },
       {
         key: "airframeAftt",
         label: "Airframe AFTT",
-        getValue: (record, computed) =>
-          toFormat2(computed?.airframeAftt ?? record.airframeAftt),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "airframeAftt")),
       },
       {
         key: "engineRun",
         label: "Engine Hrs Run",
-        getValue: (record, computed) =>
-          toFormat2(computed?.engineRunTime ?? record.engineRunTime),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineRunTime")),
       },
       {
         key: "engineTsn",
         label: "Engine TSN",
-        getValue: (record, computed) =>
-          toFormat2(computed?.engineTsn ?? record.engineTsn),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineTsn")),
       },
       {
         key: "engineTso",
         label: "Engine TSO",
-        getValue: (record, computed) =>
-          toFormat2(computed?.engineTso ?? record.engineTso),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineTso")),
       },
       {
         key: "engineTbo",
         label: "Engine TBO",
-        getValue: (record, computed) =>
-          toFormat2(computed?.engineTbo ?? record.engineTbo),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineTbo")),
       },
       {
         key: "propellerRun",
         label: "Propeller Hrs Run",
-        getValue: (record, computed) =>
-          toFormat2(computed?.propellerRunTime ?? record.propellerRunTime),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerRunTime")),
       },
       {
         key: "propellerTsn",
         label: "Propeller TSN",
-        getValue: (record, computed) =>
-          toFormat2(computed?.propellerTsn ?? record.propellerTsn),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerTsn")),
       },
       {
         key: "propellerTso",
         label: "Propeller TSO",
-        getValue: (record, computed) =>
-          toFormat2(computed?.propellerTso ?? record.propellerTso),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerTso")),
       },
       {
         key: "propellerTbo",
         label: "Propeller TBO",
-        getValue: (record, computed) =>
-          toFormat2(computed?.propellerTbo ?? record.propellerTbo),
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerTbo")),
       },
       {
         key: "fuelQtyLeftUpliftQty",
@@ -1095,16 +958,11 @@ export function Operation() {
       const selectedColumns = exportColumnDefinitions.filter((column) =>
         selectedExportColumns.includes(column.key)
       );
-      const computedRows = computeComponentTimes(recordsResponse.items);
       const escapeCsvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
       const csvLines = [
         selectedColumns.map((column) => escapeCsvValue(column.label)).join(","),
-        ...recordsResponse.items.map((record, index) =>
-          selectedColumns
-            .map((column) =>
-              escapeCsvValue(column.getValue(record, computedRows[index]))
-            )
-            .join(",")
+        ...recordsResponse.items.map((record) =>
+          selectedColumns.map((column) => escapeCsvValue(column.getValue(record))).join(",")
         ),
       ];
 
@@ -1171,7 +1029,7 @@ export function Operation() {
     }
   };
 
-  // Refresh aircraft + records so list view recomputes (Engine TSN/TSO/TBO, Propeller, Airframe AFTT, etc.)
+  // Refresh aircraft + records so list view shows the latest API-provided auto_* values.
   const refreshPage = async () => {
     if (!effectiveAircraftId) return;
     setLoading(true);
@@ -1189,7 +1047,9 @@ export function Operation() {
         ),
       ]);
       setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
-      setFleetTimeRecords(recordsRes.items);
+      setFleetTimeRecords(
+        Array.isArray(recordsRes.items) ? recordsRes.items : []
+      );
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
     } catch (err: any) {
@@ -1291,7 +1151,7 @@ export function Operation() {
                 onClick={refreshPage}
                 disabled={loading}
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Refresh list and recalculate computed values"
+                title="Refresh list data"
               >
                 <RefreshCw
                   className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
@@ -1367,9 +1227,13 @@ export function Operation() {
             <div className="bg-white rounded-lg border border-gray-200 p-5">
               <p className="text-gray-500 text-sm mb-2">Current Tach</p>
               <p className="text-gray-900 text-2xl">
-                {fleetTimeRecords.length > 0 &&
-                fleetTimeRecords[0].tachometerEnd
-                  ? `${fleetTimeRecords[0].tachometerEnd.toFixed(1)} Hrs`
+                {fleetTimeRecords.length > 0
+                  ? (() => {
+                      const s = formatOptionalNumber1dp(
+                        fleetTimeRecords[0].tachometerEnd
+                      );
+                      return s === "-" ? "-" : `${s} Hrs`;
+                    })()
                   : "-"}
               </p>
             </div>
@@ -1406,7 +1270,7 @@ export function Operation() {
               <div className="relative flex-1 min-w-[200px]">
                 <input
                   type="text"
-                  placeholder="Search by sequence number, tach time..."
+                  placeholder="Search by sequence number..."
                   value={searchQuery}
                   onChange={(e) => {
                     const nextSequenceNo = e.target.value;
@@ -1505,7 +1369,11 @@ export function Operation() {
                             sortParam,
                             workStatusFilter || undefined
                           );
-                          setFleetTimeRecords(response.items);
+                          setFleetTimeRecords(
+                            Array.isArray(response.items)
+                              ? response.items
+                              : []
+                          );
                           setTotalRecords(response.total);
                           setTotalPages(response.pages);
                         } catch (err: any) {
@@ -1621,7 +1489,7 @@ export function Operation() {
                               HOBBS METER
                             </th>
                             <th
-                              colSpan={3}
+                              colSpan={2}
                               className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
                               TACHOMETER
@@ -1731,9 +1599,6 @@ export function Operation() {
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               TACH END
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TOTAL
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               HRS
@@ -1850,7 +1715,7 @@ export function Operation() {
                               </td>
                             </tr>
                           ) : (
-                            paginatedRecords.map((record, rowIndex) => (
+                            paginatedRecords.map((record) => (
                               <tr
                                 key={record.id}
                                 className="hover:bg-gray-50/50 transition-colors"
@@ -1884,11 +1749,6 @@ export function Operation() {
                                             }
                                             onClick={() => {
                                               setSelectedEntry(record);
-                                              setEditListComputedTimes(
-                                                computedEnginePropellerList[
-                                                  rowIndex
-                                                ] ?? null
-                                              );
                                               setShowEditModal(true);
                                             }}
                                             className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
@@ -1939,9 +1799,7 @@ export function Operation() {
                                   {record.nextInspectionDue || "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.tachTimeDue
-                                    ? record.tachTimeDue.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.originDate
@@ -1981,139 +1839,141 @@ export function Operation() {
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.numberOfLandings || "-"}
+                                  {record.numberOfLandings ?? "-"}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterStart != null
-                                    ? record.hobbsMeterStart.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(
+                                    record.hobbsMeterStart
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterEnd != null
-                                    ? record.hobbsMeterEnd.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(record.hobbsMeterEnd)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterStart != null &&
-                                  record.hobbsMeterEnd != null
-                                    ? (
-                                        record.hobbsMeterEnd -
-                                        record.hobbsMeterStart
-                                      ).toFixed(1)
-                                    : record.hobbsMeterTotal != null
-                                    ? record.hobbsMeterTotal.toFixed(1)
-                                    : "-"}
+                                  {(() => {
+                                    const start = Number(record.hobbsMeterStart);
+                                    const end = Number(record.hobbsMeterEnd);
+                                    if (
+                                      record.hobbsMeterStart != null &&
+                                      record.hobbsMeterEnd != null &&
+                                      Number.isFinite(start) &&
+                                      Number.isFinite(end)
+                                    ) {
+                                      return (end - start).toFixed(1);
+                                    }
+                                    return formatOptionalNumber1dp(
+                                      record.hobbsMeterTotal
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerStart != null
-                                    ? record.tachometerStart.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(
+                                    record.tachometerStart
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerEnd != null
-                                    ? record.tachometerEnd.toFixed(1)
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerStart != null &&
-                                  record.tachometerEnd != null
-                                    ? (
-                                        record.tachometerEnd -
-                                        record.tachometerStart
-                                      ).toFixed(1)
-                                    : record.tachometerTotal != null
-                                    ? record.tachometerTotal.toFixed(1)
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.airframeRunTime ??
-                                      record.airframeRunTime
+                                  {formatOptionalNumber1dp(
+                                    record.tachometerEnd
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.airframeAftt ?? record.airframeAftt
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "airframeRunTime"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineRunTime ?? record.engineRunTime
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "airframeAftt"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineTsn ?? record.engineTsn
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineRunTime"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineTso ?? record.engineTso
+                                    resolveAtlComponentMetric(record, "engineTsn")
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineTbo ?? record.engineTbo
+                                    resolveAtlComponentMetric(record, "engineTso")
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerRunTime ??
-                                      record.propellerRunTime
+                                    resolveAtlComponentMetric(record, "engineTbo")
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerTsn ?? record.propellerTsn
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerRunTime"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerTso ?? record.propellerTso
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerTsn"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerTbo ?? record.propellerTbo
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerTso"
+                                    )
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                  {toFormat2(
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerTbo"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftUpliftQty || "-"}
+                                  {record.fuelQtyLeftUpliftQty ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightUpliftQty || "-"}
+                                  {record.fuelQtyRightUpliftQty ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftPriorDeparture || "-"}
+                                  {record.fuelQtyLeftPriorDeparture ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightPriorDeparture || "-"}
+                                  {record.fuelQtyRightPriorDeparture ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftAfterOnBlks || "-"}
+                                  {record.fuelQtyLeftAfterOnBlks ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightAfterOnBlks || "-"}
+                                  {record.fuelQtyRightAfterOnBlks ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyUpliftQty || "-"}
+                                  {record.oilQtyUpliftQty ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyPriorDeparture || "-"}
+                                  {record.oilQtyPriorDeparture ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyAfterOnBlks || "-"}
+                                  {record.oilQtyAfterOnBlks ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.remarks || "-"}
@@ -2418,7 +2278,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => (
+                          paginatedRecords.map((record) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
@@ -2446,11 +2306,6 @@ export function Operation() {
                                           }
                                           onClick={() => {
                                             setSelectedEntry(record);
-                                            setEditListComputedTimes(
-                                              computedEnginePropellerList[
-                                                rowIndex
-                                              ] ?? null
-                                            );
                                             setShowEditModal(true);
                                           }}
                                           className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
@@ -2615,8 +2470,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => {
-                            const comp = computedEnginePropellerList[rowIndex];
+                          paginatedRecords.map((record) => {
                             return (
                               <tr key={record.id} className="hover:bg-gray-50">
                                 <td className={STICKY_SEQ_CELL_CLASS}>
@@ -2647,9 +2501,6 @@ export function Operation() {
                                             }
                                             onClick={() => {
                                               setSelectedEntry(record);
-                                              setEditListComputedTimes(
-                                                comp ?? null
-                                              );
                                               setShowEditModal(true);
                                             }}
                                             className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
@@ -2719,74 +2570,52 @@ export function Operation() {
                                     : ""}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.airframeRunTime != null
-                                    ? toFormat2(comp.airframeRunTime)
-                                    : getAirframeDisplay(record, comp)?.split(
-                                        " / "
-                                      )?.[0] ?? "-"}
+                                  {getAirframeDisplay(record)?.split(" / ")?.[0] ??
+                                    "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.airframeAftt != null
-                                    ? toFormat2(comp.airframeAftt)
-                                    : getAirframeDisplay(record, comp)?.split(
-                                        " / "
-                                      )?.[1] ?? "-"}
+                                  {getAirframeDisplay(record)?.split(" / ")?.[1] ??
+                                    "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.engineRunTime != null
-                                    ? toFormat2(comp.engineRunTime)
-                                    : getEngineDisplay(record, comp)
-                                        ?.split(" / ")?.[0]
-                                        ?.replace("RUN ", "") ?? "-"}
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[0]
+                                    ?.replace("RUN ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.engineTsn != null
-                                    ? toFormat2(comp.engineTsn)
-                                    : getEngineDisplay(record, comp)
-                                        ?.split(" / ")?.[1]
-                                        ?.replace("TSN ", "") ?? "-"}
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[1]
+                                    ?.replace("TSN ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.engineTso != null
-                                    ? toFormat2(comp.engineTso)
-                                    : getEngineDisplay(record, comp)
-                                        ?.split(" / ")?.[2]
-                                        ?.replace("TSO ", "") ?? "-"}
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[2]
+                                    ?.replace("TSO ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.engineTbo != null
-                                    ? toFormat2(comp.engineTbo)
-                                    : getEngineDisplay(record, comp)
-                                        ?.split(" / ")?.[3]
-                                        ?.replace("TBO ", "") ?? "-"}
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[3]
+                                    ?.replace("TBO ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.propellerRunTime != null
-                                    ? toFormat2(comp.propellerRunTime)
-                                    : getPropellerDisplay(record, comp)
-                                        ?.split(" / ")?.[0]
-                                        ?.replace("RUN ", "") ?? "-"}
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[0]
+                                    ?.replace("RUN ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.propellerTsn != null
-                                    ? toFormat2(comp.propellerTsn)
-                                    : getPropellerDisplay(record, comp)
-                                        ?.split(" / ")?.[1]
-                                        ?.replace("TSN ", "") ?? "-"}
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[1]
+                                    ?.replace("TSN ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {comp?.propellerTso != null
-                                    ? toFormat2(comp.propellerTso)
-                                    : getPropellerDisplay(record, comp)
-                                        ?.split(" / ")?.[2]
-                                        ?.replace("TSO ", "") ?? "-"}
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[2]
+                                    ?.replace("TSO ", "") ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm">
-                                  {comp?.propellerTbo != null
-                                    ? toFormat2(comp.propellerTbo)
-                                    : getPropellerDisplay(record, comp)
-                                        ?.split(" / ")?.[3]
-                                        ?.replace("TBO ", "") ?? "-"}
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[3]
+                                    ?.replace("TBO ", "") ?? "-"}
                                 </td>
                               </tr>
                             );
@@ -2838,7 +2667,7 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => (
+                          paginatedRecords.map((record) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
@@ -2866,11 +2695,6 @@ export function Operation() {
                                           }
                                           onClick={() => {
                                             setSelectedEntry(record);
-                                            setEditListComputedTimes(
-                                              computedEnginePropellerList[
-                                                rowIndex
-                                              ] ?? null
-                                            );
                                             setShowEditModal(true);
                                           }}
                                           className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
@@ -2908,10 +2732,7 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
+                                {getAirframeDisplay(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {computeTotalBlockTimeFromUtc(
@@ -3034,12 +2855,31 @@ export function Operation() {
             )}
 
             {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Showing{" "}
-                {totalRecords === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}-
-                {Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
-                {totalRecords} records
+            <div className="px-6 py-4 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-700">Items per page:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                    className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                    aria-label="Items per page"
+                  >
+                    {OPERATION_PAGE_SIZE_OPTIONS.map((pageSize) => (
+                      <option key={pageSize} value={pageSize}>
+                        {pageSize}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-sm text-gray-600">
+                  Showing{" "}
+                  {totalRecords === 0
+                    ? 0
+                    : (currentPage - 1) * itemsPerPage + 1}
+                  -{Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
+                  {totalRecords} records
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -3083,7 +2923,7 @@ export function Operation() {
       <AddTechnicalLogbookEntryModal
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
-        aircraftId={aircraftId}
+        aircraftId={effectiveAircraftId}
         permissionModuleCode={operationAtlPermissionModuleCode}
         onSuccess={() => {
           setShowAddRecordModal(false);
@@ -3098,10 +2938,9 @@ export function Operation() {
           onClose={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
-            setEditListComputedTimes(null);
           }}
           entryId={selectedEntry.id}
-          aircraftId={aircraftId}
+          aircraftId={effectiveAircraftId}
           permissionModuleCode={operationAtlPermissionModuleCode}
           viewerRole={operationAtlRole}
           editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
@@ -3109,7 +2948,6 @@ export function Operation() {
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
-            setEditListComputedTimes(null);
             refreshPage();
           }}
         />

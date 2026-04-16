@@ -25,6 +25,7 @@ import {
   AircraftTechnicalLogCreate,
   updateAircraftTechnicalLog,
   AircraftTechnicalLogUpdate,
+  resolveAtlComponentMetric,
   type AtlListViewComputedComponentTimes,
 } from "../api/aircraftTechnicalLogApi";
 import {
@@ -51,101 +52,23 @@ import {
  * Flat + nested engine/propeller/airframe shapes from the ATL API (matches Operation list display).
  */
 function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
-  const r = entry as Record<string, any>;
-  const air = r.airframe;
-  const eng = r.engine;
-  const prop = r.propeller;
-
-  const airframeRun =
-    r.airframeRunTime ??
-    r.airframeTotalTime ??
-    air?.hrsTime ??
-    air?.run ??
-    r.airframeRun;
-  const airframeAftt = r.airframeAftt ?? r.airframeTotalTime ?? air?.aftt;
-
-  const engineRun =
-    r.engineRunTime ??
-    r.engineTotalTime ??
-    eng?.hrsTime ??
-    eng?.run ??
-    r.engineRun;
-  const engineTsn =
-    r.engineTsn ??
-    r.engine_tsn ??
-    eng?.tsn ??
-    eng?.engineTsn ??
-    eng?.engine_tsn;
-  const engineTso =
-    r.engineTso ??
-    r.engine_tso ??
-    eng?.tso ??
-    eng?.engineTso ??
-    eng?.engine_tso;
-  const engineTbo =
-    r.engineTbo ??
-    r.engine_tbo ??
-    eng?.tbo ??
-    eng?.engineTbo ??
-    eng?.engine_tbo;
-
-  const propRun =
-    r.propellerRunTime ??
-    r.propellerTotalTime ??
-    prop?.hrsTime ??
-    prop?.run ??
-    r.propellerRun;
-  const propellerTsn =
-    r.propellerTsn ??
-    r.propeller_tsn ??
-    prop?.tsn ??
-    prop?.propellerTsn ??
-    prop?.propeller_tsn;
-  const propellerTso =
-    r.propellerTso ??
-    r.propeller_tso ??
-    prop?.tso ??
-    prop?.propellerTso ??
-    prop?.propeller_tso;
-  const propellerTbo =
-    r.propellerTbo ??
-    r.propeller_tbo ??
-    prop?.tbo ??
-    prop?.propellerTbo ??
-    prop?.propeller_tbo;
-
   const numStr = (v: unknown) =>
     v === null || v === undefined || v === "" ? "" : String(v);
 
   return {
-    airframeRunTime: numStr(airframeRun),
-    airframeAftt: numStr(airframeAftt),
-    engineRunTime: numStr(engineRun),
-    engineTsn,
-    engineTso: numStr(engineTso),
-    engineTbo: numStr(engineTbo),
-    propellerRunTime: numStr(propRun),
-    propellerTsn:
-      propellerTsn != null && propellerTsn !== "" ? String(propellerTsn) : "",
-    propellerTso: numStr(propellerTso),
-    propellerTbo: numStr(propellerTbo),
+    airframeRunTime: numStr(resolveAtlComponentMetric(entry, "airframeRunTime")),
+    airframeAftt: numStr(resolveAtlComponentMetric(entry, "airframeAftt")),
+    engineRunTime: numStr(resolveAtlComponentMetric(entry, "engineRunTime")),
+    engineTsn: numStr(resolveAtlComponentMetric(entry, "engineTsn")),
+    engineTso: numStr(resolveAtlComponentMetric(entry, "engineTso")),
+    engineTbo: numStr(resolveAtlComponentMetric(entry, "engineTbo")),
+    propellerRunTime: numStr(
+      resolveAtlComponentMetric(entry, "propellerRunTime")
+    ),
+    propellerTsn: numStr(resolveAtlComponentMetric(entry, "propellerTsn")),
+    propellerTso: numStr(resolveAtlComponentMetric(entry, "propellerTso")),
+    propellerTbo: numStr(resolveAtlComponentMetric(entry, "propellerTbo")),
   };
-}
-
-function formatListComputedForAtlForm(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(Number(n))) return "";
-  return Number(n).toFixed(2);
-}
-
-/** Prefer API/stored values; if missing, use Operation list row computed totals (cumulative TSN/TSO, etc.). */
-function mergeAtlResolvedWithListComputed(
-  resolved: unknown,
-  listValue: number | null | undefined,
-  fallbackEmpty: string
-): string {
-  if (resolved != null && resolved !== "") return String(resolved);
-  const c = formatListComputedForAtlForm(listValue);
-  return c !== "" ? c : fallbackEmpty;
 }
 
 function parseFiniteFloatField(value: string | undefined | null): number | null {
@@ -159,34 +82,30 @@ function parseFiniteFloatField(value: string | undefined | null): number | null 
 /** API expects engine_tsn; never send NaN/undefined from blank or whitespace fields. */
 function resolveEngineTsnForApi(formData: {
   engineTsn: string;
-  engineRunTime: string;
-  engineTotalTime: string;
-  tachometerStart: string;
-  tachometerEnd: string;
 }): number {
   const direct = parseFiniteFloatField(formData.engineTsn);
   if (direct != null) return direct;
-  const run =
-    parseFiniteFloatField(formData.engineRunTime) ??
-    parseFiniteFloatField(formData.engineTotalTime);
-  if (run != null && run >= 0) return run;
-  const tachEnd = parseFiniteFloatField(formData.tachometerEnd);
-  const tachStart = parseFiniteFloatField(formData.tachometerStart);
-  if (tachEnd != null && tachStart != null) {
-    const delta = tachEnd - tachStart;
-    if (Number.isFinite(delta) && delta >= 0) return delta;
-  }
   return 0;
+}
+
+/** Prefer resolved API string; else list row computed number; else fallback ("" or e.g. "0.0"). */
+function mergeAtlResolvedWithListComputed(
+  resolved: string,
+  listComputed: number | null | undefined,
+  fallbackWhenBothMissing: string
+): string {
+  const r = (resolved ?? "").trim();
+  if (r !== "") return r;
+  if (listComputed != null && Number.isFinite(listComputed)) {
+    return listComputed.toFixed(2);
+  }
+  return fallbackWhenBothMissing;
 }
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   editEntry?: AircraftTechnicalLog | null;
-  /**
-   * Operation ATL: same row’s client-computed component times as the grid (fills gaps when GET-by-id omits cumulative fields).
-   */
-  listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
   onSuccess?: () => void;
   aircraftId?: number; // Optional aircraft ID from useParams
   /** Module code for role Update permission (e.g. operation, logbook). Required when editEntry is set. */
@@ -198,18 +117,20 @@ interface AddTechnicalLogbookEntryModalProps {
    * all other fields are read-only and Update requires a new file selection.
    */
   editRestrictedToWhiteAtlDfpOnly?: boolean;
+  /** Operation: per-row list computed component times when READ-by-id omits cumulative fields. */
+  listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
 }
 
 export function AddTechnicalLogbookEntryModal({
   isOpen,
   onClose,
   editEntry,
-  listViewComputedTimes = null,
   onSuccess,
   aircraftId,
   permissionModuleCode,
   viewerRole,
   editRestrictedToWhiteAtlDfpOnly = false,
+  listViewComputedTimes = null,
 }: AddTechnicalLogbookEntryModalProps) {
   const {
     canUpdate,
@@ -393,12 +314,6 @@ export function AddTechnicalLogbookEntryModal({
     []
   );
 
-  // Previous values for ATL auto-compute (set when loading latest or edit)
-  const [previousEngineTsn, setPreviousEngineTsn] = useState<number>(0);
-  const [previousEngineTso, setPreviousEngineTso] = useState<number>(0);
-  const [previousPropellerTsn, setPreviousPropellerTsn] = useState<number>(0);
-  const [previousPropellerTso, setPreviousPropellerTso] = useState<number>(0);
-
   // Aircraft searchable dropdown state
   const [aircrafts, setAircrafts] = useState<
     Array<{ id: number; registration: string }>
@@ -469,6 +384,12 @@ export function AddTechnicalLogbookEntryModal({
 
   // Latest entry sequence number (for format validation: must match same digit length as latest, e.g. 00013)
   const [latestSequenceNo, setLatestSequenceNo] = useState<string | null>(null);
+
+  /** Baseline cumulative times before this leg (engine/prop TSN/TSO) for auto-calculations. */
+  const [previousEngineTsn, setPreviousEngineTsn] = useState(0);
+  const [previousEngineTso, setPreviousEngineTso] = useState(0);
+  const [previousPropellerTsn, setPreviousPropellerTsn] = useState(0);
+  const [previousPropellerTso, setPreviousPropellerTso] = useState(0);
 
   // Fetch aircrafts when modal opens
   useEffect(() => {
