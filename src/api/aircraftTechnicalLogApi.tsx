@@ -115,6 +115,16 @@ export interface AircraftTechnicalLog {
   createdBy?: number;
   createdAt?: string;
   updatedAt?: string;
+  autoAirframeRunTime?: number;
+  autoAirframeAftt?: number;
+  autoEngineRunTime?: number;
+  autoEngineTsn?: number | string;
+  autoEngineTso?: number;
+  autoEngineTbo?: number;
+  autoPropellerRunTime?: number;
+  autoPropellerTsn?: number | string;
+  autoPropellerTso?: number;
+  autoPropellerTbo?: number;
 }
 
 /** Per-row component times as shown on Operation ATL list (client-computed when API omits cumulative fields). */
@@ -269,12 +279,228 @@ export interface AircraftTechnicalLogSearchResult {
   natureOfFlight?: string;
 }
 
+export type AtlComponentMetric =
+  | "airframeRunTime"
+  | "airframeAftt"
+  | "engineRunTime"
+  | "engineTsn"
+  | "engineTso"
+  | "engineTbo"
+  | "propellerRunTime"
+  | "propellerTsn"
+  | "propellerTso"
+  | "propellerTbo";
+
+const ATL_COMPONENT_METRIC_CANDIDATES: Record<AtlComponentMetric, string[]> = {
+  airframeRunTime: [
+    "autoAirframeRunTime",
+    "auto_airframe_run_time",
+    "airframeRunTime",
+    "airframeTotalTime",
+    "airframeRun",
+  ],
+  airframeAftt: [
+    "autoAirframeAftt",
+    "auto_airframe_aftt",
+    "airframeAftt",
+    "airframeTotalTime",
+  ],
+  engineRunTime: [
+    "autoEngineRunTime",
+    "auto_engine_run_time",
+    "engineRunTime",
+    "engineTotalTime",
+    "engineRun",
+  ],
+  engineTsn: ["autoEngineTsn", "auto_engine_tsn", "engineTsn", "engine_tsn"],
+  engineTso: ["autoEngineTso", "auto_engine_tso", "engineTso", "engine_tso"],
+  engineTbo: ["autoEngineTbo", "auto_engine_tbo", "engineTbo", "engine_tbo"],
+  propellerRunTime: [
+    "autoPropellerRunTime",
+    "auto_propeller_run_time",
+    "propellerRunTime",
+    "propellerTotalTime",
+    "propellerRun",
+  ],
+  propellerTsn: [
+    "autoPropellerTsn",
+    "auto_propeller_tsn",
+    "propellerTsn",
+    "propeller_tsn",
+  ],
+  propellerTso: [
+    "autoPropellerTso",
+    "auto_propeller_tso",
+    "propellerTso",
+    "propeller_tso",
+  ],
+  propellerTbo: [
+    "autoPropellerTbo",
+    "auto_propeller_tbo",
+    "propellerTbo",
+    "propeller_tbo",
+  ],
+};
+
+export function resolveAtlComponentMetric(
+  entry: AircraftTechnicalLog | Record<string, unknown> | null | undefined,
+  metric: AtlComponentMetric
+): unknown {
+  if (!entry || typeof entry !== "object") return undefined;
+
+  const record = entry as Record<string, unknown>;
+  const auto =
+    record.auto && typeof record.auto === "object"
+      ? (record.auto as Record<string, unknown>)
+      : null;
+  const airframe =
+    record.airframe && typeof record.airframe === "object"
+      ? (record.airframe as Record<string, unknown>)
+      : null;
+  const engine =
+    record.engine && typeof record.engine === "object"
+      ? (record.engine as Record<string, unknown>)
+      : null;
+  const propeller =
+    record.propeller && typeof record.propeller === "object"
+      ? (record.propeller as Record<string, unknown>)
+      : null;
+
+  for (const key of ATL_COMPONENT_METRIC_CANDIDATES[metric]) {
+    const value = record[key];
+    if (value != null && value !== "") return value;
+  }
+
+  const nestedCandidates: Record<AtlComponentMetric, unknown[]> = {
+    airframeRunTime: [
+      auto?.airframeRunTime,
+      auto?.airframe_run_time,
+      airframe?.hrsTime,
+      airframe?.run,
+    ],
+    airframeAftt: [
+      auto?.airframeAftt,
+      auto?.airframe_aftt,
+      airframe?.aftt,
+    ],
+    engineRunTime: [
+      auto?.engineRunTime,
+      auto?.engine_run_time,
+      engine?.hrsTime,
+      engine?.run,
+    ],
+    engineTsn: [
+      auto?.engineTsn,
+      auto?.engine_tsn,
+      engine?.tsn,
+      engine?.engineTsn,
+      engine?.engine_tsn,
+    ],
+    engineTso: [
+      auto?.engineTso,
+      auto?.engine_tso,
+      engine?.tso,
+      engine?.engineTso,
+      engine?.engine_tso,
+    ],
+    engineTbo: [
+      auto?.engineTbo,
+      auto?.engine_tbo,
+      engine?.tbo,
+      engine?.engineTbo,
+      engine?.engine_tbo,
+    ],
+    propellerRunTime: [
+      auto?.propellerRunTime,
+      auto?.propeller_run_time,
+      propeller?.hrsTime,
+      propeller?.run,
+    ],
+    propellerTsn: [
+      auto?.propellerTsn,
+      auto?.propeller_tsn,
+      propeller?.tsn,
+      propeller?.propellerTsn,
+      propeller?.propeller_tsn,
+    ],
+    propellerTso: [
+      auto?.propellerTso,
+      auto?.propeller_tso,
+      propeller?.tso,
+      propeller?.propellerTso,
+      propeller?.propeller_tso,
+    ],
+    propellerTbo: [
+      auto?.propellerTbo,
+      auto?.propeller_tbo,
+      propeller?.tbo,
+      propeller?.propellerTbo,
+      propeller?.propeller_tbo,
+    ],
+  };
+
+  return nestedCandidates[metric].find((value) => value != null && value !== "");
+}
+
+/** Normalize rows from GET /aircraft-technical-log/paged (and manage/paged) across common response shapes. */
+function extractPagedLogRows(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+
+  const tryObject = (p: Record<string, unknown>): unknown[] => {
+    if (Array.isArray(p.items)) return p.items;
+    if (Array.isArray(p.results)) return p.results;
+    if (Array.isArray(p.records)) return p.records;
+    if (Array.isArray(p.logs)) return p.logs;
+    if (Array.isArray(p.entries)) return p.entries;
+    if (Array.isArray(p.data)) return p.data;
+    return [];
+  };
+
+  const p = payload as Record<string, unknown>;
+  let rows = tryObject(p);
+  const inner = p.data;
+  if (
+    rows.length === 0 &&
+    inner != null &&
+    typeof inner === "object" &&
+    !Array.isArray(inner)
+  ) {
+    rows = tryObject(inner as Record<string, unknown>);
+  }
+  return rows;
+}
+
+function readPagedNumeric(
+  payload: unknown,
+  keys: string[],
+  fallback: number
+): number {
+  if (!payload || typeof payload !== "object") return fallback;
+  const p = payload as Record<string, unknown>;
+  const inner =
+    p.data != null && typeof p.data === "object" && !Array.isArray(p.data)
+      ? (p.data as Record<string, unknown>)
+      : null;
+  const meta =
+    p.meta != null && typeof p.meta === "object" && !Array.isArray(p.meta)
+      ? (p.meta as Record<string, unknown>)
+      : null;
+  for (const key of keys) {
+    for (const src of [p, inner, meta]) {
+      if (!src) continue;
+      const v = src[key];
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return fallback;
+}
+
 // CRUD Operations
 
-/**
- * Get paginated list of Aircraft Technical Log entries
- */
-export const getAircraftTechnicalLogs = async (
+const fetchAircraftTechnicalLogs = async (
+  endpoint: string,
   page = 1,
   limit = 10,
   search = "",
@@ -303,40 +529,95 @@ export const getAircraftTechnicalLogs = async (
       params.append("work_status", workStatus.trim());
     }
 
-    const response = await apiClient.get(
-      `aircraft-technical-log/paged?${params.toString()}`
+    const response = await apiClient.get(`${endpoint}?${params.toString()}`);
+
+    const payload = response.data?.data ?? response.data;
+    const rawItems = extractPagedLogRows(payload);
+
+    const transformedItems = rawItems.map(
+      (item) => toCamelDeep(item) as AircraftTechnicalLog
     );
 
-    // Transform the response to camelCase (recursively handle nested objects and arrays)
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          result[camel] = transformToCamel(obj[key]);
-        }
-        return result;
-      }
-      return obj;
-    };
-
-    const transformedItems = response.data.items.map((item: any) =>
-      transformToCamel(item)
+    const totalRaw = readPagedNumeric(
+      payload,
+      ["total", "count", "totalCount", "total_count"],
+      transformedItems.length
     );
+    const currentPageRaw = readPagedNumeric(
+      payload,
+      ["page", "currentPage", "current_page"],
+      page
+    );
+    const pagesRaw = readPagedNumeric(
+      payload,
+      ["pages", "totalPages", "total_pages"],
+      NaN
+    );
+
+    const normalizedTotal = Number.isFinite(totalRaw)
+      ? Math.max(0, totalRaw)
+      : transformedItems.length;
+    const normalizedPage = Number.isFinite(currentPageRaw)
+      ? Math.max(1, currentPageRaw)
+      : Math.max(1, page);
+    const normalizedPages = Number.isFinite(pagesRaw)
+      ? Math.max(1, pagesRaw)
+      : limit > 0
+        ? Math.max(1, Math.ceil(normalizedTotal / limit))
+        : 1;
 
     return {
       items: transformedItems,
-      total: response.data.total,
-      page: response.data.page,
-      pages: response.data.pages,
+      total: normalizedTotal,
+      page: normalizedPage,
+      pages: normalizedPages,
     };
   } catch (error) {
     throw error;
   }
 };
+
+/**
+ * Get paginated list of Aircraft Technical Log entries for operation views
+ */
+export const getAircraftTechnicalLogs = async (
+  page = 1,
+  limit = 10,
+  search = "",
+  aircraftFk?: number,
+  sort = "",
+  workStatus?: string
+): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
+  fetchAircraftTechnicalLogs(
+    "aircraft-technical-log/paged",
+    page,
+    limit,
+    search,
+    aircraftFk,
+    sort,
+    workStatus
+  );
+
+/**
+ * Get paginated list of Aircraft Technical Log entries for manage/list views
+ */
+export const getManagedAircraftTechnicalLogs = async (
+  page = 1,
+  limit = 10,
+  search = "",
+  aircraftFk?: number,
+  sort = "",
+  workStatus?: string
+): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
+  fetchAircraftTechnicalLogs(
+    "aircraft-technical-log/manage/paged",
+    page,
+    limit,
+    search,
+    aircraftFk,
+    sort,
+    workStatus
+  );
 
 /**
  * Get a single Aircraft Technical Log entry by ID

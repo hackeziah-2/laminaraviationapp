@@ -1,6 +1,6 @@
 import apiClient from "./index";
 import { Aircraft } from "../types/Aircraft";
-import { toCamel } from "../utility/utils";
+import { toCamel, toCamelDeep } from "../utility/utils";
 
 export const getAircrafts = (
   page = 1,
@@ -32,6 +32,8 @@ export const getAircrafts = (
 export const getAircraftAll = (page = 1, limit = 10, search = "") =>
   apiClient.get(`aircraft/paged?limit=${limit}&page=${page}&search=${search}`);
 
+export const getAircraftList = () => apiClient.get("aircraft/list");
+
 // export const updateAircraft = async (id: number, data: any) => {
 //   try {
 //     const response = await apiClient.put<Aircraft>(`/aircraft/${id}`, data);
@@ -53,6 +55,65 @@ export const updateAircraft = async (id: number, formData: FormData) => {
 };
 
 export const getAircraftById = (id: number) => apiClient.get(`/aircraft/${id}`);
+
+export interface AircraftHistoryRow {
+  [key: string]: unknown;
+}
+
+export interface AircraftHistoryPagedResponse {
+  items: AircraftHistoryRow[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+/**
+ * GET /api/v1/aircraft/{aircraft_id}/history?limit=10&page=1
+ */
+export const getAircraftHistory = async (
+  aircraftId: number,
+  page = 1,
+  limit = 10
+): Promise<AircraftHistoryPagedResponse> => {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  params.set("page", String(page));
+
+  const response = await apiClient.get(
+    `aircraft/${aircraftId}/history?${params.toString()}`,
+    {
+      headers: { Accept: "application/json" },
+    }
+  );
+
+  const data = response.data?.data ?? response.data ?? {};
+  const dataObj =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : {};
+  const rawList =
+    dataObj.results ??
+    dataObj.items ??
+    dataObj.data ??
+    (Array.isArray(data) ? data : []);
+  const list = Array.isArray(rawList) ? rawList.filter(Boolean) : [];
+  const items = list.map((item) =>
+    toCamelDeep(item as Record<string, unknown>)
+  ) as AircraftHistoryRow[];
+
+  const total = Number(dataObj.count ?? dataObj.total ?? items.length);
+  const currentPage = Number(dataObj.page ?? page);
+  const pages = Number(
+    dataObj.pages ?? Math.max(1, Math.ceil(total / Math.max(1, limit)))
+  );
+
+  return {
+    items,
+    total,
+    page: Number.isFinite(currentPage) ? currentPage : page,
+    pages: Number.isFinite(pages) ? pages : 1,
+  };
+};
 // export const createAircraft = (data: any) => apiClient.post("/aircrafts", data);
 export const deleteAircraft = (id: number) =>
   apiClient.delete(`aircraft/${id}`);

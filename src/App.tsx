@@ -22,6 +22,7 @@ import { OEMTechnicalPublication } from './components/OEMTechnicalPublication';
 import { PersonnelAuthorization } from './components/PersonnelAuthorization';
 import { Settings } from './components/Settings';
 import { AircraftDetail } from './components/AircraftDetail';
+import { AircraftHistory } from './components/AircraftHistory';
 import { MaintenanceLogbook } from './components/MaintenanceLogbook';
 import { Maintenance } from './components/Maintenance';
 import { Operation } from './components/Operation';
@@ -217,6 +218,7 @@ function AuthenticatedShell({
           <Route path="/dashboard" element={<ProtectedRoute moduleCode="dashboard"><Dashboard /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute moduleCode="profile"><AircraftFleetProfile /></ProtectedRoute>} />
           <Route path="/profile/:id" element={<ProtectedRoute moduleCode="profile"><AircraftDetail /></ProtectedRoute>} />
+          <Route path="/profile/:id/history" element={<ProtectedRoute moduleCode="profile"><AircraftHistory /></ProtectedRoute>} />
           <Route path="/profile/:id/logbook" element={<ProtectedRoute moduleCode="logbook"><MaintenanceLogbook /></ProtectedRoute>} />
           <Route path="/profile/:id/maintenance" element={<ProtectedRoute moduleCode="maintenance"><RedirectToMaintenanceLdnd /></ProtectedRoute>} />
           <Route path="/profile/:id/maintenance-ad-work-orders/:ad_monitoring_id" element={<ProtectedRoute moduleCode="maintenance"><ADWorkOrders /></ProtectedRoute>} />

@@ -20,14 +20,19 @@ import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import {
-  getAircraftTechnicalLogs,
+  getManagedAircraftTechnicalLogs,
   getAircraftTechnicalLogById,
   createAircraftTechnicalLog,
   deleteAircraftTechnicalLog,
+  updateAircraftTechnicalLog,
   AircraftTechnicalLog,
 } from "../api/aircraftTechnicalLogApi";
+import { getAircraftList } from "../api/aircraftApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
-import { isAtlEditAllowedForRoleAndWorkStatus } from "../utility/atlEditRbac";
+import {
+  isAtlEditAllowedForRoleAndWorkStatus,
+  normalizeAtlWorkStatus,
+} from "../utility/atlEditRbac";
 
 interface LogbookEntry {
   id: number;
@@ -44,10 +49,20 @@ interface LogbookEntry {
   workStatus?: string;
 }
 
+interface AircraftFilterOption {
+  id: number;
+  registration: string;
+  model?: string;
+}
+
 export function AircraftTechnicalLogbook() {
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const [selectedAircraftId, setSelectedAircraftId] = useState("");
+  const [aircraftOptions, setAircraftOptions] = useState<AircraftFilterOption[]>(
+    []
+  );
   const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -63,6 +78,19 @@ export function AircraftTechnicalLogbook() {
   const [error, setError] = useState<string | null>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
+
+  const selectedAircraftFk =
+    selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
+  const normalizedUserRole = (user?.role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ");
+  const isMaintenanceManager =
+    normalizedUserRole === "maintenance manager" ||
+    normalizedUserRole.endsWith(" maintenance manager");
+  const isQualityManager =
+    normalizedUserRole === "quality manager" ||
+    normalizedUserRole.endsWith(" quality manager");
 
   // Map backend data to frontend format
   const mapToLogbookEntry = (
@@ -136,11 +164,11 @@ export function AircraftTechnicalLogbook() {
     setLoading(true);
     setError(null);
     try {
-      const response = await getAircraftTechnicalLogs(
+      const response = await getManagedAircraftTechnicalLogs(
         currentPage,
         itemsPerPage,
         debouncedSearchTerm, // Use debounced search term
-        undefined, // aircraftFk - optional, can filter by aircraft ID
+        selectedAircraftFk,
         sortBy // Sort parameter
       );
 
@@ -199,12 +227,55 @@ export function AircraftTechnicalLogbook() {
 
   useEffect(() => {
     fetchEntries();
-  }, [currentPage, itemsPerPage, debouncedSearchTerm, sortBy]);
+  }, [currentPage, itemsPerPage, debouncedSearchTerm, selectedAircraftFk, sortBy]);
 
   // Reset to page 1 when sort changes
   useEffect(() => {
     setCurrentPage(1);
   }, [sortBy]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedAircraftId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAircraftOptions = async () => {
+      try {
+        const response = await getAircraftList();
+        const data = response?.data ?? [];
+        const rawItems = Array.isArray(data)
+          ? data
+          : data.items ?? data.results ?? data.data ?? [];
+        const list = Array.isArray(rawItems) ? rawItems : [];
+        const normalized = list
+          .map((item: any) => ({
+            id: Number(item?.id ?? 0),
+            registration: String(item?.registration ?? "").trim(),
+            model: String(item?.model ?? "").trim(),
+          }))
+          .filter((item: AircraftFilterOption) => item.id > 0 && item.registration)
+          .sort((a: AircraftFilterOption, b: AircraftFilterOption) =>
+            a.registration.localeCompare(b.registration)
+          );
+
+        if (isMounted) {
+          setAircraftOptions(normalized);
+        }
+      } catch {
+        if (isMounted) {
+          setAircraftOptions([]);
+        }
+      }
+    };
+
+    loadAircraftOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Calculate statistics from current page entries
   const totalFlightHours = entries
@@ -329,6 +400,60 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
+  const handleWorkStatusAction = async (
+    entry: LogbookEntry,
+    config: {
+      nextWorkStatus:
+        | "APPROVED"
+        | "REJECTED_MAINTENANCE"
+        | "COMPLETED"
+        | "REJECTED_QUALITY";
+      confirmTitle: string;
+      confirmButtonText: string;
+      successMessage: string;
+      confirmButtonColor: string;
+    }
+  ) => {
+    const confirmResult = await Swal.fire({
+      title: config.confirmTitle,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: config.confirmButtonColor,
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: config.confirmButtonText,
+      cancelButtonText: "Cancel",
+    });
+
+    if (!confirmResult.isConfirmed) {
+      return;
+    }
+
+    try {
+      await updateAircraftTechnicalLog(entry.id, {
+        work_status: config.nextWorkStatus,
+      });
+
+      await fetchEntries();
+
+      await Swal.fire({
+        title: "Success!",
+        text: config.successMessage,
+        icon: "success",
+        confirmButtonColor: "#1f2937",
+      });
+    } catch (err: any) {
+      await Swal.fire({
+        title: "Error!",
+        text:
+          err.response?.data?.detail ||
+          err.message ||
+          "Failed to update work status",
+        icon: "error",
+        confirmButtonColor: "#dc2626",
+      });
+    }
+  };
+
   // Handle create entry success
   const handleCreateSuccess = () => {
     setIsModalOpen(false);
@@ -442,6 +567,22 @@ export function AircraftTechnicalLogbook() {
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
               />
             </div>
+          </div>
+          <div className="md:w-72">
+            <label className="block text-gray-700 mb-2">Aircraft</label>
+            <select
+              value={selectedAircraftId}
+              onChange={(e) => setSelectedAircraftId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+            >
+              <option value="">All Aircraft</option>
+              {aircraftOptions.map((aircraft) => (
+                <option key={aircraft.id} value={aircraft.id}>
+                  {aircraft.registration}
+                  {aircraft.model ? ` - ${aircraft.model}` : ""}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
@@ -562,6 +703,97 @@ export function AircraftTechnicalLogbook() {
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
+                            {isMaintenanceManager &&
+                              normalizeAtlWorkStatus(entry.workStatus) ===
+                                "FOR_REVIEW" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleWorkStatusAction(
+                                        entry,
+                                        {
+                                          nextWorkStatus: "APPROVED",
+                                          confirmTitle:
+                                            "Are you sure you what to Approved this ATL",
+                                          confirmButtonText: "Approve",
+                                          successMessage:
+                                            "Update Work status to Approved",
+                                          confirmButtonColor: "#2563eb",
+                                        }
+                                      )
+                                    }
+                                    className="px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded transition-colors"
+                                    title="Approve ATL"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleWorkStatusAction(
+                                        entry,
+                                        {
+                                          nextWorkStatus:
+                                            "REJECTED_MAINTENANCE",
+                                          confirmTitle:
+                                            "Are you sure you what to Reject this ATL",
+                                          confirmButtonText: "Reject",
+                                          successMessage:
+                                            "Update Work status to Rejected Maintenance",
+                                          confirmButtonColor: "#dc2626",
+                                        }
+                                      )
+                                    }
+                                    className="px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded transition-colors"
+                                    title="Reject ATL"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                            {isQualityManager &&
+                              normalizeAtlWorkStatus(entry.workStatus) ===
+                                "PENDING" && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleWorkStatusAction(entry, {
+                                        nextWorkStatus: "COMPLETED",
+                                        confirmTitle:
+                                          "Are you sure you want to mark this ATL as Completed?",
+                                        confirmButtonText: "Complete",
+                                        successMessage:
+                                          "Work status has been successfully updated to Completed.",
+                                        confirmButtonColor: "#16a34a",
+                                      })
+                                    }
+                                    className="px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded transition-colors"
+                                    title="Complete ATL"
+                                  >
+                                    Complete
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleWorkStatusAction(entry, {
+                                        nextWorkStatus: "REJECTED_QUALITY",
+                                        confirmTitle:
+                                          "Are you sure you want to reject this ATL?",
+                                        confirmButtonText: "Reject",
+                                        successMessage:
+                                          "Work status has been successfully updated to Rejected (Quality).",
+                                        confirmButtonColor: "#dc2626",
+                                      })
+                                    }
+                                    className="px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded transition-colors"
+                                    title="Reject ATL"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
                           </div>
                         </td>
                       </tr>
