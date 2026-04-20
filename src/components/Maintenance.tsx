@@ -39,6 +39,8 @@ import {
   downloadAdMonitoringFile,
   type ADMonitoring,
 } from "../api/adMonitoringApi";
+import { getAircraftById } from "../api/aircraftApi";
+import { toCamel } from "../utility/utils";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
@@ -163,6 +165,7 @@ export function Maintenance() {
     tsn: "",
     csn: "",
   });
+  const [registration, setRegistration] = useState<string | null>(null);
 
   // Pagination state for LDND
   const [currentPage, setCurrentPage] = useState(1);
@@ -320,6 +323,27 @@ export function Maintenance() {
   useEffect(() => {
     setAdCurrentPage(1);
   }, [adSearchQuery]);
+
+  useEffect(() => {
+    if (!Number.isFinite(aircraftId) || aircraftId <= 0) {
+      setRegistration(null);
+      return;
+    }
+    let cancelled = false;
+    getAircraftById(aircraftId)
+      .then((res) => {
+        if (cancelled) return;
+        const data = toCamel(res.data) as { registration?: string };
+        const reg = data.registration?.trim();
+        setRegistration(reg && reg.length > 0 ? reg : null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegistration(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftId]);
 
   const handleLdndCreateOrUpdate = async () => {
     const type = String(newEntry.type).replace(/\r\n?/g, "\n").trim();
@@ -940,7 +964,7 @@ export function Maintenance() {
               Maintenance Forecasting
             </h2>
             <p className="text-gray-500 mt-1 text-sm">
-              Aircraft ID: {aircraftId}
+              Aircraft Registration: {registration ?? "—"}
             </p>
           </div>
         </div>
@@ -1488,7 +1512,7 @@ export function Maintenance() {
           <div className="p-5">
             <CPCPMonitoring
               msn={String(id ?? "")}
-              registration={`Aircraft ${id}`}
+              registration={registration ?? "—"}
               embedded
               aircraftId={id}
             />
