@@ -1,4 +1,11 @@
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, {
+  forwardRef,
+  useImperativeHandle,
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -25,6 +32,28 @@ import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import * as XLSX from "xlsx";
+
+const TCC_EXPORT_HEADERS = [
+  "SEQUENCE NO",
+  "CATEGORY",
+  "REMAINING YEARS",
+  "REMAINING DAYS",
+  "REMAINING TACH",
+  "REMAINING AFTT",
+  "PART NO.",
+  "SERIAL NO.",
+  "DESCRIPTION",
+  "COMPONENT LIMIT YEARS",
+  "COMPONENT LIMIT HOURS",
+  "METHOD OF COMPLIANCE",
+  "LAST DONE DATE",
+  "LAST DONE TACH",
+  "LAST DONE AFTT",
+  "NEXT DUE DATE",
+  "NEXT DUE TACH",
+  "NEXT DUE AFTT",
+] as const;
 
 export interface ComponentItem {
   id: number;
@@ -277,16 +306,65 @@ function formatNum(n: number | null): string {
   return parseFloat(n.toFixed(2)).toString();
 }
 
+function tccComputedRowToExportCells(
+  row: TCCComputedRow,
+  item: ComponentItem
+): string[] {
+  const remYears =
+    row.remainingYears != null && Number.isFinite(row.remainingYears)
+      ? row.remainingYears.toFixed(2)
+      : String(item.remaining ?? "").trim();
+  const remDays =
+    row.remainingDays != null && Number.isFinite(row.remainingDays)
+      ? String(row.remainingDays)
+      : String(item.date ?? "").trim();
+  const nextDueDateStr = row.nextDueDate
+    ? formatDate(row.nextDueDate)
+    : String(item.nextDueDate ?? "").trim();
+  const nextDueTachStr =
+    formatNum(row.nextDueTach) || String(item.nextDueYear ?? "").trim();
+  const nextDueAfttStr =
+    formatNum(row.nextDueAftt) || String(item.nextDueAftt ?? "").trim();
+  return [
+    String(item.reference ?? "").trim(),
+    String(item.category ?? "").trim(),
+    remYears,
+    remDays,
+    formatNum(row.remainingTach) || String(item.when ?? "").trim(),
+    formatNum(row.remainingAftt) || String(item.aftt ?? "").trim(),
+    String(item.partNo ?? "").trim(),
+    String(item.serialNo ?? "").trim(),
+    String(item.description ?? "").trim(),
+    formatNum(parseNum(item.limitYears)),
+    formatNum(parseNum(item.limitHours)),
+    String(item.methodOfCompliance ?? "").trim(),
+    String(item.lastDoneDate ?? "").trim(),
+    String(item.lastDoneTach ?? item.lastDoneYear ?? "").trim(),
+    String(item.lastDoneAftt ?? "").trim(),
+    nextDueDateStr,
+    nextDueTachStr,
+    nextDueAfttStr,
+  ];
+}
+
 export interface TCCDetailContentProps {
   aircraftId: string;
   showAddButton?: boolean;
 }
 
+export type TCCDetailContentHandle = {
+  /** Fetches paged TCC data with current search/category and downloads CSV or XLSX. */
+  exportTcc: (format: "csv" | "xlsx") => Promise<void>;
+};
+
 /** TCC detail content (Aircraft info, POWERPLANT/AIRFRAME/PROPELLER tabs, component table). Use inside Maintenance TCC tab or in TCCDetail page. */
-export function TCCDetailContent({
-  aircraftId,
-  showAddButton = true,
-}: TCCDetailContentProps) {
+export const TCCDetailContent = forwardRef<
+  TCCDetailContentHandle,
+  TCCDetailContentProps
+>(function TCCDetailContent(
+  { aircraftId, showAddButton = true },
+  ref
+) {
   const navigate = useNavigate();
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   /* Filter state: default to empty (All) or specific category */
@@ -557,6 +635,102 @@ export function TCCDetailContent({
     );
     return Number.isFinite(n) ? n : 11656;
   }, [aircraftDetails?.airframeAftt]);
+
+  const handleTccExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      if (!aircraftIdNum || aircraftIdNum <= 0) return;
+      try {
+        const exportLimit = Math.max(tccTotal, tccItems.length, 1);
+        const res = await getAircraftTccMonitoring(
+          aircraftIdNum,
+          1,
+          exportLimit,
+          searchDebounced,
+          activeTab
+        );
+        const items = (res.items as ComponentItem[]) ?? [];
+        if (!items.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no TCC records matching the current search or category.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const fileReg =
+          aircraftDetails?.registration?.trim() || `aircraft_${aircraftIdNum}`;
+        const rowStrings = items.map((item) =>
+          tccComputedRowToExportCells(
+            computeTCCRow(item, currentDate, currentTach, currentAftt),
+            item
+          )
+        );
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...TCC_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...rowStrings.map((cells) =>
+              cells.map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_tcc_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...TCC_EXPORT_HEADERS],
+            ...rowStrings,
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "TCC");
+          XLSX.writeFile(wb, `${fileReg}_tcc_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export TCC data.",
+          confirmButtonColor: "#2563eb",
+        });
+      }
+    },
+    [
+      aircraftIdNum,
+      activeTab,
+      aircraftDetails?.registration,
+      currentDate,
+      currentTach,
+      currentAftt,
+      searchDebounced,
+      tccItems.length,
+      tccTotal,
+    ]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      exportTcc: (format) => handleTccExport(format),
+    }),
+    [handleTccExport]
+  );
 
   const computedRows = useMemo(
     () =>
@@ -1211,7 +1385,7 @@ export function TCCDetailContent({
       />
     </>
   );
-}
+});
 
 export function TCCDetail() {
   const { id } = useParams<{ id: string }>();

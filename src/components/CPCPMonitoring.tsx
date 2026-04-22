@@ -1,4 +1,6 @@
 import React, {
+  forwardRef,
+  useImperativeHandle,
   useState,
   useCallback,
   useEffect,
@@ -38,6 +40,57 @@ import {
   getAircraftDetails,
   type AircraftMaintenanceDetails,
 } from "../api/aircraftApi";
+import * as XLSX from "xlsx";
+
+const CPCP_EXPORT_HEADERS = [
+  "SEQUENCE NO",
+  "REMAINING YEARS",
+  "REMAINING DAYS",
+  "REMAINING TACH",
+  "REMAINING",
+  "INSPECTION OPERATION",
+  "DESCRIPTION",
+  "INTERNAL HOURS",
+  "INTERNAL MONTHS",
+  "LAST DONE DATE",
+  "LAST DONE TACH",
+  "LAST DONE AFTT",
+  "NEXT DUE DATE",
+  "NEXT DUE TACH",
+  "NEXT DUE AFTT",
+] as const;
+
+/** Remaining "months" from list/API → years (same basis as the MONTHS column ÷ 12) */
+function formatCpcpRemainingYearsFromMonths(monthsDisplay: string): string {
+  const s = String(monthsDisplay ?? "").trim();
+  if (s === "" || s === "-" || s === "—") return "";
+  const n = parseFloat(s.replace(/,/g, ""));
+  if (!Number.isFinite(n)) return "";
+  return (n / 12).toFixed(2);
+}
+
+function cpcpToExportRow(
+  item: CPCPEntry,
+  computed: ReturnType<typeof computeCpcpRow>
+): string[] {
+  return [
+    String(item.reference ?? "").trim(),
+    formatCpcpRemainingYearsFromMonths(computed.remaining.months),
+    String(computed.remaining.days ?? "").trim(),
+    String(computed.remaining.tach ?? "").trim(),
+    String(computed.remaining.aftf ?? "").trim(),
+    String(item.inspectionCode ?? "").trim(),
+    String(item.description ?? "").replace(/\r\n/g, "\n").trim(),
+    String(item.interval?.hours ?? ""),
+    String(item.interval?.months ?? ""),
+    String(item.lastDone?.date ?? "").trim(),
+    String(item.lastDone?.tach ?? "").trim(),
+    String(item.lastDone?.aftf ?? "").trim(),
+    String(computed.nextDue.date ?? "").trim(),
+    String(computed.nextDue.tach ?? "").trim(),
+    String(computed.nextDue.aftf ?? "").trim(),
+  ];
+}
 
 function fmtCpcpHeaderField(v: unknown): string {
   if (v == null) return "—";
@@ -57,6 +110,11 @@ interface CPCPMonitoringProps {
   /** Optional aircraft ID for API scope */
   aircraftId?: string | number;
 }
+
+export type CPCPMonitoringHandle = {
+  /** GET cpcp-monitoring/paged with current search + aircraft_id, then download CSV or XLSX. */
+  exportCpcp: (format: "csv" | "xlsx") => Promise<void>;
+};
 
 /** Table row shape (compatible with CPCPEntry from API) */
 interface InspectionItem {
@@ -87,16 +145,22 @@ interface InspectionItem {
   status: "green" | "yellow" | "red" | "white";
 }
 
-export function CPCPMonitoring({
-  onBack,
-  msn,
-  registration = "RP-C14",
-  aftf = "7895.4",
-  tach = "7894.8",
-  date = "20-Sep-25",
-  embedded = false,
-  aircraftId,
-}: CPCPMonitoringProps) {
+export const CPCPMonitoring = forwardRef<
+  CPCPMonitoringHandle,
+  CPCPMonitoringProps
+>(function CPCPMonitoring(
+  {
+    onBack,
+    msn,
+    registration = "RP-C14",
+    aftf = "7895.4",
+    tach = "7894.8",
+    date = "20-Sep-25",
+    embedded = false,
+    aircraftId,
+  },
+  ref
+) {
   const navigate = useNavigate();
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
@@ -157,6 +221,102 @@ export function CPCPMonitoring({
   const headerAftt = fmtCpcpHeaderField(aircraftDetails?.airframeAftt ?? aftf);
   const headerTach = fmtCpcpHeaderField(aircraftDetails?.tachometerEnd ?? tach);
   const headerDate = fmtCpcpHeaderField(date);
+
+  const handleCpcpExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      try {
+        const exportLimit = Math.max(totalItems, items.length, 1);
+        const res = await getCpcpMonitoringPaged(
+          1,
+          exportLimit,
+          searchDebounced,
+          aircraftId
+        );
+        const list = res.items;
+        if (!list.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no CPCP records matching the current search.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const reg = headerRegistration.trim();
+        const fileReg =
+          reg && reg !== "—"
+            ? reg
+            : Number.isFinite(aircraftIdNum) && aircraftIdNum > 0
+              ? `aircraft_${aircraftIdNum}`
+              : "cpcp_export";
+        const rowStrings = list.map((item) => {
+          const computed = computeCpcpRow(item, headerTach, headerAftt);
+          return cpcpToExportRow(item, computed);
+        });
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...CPCP_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...rowStrings.map((cells) =>
+              cells.map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_cpcp_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...CPCP_EXPORT_HEADERS],
+            ...rowStrings,
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "CPCP");
+          XLSX.writeFile(wb, `${fileReg}_cpcp_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export CPCP data.",
+          confirmButtonColor: "#2563eb",
+        });
+      }
+    },
+    [
+      totalItems,
+      items.length,
+      searchDebounced,
+      aircraftId,
+      headerTach,
+      headerAftt,
+      headerRegistration,
+      aircraftIdNum,
+    ]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      exportCpcp: (f) => handleCpcpExport(f),
+    }),
+    [handleCpcpExport]
+  );
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -610,7 +770,11 @@ export function CPCPMonitoring({
                         </tr>
                       ) : (
                         currentItems.map((item) => {
-                          const computed = computeCpcpRow(item, tach, aftf);
+                          const computed = computeCpcpRow(
+                            item,
+                            headerTach,
+                            headerAftt
+                          );
                           return (
                             <tr key={item.id} className="transition-colors">
                               <td
@@ -922,4 +1086,6 @@ export function CPCPMonitoring({
       )}
     </div>
   );
-}
+});
+
+CPCPMonitoring.displayName = "CPCPMonitoring";

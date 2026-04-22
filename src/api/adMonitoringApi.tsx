@@ -61,7 +61,9 @@ function normalizeItem(raw: any): ADMonitoring {
         : compliDate
         ? String(compliDate).slice(0, 10)
         : "",
-    workOrders: Number(r.ad_works.length ?? r.workOrders ?? 0),
+    workOrders: Array.isArray(r.ad_works)
+      ? r.ad_works.length
+      : Number(r.workOrders ?? 0),
     dateViewed: r.date_viewed ?? r.dateViewed ?? "",
     filePath: r.file_path ?? r.filePath ?? undefined,
   };
