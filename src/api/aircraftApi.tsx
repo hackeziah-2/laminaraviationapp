@@ -2,6 +2,100 @@ import apiClient from "./index";
 import { Aircraft } from "../types/Aircraft";
 import { toCamel, toCamelDeep } from "../utility/utils";
 
+/**
+ * Normalized maintenance snapshot for TCC / monitoring UIs.
+ * Built from GET /aircraft/{id}/details/ whether the API returns a nested or flat body.
+ */
+export type AircraftMaintenanceDetails = {
+  registration?: string | null;
+  msn?: string | null;
+  engineSerialNumber?: string | null;
+  propellerSerialNumber?: string | null;
+  tachometerEnd?: string | number | null;
+  airframeAftt?: string | number | null;
+  engineTsn?: string | number | null;
+  engineTbo?: string | number | null;
+  engineTso?: string | number | null;
+  propellerTsn?: string | number | null;
+  propellerTbo?: string | number | null;
+  propellerTso?: string | number | null;
+  /** Latest ATL sequence when provided under `atl` */
+  sequenceNo?: string | null;
+};
+
+/**
+ * API body shape (after `toCamelDeep`):
+ * {
+ *   aircraft: { aircraftId, registration, msn, engineSerialNumber, propellerSerialNumber },
+ *   atl: { tachometerEnd, airframeAftt, engineTsn, engineTbo, engineTso, propellerTsn, propellerTbo, propellerTso, sequenceNo }
+ * }
+ */
+type AircraftDetailsNestedCamel = {
+  aircraft?: {
+    aircraftId?: number;
+    registration?: string | null;
+    msn?: string | null;
+    engineSerialNumber?: string | null;
+    propellerSerialNumber?: string | null;
+  };
+  atl?: {
+    tachometerEnd?: string | number | null;
+    airframeAftt?: string | number | null;
+    engineTsn?: string | number | null;
+    engineTbo?: string | number | null;
+    engineTso?: string | number | null;
+    propellerTsn?: string | number | null;
+    propellerTbo?: string | number | null;
+    propellerTso?: string | number | null;
+    sequenceNo?: string | null;
+  };
+};
+
+function normalizeAircraftDetailsPayload(
+  raw: Record<string, unknown>
+): AircraftMaintenanceDetails {
+  const deep = toCamelDeep(raw) as AircraftDetailsNestedCamel &
+    AircraftMaintenanceDetails;
+
+  const { aircraft, atl, ...rest } = deep;
+
+  if (aircraft != null || atl != null) {
+    return {
+      registration: aircraft?.registration ?? null,
+      msn: aircraft?.msn ?? null,
+      engineSerialNumber: aircraft?.engineSerialNumber ?? null,
+      propellerSerialNumber: aircraft?.propellerSerialNumber ?? null,
+      tachometerEnd: atl?.tachometerEnd ?? null,
+      airframeAftt: atl?.airframeAftt ?? null,
+      engineTsn: atl?.engineTsn ?? null,
+      engineTbo: atl?.engineTbo ?? null,
+      engineTso: atl?.engineTso ?? null,
+      propellerTsn: atl?.propellerTsn ?? null,
+      propellerTbo: atl?.propellerTbo ?? null,
+      propellerTso: atl?.propellerTso ?? null,
+      sequenceNo: atl?.sequenceNo ?? null,
+    };
+  }
+
+  return rest as AircraftMaintenanceDetails;
+}
+
+/**
+ * GET /api/v1/aircraft/{aircraft_id}/details/
+ *
+ * Supports nested `{ aircraft, atl }` and legacy flat objects.
+ */
+export const getAircraftDetails = async (
+  aircraftId: number
+): Promise<AircraftMaintenanceDetails> => {
+  const response = await apiClient.get(`aircraft/${aircraftId}/details/`);
+  const raw = response.data?.data ?? response.data;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  return normalizeAircraftDetailsPayload(raw as Record<string, unknown>);
+};
+
 export const getAircrafts = (
   page = 1,
   limit = 10,

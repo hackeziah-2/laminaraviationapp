@@ -1,4 +1,5 @@
 import apiClient from "./index";
+import { searchAircraftTechnicalLogBySequence } from "./aircraftTechnicalLogApi";
 
 /** Human-readable nature of flight for dropdowns (matches technical log vocabulary). */
 export function formatNatureOfFlightForDisplay(
@@ -41,14 +42,21 @@ const ATL_PATH = "atl/";
 
 /**
  * Get list of ATL for select/search dropdown. Search uses sequence number.
- * GET api/v1/atl/?sequence_number=  or  api/v1/aircraft/{id}/atl/?sequence_number=
+ * GET api/v1/atl/?sequence_number=&search=  or  api/v1/aircraft/{id}/atl/?...
+ * With aircraft id and empty search, sends limit=50 for recent rows (backend may ignore unknown params).
  */
 export const getAtlList = async (
   sequenceNumber = "",
   aircraftId?: number
 ): Promise<AtlItem[]> => {
   const params = new URLSearchParams();
-  if (sequenceNumber.trim()) params.append("sequence_number", sequenceNumber.trim());
+  const q = sequenceNumber.trim();
+  if (q) {
+    params.append("sequence_number", q);
+    params.append("search", q);
+  } else if (aircraftId != null && aircraftId > 0) {
+    params.append("limit", "50");
+  }
   const url = aircraftId != null && aircraftId > 0
     ? `aircraft/${aircraftId}/atl/?${params.toString()}`
     : `${ATL_PATH}?${params.toString()}`;
@@ -96,6 +104,52 @@ export const getAtlList = async (
         natureOfFlight: natureRaw || undefined,
         natureOfFlightDisplay,
         aircraftRegistration: reg || undefined,
+      };
+    });
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * ATL picker for TCC (and similar): aircraft-scoped ATL list, then fallback to
+ * aircraft-technical-log search when the ATL endpoint returns no rows.
+ */
+export const searchAtlOptionsForTcc = async (
+  sequenceOrSearch: string,
+  aircraftId?: number
+): Promise<AtlItem[]> => {
+  const q = sequenceOrSearch.trim();
+  const aid =
+    aircraftId != null &&
+    Number.isFinite(Number(aircraftId)) &&
+    Number(aircraftId) > 0
+      ? Number(aircraftId)
+      : undefined;
+
+  const primary = await getAtlList(q, aid);
+  if (primary.length > 0) return primary;
+
+  if (!q || !aid) return [];
+
+  try {
+    const tech = await searchAircraftTechnicalLogBySequence(q);
+    const filtered = tech.filter(
+      (t) => t.id > 0 && t.aircraft?.id === aid
+    );
+    return filtered.map((t) => {
+      const seq = String(t.sequenceNo ?? "").trim() || String(t.id);
+      const natureDisplay = formatNatureOfFlightForDisplay(
+        t.natureOfFlight
+      );
+      const reg = (t.aircraft?.registration ?? "").trim() || "—";
+      return {
+        id: t.id,
+        sequenceNo: String(t.sequenceNo ?? "").trim(),
+        label: `${seq} · ${natureDisplay} · ${reg}`,
+        natureOfFlight: t.natureOfFlight,
+        natureOfFlightDisplay: natureDisplay,
+        aircraftRegistration: reg !== "—" ? reg : undefined,
       };
     });
   } catch {

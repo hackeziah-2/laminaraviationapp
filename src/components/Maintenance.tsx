@@ -16,12 +16,19 @@ import {
   Pencil,
   Trash2,
   Loader,
+  ChevronDown,
 } from "lucide-react";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ADWorkOrders } from "./ADWorkOrders";
-import { CPCPMonitoring } from "./CPCPMonitoring";
-import { TCCDetailContent } from "./TCCDetail";
+import {
+  CPCPMonitoring,
+  type CPCPMonitoringHandle,
+} from "./CPCPMonitoring";
+import {
+  TCCDetailContent,
+  type TCCDetailContentHandle,
+} from "./TCCDetail";
 import {
   getAircraftLdndMonitoring,
   getAircraftLdndMonitoringLatest,
@@ -39,10 +46,55 @@ import {
   downloadAdMonitoringFile,
   type ADMonitoring,
 } from "../api/adMonitoringApi";
+import { getAircraftById } from "../api/aircraftApi";
+import { toCamel } from "../utility/utils";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import * as XLSX from "xlsx";
+
+const LDND_EXPORT_HEADERS = [
+  "INSPECTION TYPE",
+  "UNIT",
+  "LAST DONE TACH DUE",
+  "LAST DONE TACH DONE",
+  "NEXT DUE TACH HOURS",
+] as const;
+
+function ldndItemToExportRow(item: LDNDMonitoring): string[] {
+  return [
+    String(item.inspectionType ?? item.type ?? "").trim(),
+    String(item.unit ?? ""),
+    item.lastDoneTachDue != null ? String(item.lastDoneTachDue) : "",
+    item.lastDoneTachDone != null ? String(item.lastDoneTachDone) : "",
+    item.nextDueTachHours != null ? String(item.nextDueTachHours) : "",
+  ];
+}
+
+const AD_EXPORT_HEADERS = [
+  "AD NUMBER",
+  "SUBJECT",
+  "INSPECTION INTERVAL",
+  "DATE OF EFFECTIVITY",
+  "WORK ORDERS",
+] as const;
+
+function adItemToExportRow(item: ADMonitoring): string[] {
+  return [
+    String(item.adNumber ?? "").trim(),
+    String(item.subject ?? "").trim(),
+    String(item.inspectionInterval ?? "").trim(),
+    String(item.compliDate ?? "").trim(),
+    String(item.workOrders ?? 0),
+  ];
+}
 
 interface LDNDItem {
   id: number;
@@ -163,6 +215,7 @@ export function Maintenance() {
     tsn: "",
     csn: "",
   });
+  const [registration, setRegistration] = useState<string | null>(null);
 
   // Pagination state for LDND
   const [currentPage, setCurrentPage] = useState(1);
@@ -205,6 +258,12 @@ export function Maintenance() {
   const [ldndSaving, setLdndSaving] = useState(false);
   const [ldndLatest, setLdndLatest] = useState<LDNDLatest | null>(null);
   const [ldndLatestLoading, setLdndLatestLoading] = useState(false);
+  const [ldndExportLoading, setLdndExportLoading] = useState(false);
+  const [adExportLoading, setAdExportLoading] = useState(false);
+  const tccExportRef = useRef<TCCDetailContentHandle>(null);
+  const [tccExportLoading, setTccExportLoading] = useState(false);
+  const cpcpExportRef = useRef<CPCPMonitoringHandle>(null);
+  const [cpcpExportLoading, setCpcpExportLoading] = useState(false);
 
   // AD API state
   const [adItems, setAdItems] = useState<ADMonitoring[]>([]);
@@ -321,6 +380,27 @@ export function Maintenance() {
     setAdCurrentPage(1);
   }, [adSearchQuery]);
 
+  useEffect(() => {
+    if (!Number.isFinite(aircraftId) || aircraftId <= 0) {
+      setRegistration(null);
+      return;
+    }
+    let cancelled = false;
+    getAircraftById(aircraftId)
+      .then((res) => {
+        if (cancelled) return;
+        const data = toCamel(res.data) as { registration?: string };
+        const reg = data.registration?.trim();
+        setRegistration(reg && reg.length > 0 ? reg : null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegistration(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftId]);
+
   const handleLdndCreateOrUpdate = async () => {
     const type = String(newEntry.type).replace(/\r\n?/g, "\n").trim();
     if (!type) {
@@ -429,6 +509,174 @@ export function Maintenance() {
       });
     }
   };
+
+  const handleLdndExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      if (!Number.isFinite(aircraftId) || aircraftId <= 0) return;
+      setLdndExportLoading(true);
+      try {
+        const exportLimit = Math.max(ldndTotal, ldndItems.length, 1);
+        const res = await getAircraftLdndMonitoring(
+          aircraftId,
+          1,
+          exportLimit,
+          ldndSearchQuery
+        );
+        if (!res.items.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no LDND records matching the current search.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const fileReg = registration?.trim() || `aircraft_${aircraftId}`;
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...LDND_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...res.items.map((item) =>
+              ldndItemToExportRow(item).map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_ldnd_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...LDND_EXPORT_HEADERS],
+            ...res.items.map(ldndItemToExportRow),
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "LDND");
+          XLSX.writeFile(wb, `${fileReg}_ldnd_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export LDND data.",
+          confirmButtonColor: "#2563eb",
+        });
+      } finally {
+        setLdndExportLoading(false);
+      }
+    },
+    [
+      aircraftId,
+      ldndItems.length,
+      ldndSearchQuery,
+      ldndTotal,
+      registration,
+    ]
+  );
+
+  const handleAdExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      if (!Number.isFinite(aircraftId) || aircraftId <= 0) return;
+      setAdExportLoading(true);
+      try {
+        const exportLimit = Math.max(adTotal, adItems.length, 1);
+        const res = await getAircraftAdMonitoring(
+          aircraftId,
+          1,
+          exportLimit,
+          adSearchQuery
+        );
+        if (!res.items.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no AD records matching the current search.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const fileReg = registration?.trim() || `aircraft_${aircraftId}`;
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...AD_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...res.items.map((item) =>
+              adItemToExportRow(item).map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_ad_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...AD_EXPORT_HEADERS],
+            ...res.items.map(adItemToExportRow),
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "AD");
+          XLSX.writeFile(wb, `${fileReg}_ad_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export AD data.",
+          confirmButtonColor: "#2563eb",
+        });
+      } finally {
+        setAdExportLoading(false);
+      }
+    },
+    [aircraftId, adItems.length, adSearchQuery, adTotal, registration]
+  );
+
+  const handleTccExportHeader = useCallback(async (format: "csv" | "xlsx") => {
+    setTccExportLoading(true);
+    try {
+      await tccExportRef.current?.exportTcc(format);
+    } finally {
+      setTccExportLoading(false);
+    }
+  }, []);
+
+  const handleCpcpExportHeader = useCallback(async (format: "csv" | "xlsx") => {
+    setCpcpExportLoading(true);
+    try {
+      await cpcpExportRef.current?.exportCpcp(format);
+    } finally {
+      setCpcpExportLoading(false);
+    }
+  }, []);
 
   const openEditLdnd = (item: LDNDMonitoring) => {
     setEditingLdndEntry(item);
@@ -940,19 +1188,184 @@ export function Maintenance() {
               Maintenance Forecasting
             </h2>
             <p className="text-gray-500 mt-1 text-sm">
-              Aircraft ID: {aircraftId}
+              Aircraft Registration: {registration ?? "—"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="relative z-20 flex items-center gap-2">
           <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print</span>
           </button>
-          <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
+          {activeCategory === "LDND" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={ldndExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {ldndExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={ldndExportLoading}
+                  onSelect={() => void handleLdndExport("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={ldndExportLoading}
+                  onSelect={() => void handleLdndExport("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : activeCategory === "AD" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={adExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {adExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={adExportLoading}
+                  onSelect={() => void handleAdExport("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={adExportLoading}
+                  onSelect={() => void handleAdExport("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : activeCategory === "TCC" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={tccExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {tccExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={tccExportLoading}
+                  onSelect={() => void handleTccExportHeader("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={tccExportLoading}
+                  onSelect={() => void handleTccExportHeader("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : activeCategory === "CPCP" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={cpcpExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {cpcpExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={cpcpExportLoading}
+                  onSelect={() => void handleCpcpExportHeader("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={cpcpExportLoading}
+                  onSelect={() => void handleCpcpExportHeader("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                void Swal.fire({
+                  icon: "info",
+                  title: "Export",
+                  text: "CSV and XLSX export for LDND, AD, TCC, or CPCP is on those tabs, beside Print.",
+                  confirmButtonColor: "#2563eb",
+                });
+              }}
+              className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Export</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1479,7 +1892,11 @@ export function Maintenance() {
         {/* TCC Forecasting – category filter (Powerplant, Airframe, Propeller) + search */}
         {activeCategory === "TCC" && (
           <div className="p-5">
-            <TCCDetailContent aircraftId={id ?? ""} showAddButton={true} />
+            <TCCDetailContent
+              ref={tccExportRef}
+              aircraftId={id ?? ""}
+              showAddButton={true}
+            />
           </div>
         )}
 
@@ -1487,8 +1904,9 @@ export function Maintenance() {
         {activeCategory === "CPCP" && (
           <div className="p-5">
             <CPCPMonitoring
-              msn={String(id ?? "")}
-              registration={`Aircraft ${id}`}
+              ref={cpcpExportRef}
+              msn=""
+              registration={registration ?? "—"}
               embedded
               aircraftId={id}
             />

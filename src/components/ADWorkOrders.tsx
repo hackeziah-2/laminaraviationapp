@@ -26,6 +26,14 @@ import {
   deleteWorkOrderAdMonitoring,
   type WorkOrderAdMonitoring,
 } from "../api/workOrderAdMonitoringApi";
+import { getAircraftAdMonitoringById } from "../api/adMonitoringApi";
+import * as XLSX from "xlsx";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { getAtlList, type AtlItem } from "../api/atlApi";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
@@ -50,6 +58,35 @@ function formatDateDisplay(s: string | null | undefined): string {
   const d = new Date(String(s).trim());
   if (Number.isNaN(d.getTime())) return String(s);
   return d.toLocaleDateString();
+}
+
+const WO_AD_EXPORT_HEADERS = [
+  "WO NUMBER",
+  "SUBJECT",
+  "LAST DONE ACTT",
+  "LAST DONE TACH",
+  "LAST DONE DATE",
+  "NEXT DUE ACTT",
+  "NEXT DUE TACH",
+  "ATL REFERENCE",
+] as const;
+
+function workOrderToExportRow(
+  wo: WorkOrderAdMonitoring,
+  adSubject: string
+): string[] {
+  const subject = String(wo.subject ?? "").trim() || adSubject;
+  return [
+    String(wo.woNumber ?? "").trim(),
+    subject,
+    String(wo.lastDoneActt ?? ""),
+    String(wo.lastDoneTach ?? ""),
+    toDateInputValue(wo.lastDoneDate) ||
+      String(wo.lastDoneDate ?? "").trim(),
+    String(wo.nextDoneActt ?? ""),
+    String(wo.nextDueTach ?? ""),
+    String(wo.atlRef ?? "").trim(),
+  ];
 }
 
 export function ADWorkOrders() {
@@ -85,6 +122,8 @@ export function ADWorkOrders() {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [adSubject, setAdSubject] = useState("");
+  const [woExportLoading, setWoExportLoading] = useState(false);
   const [editingWorkOrder, setEditingWorkOrder] =
     useState<WorkOrderAdMonitoring | null>(null);
   const [aircraft_id, setAircraftId] = useState<string>("");
@@ -137,6 +176,24 @@ export function ADWorkOrders() {
   useEffect(() => {
     fetchWorkOrders();
   }, [fetchWorkOrders]);
+
+  useEffect(() => {
+    if (!hasValidParams) {
+      setAdSubject("");
+      return;
+    }
+    let cancelled = false;
+    getAircraftAdMonitoringById(aircraft_fk, ad_monitoring_fk)
+      .then((ad) => {
+        if (!cancelled) setAdSubject(String(ad.subject ?? "").trim());
+      })
+      .catch(() => {
+        if (!cancelled) setAdSubject("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasValidParams, aircraft_fk, ad_monitoring_fk]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -328,6 +385,90 @@ export function ADWorkOrders() {
     setShowAddModal(true);
   };
 
+  const handleWorkOrderExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      if (!hasValidParams) return;
+      setWoExportLoading(true);
+      try {
+        const exportLimit = Math.max(total, workOrders.length, 1);
+        const res = await getWorkOrderAdMonitoring(
+          aircraft_fk,
+          ad_monitoring_fk,
+          1,
+          exportLimit,
+          searchQuery
+        );
+        if (!res.items.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no work orders matching the current search.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const fileReg = `aircraft_${aircraft_fk}_ad_${ad_monitoring_fk}_wo`;
+        const rows = res.items.map((wo) =>
+          workOrderToExportRow(wo, adSubject)
+        );
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...WO_AD_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...rows.map((cells) =>
+              cells.map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...WO_AD_EXPORT_HEADERS],
+            ...rows,
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Work orders");
+          XLSX.writeFile(wb, `${fileReg}_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export work orders.",
+          confirmButtonColor: "#2563eb",
+        });
+      } finally {
+        setWoExportLoading(false);
+      }
+    },
+    [
+      adSubject,
+      ad_monitoring_fk,
+      aircraft_fk,
+      hasValidParams,
+      searchQuery,
+      total,
+      workOrders.length,
+    ]
+  );
+
   const handleAtlReferenceState = useCallback(
     (atlReference: string | null | undefined) => {
       const nextAircraftId = String(aircraft_fk ?? "").trim();
@@ -367,14 +508,50 @@ export function ADWorkOrders() {
                 Add Work Order
               </button>
             )}
-            <button className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+            >
               <Printer className="w-4 h-4" />
               Print
             </button>
-            <button className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={!hasValidParams || woExportLoading}
+                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {woExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  Export
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={woExportLoading}
+                  onSelect={() => void handleWorkOrderExport("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={woExportLoading}
+                  onSelect={() => void handleWorkOrderExport("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div>
@@ -434,19 +611,19 @@ export function ADWorkOrders() {
                       WO NUMBER
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-l border-gray-200">
-                      ACTT
+                      LAST DONE ACTT
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                      TACH
+                      LAST DONE TACH
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">
-                      DATE
+                      LAST DONE DATE
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                      ACTT
+                      NEXT DUE ACTT
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">
-                      TACH
+                      NEXT DUE TACH
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
                       ATL REFERENCE
@@ -495,8 +672,7 @@ export function ADWorkOrders() {
                             <Link
                               to={`/profile/${aircraft_fk}/operation`}
                               state={{
-                                aircraft_id:
-                                  aircraft_id || String(aircraft_fk),
+                                aircraft_id: aircraft_id || String(aircraft_fk),
                                 sequence_no:
                                   sequence_no || String(wo.atlRef).trim(),
                               }}
@@ -714,13 +890,9 @@ export function ADWorkOrders() {
                 </label>
                 <p className="text-xs text-gray-500 mb-2">
                   ATL Reference (sequence no.) — search and select from this
-                  aircraft&apos;s ATL list. 
+                  aircraft&apos;s ATL list.
                 </p>
-                <Popover
-                  open={atlOpen}
-                  onOpenChange={setAtlOpen}
-                  modal={false}
-                >
+                <Popover open={atlOpen} onOpenChange={setAtlOpen} modal={false}>
                   <PopoverAnchor ref={atlAnchorRef} className="block w-full">
                     <div className="relative w-full" dir="ltr">
                       <input
@@ -763,7 +935,9 @@ export function ADWorkOrders() {
                       <button
                         type="button"
                         tabIndex={-1}
-                        aria-label={atlOpen ? "Close ATL list" : "Open ATL list"}
+                        aria-label={
+                          atlOpen ? "Close ATL list" : "Open ATL list"
+                        }
                         style={{
                           top: 0,
                           bottom: 0,
@@ -830,9 +1004,7 @@ export function ADWorkOrders() {
                           {atlOptions.map((opt) => {
                             const seq = opt.sequenceNo ?? String(opt.id);
                             const isSelected = seq === formData.atlRef;
-                            const nof =
-                              opt.natureOfFlightDisplay ??
-                              "—";
+                            const nof = opt.natureOfFlightDisplay ?? "—";
                             const acReg = opt.aircraftRegistration ?? "—";
                             return (
                               <li key={opt.id}>

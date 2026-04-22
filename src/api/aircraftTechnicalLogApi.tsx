@@ -274,6 +274,8 @@ export interface AircraftTechnicalLogSearchAircraft {
 
 /** Single result from search by ATL Sequence Number */
 export interface AircraftTechnicalLogSearchResult {
+  /** Technical log row id — use as atl_ref when linking TCC/CPCP to ATL */
+  id: number;
   sequenceNo: string;
   aircraft: AircraftTechnicalLogSearchAircraft;
   natureOfFlight?: string;
@@ -676,7 +678,9 @@ export const searchAircraftTechnicalLogBySequence = async (
               type: aircraft.type ?? "",
             }
           : { id: 0, registration: "", model: "", type: "" };
+      const logId = Number(item.id ?? item.pk ?? 0);
       return {
+        id: Number.isFinite(logId) ? logId : 0,
         sequenceNo:
           item.sequence_no ?? item.sequenceNo ?? item.sequence_number ?? "",
         aircraft: aircraftObj,
