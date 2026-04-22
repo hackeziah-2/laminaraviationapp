@@ -18,7 +18,8 @@ export function CPCPDetail() {
     <CPCPMonitoring
       onBack={handleBack}
       msn={msn}
-      registration="RP-C12"
+      aircraftId={id}
+      registration="RP-C14"
       aftf="7895.4"
       tach="7894.8"
       date="20-Sep-25"

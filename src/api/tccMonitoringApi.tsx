@@ -23,6 +23,16 @@ export interface TCCMonitoring {
   nextDueAftt: string;
   reference: string;
   category?: string;
+  /** ATL row id when API returns nested atl or numeric FK */
+  atlId?: number;
+  /**
+   * From GET .../tcc-maintenance/paged — server-computed remaining / next due.
+   * When present, list UI prefers these over client-side formulas.
+   */
+  remainingYears?: number | null;
+  remainingDays?: number | null;
+  remainingTach?: number | null;
+  remainingAftt?: number | null;
 }
 
 export interface TCCMonitoringCreate {
@@ -55,6 +65,8 @@ export interface TCCMonitoringUpdate {
   methodOfCompliance?: string;
   lastDoneDate?: string;
   lastDoneYear?: string;
+  /** Same source as last_done_tach when sent from the form */
+  lastDoneTach?: string;
   lastDoneAftt?: string;
   lastDoneMethodOfCompliance?: string;
   nextDueDate?: string;
@@ -88,9 +100,27 @@ const TCC_PATH = (aircraftId: number) =>
  *   component_limit_hours   ← Form "Component Limit (Hours)" → limitHours
  *   component_method_of_compliance ← Form "Method of Compliance"
  */
+function parseNullableNumber(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n =
+    typeof v === "number"
+      ? v
+      : parseFloat(String(v).replace(/,/g, "").trim());
+  return Number.isFinite(n) ? n : null;
+}
+
 function normalizeItem(raw: any): TCCMonitoring {
   const r = raw ?? {};
   const numStr = (v: any) => (v != null && v !== "" ? String(v) : "");
+  const atlObj = r.atl;
+  const atlId =
+    typeof atlObj?.id === "number"
+      ? atlObj.id
+      : typeof r.atl_fk === "number"
+        ? r.atl_fk
+        : typeof r.atl_ref === "number"
+          ? r.atl_ref
+          : undefined;
   return {
     id: r.id ?? r.pk ?? 0,
     remaining: "",
@@ -122,14 +152,34 @@ function normalizeItem(raw: any): TCCMonitoring {
     nextDueDate: numStr(r.next_due_date ?? r.nextDueDate),
     nextDueYear: numStr(r.next_due_tach ?? r.next_due_year ?? r.nextDueYear),
     nextDueAftt: numStr(r.next_due_aftt ?? r.nextDueAftt),
-    reference: numStr(r.atl?.sequence_no ?? r.atl_ref),
+    reference: numStr(
+      r.atl?.sequence_no ?? r.atl?.sequence_number ?? r.atl_ref
+    ),
     category: r.category ?? undefined,
+    atlId,
+    remainingYears: parseNullableNumber(
+      r.remaining_years ?? r.remainingYears
+    ),
+    remainingDays: parseNullableNumber(
+      r.remaining_days ?? r.remainingDays
+    ),
+    remainingTach: parseNullableNumber(
+      r.remaining_tach ?? r.remainingTach
+    ),
+    remainingAftt: parseNullableNumber(
+      r.remaining_aftt ?? r.remainingAftt
+    ),
   };
 }
 
 /**
  * List TCC Monitoring for an aircraft (paged), optional category filter.
  * GET api/v1/aircraft/{aircraft_id}/tcc-maintenance/paged?limit=&page=&search=&category=
+ *
+ * Paged items may include server fields (snake_case or camelCase):
+ * remaining_years, remaining_days, remaining_tach, remaining_aftt,
+ * next_due_date, next_due_tach, next_due_aftt — mapped into TCCMonitoring and
+ * preferred in the list table over client-side calculations.
  */
 export const getAircraftTccMonitoring = async (
   aircraftId: number,
@@ -236,19 +286,21 @@ export const createAircraftTccMonitoring = async (
   if (lastDoneTachVal !== undefined && lastDoneTachVal !== null && String(lastDoneTachVal).trim() !== "")
     payload.last_done_tach = numOrZero(String(lastDoneTachVal));
   if (data.lastDoneAftt) payload.last_done_aftt = numOrZero(data.lastDoneAftt);
-  if (data.lastDoneMethodOfCompliance) 
-    payload.last_done_method_of_compliance = str(data.lastDoneMethodOfCompliance);
+  if (data.lastDoneMethodOfCompliance)
+    payload.last_done_method_of_compliance = str(
+      data.lastDoneMethodOfCompliance
+    );
 
-  if (data.atlId !== undefined) {
-    payload.atl_ref = data.atlId;
+  const atlIdNum =
+    data.atlId != null && Number.isFinite(Number(data.atlId))
+      ? Number(data.atlId)
+      : NaN;
+  if (Number.isFinite(atlIdNum) && atlIdNum > 0) {
+    payload.atl_ref = atlIdNum;
   } else {
-     const seqNum = str(data.sequenceNumber ?? data.reference);
-     if (seqNum !== null) {
-       payload.sequence_number = seqNum;
-     }
+    const seqNum = str(data.sequenceNumber ?? data.reference);
+    if (seqNum !== null) payload.sequence_number = seqNum;
   }
-   const seqNum = str(data.sequenceNumber ?? data.reference);
-   if (seqNum !== null) payload.sequence_number = seqNum;
 
   const res = await apiClient.post(TCC_PATH(aircraftId), payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -300,37 +352,32 @@ export const updateAircraftTccMonitoring = async (
   
   if (category) payload.category = category;
   if (data.lastDoneDate !== undefined)
-    payload.last_done_date = str(data.lastDoneDate) ?? "";
-  const lastDoneTachVal = (data as any).lastDoneTach ?? data.lastDoneYear;
-  if (lastDoneTachVal !== undefined && lastDoneTachVal !== null && String(lastDoneTachVal).trim() !== "")
+    payload.last_done_date = str(data.lastDoneDate);
+  const lastDoneTachVal = data.lastDoneTach ?? data.lastDoneYear;
+  if (
+    lastDoneTachVal !== undefined &&
+    lastDoneTachVal !== null &&
+    String(lastDoneTachVal).trim() !== ""
+  )
     payload.last_done_tach = numOrZero(String(lastDoneTachVal));
   if (data.lastDoneAftt !== undefined)
     payload.last_done_aftt = numOrZero(data.lastDoneAftt);
 
-  if (data.atlId !== undefined) {
-    // If atlId provided, use it for atl_ref (Foreign Key)
-    payload.atl_ref = data.atlId;
+  const atlIdNum =
+    data.atlId != null && Number.isFinite(Number(data.atlId))
+      ? Number(data.atlId)
+      : NaN;
+  if (Number.isFinite(atlIdNum) && atlIdNum > 0) {
+    payload.atl_ref = atlIdNum;
   } else {
-      const seqNum = str(data.sequenceNumber ?? data.reference);
-      if (seqNum !== null) {
-        payload.sequence_number = seqNum;
-        // If no ID, maybe we still send sequence string? Or user wants ID mostly.
-        // Let's keep sequence_number as string for display/search, but atl_ref should be ID if possible.
-        // If atlId is missing, we don't force atl_ref to be string if it expects ID.
-        // But let's follow the previous logic as fallback:
-        // payload.atl_ref = seqNum; // CAREFUL: strict typing might fail if backend expects Int.
-        // User said: "apply value to be a id of atl_ref".
-        // Use atlId if available. If not, maybe avoid sending atl_ref as string if it expects ID.
-        // I will assume if atlId is not provided, we don't update atl_ref via ID.
-      }
+    const seqNum = str(data.sequenceNumber ?? data.reference);
+    if (seqNum !== null) payload.sequence_number = seqNum;
   }
-  // Also send sequence_number string if available (for display fallback?)
-  const seqNum = str(data.sequenceNumber ?? data.reference);
-  if (seqNum !== null) payload.sequence_number = seqNum;
 
   if (data.lastDoneMethodOfCompliance !== undefined)
-    payload.last_done_method_of_compliance =
-      str(data.lastDoneMethodOfCompliance) ?? "";
+    payload.last_done_method_of_compliance = str(
+      data.lastDoneMethodOfCompliance
+    );
   const res = await apiClient.put(`${TCC_PATH(aircraftId)}${id}/`, payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   });

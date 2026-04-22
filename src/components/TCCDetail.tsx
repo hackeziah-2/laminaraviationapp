@@ -16,8 +16,11 @@ import {
   createAircraftTccMonitoring,
   updateAircraftTccMonitoring,
   deleteAircraftTccMonitoring,
-  type TCCMonitoring,
 } from "../api/tccMonitoringApi";
+import {
+  getAircraftDetails,
+  type AircraftMaintenanceDetails,
+} from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
@@ -44,6 +47,22 @@ export interface ComponentItem {
   nextDueYear: string;
   nextDueAftt: string;
   reference: string;
+  /** API category display value, e.g. Powerplant */
+  category?: string;
+  /** Linked ATL row id when known */
+  atlId?: number;
+  /** From GET .../tcc-maintenance/paged — server-computed; overrides client formulas when set */
+  remainingYears?: number | null;
+  remainingDays?: number | null;
+  remainingTach?: number | null;
+  remainingAftt?: number | null;
+}
+
+/** Display aircraft detail field; empty → em dash */
+function fmtAircraftDetail(v: unknown): string {
+  if (v == null) return "—";
+  const s = String(v).trim();
+  return s === "" ? "—" : s;
 }
 
 /** Parses numeric string to number; returns NaN if invalid */
@@ -204,14 +223,49 @@ function computeTCCRow(
       ? limitHours - (currentAftt - lastDoneAftt)
       : null;
 
+  let outRemainingYears =
+    remainingYears != null ? remainingYears : null;
+  let outRemainingDays = remainingDays;
+  let outRemainingTach = remainingTach;
+  let outRemainingAftt = remainingAftt;
+  let outNextDueDate = nextDueDate;
+  let outNextDueTach = nextDueTach;
+  let outNextDueAftt = nextDueAftt;
+
+  if (item.remainingYears != null && Number.isFinite(item.remainingYears)) {
+    outRemainingYears = item.remainingYears;
+  }
+  if (item.remainingDays != null && Number.isFinite(item.remainingDays)) {
+    outRemainingDays = item.remainingDays;
+  }
+  if (item.remainingTach != null && Number.isFinite(item.remainingTach)) {
+    outRemainingTach = item.remainingTach;
+  }
+  if (item.remainingAftt != null && Number.isFinite(item.remainingAftt)) {
+    outRemainingAftt = item.remainingAftt;
+  }
+
+  const apiNextDueDate = parseDate(item.nextDueDate);
+  if (apiNextDueDate != null) {
+    outNextDueDate = apiNextDueDate;
+  }
+  const apiNextDueTach = parseNum(item.nextDueYear);
+  if (Number.isFinite(apiNextDueTach)) {
+    outNextDueTach = apiNextDueTach;
+  }
+  const apiNextDueAftt = parseNum(item.nextDueAftt);
+  if (Number.isFinite(apiNextDueAftt)) {
+    outNextDueAftt = apiNextDueAftt;
+  }
+
   return {
-    remainingYears: remainingYears != null ? remainingYears : null,
-    remainingDays,
-    remainingTach,
-    remainingAftt,
-    nextDueDate,
-    nextDueTach,
-    nextDueAftt,
+    remainingYears: outRemainingYears,
+    remainingDays: outRemainingDays,
+    remainingTach: outRemainingTach,
+    remainingAftt: outRemainingAftt,
+    nextDueDate: outNextDueDate,
+    nextDueTach: outNextDueTach,
+    nextDueAftt: outNextDueAftt,
     raw: item,
     limitYears: Number.isFinite(limitYears) ? limitYears : 0,
     limitHours: Number.isFinite(limitHours) ? limitHours : 0,
@@ -258,6 +312,9 @@ export function TCCDetailContent({
   const [searchDebounced, setSearchDebounced] = useState("");
   const [linkedAircraftId, setLinkedAircraftId] = useState<string>("");
   const [linkedSequenceNo, setLinkedSequenceNo] = useState<string>("");
+  const [aircraftDetails, setAircraftDetails] =
+    useState<AircraftMaintenanceDetails | null>(null);
+  const [aircraftDetailsLoading, setAircraftDetailsLoading] = useState(false);
 
   // Debounce search so we don't hit API on every keystroke
   useEffect(() => {
@@ -307,6 +364,28 @@ export function TCCDetailContent({
     fetchTcc();
   }, [fetchTcc]);
 
+  useEffect(() => {
+    if (!aircraftIdNum || aircraftIdNum <= 0) {
+      setAircraftDetails(null);
+      return;
+    }
+    let cancelled = false;
+    setAircraftDetailsLoading(true);
+    getAircraftDetails(aircraftIdNum)
+      .then((data) => {
+        if (!cancelled) setAircraftDetails(data);
+      })
+      .catch(() => {
+        if (!cancelled) setAircraftDetails(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAircraftDetailsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftIdNum]);
+
   const handleAddComponent = async (payload: any) => {
     if (!aircraftIdNum || aircraftIdNum <= 0) {
       await Swal.fire({
@@ -316,15 +395,24 @@ export function TCCDetailContent({
       });
       return;
     }
+    const category = String(payload.category || activeTab || "").trim();
+    if (!category) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Category required",
+        text: "Select a category or filter the list by category before adding.",
+      });
+      return;
+    }
     setTccSaving(true);
     try {
       await createAircraftTccMonitoring(aircraftIdNum, {
-        category: payload.category || activeTab,
+        category,
         partNo: payload.partNo,
         serialNo: payload.serialNo,
         description: payload.description,
-        limitHours: payload.hours,
-        limitYears: payload.years,
+        limitHours: payload.limitHours ?? payload.hours,
+        limitYears: payload.limitYears ?? payload.years,
         methodOfCompliance: payload.methodOfCompliance,
         reference: payload.reference,
         sequenceNumber: payload.reference,
@@ -352,21 +440,31 @@ export function TCCDetailContent({
 
   const handleUpdateTCC = async (id: number, payload: any) => {
     if (!aircraftIdNum || aircraftIdNum <= 0) return;
+    const category = String(payload.category || "").trim();
+    if (!category) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Category required",
+        text: "Please select a category for this entry.",
+      });
+      return;
+    }
     setTccSaving(true);
     try {
       await updateAircraftTccMonitoring(aircraftIdNum, id, {
         partNo: payload.partNo,
         serialNo: payload.serialNo,
         description: payload.description,
-        limitHours: payload.hours,
-        limitYears: payload.years,
+        limitHours: payload.limitHours ?? payload.hours,
+        limitYears: payload.limitYears ?? payload.years,
         methodOfCompliance: payload.methodOfCompliance,
-        category: payload.category, // Added category
+        category,
         reference: payload.reference,
         sequenceNumber: payload.reference,
         atlId: payload.atlId,
         lastDoneDate: payload.lastDoneDate,
         lastDoneYear: payload.lastDoneYear,
+        lastDoneTach: payload.lastDoneTach ?? payload.lastDoneYear,
         lastDoneAftt: payload.lastDoneAftt,
         lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
       });
@@ -443,8 +541,22 @@ export function TCCDetailContent({
   const paginatedData = tccItems;
 
   const currentDate = useMemo(() => new Date(), []);
-  const currentTach = 7561;
-  const currentAftt = 11656;
+  const currentTach = useMemo(() => {
+    const n = parseNum(
+      aircraftDetails?.tachometerEnd != null
+        ? String(aircraftDetails.tachometerEnd)
+        : undefined
+    );
+    return Number.isFinite(n) ? n : 7561;
+  }, [aircraftDetails?.tachometerEnd]);
+  const currentAftt = useMemo(() => {
+    const n = parseNum(
+      aircraftDetails?.airframeAftt != null
+        ? String(aircraftDetails.airframeAftt)
+        : undefined
+    );
+    return Number.isFinite(n) ? n : 11656;
+  }, [aircraftDetails?.airframeAftt]);
 
   const computedRows = useMemo(
     () =>
@@ -497,9 +609,120 @@ export function TCCDetailContent({
       {/* Title + Aircraft - same pattern as CPCP Monitoring */}
       <div className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden mb-6">
         <div className="px-5 py-4 border-b border-gray-100">
-          <h1 className="text-base font-semibold text-gray-900 tracking-tight">
+          <h1 className="text-base font-bold text-gray-900 tracking-tight">
             TCC Monitoring
           </h1>
+          {aircraftDetailsLoading ? (
+            <div className="mt-4 flex items-center justify-center gap-2 rounded border border-gray-300 bg-gray-50/50 py-10 text-sm text-gray-500">
+              <Loader className="h-4 w-4 animate-spin shrink-0" />
+              <span>Loading aircraft details…</span>
+            </div>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[640px] border-collapse border border-gray-300 text-sm">
+                <tbody>
+                  <tr>
+                    <td className="w-[12%] border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      ATL Seq
+                    </td>
+                    <td className="w-[21%] border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.sequenceNo)}
+                    </td>
+                    <td className="w-[12%] border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Engine S/N:
+                    </td>
+                    <td className="w-[21%] border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.engineSerialNumber)}
+                    </td>
+                    <td className="w-[12%] border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Propeller S/N
+                    </td>
+                    <td className="w-[22%] border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.propellerSerialNumber)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      MSN
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.msn)}
+                    </td>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Eng TSN:
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.engineTsn)}
+                    </td>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Prop TSN
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.propellerTsn)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      AFTT
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.airframeAftt)}
+                    </td>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Eng TSO:
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.engineTso)}
+                    </td>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Prop TSO
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.propellerTso)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      TACH
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.tachometerEnd)}
+                    </td>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Eng TBO:
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.engineTbo)}
+                    </td>
+                    <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
+                      Prop TBO
+                    </td>
+                    <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
+                      {fmtAircraftDetail(aircraftDetails?.propellerTbo)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 bg-gray-50/80 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-gray-600">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-3 rounded-sm bg-emerald-100 border border-emerald-200/80" />
+            <span>&lt; 40% remaining</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-3 rounded-sm bg-amber-100 border border-amber-200/80" />
+            <span>&lt; 20% remaining</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-3 rounded-sm bg-orange-100 border border-orange-200/80" />
+            <span>&lt; 10% remaining</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-3 rounded-sm bg-red-100 border border-red-200/80" />
+            <span>Due</span>
+          </div>
         </div>
       </div>
 
@@ -625,99 +848,99 @@ export function TCCDetailContent({
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th colSpan={4} className="px-3 py-2 text-xs text-gray-600">
+                  <th colSpan={4} className="px-3 py-2 text-xs font-bold text-gray-700">
                     REMAINING
                   </th>
                   <th
                     colSpan={3}
-                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                    className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200"
                   >
                     COMPONENT INFO
                   </th>
                   <th
                     colSpan={2}
-                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                    className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200"
                   >
                     COMPONENT LIMIT
                   </th>
-                  <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
+                  <th className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200">
                     METHOD OF COMPLIANCE
                   </th>
                   <th
                     colSpan={3}
-                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                    className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200"
                   >
                     LAST DONE
                   </th>
                   <th
                     colSpan={3}
-                    className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200"
+                    className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200"
                   >
                     NEXT DUE
                   </th>
-                  <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200">
+                  <th className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200">
                     ATL REFERENCE
                   </th>
-                  <th className="px-3 py-2 text-xs text-gray-600 border-l border-gray-200 w-24">
+                  <th className="px-3 py-2 text-xs font-bold text-gray-700 border-l border-gray-200 w-24">
                     Actions
                   </th>
                 </tr>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     YEARS
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     DAYS
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     TACH
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     AFTT
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
                     PART NO.
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     SERIAL NO.
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
                     DESCRIPTION
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
                     YEARS
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     HOURS
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
                     METHOD OF COMPLIANCE
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
                     DATE
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     TACH
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     AFTT
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200">
                     DATE
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     TACH
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap">
                     AFTT
                   </th>
                   <th
-                    className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200"
+                    className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200"
                     title="sequence_number"
                   >
                     Sequence No
                   </th>
-                  <th className="px-3 py-3 text-left text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
+                  <th className="px-3 py-3 text-left font-bold text-gray-900 text-xs whitespace-nowrap border-l border-gray-200 w-24">
                     Actions
                   </th>
                 </tr>
@@ -1011,7 +1234,9 @@ export function TCCDetail() {
               <ChevronLeft className="w-5 h-5 text-gray-600" />
             </button>
             <div>
-              <h1 className="text-gray-900">TCC Monitoring</h1>
+              <h1 className="text-base font-bold text-gray-900 tracking-tight">
+                TCC Monitoring
+              </h1>
               <p className="text-gray-600 text-sm mt-1">
                 Time Controlled Components – life limit and replacement
                 schedules

@@ -1511,7 +1511,7 @@ export function Maintenance() {
         {activeCategory === "CPCP" && (
           <div className="p-5">
             <CPCPMonitoring
-              msn={String(id ?? "")}
+              msn=""
               registration={registration ?? "—"}
               embedded
               aircraftId={id}

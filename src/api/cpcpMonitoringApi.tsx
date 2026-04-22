@@ -12,6 +12,29 @@ function numStr(v: any): string {
   return Number.isFinite(n) ? String(n) : "";
 }
 
+/** Interval hours/months: numeric string for UI + forms, default "0" when missing or invalid */
+function intervalStr(v: any): string {
+  const n = numStr(v);
+  return n === "" ? "0" : n;
+}
+
+function intervalPayloadValue(v: any): number {
+  if (v == null || v === "") return 0;
+  const s = String(v).trim();
+  if (s === "" || s === "-") return 0;
+  const n = typeof v === "number" ? v : parseFloat(s.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Last-done tach / AFTT: omit when blank; otherwise numeric (0 allowed). */
+function lastDoneFloatPayload(v: any): number | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (s === "" || s === "-" || s === "—") return null;
+  const n = typeof v === "number" ? v : parseFloat(s.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 /** Normalize raw API item to a flat entry for list/view. Backend may use snake_case. */
 function normalizeEntry(raw: any): CPCPEntry {
   const r = raw ?? {};
@@ -31,6 +54,7 @@ function normalizeEntry(raw: any): CPCPEntry {
         r.atl_ref_no
     );
   return {
+    ...r,
     id: Number(id),
     inspectionCode: toStr(r.inspection_operation ?? r.inspection_code ?? r.inspectionCode),
     description: toStr(r.description),
@@ -43,20 +67,19 @@ function normalizeEntry(raw: any): CPCPEntry {
       aftf: toStr(r.remaining_aftt ?? r.remaining?.aftf) || "-",
     },
     interval: {
-      hours: toStr(r.interval_hours ?? r.interval?.hours) || "-",
-      months: toStr(r.interval_months ?? r.interval?.months) || "-",
+      hours: intervalStr(r.interval_hours ?? r.interval?.hours),
+      months: intervalStr(r.interval_months ?? r.interval?.months),
     },
     lastDone: {
-      date: toStr(r.last_done_date ?? r.lastDone?.date) || "-",
-      tach: toStr(r.last_done_tach ?? r.lastDone?.tach ?? r.lastDone?.tech) || "-",
-      aftf: toStr(r.last_done_aftt ?? r.lastDone?.aftf) || "-",
+      date: toStr(r.last_done_date ?? r.lastDone?.date),
+      tach: numStr(r.last_done_tach ?? r.lastDone?.tach ?? r.lastDone?.tech),
+      aftf: numStr(r.last_done_aftt ?? r.lastDone?.aftf),
     },
     nextDue: {
       date: toStr(r.next_due_date ?? r.nextDue?.date) || "-",
       tach: toStr(r.next_due_tach ?? r.nextDue?.tach ?? r.nextDue?.tech) || "-",
       aftf: toStr(r.next_due_aftt ?? r.nextDue?.aftf) || "-",
     },
-    ...r,
   };
 }
 
@@ -136,19 +159,35 @@ export async function getCpcpMonitoringById(entryId: number): Promise<CPCPEntry>
 }
 
 /** Build API payload (snake_case) from form/modal data for create/update */
-export function buildCpcpPayload(form: Record<string, any>, isUpdate = false): Record<string, any> {
+export function buildCpcpPayload(form: Record<string, any>): Record<string, any> {
   const p: Record<string, any> = {};
   p.inspection_operation = form.inspection_operation ?? form.inspection_code ?? form.inspectionType ?? null;
   p.description = form.description ?? form.findings ?? null;
-  p.interval_hours = form.interval_hours ?? form.interval?.hours ?? null;
-  p.interval_months = form.interval_months ?? form.interval?.months ?? null;
+  p.interval_hours = intervalPayloadValue(form.interval_hours ?? form.interval?.hours);
+  p.interval_months = intervalPayloadValue(form.interval_months ?? form.interval?.months);
   if (form.aircraft_id != null) p.aircraft_id = form.aircraft_id;
-  if (isUpdate) {
-    p.last_done_tach = form.last_done_tach ?? form.lastDone?.tach ?? null;
-    p.last_done_aftt = form.last_done_aftt ?? form.lastDone?.aftf ?? null;
-    p.last_done_date = form.last_done_date ?? form.lastDone?.date ?? form.inspectionDate ?? null;
-    if (form.atl_ref != null || form.atlId != null) p.atl_ref = form.atl_ref ?? form.atlId;
+
+  const atlRaw = form.atl_ref ?? form.atlId;
+  if (atlRaw != null && atlRaw !== "") {
+    const atlNum = typeof atlRaw === "number" ? atlRaw : parseInt(String(atlRaw), 10);
+    if (Number.isFinite(atlNum) && atlNum > 0) p.atl_ref = atlNum;
   }
+
+  const lastTach = lastDoneFloatPayload(
+    form.last_done_tach ?? form.lastDone?.tach ?? form.lastDone?.tech
+  );
+  if (lastTach != null) p.last_done_tach = lastTach;
+
+  const lastAftt = lastDoneFloatPayload(form.last_done_aftt ?? form.lastDone?.aftf);
+  if (lastAftt != null) p.last_done_aftt = lastAftt;
+
+  const lastDateRaw = form.last_done_date ?? form.lastDone?.date ?? form.inspectionDate;
+  const lastDate =
+    lastDateRaw != null && String(lastDateRaw).trim() !== "" && String(lastDateRaw).trim() !== "-"
+      ? String(lastDateRaw).trim()
+      : null;
+  if (lastDate) p.last_done_date = lastDate;
+
   return Object.fromEntries(Object.entries(p).filter(([, v]) => v != null && v !== ""));
 }
 
@@ -158,9 +197,11 @@ export function buildCpcpPayload(form: Record<string, any>, isUpdate = false): R
  */
 export async function createCpcpMonitoring(payload: Record<string, any>): Promise<CPCPEntry> {
   const apiPayload = Object.keys(payload).length && (payload.inspection_operation ?? payload.inspection_code ?? payload.inspectionType ?? payload.description ?? payload.findings) != null
-    ? buildCpcpPayload(payload, false)
+    ? buildCpcpPayload(payload)
     : payload;
-  const res = await apiClient.post(`${BASE}/`, apiPayload);
+  const res = await apiClient.post(`${BASE}/`, apiPayload, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
   const raw = res.data?.data ?? res.data;
   if (raw != null) return normalizeEntry(raw);
   if (res.status === 201) return normalizeEntry({ id: (res.data as any)?.id ?? 0, ...apiPayload });
@@ -176,9 +217,11 @@ export async function updateCpcpMonitoring(
   payload: Record<string, any>
 ): Promise<CPCPEntry> {
   const apiPayload = Object.keys(payload).length && (payload.inspection_operation ?? payload.inspection_code ?? payload.inspectionType ?? payload.description ?? payload.findings) != null
-    ? buildCpcpPayload(payload, true)
+    ? buildCpcpPayload(payload)
     : payload;
-  const res = await apiClient.put(`${BASE}/${entryId}`, apiPayload);
+  const res = await apiClient.put(`${BASE}/${entryId}/`, apiPayload, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
   const raw = res.data?.data ?? res.data;
   if (raw != null) return normalizeEntry(raw);
   if (res.status === 200) return normalizeEntry({ id: entryId, ...apiPayload });
