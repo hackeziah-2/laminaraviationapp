@@ -388,8 +388,6 @@ export const TCCDetailContent = forwardRef<
   const [tccPages, setTccPages] = useState(1);
   const [tccSaving, setTccSaving] = useState(false);
   const [searchDebounced, setSearchDebounced] = useState("");
-  const [linkedAircraftId, setLinkedAircraftId] = useState<string>("");
-  const [linkedSequenceNo, setLinkedSequenceNo] = useState<string>("");
   const [aircraftDetails, setAircraftDetails] =
     useState<AircraftMaintenanceDetails | null>(null);
   const [aircraftDetailsLoading, setAircraftDetailsLoading] = useState(false);
@@ -743,27 +741,6 @@ export const TCCDetailContent = forwardRef<
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, activeTab]);
-
-  useEffect(() => {
-    if (!linkedAircraftId || !linkedSequenceNo) return;
-    navigate(`/profile/${linkedAircraftId}/operation`, {
-      state: {
-        aircraft_id: linkedAircraftId,
-        sequence_no: linkedSequenceNo,
-      },
-    });
-  }, [linkedAircraftId, linkedSequenceNo, navigate]);
-
-  const handleSequenceNavigation = useCallback(
-    (sequenceNo: string) => {
-      const nextSequenceNo = String(sequenceNo ?? "").trim();
-      const nextAircraftId = String(aircraftId ?? "").trim();
-      if (!nextSequenceNo || !nextAircraftId) return;
-      setLinkedAircraftId(nextAircraftId);
-      setLinkedSequenceNo(nextSequenceNo);
-    },
-    [aircraftId]
-  );
 
   // TCC pattern color: blue (same as CPCP Monitoring pattern)
   const tccHeaderColor = "bg-blue-600";
@@ -1245,15 +1222,20 @@ export const TCCDetailContent = forwardRef<
                       {/* ATL Reference: sequence_number */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
                         {String(item.reference ?? "").trim() ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleSequenceNavigation(String(item.reference))
-                            }
-                            className="text-blue-600 hover:text-blue-700 hover:underline"
-                          >
-                            {item.reference}
-                          </button>
+                          String(aircraftId ?? "").trim() ? (
+                            <a
+                              href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
+                                { sequence_no: String(item.reference).trim() }
+                              ).toString()}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-700 hover:underline"
+                            >
+                              {item.reference}
+                            </a>
+                          ) : (
+                            <span className="text-gray-900">{item.reference}</span>
+                          )
                         ) : (
                           "-"
                         )}

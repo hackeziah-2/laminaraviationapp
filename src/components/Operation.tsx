@@ -5,7 +5,7 @@ import {
   useRef,
   type CSSProperties,
 } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Plus,
@@ -133,6 +133,7 @@ export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1", 10);
   const navigationState = (location.state ?? {}) as {
@@ -305,10 +306,15 @@ export function Operation() {
   const [selectedAircraftId, setSelectedAircraftId] = useState<number>(
     Number.isFinite(aircraftId) ? aircraftId : 0
   );
-  const [selectedSequenceNo, setSelectedSequenceNo] = useState<string>(
-    typeof navigationState.sequence_no === "string"
+  const sequenceFromQuery = useMemo(
+    () => searchParams.get("sequence_no")?.trim() ?? "",
+    [searchParams]
+  );
+  const [selectedSequenceNo, setSelectedSequenceNo] = useState(() =>
+    sequenceFromQuery ||
+    (typeof navigationState.sequence_no === "string"
       ? navigationState.sequence_no.trim()
-      : ""
+      : "")
   );
   const [searchQuery, setSearchQuery] = useState(selectedSequenceNo);
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
@@ -351,15 +357,21 @@ export function Operation() {
         ? nextAircraftId
         : aircraftId;
     const nextSequenceNo =
-      typeof navigationState.sequence_no === "string"
+      sequenceFromQuery ||
+      (typeof navigationState.sequence_no === "string"
         ? navigationState.sequence_no.trim()
-        : "";
+        : "");
 
     setSelectedAircraftId(normalizedAircraftId);
     setSelectedSequenceNo(nextSequenceNo);
     setSearchQuery(nextSequenceNo);
     setCurrentPage(1);
-  }, [aircraftId, navigationState.aircraft_id, navigationState.sequence_no]);
+  }, [
+    aircraftId,
+    navigationState.aircraft_id,
+    navigationState.sequence_no,
+    sequenceFromQuery,
+  ]);
 
   // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
   const getAirframeDisplay = (r: AircraftTechnicalLog) => {

@@ -7,7 +7,6 @@ import React, {
   useRef,
   useMemo,
 } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Printer,
@@ -163,7 +162,6 @@ export const CPCPMonitoring = forwardRef<
   },
   ref
 ) {
-  const navigate = useNavigate();
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -178,8 +176,6 @@ export const CPCPMonitoring = forwardRef<
   const [viewEntry, setViewEntry] = useState<CPCPEntry | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [editingEntry, setEditingEntry] = useState<CPCPEntry | null>(null);
-  const [linkedAircraftId, setLinkedAircraftId] = useState<string>("");
-  const [linkedSequenceNo, setLinkedSequenceNo] = useState<string>("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aircraftDetails, setAircraftDetails] =
     useState<AircraftMaintenanceDetails | null>(null);
@@ -356,27 +352,6 @@ export const CPCPMonitoring = forwardRef<
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, [searchQuery]);
-
-  useEffect(() => {
-    if (!linkedAircraftId || !linkedSequenceNo) return;
-    navigate(`/profile/${linkedAircraftId}/operation`, {
-      state: {
-        aircraft_id: linkedAircraftId,
-        sequence_no: linkedSequenceNo,
-      },
-    });
-  }, [linkedAircraftId, linkedSequenceNo, navigate]);
-
-  const handleSequenceNavigation = useCallback(
-    (sequenceNo: string) => {
-      const nextSequenceNo = String(sequenceNo ?? "").trim();
-      const nextAircraftId = String(aircraftId ?? "").trim();
-      if (!nextSequenceNo || !nextAircraftId) return;
-      setLinkedAircraftId(nextAircraftId);
-      setLinkedSequenceNo(nextSequenceNo);
-    },
-    [aircraftId]
-  );
 
   const handleView = useCallback(async (entry: CPCPEntry) => {
     setViewEntry(null);
@@ -836,17 +811,20 @@ export const CPCPMonitoring = forwardRef<
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
                                 {String(item.reference ?? "").trim() ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleSequenceNavigation(
-                                        String(item.reference)
-                                      )
-                                    }
-                                    className="text-blue-600 hover:text-blue-700 hover:underline"
-                                  >
-                                    {item.reference}
-                                  </button>
+                                  String(aircraftId ?? "").trim() ? (
+                                    <a
+                                      href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
+                                        { sequence_no: String(item.reference).trim() }
+                                      ).toString()}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-700 hover:underline"
+                                    >
+                                      {item.reference}
+                                    </a>
+                                  ) : (
+                                    <span className="text-gray-600">{item.reference}</span>
+                                  )
                                 ) : (
                                   "-"
                                 )}
