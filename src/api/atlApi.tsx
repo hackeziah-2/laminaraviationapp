@@ -23,6 +23,90 @@ export function formatNatureOfFlightForDisplay(
   return mapping[n] ?? n;
 }
 
+/** Options for ATL list/search row formatting */
+export interface AtlListOptions {
+  /**
+   * CPCP / TCC ATL picker: show each result as
+   * `Seq No.: {sequence}: TACH: …  AFTT: …  DATE: …`
+   * Default keeps `Sequence · Nature · Registration` for other screens.
+   */
+  resultLineStyle?: "standard" | "cpcp";
+}
+
+function displayAtlField(v: unknown): string {
+  if (v == null || v === "") return "—";
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  const s = String(v).trim();
+  if (s === "" || s === "-" || s === "—") return "—";
+  return s;
+}
+
+/** Numeric TACH/AFTT for CPCP Last Done autofill (undefined when absent). */
+function cpcpNumericForForm(v: unknown): string | undefined {
+  if (v == null || v === "") return undefined;
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  const s = String(v).trim().replace(/,/g, "");
+  if (s === "" || s === "—" || s === "-") return undefined;
+  const n = Number(s);
+  if (Number.isFinite(n)) return String(n);
+  return s || undefined;
+}
+
+/** `origin_date` → `YYYY-MM-DD` for `<input type="date">`. */
+function cpcpDateForLastDoneField(v: unknown): string | undefined {
+  if (v == null || v === "") return undefined;
+  const str = String(v).trim();
+  if (!str || str === "—" || str === "-") return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const d = new Date(str);
+  if (!Number.isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return str;
+}
+
+function cpcpAutofillFromRaw(
+  lineStyle: "standard" | "cpcp",
+  tachRaw: unknown,
+  afttRaw: unknown,
+  originDateRaw: unknown
+): Partial<
+  Pick<AtlItem, "cpcpLastDoneTach" | "cpcpLastDoneAftt" | "cpcpLastDoneDate">
+> {
+  if (lineStyle !== "cpcp") return {};
+  const out: Partial<
+    Pick<AtlItem, "cpcpLastDoneTach" | "cpcpLastDoneAftt" | "cpcpLastDoneDate">
+  > = {};
+  const t = cpcpNumericForForm(tachRaw);
+  if (t != null) out.cpcpLastDoneTach = t;
+  const a = cpcpNumericForForm(afttRaw);
+  if (a != null) out.cpcpLastDoneAftt = a;
+  const d = cpcpDateForLastDoneField(originDateRaw);
+  if (d) out.cpcpLastDoneDate = d;
+  return out;
+}
+
+/**
+ * CPCP / TCC ATL picker search result line.
+ * `Seq No.: {sequence}: TACH: tachometer_end  AFTT: auto_airframe_aftt  DATE: origin_date`
+ */
+export function buildAtlCpcpSearchLabel(
+  sequenceNo: string,
+  tachometerEnd: unknown,
+  autoAirframeAftt: unknown,
+  originDate: unknown
+): string {
+  const seq = String(sequenceNo ?? "").trim() || "—";
+  return `SEQ NO.: ${seq}: TACH: ${displayAtlField(
+    tachometerEnd
+  )}  AFTT: ${displayAtlField(autoAirframeAftt)}  DATE: ${displayAtlField(
+    originDate
+  )}`;
+}
+
 export interface AtlItem {
   id: number;
   sequenceNo?: string;
@@ -36,6 +120,10 @@ export interface AtlItem {
   natureOfFlightDisplay?: string;
   /** Aircraft registration when returned on the ATL row */
   aircraftRegistration?: string;
+  /** CPCP picker: autofill Last Done from selected ATL row (only when `resultLineStyle: "cpcp"`). */
+  cpcpLastDoneTach?: string;
+  cpcpLastDoneAftt?: string;
+  cpcpLastDoneDate?: string;
 }
 
 const ATL_PATH = "atl/";
@@ -47,8 +135,10 @@ const ATL_PATH = "atl/";
  */
 export const getAtlList = async (
   sequenceNumber = "",
-  aircraftId?: number
+  aircraftId?: number,
+  listOptions?: AtlListOptions
 ): Promise<AtlItem[]> => {
+  const lineStyle = listOptions?.resultLineStyle ?? "standard";
   const params = new URLSearchParams();
   const q = sequenceNumber.trim();
   if (q) {
@@ -57,9 +147,10 @@ export const getAtlList = async (
   } else if (aircraftId != null && aircraftId > 0) {
     params.append("limit", "50");
   }
-  const url = aircraftId != null && aircraftId > 0
-    ? `aircraft/${aircraftId}/atl/?${params.toString()}`
-    : `${ATL_PATH}?${params.toString()}`;
+  const url =
+    aircraftId != null && aircraftId > 0
+      ? `aircraft/${aircraftId}/atl/?${params.toString()}`
+      : `${ATL_PATH}?${params.toString()}`;
   try {
     const res = await apiClient.get(url, {
       headers: { Accept: "application/json" },
@@ -82,10 +173,7 @@ export const getAtlList = async (
                 ""
             ).trim()
           : String(
-              r.aircraft_registration ??
-                r.ac_reg ??
-                r.registration ??
-                ""
+              r.aircraft_registration ?? r.ac_reg ?? r.registration ?? ""
             ).trim();
       const natureRaw = String(
         r.nature_of_flight ?? r.natureOfFlight ?? ""
@@ -93,8 +181,21 @@ export const getAtlList = async (
       const natureOfFlightDisplay = formatNatureOfFlightForDisplay(
         natureRaw || undefined
       );
-      const seqPart = seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
-      const label = `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
+      const seqPart =
+        seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
+      const tachRaw =
+        r.tachometer_end ?? r.tachometerEnd ?? r.tach_end ?? r.tachEnd;
+      const afttRaw =
+        r.auto_airframe_aftt ??
+        r.autoAirframeAftt ??
+        r.airframe_aftt ??
+        r.airframeAftt;
+      const originDateRaw =
+        r.origin_date ?? r.originDate ?? r.date_of_origin ?? r.dateOfOrigin;
+      const label =
+        lineStyle === "cpcp"
+          ? buildAtlCpcpSearchLabel(seqPart, tachRaw, afttRaw, originDateRaw)
+          : `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
       return {
         id,
         sequenceNo: seqNo,
@@ -104,6 +205,7 @@ export const getAtlList = async (
         natureOfFlight: natureRaw || undefined,
         natureOfFlightDisplay,
         aircraftRegistration: reg || undefined,
+        ...cpcpAutofillFromRaw(lineStyle, tachRaw, afttRaw, originDateRaw),
       };
     });
   } catch {
@@ -117,7 +219,8 @@ export const getAtlList = async (
  */
 export const searchAtlOptionsForTcc = async (
   sequenceOrSearch: string,
-  aircraftId?: number
+  aircraftId?: number,
+  listOptions?: AtlListOptions
 ): Promise<AtlItem[]> => {
   const q = sequenceOrSearch.trim();
   const aid =
@@ -127,29 +230,41 @@ export const searchAtlOptionsForTcc = async (
       ? Number(aircraftId)
       : undefined;
 
-  const primary = await getAtlList(q, aid);
+  const primary = await getAtlList(q, aid, listOptions);
   if (primary.length > 0) return primary;
 
   if (!q || !aid) return [];
 
   try {
     const tech = await searchAircraftTechnicalLogBySequence(q);
-    const filtered = tech.filter(
-      (t) => t.id > 0 && t.aircraft?.id === aid
-    );
+    const filtered = tech.filter((t) => t.id > 0 && t.aircraft?.id === aid);
+    const lineStyle = listOptions?.resultLineStyle ?? "standard";
     return filtered.map((t) => {
       const seq = String(t.sequenceNo ?? "").trim() || String(t.id);
-      const natureDisplay = formatNatureOfFlightForDisplay(
-        t.natureOfFlight
-      );
+      const natureDisplay = formatNatureOfFlightForDisplay(t.natureOfFlight);
       const reg = (t.aircraft?.registration ?? "").trim() || "—";
+      const label =
+        lineStyle === "cpcp"
+          ? buildAtlCpcpSearchLabel(
+              seq,
+              t.tachometerEnd,
+              t.autoAirframeAftt,
+              t.originDate
+            )
+          : `${seq} · ${natureDisplay} · ${reg}`;
       return {
         id: t.id,
         sequenceNo: String(t.sequenceNo ?? "").trim(),
-        label: `${seq} · ${natureDisplay} · ${reg}`,
+        label,
         natureOfFlight: t.natureOfFlight,
         natureOfFlightDisplay: natureDisplay,
         aircraftRegistration: reg !== "—" ? reg : undefined,
+        ...cpcpAutofillFromRaw(
+          lineStyle,
+          t.tachometerEnd,
+          t.autoAirframeAftt,
+          t.originDate
+        ),
       };
     });
   } catch {

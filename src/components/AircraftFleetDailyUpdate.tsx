@@ -519,8 +519,7 @@ export function AircraftFleetDailyUpdate() {
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
                       {(() => {
                         const lines = nextInspDueDisplayLines(
-                          aircraft.nextInspDue ??
-                            aircraft.nextInspectionDue,
+                          aircraft.nextInspDue ?? aircraft.nextInspectionDue,
                           aircraft.nextInspDueUnit ??
                             aircraft.nextInspectionDueUnit
                         );

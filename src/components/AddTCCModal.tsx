@@ -167,7 +167,8 @@ export function AddTCCModal({
       try {
         const list = await searchAtlOptionsForTcc(
           atlSearchDebounced,
-          aircraftIdNum
+          aircraftIdNum,
+          { resultLineStyle: "cpcp" }
         );
         if (!cancelled) setAtlOptions(list);
       } finally {
@@ -479,11 +480,32 @@ export function AddTCCModal({
                                 }`}
                                 onMouseDown={(e) => {
                                   e.preventDefault();
-                                  setFormData((prev) => ({
-                                    ...prev,
-                                    atlReference: seqVal,
-                                    atlId: opt.id,
-                                  }));
+                                  setFormData((prev) => {
+                                    const next = {
+                                      ...prev,
+                                      atlReference: seqVal,
+                                      atlId: opt.id,
+                                    };
+                                    if (
+                                      opt.cpcpLastDoneTach != null &&
+                                      opt.cpcpLastDoneTach !== ""
+                                    ) {
+                                      next.lastDoneTach = opt.cpcpLastDoneTach;
+                                    }
+                                    if (
+                                      opt.cpcpLastDoneAftt != null &&
+                                      opt.cpcpLastDoneAftt !== ""
+                                    ) {
+                                      next.lastDoneAftt = opt.cpcpLastDoneAftt;
+                                    }
+                                    if (
+                                      opt.cpcpLastDoneDate != null &&
+                                      opt.cpcpLastDoneDate !== ""
+                                    ) {
+                                      next.lastDoneDate = opt.cpcpLastDoneDate;
+                                    }
+                                    return next;
+                                  });
                                   setAtlSearch(seqVal);
                                   setAtlOpen(false);
                                 }}

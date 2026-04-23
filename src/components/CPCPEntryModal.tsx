@@ -178,13 +178,19 @@ export function CPCPEntryModal({
       setAtlLoading(true);
       try {
         let list: AtlItem[];
+        const cpcpAtlOpts = { resultLineStyle: "cpcp" as const };
         if (aircraftIdValid) {
           list = await searchAtlOptionsForTcc(
             atlSearchDebounced,
-            aircraftIdNum
+            aircraftIdNum,
+            cpcpAtlOpts
           );
         } else {
-          list = await getAtlList(atlSearchDebounced.trim());
+          list = await getAtlList(
+            atlSearchDebounced.trim(),
+            undefined,
+            cpcpAtlOpts
+          );
         }
         if (!cancelled) setAtlOptions(list);
       } finally {
@@ -430,11 +436,32 @@ export function CPCPEntryModal({
                               }`}
                               onMouseDown={(e) => {
                                 e.preventDefault();
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  atl_ref: opt.sequenceNo ?? String(opt.id),
-                                  atlId: opt.id,
-                                }));
+                                setFormData((prev) => {
+                                  const next: typeof prev = {
+                                    ...prev,
+                                    atl_ref: opt.sequenceNo ?? String(opt.id),
+                                    atlId: opt.id,
+                                  };
+                                  if (
+                                    opt.cpcpLastDoneTach != null &&
+                                    opt.cpcpLastDoneTach !== ""
+                                  ) {
+                                    next.last_done_tach = opt.cpcpLastDoneTach;
+                                  }
+                                  if (
+                                    opt.cpcpLastDoneAftt != null &&
+                                    opt.cpcpLastDoneAftt !== ""
+                                  ) {
+                                    next.last_done_aftt = opt.cpcpLastDoneAftt;
+                                  }
+                                  if (
+                                    opt.cpcpLastDoneDate != null &&
+                                    opt.cpcpLastDoneDate !== ""
+                                  ) {
+                                    next.last_done_date = opt.cpcpLastDoneDate;
+                                  }
+                                  return next;
+                                });
                                 setAtlSearch(opt.sequenceNo ?? String(opt.id));
                                 setAtlOpen(false);
                               }}
