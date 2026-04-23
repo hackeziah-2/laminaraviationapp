@@ -5,7 +5,12 @@ import {
   useRef,
   type CSSProperties,
 } from "react";
-import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import {
+  useParams,
+  useNavigate,
+  useLocation,
+  useSearchParams,
+} from "react-router-dom";
 import {
   ArrowLeft,
   Plus,
@@ -60,6 +65,7 @@ import {
 import { getAllAccounts, Account } from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import * as XLSX from "xlsx";
 
 type GroupByOption =
   | "allColumns"
@@ -168,12 +174,9 @@ export function Operation() {
   const operationTechPubUploadOnly =
     isTechnicalPublicationRole(operationAtlRole);
 
-  const canCreateOperationAtl =
-    canCreate("operation") || canCreate("logbook");
-  const canUpdateOperationAtl =
-    canUpdate("operation") || canUpdate("logbook");
-  const canDeleteOperationAtl =
-    canDelete("operation") || canDelete("logbook");
+  const canCreateOperationAtl = canCreate("operation") || canCreate("logbook");
+  const canUpdateOperationAtl = canUpdate("operation") || canUpdate("logbook");
+  const canDeleteOperationAtl = canDelete("operation") || canDelete("logbook");
   const operationAtlPermissionModuleCode = canUpdate("operation")
     ? "operation"
     : "logbook";
@@ -310,11 +313,12 @@ export function Operation() {
     () => searchParams.get("sequence_no")?.trim() ?? "",
     [searchParams]
   );
-  const [selectedSequenceNo, setSelectedSequenceNo] = useState(() =>
-    sequenceFromQuery ||
-    (typeof navigationState.sequence_no === "string"
-      ? navigationState.sequence_no.trim()
-      : "")
+  const [selectedSequenceNo, setSelectedSequenceNo] = useState(
+    () =>
+      sequenceFromQuery ||
+      (typeof navigationState.sequence_no === "string"
+        ? navigationState.sequence_no.trim()
+        : "")
   );
   const [searchQuery, setSearchQuery] = useState(selectedSequenceNo);
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
@@ -424,44 +428,45 @@ export function Operation() {
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
 
-  const editListComputedTimes = useMemo<AtlListViewComputedComponentTimes | null>(
-    () =>
-      selectedEntry
-        ? {
-            airframeRunTime: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "airframeRunTime")
-            ),
-            airframeAftt: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "airframeAftt")
-            ),
-            engineRunTime: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "engineRunTime")
-            ),
-            engineTsn: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "engineTsn")
-            ),
-            engineTso: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "engineTso")
-            ),
-            engineTbo: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "engineTbo")
-            ),
-            propellerRunTime: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "propellerRunTime")
-            ),
-            propellerTsn: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "propellerTsn")
-            ),
-            propellerTso: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "propellerTso")
-            ),
-            propellerTbo: toNullableMetricNumber(
-              resolveAtlComponentMetric(selectedEntry, "propellerTbo")
-            ),
-          }
-        : null,
-    [selectedEntry]
-  );
+  const editListComputedTimes =
+    useMemo<AtlListViewComputedComponentTimes | null>(
+      () =>
+        selectedEntry
+          ? {
+              airframeRunTime: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "airframeRunTime")
+              ),
+              airframeAftt: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "airframeAftt")
+              ),
+              engineRunTime: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineRunTime")
+              ),
+              engineTsn: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineTsn")
+              ),
+              engineTso: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineTso")
+              ),
+              engineTbo: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineTbo")
+              ),
+              propellerRunTime: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerRunTime")
+              ),
+              propellerTsn: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerTsn")
+              ),
+              propellerTso: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerTso")
+              ),
+              propellerTbo: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerTbo")
+              ),
+            }
+          : null,
+      [selectedEntry]
+    );
 
   // Fetch aircraft information
   useEffect(() => {
@@ -513,7 +518,9 @@ export function Operation() {
           sortParam,
           workStatusFilter || undefined
         );
-        setFleetTimeRecords(Array.isArray(response.items) ? response.items : []);
+        setFleetTimeRecords(
+          Array.isArray(response.items) ? response.items : []
+        );
         setTotalRecords(response.total);
         setTotalPages(response.pages);
       } catch (err: any) {
@@ -571,7 +578,8 @@ export function Operation() {
   };
 
   const getComponentRecordDisplay = (record: AircraftTechnicalLog) => {
-    if (!record.componentParts || record.componentParts.length === 0) return "-";
+    if (!record.componentParts || record.componentParts.length === 0)
+      return "-";
     return record.componentParts
       .map((part) =>
         [
@@ -933,7 +941,7 @@ export function Operation() {
     );
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format: "csv" | "xlsx") => {
     if (!effectiveAircraftId) return;
     if (selectedExportColumns.length === 0) {
       await Swal.fire({
@@ -970,11 +978,32 @@ export function Operation() {
       const selectedColumns = exportColumnDefinitions.filter((column) =>
         selectedExportColumns.includes(column.key)
       );
-      const escapeCsvValue = (value: string) => `"${value.replace(/"/g, '""')}"`;
+      const fileRegistration =
+        aircraft?.registration || `aircraft_${effectiveAircraftId}`;
+
+      if (format === "xlsx") {
+        const aoa: string[][] = [
+          selectedColumns.map((column) => column.label),
+          ...recordsResponse.items.map((record) =>
+            selectedColumns.map((column) => column.getValue(record))
+          ),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "ATL");
+        XLSX.writeFile(wb, `${fileRegistration}_operation_export.xlsx`);
+        setShowExportModal(false);
+        return;
+      }
+
+      const escapeCsvValue = (value: string) =>
+        `"${value.replace(/"/g, '""')}"`;
       const csvLines = [
         selectedColumns.map((column) => escapeCsvValue(column.label)).join(","),
         ...recordsResponse.items.map((record) =>
-          selectedColumns.map((column) => escapeCsvValue(column.getValue(record))).join(",")
+          selectedColumns
+            .map((column) => escapeCsvValue(column.getValue(record)))
+            .join(",")
         ),
       ];
 
@@ -983,8 +1012,6 @@ export function Operation() {
       });
       const url = window.URL.createObjectURL(csvBlob);
       const link = document.createElement("a");
-      const fileRegistration =
-        aircraft?.registration || `aircraft_${effectiveAircraftId}`;
       link.href = url;
       link.download = `${fileRegistration}_operation_export.csv`;
       document.body.appendChild(link);
@@ -1382,9 +1409,7 @@ export function Operation() {
                             workStatusFilter || undefined
                           );
                           setFleetTimeRecords(
-                            Array.isArray(response.items)
-                              ? response.items
-                              : []
+                            Array.isArray(response.items) ? response.items : []
                           );
                           setTotalRecords(response.total);
                           setTotalPages(response.pages);
@@ -1860,11 +1885,15 @@ export function Operation() {
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(record.hobbsMeterEnd)}
+                                  {formatOptionalNumber1dp(
+                                    record.hobbsMeterEnd
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {(() => {
-                                    const start = Number(record.hobbsMeterStart);
+                                    const start = Number(
+                                      record.hobbsMeterStart
+                                    );
                                     const end = Number(record.hobbsMeterEnd);
                                     if (
                                       record.hobbsMeterStart != null &&
@@ -1915,17 +1944,26 @@ export function Operation() {
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    resolveAtlComponentMetric(record, "engineTsn")
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineTsn"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    resolveAtlComponentMetric(record, "engineTso")
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineTso"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    resolveAtlComponentMetric(record, "engineTbo")
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineTbo"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
@@ -2582,12 +2620,14 @@ export function Operation() {
                                     : ""}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getAirframeDisplay(record)?.split(" / ")?.[0] ??
-                                    "-"}
+                                  {getAirframeDisplay(record)?.split(
+                                    " / "
+                                  )?.[0] ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getAirframeDisplay(record)?.split(" / ")?.[1] ??
-                                    "-"}
+                                  {getAirframeDisplay(record)?.split(
+                                    " / "
+                                  )?.[1] ?? "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {getEngineDisplay(record)
@@ -3058,13 +3098,15 @@ export function Operation() {
                       onCheckedChange={() => toggleExportColumn(column.key)}
                       className="mt-0.5 border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
                     />
-                    <span className="text-sm text-gray-800">{column.label}</span>
+                    <span className="text-sm text-gray-800">
+                      {column.label}
+                    </span>
                   </label>
                 ))}
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
               <button
                 type="button"
                 onClick={() => setShowExportModal(false)}
@@ -3075,12 +3117,21 @@ export function Operation() {
               </button>
               <button
                 type="button"
-                onClick={handleExport}
+                onClick={() => void handleExport("csv")}
                 disabled={exportLoading}
                 className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Download className="h-4 w-4" />
                 {exportLoading ? "Exporting..." : "Export CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExport("xlsx")}
+                disabled={exportLoading}
+                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exportLoading ? "Exporting..." : "Export XLSX"}
               </button>
             </div>
           </div>
