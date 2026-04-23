@@ -21,14 +21,8 @@ import {
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ADWorkOrders } from "./ADWorkOrders";
-import {
-  CPCPMonitoring,
-  type CPCPMonitoringHandle,
-} from "./CPCPMonitoring";
-import {
-  TCCDetailContent,
-  type TCCDetailContentHandle,
-} from "./TCCDetail";
+import { CPCPMonitoring, type CPCPMonitoringHandle } from "./CPCPMonitoring";
+import { TCCDetailContent, type TCCDetailContentHandle } from "./TCCDetail";
 import {
   getAircraftLdndMonitoring,
   getAircraftLdndMonitoringLatest,
@@ -104,6 +98,7 @@ interface LDNDItem {
   lastDoneTachDone: number | null;
   nextDueTachHours: number | null;
   performedDateStart: string | null;
+  performedDateEnd: string | null;
 }
 
 interface ADItem {
@@ -233,6 +228,7 @@ export function Maintenance() {
     lastDoneTachDone: "",
     nextDueTachHours: "",
     performedDateStart: "",
+    performedDateEnd: "",
   });
 
   // Add Entry form state for AD
@@ -429,6 +425,7 @@ export function Maintenance() {
             ? null
             : Number(newEntry.nextDueTachHours),
         performedDateStart: newEntry.performedDateStart?.trim() || null,
+        performedDateEnd: newEntry.performedDateEnd?.trim() || null,
       };
       if (editingLdndEntry) {
         await updateAircraftLdndMonitoring(
@@ -448,6 +445,7 @@ export function Maintenance() {
         lastDoneTachDone: "",
         nextDueTachHours: "",
         performedDateStart: "",
+        performedDateEnd: "",
       });
       await fetchLdnd();
       await fetchLdndLatest();
@@ -579,13 +577,7 @@ export function Maintenance() {
         setLdndExportLoading(false);
       }
     },
-    [
-      aircraftId,
-      ldndItems.length,
-      ldndSearchQuery,
-      ldndTotal,
-      registration,
-    ]
+    [aircraftId, ldndItems.length, ldndSearchQuery, ldndTotal, registration]
   );
 
   const handleAdExport = useCallback(
@@ -690,6 +682,7 @@ export function Maintenance() {
       nextDueTachHours:
         item.nextDueTachHours != null ? String(item.nextDueTachHours) : "",
       performedDateStart: item.performedDateStart ?? "",
+      performedDateEnd: item.performedDateEnd ?? "",
     });
     setShowAddModal(true);
   };
@@ -1470,6 +1463,7 @@ export function Maintenance() {
                         lastDoneTachDone: "",
                         nextDueTachHours: "",
                         performedDateStart: "",
+                        performedDateEnd: "",
                       });
                       setShowAddModal(true);
                     }}
@@ -1531,7 +1525,7 @@ export function Maintenance() {
                         LAST DONE
                       </th>
                       <th
-                        colSpan={1}
+                        colSpan={2}
                         className="px-3 py-2 text-center text-white text-xs border-l border-white/30"
                       >
                         DATE PERFORMED
@@ -1565,6 +1559,9 @@ export function Maintenance() {
                       </th>
                       <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
                         PERFORMED DATE START
+                      </th>
+                      <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
+                        PERFORMED DATE END
                       </th>
                       <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
                         NEXT DUE TACH HOURS
@@ -1615,6 +1612,10 @@ export function Maintenance() {
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.performedDateStart ?? "—"}
+                          </td>
+
+                          <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
+                            {item.performedDateEnd ?? "—"}
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.nextDueTachHours ?? "—"}
@@ -2061,6 +2062,24 @@ export function Maintenance() {
                         setNewEntry({
                           ...newEntry,
                           performedDateStart: e.target.value,
+                        })
+                      }
+                      onKeyDown={handleLdndEnterKey}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-600 text-xs mb-1.5">
+                      Performed Date End
+                    </label>
+                    <input
+                      type="date"
+                      value={newEntry.performedDateEnd || ""}
+                      onChange={(e) =>
+                        setNewEntry({
+                          ...newEntry,
+                          performedDateEnd: e.target.value,
                         })
                       }
                       onKeyDown={handleLdndEnterKey}

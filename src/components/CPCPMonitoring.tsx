@@ -80,7 +80,9 @@ function cpcpToExportRow(
     String(computed.remaining.tach ?? "").trim(),
     String(computed.remaining.aftf ?? "").trim(),
     String(item.inspectionCode ?? "").trim(),
-    String(item.description ?? "").replace(/\r\n/g, "\n").trim(),
+    String(item.description ?? "")
+      .replace(/\r\n/g, "\n")
+      .trim(),
     String(item.interval?.hours ?? ""),
     String(item.interval?.months ?? ""),
     String(item.lastDone?.date ?? "").trim(),
@@ -247,8 +249,8 @@ export const CPCPMonitoring = forwardRef<
           reg && reg !== "—"
             ? reg
             : Number.isFinite(aircraftIdNum) && aircraftIdNum > 0
-              ? `aircraft_${aircraftIdNum}`
-              : "cpcp_export";
+            ? `aircraft_${aircraftIdNum}`
+            : "cpcp_export";
         const rowStrings = list.map((item) => {
           const computed = computeCpcpRow(item, headerTach, headerAftt);
           return cpcpToExportRow(item, computed);
@@ -261,9 +263,7 @@ export const CPCPMonitoring = forwardRef<
             .join(",");
           const csvLines = [
             headerLine,
-            ...rowStrings.map((cells) =>
-              cells.map(escapeCsvValue).join(",")
-            ),
+            ...rowStrings.map((cells) => cells.map(escapeCsvValue).join(",")),
           ];
           const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
             type: "text/csv;charset=utf-8;",
@@ -277,10 +277,7 @@ export const CPCPMonitoring = forwardRef<
           document.body.removeChild(link);
           window.URL.revokeObjectURL(url);
         } else {
-          const aoa: string[][] = [
-            [...CPCP_EXPORT_HEADERS],
-            ...rowStrings,
-          ];
+          const aoa: string[][] = [[...CPCP_EXPORT_HEADERS], ...rowStrings];
           const ws = XLSX.utils.aoa_to_sheet(aoa);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, "CPCP");
@@ -710,7 +707,7 @@ export const CPCPMonitoring = forwardRef<
                           rowSpan={2}
                           className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
                         >
-                          REFERENCE
+                          ATL REFERENCE
                         </th>
                         <th
                           rowSpan={2}

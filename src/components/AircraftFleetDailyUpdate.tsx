@@ -470,9 +470,21 @@ export function AircraftFleetDailyUpdate() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {formatNextInspDue(
+                      {/* {formatNextInspDue(
                         aircraft.nextInspDue ?? aircraft.nextInspectionDue
-                      )}
+                      )} */}
+
+                      <div className="space-y-1">
+                        {String(aircraft.nextInspDue ?? "")
+                          .replace(/\r\n?/g, "\n")
+                          .split("\n")
+                          .filter((line) => line.trim() !== "")
+                          .map((line, index) => (
+                            <div key={`${aircraft.id}-type-${index}`}>
+                              {line}
+                            </div>
+                          ))}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
                       {aircraft.tachDue ?? aircraft.tachTimeDue ?? "-"}
