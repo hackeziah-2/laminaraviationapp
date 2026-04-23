@@ -14,7 +14,10 @@ export interface FleetDailyUpdateItem {
   status?: string;
   workStatus?: string;
   nextInspDue?: string;
+  /** e.g. HRS, CYCLES — from next_insp_due_unit / nextInspectionDueUnit */
+  nextInspDueUnit?: string;
   nextInspectionDue?: string;
+  nextInspectionDueUnit?: string;
   tachDue?: number;
   tachTimeDue?: number;
   /** Tach time at end of day — from fleet-daily-update or eod table (tach_time_eod) */
@@ -61,7 +64,15 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
       camel?.nextInspectionDue ??
       o?.next_inspection_due ??
       "",
+    nextInspDueUnit:
+      camel?.nextInspDueUnit ??
+      camel?.nextInspectionDueUnit ??
+      o?.next_insp_due_unit ??
+      o?.next_inspection_due_unit ??
+      "",
     nextInspectionDue: camel?.nextInspectionDue ?? o?.next_inspection_due,
+    nextInspectionDueUnit:
+      camel?.nextInspectionDueUnit ?? o?.next_inspection_due_unit ?? "",
     tachDue: camel?.tachDue ?? camel?.tachTimeDue ?? o?.tach_time_due,
     tachTimeDue: camel?.tachTimeDue ?? o?.tach_time_due,
     // EOD (end of day) tach: from fleet-daily-update or from eod table (tach_time_eod / eod.tach_time_eod)
@@ -126,19 +137,22 @@ export async function getAircraftFleetDailyUpdate(
 /**
  * Get paginated fleet daily update list (all aircraft).
  * Supports pagination, search, and status filter.
- * GET api/v1/fleet-daily-update/?page=&limit=&search=&status=
+ * GET api/v1/fleet-daily-update/paged?page=&limit=&search=&status=&sort=
+ * e.g. sort=-registration (desc) or sort=registration (asc)
  */
 export async function getFleetDailyUpdatePaged(
   page = 1,
   limit = 10,
   search = "",
-  status = ""
+  status = "",
+  sort = "-registration"
 ): Promise<FleetDailyUpdatePagedResponse> {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("limit", String(limit));
   if (search.trim()) params.set("search", search.trim());
   if (status && status !== "all") params.set("status", status);
+  if (sort.trim()) params.set("sort", sort.trim());
 
   const tryEndpoint = async (path: string) => {
     const res = await apiClient.get(path, {

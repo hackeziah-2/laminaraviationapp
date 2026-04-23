@@ -7,7 +7,6 @@ import React, {
   useRef,
   useMemo,
 } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Printer,
@@ -80,7 +79,9 @@ function cpcpToExportRow(
     String(computed.remaining.tach ?? "").trim(),
     String(computed.remaining.aftf ?? "").trim(),
     String(item.inspectionCode ?? "").trim(),
-    String(item.description ?? "").replace(/\r\n/g, "\n").trim(),
+    String(item.description ?? "")
+      .replace(/\r\n/g, "\n")
+      .trim(),
     String(item.interval?.hours ?? ""),
     String(item.interval?.months ?? ""),
     String(item.lastDone?.date ?? "").trim(),
@@ -161,7 +162,6 @@ export const CPCPMonitoring = forwardRef<
   },
   ref
 ) {
-  const navigate = useNavigate();
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -176,8 +176,6 @@ export const CPCPMonitoring = forwardRef<
   const [viewEntry, setViewEntry] = useState<CPCPEntry | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [editingEntry, setEditingEntry] = useState<CPCPEntry | null>(null);
-  const [linkedAircraftId, setLinkedAircraftId] = useState<string>("");
-  const [linkedSequenceNo, setLinkedSequenceNo] = useState<string>("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aircraftDetails, setAircraftDetails] =
     useState<AircraftMaintenanceDetails | null>(null);
@@ -247,8 +245,8 @@ export const CPCPMonitoring = forwardRef<
           reg && reg !== "—"
             ? reg
             : Number.isFinite(aircraftIdNum) && aircraftIdNum > 0
-              ? `aircraft_${aircraftIdNum}`
-              : "cpcp_export";
+            ? `aircraft_${aircraftIdNum}`
+            : "cpcp_export";
         const rowStrings = list.map((item) => {
           const computed = computeCpcpRow(item, headerTach, headerAftt);
           return cpcpToExportRow(item, computed);
@@ -261,9 +259,7 @@ export const CPCPMonitoring = forwardRef<
             .join(",");
           const csvLines = [
             headerLine,
-            ...rowStrings.map((cells) =>
-              cells.map(escapeCsvValue).join(",")
-            ),
+            ...rowStrings.map((cells) => cells.map(escapeCsvValue).join(",")),
           ];
           const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
             type: "text/csv;charset=utf-8;",
@@ -277,10 +273,7 @@ export const CPCPMonitoring = forwardRef<
           document.body.removeChild(link);
           window.URL.revokeObjectURL(url);
         } else {
-          const aoa: string[][] = [
-            [...CPCP_EXPORT_HEADERS],
-            ...rowStrings,
-          ];
+          const aoa: string[][] = [[...CPCP_EXPORT_HEADERS], ...rowStrings];
           const ws = XLSX.utils.aoa_to_sheet(aoa);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, "CPCP");
@@ -359,27 +352,6 @@ export const CPCPMonitoring = forwardRef<
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
   }, [searchQuery]);
-
-  useEffect(() => {
-    if (!linkedAircraftId || !linkedSequenceNo) return;
-    navigate(`/profile/${linkedAircraftId}/operation`, {
-      state: {
-        aircraft_id: linkedAircraftId,
-        sequence_no: linkedSequenceNo,
-      },
-    });
-  }, [linkedAircraftId, linkedSequenceNo, navigate]);
-
-  const handleSequenceNavigation = useCallback(
-    (sequenceNo: string) => {
-      const nextSequenceNo = String(sequenceNo ?? "").trim();
-      const nextAircraftId = String(aircraftId ?? "").trim();
-      if (!nextSequenceNo || !nextAircraftId) return;
-      setLinkedAircraftId(nextAircraftId);
-      setLinkedSequenceNo(nextSequenceNo);
-    },
-    [aircraftId]
-  );
 
   const handleView = useCallback(async (entry: CPCPEntry) => {
     setViewEntry(null);
@@ -710,7 +682,7 @@ export const CPCPMonitoring = forwardRef<
                           rowSpan={2}
                           className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
                         >
-                          REFERENCE
+                          ATL REFERENCE
                         </th>
                         <th
                           rowSpan={2}
@@ -839,17 +811,20 @@ export const CPCPMonitoring = forwardRef<
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
                                 {String(item.reference ?? "").trim() ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleSequenceNavigation(
-                                        String(item.reference)
-                                      )
-                                    }
-                                    className="text-blue-600 hover:text-blue-700 hover:underline"
-                                  >
-                                    {item.reference}
-                                  </button>
+                                  String(aircraftId ?? "").trim() ? (
+                                    <a
+                                      href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
+                                        { sequence_no: String(item.reference).trim() }
+                                      ).toString()}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-700 hover:underline"
+                                    >
+                                      {item.reference}
+                                    </a>
+                                  ) : (
+                                    <span className="text-gray-600">{item.reference}</span>
+                                  )
                                 ) : (
                                   "-"
                                 )}

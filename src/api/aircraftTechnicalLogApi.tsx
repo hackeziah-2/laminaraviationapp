@@ -279,6 +279,10 @@ export interface AircraftTechnicalLogSearchResult {
   sequenceNo: string;
   aircraft: AircraftTechnicalLogSearchAircraft;
   natureOfFlight?: string;
+  /** Present when API returns full row — used for CPCP ATL picker line format */
+  tachometerEnd?: number;
+  autoAirframeAftt?: number;
+  originDate?: string;
 }
 
 export type AtlComponentMetric =
@@ -679,6 +683,26 @@ export const searchAircraftTechnicalLogBySequence = async (
             }
           : { id: 0, registration: "", model: "", type: "" };
       const logId = Number(item.id ?? item.pk ?? 0);
+      const tachRaw =
+        item.tachometer_end ??
+        item.tachometerEnd ??
+        item.tach_end ??
+        item.tachEnd;
+      const tachNum =
+        tachRaw != null && tachRaw !== ""
+          ? Number(typeof tachRaw === "string" ? tachRaw.replace(/,/g, "") : tachRaw)
+          : NaN;
+      const afttRaw =
+        item.auto_airframe_aftt ??
+        item.autoAirframeAftt ??
+        item.airframe_aftt ??
+        item.airframeAftt;
+      const afttNum =
+        afttRaw != null && afttRaw !== ""
+          ? Number(typeof afttRaw === "string" ? afttRaw.replace(/,/g, "") : afttRaw)
+          : NaN;
+      const originDateRaw =
+        item.origin_date ?? item.originDate ?? item.date_of_origin ?? item.dateOfOrigin;
       return {
         id: Number.isFinite(logId) ? logId : 0,
         sequenceNo:
@@ -686,6 +710,12 @@ export const searchAircraftTechnicalLogBySequence = async (
         aircraft: aircraftObj,
         natureOfFlight:
           item.nature_of_flight ?? item.natureOfFlight ?? undefined,
+        tachometerEnd: Number.isFinite(tachNum) ? tachNum : undefined,
+        autoAirframeAftt: Number.isFinite(afttNum) ? afttNum : undefined,
+        originDate:
+          originDateRaw != null && String(originDateRaw).trim() !== ""
+            ? String(originDateRaw).trim()
+            : undefined,
       };
     });
   } catch (error) {

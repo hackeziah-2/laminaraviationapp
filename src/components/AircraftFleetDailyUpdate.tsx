@@ -6,6 +6,8 @@ import {
   Loader,
   Pencil,
   X,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Swal from "sweetalert2";
@@ -27,13 +29,31 @@ function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
   return "green"; // Running or default
 }
 
-function formatNextInspDue(value: string | undefined): string {
-  if (value == null) return "-";
-  const text = String(value).trim();
-  if (!text) return "-";
-  if (/hrs?/i.test(text)) return text;
-  if (/\d/.test(text)) return `${text} HRS`;
-  return text;
+function splitMultilineField(value: string | undefined): string[] {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+/** Renders next inspection due with optional unit beside each line (or zipped units). */
+function nextInspDueDisplayLines(
+  due: string | undefined,
+  unit: string | undefined
+): string[] {
+  const dueLines = splitMultilineField(due);
+  const unitLines = splitMultilineField(unit);
+  if (dueLines.length === 0) return [];
+  const singleUnit = unitLines.length <= 1 ? unitLines[0] : undefined;
+  return dueLines.map((line, i) => {
+    const u =
+      singleUnit !== undefined
+        ? singleUnit
+        : unitLines[i] ?? unitLines[unitLines.length - 1] ?? "";
+    const suffix = u ? ` ${u}` : "";
+    return `${line}${suffix}`;
+  });
 }
 
 const STATUS_OPTIONS = [
@@ -54,6 +74,12 @@ export function AircraftFleetDailyUpdate() {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  /** Server sort for A/C IDENT: registration (asc) / -registration (desc) */
+  const [registrationSort, setRegistrationSort] = useState<"asc" | "desc">(
+    "desc"
+  );
+  const sortParam =
+    registrationSort === "asc" ? "registration" : "-registration";
 
   // Edit remark/status modal
   const [showRemarkModal, setShowRemarkModal] = useState(false);
@@ -74,7 +100,8 @@ export function AircraftFleetDailyUpdate() {
         currentPage,
         itemsPerPage,
         searchDebounced,
-        apiStatus
+        apiStatus,
+        sortParam
       );
       setItems(res.items);
       setTotal(res.total);
@@ -87,7 +114,7 @@ export function AircraftFleetDailyUpdate() {
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
-  }, [currentPage, itemsPerPage, searchDebounced, apiStatus]);
+  }, [currentPage, itemsPerPage, searchDebounced, apiStatus, sortParam]);
 
   useEffect(() => {
     fetchData();
@@ -114,6 +141,11 @@ export function AircraftFleetDailyUpdate() {
 
   const handleFilterChange = (value: string) => {
     setFilterStatus(value);
+    setCurrentPage(1);
+  };
+
+  const toggleRegistrationSort = () => {
+    setRegistrationSort((prev) => (prev === "asc" ? "desc" : "asc"));
     setCurrentPage(1);
   };
 
@@ -376,7 +408,22 @@ export function AircraftFleetDailyUpdate() {
             <thead>
               <tr className="bg-gray-100 border-b border-gray-300">
                 <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
-                  A/C IDENT
+                  <button
+                    type="button"
+                    onClick={toggleRegistrationSort}
+                    className="inline-flex items-center gap-1 text-left font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+                    title="Sort by registration"
+                  >
+                    A/C IDENT
+                    {registrationSort === "asc" ? (
+                      <ChevronUp className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                    ) : (
+                      <ChevronDown
+                        className="w-3.5 h-3.5 shrink-0"
+                        aria-hidden
+                      />
+                    )}
+                  </button>
                 </th>
                 <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
                   STATUS
@@ -470,9 +517,23 @@ export function AircraftFleetDailyUpdate() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {formatNextInspDue(
-                        aircraft.nextInspDue ?? aircraft.nextInspectionDue
-                      )}
+                      {(() => {
+                        const lines = nextInspDueDisplayLines(
+                          aircraft.nextInspDue ?? aircraft.nextInspectionDue,
+                          aircraft.nextInspDueUnit ??
+                            aircraft.nextInspectionDueUnit
+                        );
+                        if (lines.length === 0) return "-";
+                        return (
+                          <div className="space-y-1">
+                            {lines.map((text, index) => (
+                              <div key={`${aircraft.id}-next-insp-${index}`}>
+                                {text}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
                       {aircraft.tachDue ?? aircraft.tachTimeDue ?? "-"}
