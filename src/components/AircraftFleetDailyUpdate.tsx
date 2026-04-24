@@ -10,6 +10,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
 import {
   getFleetDailyUpdatePaged,
@@ -19,14 +20,14 @@ import {
 import { SpinnerIcon } from "./ui/spinner";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
-/** Map status text to badge/row color: Running=green, ONGOING MAINTENANCE=yellow, AOG=red */
+/** Map status text to badge/row color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
 function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
   if (!status) return "green";
   const s = status.trim().toUpperCase();
   if (s === "AOG") return "red";
   if (s === "ONGOING MAINTENANCE" || s === "ONGOINGMAINTENANCE")
     return "yellow";
-  return "green"; // Running or default
+  return "green"; // Operational, legacy Running, or default
 }
 
 function splitMultilineField(value: string | undefined): string[] {
@@ -57,7 +58,7 @@ function nextInspDueDisplayLines(
 }
 
 const STATUS_OPTIONS = [
-  { value: "Running", label: "Running" },
+  { value: "Operational", label: "Operational" },
   { value: "Ongoing Maintenance", label: "Ongoing Maintenance" },
   { value: "AOG", label: "AOG" },
 ];
@@ -153,10 +154,14 @@ export function AircraftFleetDailyUpdate() {
     setEditingItem(item);
     setRemarkDraft(item.remarks ?? "");
     const currentStatus = item.status ?? item.workStatus ?? "";
+    const legacy =
+      currentStatus.trim().toLowerCase() === "running"
+        ? "Operational"
+        : currentStatus;
     setStatusDraft(
-      STATUS_OPTIONS.some((o) => o.value === currentStatus)
-        ? currentStatus
-        : STATUS_OPTIONS[0]?.value ?? "Running"
+      STATUS_OPTIONS.some((o) => o.value === legacy)
+        ? legacy
+        : STATUS_OPTIONS[0]?.value ?? "Operational"
     );
     setShowRemarkModal(true);
   }, []);
@@ -365,7 +370,7 @@ export function AircraftFleetDailyUpdate() {
                   }}
                 >
                   <option value="all">All Aircraft</option>
-                  <option value="Running">Running</option>
+                  <option value="Operational">Operational</option>
                   <option value="Ongoing Maintenance">
                     Ongoing Maintenance
                   </option>
@@ -509,7 +514,21 @@ export function AircraftFleetDailyUpdate() {
                     )}`}
                   >
                     <td className="px-4 py-3 text-sm text-gray-900 border-r border-gray-300">
-                      {aircraft.ident ?? aircraft.registration ?? "-"}
+                      {(() => {
+                        const ident =
+                          aircraft.ident ?? aircraft.registration ?? "-";
+                        const trimmed =
+                          ident !== "-" ? String(ident).trim() : "";
+                        if (!trimmed) return "-";
+                        return (
+                          <Link
+                            to={`/profile?aircraft=${encodeURIComponent(trimmed)}`}
+                            className="text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
+                          >
+                            {trimmed}
+                          </Link>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-sm border-r border-gray-300">
                       {getStatusBadge(

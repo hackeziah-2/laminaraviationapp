@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -35,9 +35,12 @@ import { dateToday, snakeAllKeys } from "../utility/utils";
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const aircraftFromQuery =
+    searchParams.get("aircraft")?.trim() ?? "";
   const { canAccess, canCreate, canDelete } = useUserPermissions();
-  const [searchTerm, setSearchTerm] = useState("");
-  const [searchDebounced, setSearchDebounced] = useState("");
+  const [searchTerm, setSearchTerm] = useState(aircraftFromQuery);
+  const [searchDebounced, setSearchDebounced] = useState(aircraftFromQuery);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -122,6 +125,14 @@ export function AircraftFleetProfile() {
       filterStatus,
       sortParam
     );
+
+  // Deep link: /profile?aircraft= — seed search and refetch list for that aircraft
+  useEffect(() => {
+    if (!aircraftFromQuery) return;
+    setSearchTerm(aircraftFromQuery);
+    setSearchDebounced(aircraftFromQuery);
+    setCurrentPage(1);
+  }, [aircraftFromQuery]);
 
   // Debounce search so we don't hit the API on every keystroke
   useEffect(() => {
