@@ -1,6 +1,14 @@
 import apiClient from "./index";
 import { toCamel } from "../utility/utils";
 
+/** Backend enum `fleet_daily_update_status_enum`: Operational, Ongoing Maintenance, AOG (legacy: Running → Operational). */
+function normalizeFleetDailyStatus(value: unknown): string {
+  const s = value == null ? "" : String(value).trim();
+  if (!s) return "";
+  if (s.toLowerCase() === "running") return "Operational";
+  return s;
+}
+
 /**
  * Fleet Daily Update item (one row in the list).
  * API may return snake_case; we normalize to camelCase.
@@ -52,13 +60,15 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
     camel?.registration ??
     aircraft?.registration ??
     "";
+  const rawStatus = camel?.status ?? camel?.workStatus ?? o?.work_status ?? "";
+  const rawWorkStatus = camel?.workStatus ?? o?.work_status;
   return {
     id: camel?.id ?? o?.id,
     aircraftId: camel?.aircraftId ?? camel?.aircraftFk ?? o?.aircraft_id ?? o?.aircraft_fk,
     ident: String(ident),
     registration: camel?.registration ?? aircraft?.registration ?? ident,
-    status: camel?.status ?? camel?.workStatus ?? o?.work_status ?? "",
-    workStatus: camel?.workStatus ?? o?.work_status,
+    status: normalizeFleetDailyStatus(rawStatus),
+    workStatus: normalizeFleetDailyStatus(rawWorkStatus),
     nextInspDue:
       camel?.nextInspDue ??
       camel?.nextInspectionDue ??
