@@ -1,5 +1,5 @@
 import apiClient from "./index";
-import { toCamel, toCamelDeep } from "../utility/utils";
+import { toCamelDeep } from "../utility/utils";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -759,10 +759,12 @@ export const createAircraftTechnicalLog = async (
           // Do not set Content-Type — browser sets multipart/form-data with boundary
         }
       );
-      return toCamel(response.data);
+      const raw = response.data?.data ?? response.data;
+      return toCamelDeep(raw) as AircraftTechnicalLog;
     }
     const response = await apiClient.post("aircraft-technical-log/", data);
-    return toCamel(response.data);
+    const raw = response.data?.data ?? response.data;
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
@@ -780,21 +782,6 @@ export const updateAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          result[camel] = transformToCamel(obj[key]);
-        }
-        return result;
-      }
-      return obj;
-    };
-
     const hasFiles =
       files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
@@ -813,14 +800,16 @@ export const updateAircraftTechnicalLog = async (
           headers: { Accept: "application/json" },
         }
       );
-      return transformToCamel(response.data);
+      const raw = response.data?.data ?? response.data;
+      return toCamelDeep(raw) as AircraftTechnicalLog;
     }
 
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       data
     );
-    return transformToCamel(response.data);
+    const raw = response.data?.data ?? response.data;
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
@@ -849,7 +838,9 @@ export const getLatestAircraftTechnicalLog = async (
     const response = await apiClient.get(
       `aircraft-technical-log/latest?aircraft_fk=${aircraftFk}`
     );
-    return toCamel(response.data);
+    const raw = response.data?.data ?? response.data;
+    if (raw == null || typeof raw !== "object") return null;
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     // If no latest entry exists, return null
     if ((error as any)?.response?.status === 404) {

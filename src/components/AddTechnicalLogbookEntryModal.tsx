@@ -79,13 +79,9 @@ function parseFiniteFloatField(value: string | undefined | null): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
-/** API expects engine_tsn; never send NaN/undefined from blank or whitespace fields. */
-function resolveEngineTsnForApi(formData: {
-  engineTsn: string;
-}): number {
-  const direct = parseFiniteFloatField(formData.engineTsn);
-  if (direct != null) return direct;
-  return 0;
+/** engine_tsn / propeller_tsn: always send a number after validateForm (required, ≥0). */
+function resolveTsnForApi(value: string | undefined | null): number {
+  return parseFiniteFloatField(value) ?? 0;
 }
 
 /** Prefer resolved API string; else list row computed number; else fallback ("" or e.g. "0.0"). */
@@ -1721,6 +1717,24 @@ export function AddTechnicalLogbookEntryModal({
       errors.tachometerEnd = "Tachometer End must be a valid number";
     }
 
+    const requiredTsn = (v: string | undefined, key: string) => {
+      const t = (v ?? "").trim();
+      if (t === "") {
+        errors[key] = "Required";
+        return;
+      }
+      const n = parseFloat(t);
+      if (!Number.isFinite(n)) {
+        errors[key] = "Must be a valid number";
+        return;
+      }
+      if (n < 0) {
+        errors[key] = "Must be 0 or greater";
+      }
+    };
+    requiredTsn(formData.engineTsn, "engineTsn");
+    requiredTsn(formData.propellerTsn, "propellerTsn");
+
     // Time format validation for Zulu times
     if (formData.pilotAcceptTime && formData.pilotAcceptTime.trim() !== "") {
       if (!/^\d{2}:\d{2}$/.test(formData.pilotAcceptTime)) {
@@ -1770,7 +1784,7 @@ export function AddTechnicalLogbookEntryModal({
       }
     }
 
-    // Before creating/editing ATL: engine/propeller limits + Engine TSO/TSN + Propeller TSO/TSN on aircraft master
+    // Before creating/editing ATL: engine/propeller limits + AFTT + Engine/Prop TSN + TSO on aircraft master
     const aid = aircraftId ?? selectedAircraftId ?? null;
     if (aid != null && !attachmentsOnlyLocked) {
       try {
@@ -1926,7 +1940,7 @@ export function AddTechnicalLogbookEntryModal({
           : formData.engineTotalTime
           ? parseFloat(formData.engineTotalTime)
           : undefined,
-        engineTsn: resolveEngineTsnForApi(formData),
+        engineTsn: resolveTsnForApi(formData.engineTsn),
         engineTso: formData.engineTso
           ? parseFloat(formData.engineTso)
           : undefined,
@@ -1938,7 +1952,7 @@ export function AddTechnicalLogbookEntryModal({
           : formData.propellerTotalTime
           ? parseFloat(formData.propellerTotalTime)
           : undefined,
-        propellerTsn: formData.propellerTsn || undefined,
+        propellerTsn: resolveTsnForApi(formData.propellerTsn),
         propellerTso: formData.propellerTso
           ? parseFloat(formData.propellerTso)
           : undefined,
@@ -3780,16 +3794,32 @@ export function AddTechnicalLogbookEntryModal({
                           <input
                             type="text"
                             value={formData.engineTsn}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              if (validationErrors.engineTsn) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  engineTsn: "",
+                                });
+                              }
                               setFormData({
                                 ...formData,
                                 engineTsn: e.target.value,
-                              })
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                              });
+                            }}
+                            className={`w-full px-2 py-1 border rounded text-sm text-center bg-white ${
+                              validationErrors.engineTsn
+                                ? "border-red-500"
+                                : "border-gray-300"
+                            }`}
                             placeholder=""
-                            title=""
+                            required
+                            title="Required: 0 or greater"
                           />
+                          {validationErrors.engineTsn && (
+                            <p className="text-red-500 text-xs mt-0.5 text-center">
+                              {validationErrors.engineTsn}
+                            </p>
+                          )}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white">
                           <input
@@ -3840,16 +3870,32 @@ export function AddTechnicalLogbookEntryModal({
                           <input
                             type="text"
                             value={formData.propellerTsn}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              if (validationErrors.propellerTsn) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  propellerTsn: "",
+                                });
+                              }
                               setFormData({
                                 ...formData,
                                 propellerTsn: e.target.value,
-                              })
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                              });
+                            }}
+                            className={`w-full px-2 py-1 border rounded text-sm text-center bg-white ${
+                              validationErrors.propellerTsn
+                                ? "border-red-500"
+                                : "border-gray-300"
+                            }`}
                             placeholder=""
-                            title="Auto: Prev TSN + Prop Run"
+                            required
+                            title="Required: 0 or greater. Auto: Prev TSN + Prop Run"
                           />
+                          {validationErrors.propellerTsn && (
+                            <p className="text-red-500 text-xs mt-0.5 text-center">
+                              {validationErrors.propellerTsn}
+                            </p>
+                          )}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white">
                           <input
