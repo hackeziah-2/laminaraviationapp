@@ -27,14 +27,20 @@ function numOrZero(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function withEnginePropNumericDefaults(a: Aircraft): Aircraft {
   return {
     ...a,
     airframeAftt: a.airframeAftt == null ? null : numOrZero(a.airframeAftt),
     engineLifeTimeLimit: numOrZero(a.engineLifeTimeLimit),
-    engineTsn: numOrZero(a.engineTsn),
+    engineTsn: numOrNull(a.engineTsn),
     engineTso: numOrZero(a.engineTso),
-    propellerTsn: numOrZero(a.propellerTsn),
+    propellerTsn: numOrNull(a.propellerTsn),
     propellerTso: numOrZero(a.propellerTso),
   };
 }
@@ -114,7 +120,7 @@ export function AircraftDetail() {
             data?.engine_arc && String(data.engine_arc).trim()
               ? stripArcPathPrefix(String(data.engine_arc))
               : "",
-          engineTsn: numOrZero(data.engine_tsn),
+          engineTsn: numOrNull(data.engine_tsn),
           engineTso: numOrZero(data.engine_tso),
           propellerModel: data.propeller_model,
           propellerSerialNumber: data.propeller_serial_number,
@@ -127,7 +133,7 @@ export function AircraftDetail() {
             data?.propeller_arc && String(data.propeller_arc).trim()
               ? stripArcPathPrefix(String(data.propeller_arc))
               : "",
-          propellerTsn: numOrZero(data.propeller_tsn),
+          propellerTsn: numOrNull(data.propeller_tsn),
           propellerTso: numOrZero(data.propeller_tso),
         };
         setEngineARCFileName(
@@ -205,7 +211,7 @@ export function AircraftDetail() {
       engine_model: editAircraft?.engineModel,
       engine_serial_number: editAircraft?.engineSerialNumber,
       engine_life_time_limit: toFloatOrZero(editAircraft?.engineLifeTimeLimit),
-      engine_tsn: toFloatOrZero(
+      engine_tsn: toOptionalFloat(
         editAircraft?.engineTsn as number | string | null | undefined
       ),
       engine_tso: toFloatOrZero(
@@ -218,7 +224,7 @@ export function AircraftDetail() {
       propeller_life_time_limit: toOptionalFloat(
         editAircraft?.propellerLifeTimeLimit
       ),
-      propeller_tsn: toFloatOrZero(
+      propeller_tsn: toOptionalFloat(
         editAircraft?.propellerTsn as number | string | null | undefined
       ),
       propeller_tso: toFloatOrZero(
@@ -857,7 +863,7 @@ export function AircraftDetail() {
                       type="number"
                       step="0.01"
                       min="0"
-                      value={numberInputValue(editAircraft?.engineTsn)}
+                      value={editAircraft?.engineTsn ?? ""}
                       onChange={(e) =>
                         handleInputChange("engineTsn", e.target.value)
                       }
@@ -866,7 +872,9 @@ export function AircraftDetail() {
                     />
                   ) : (
                     <p className="text-gray-900">
-                      {numOrZero(aircraft.engineTsn)}
+                      {aircraft.engineTsn == null || aircraft.engineTsn === ""
+                        ? "N/A"
+                        : numOrZero(aircraft.engineTsn)}
                     </p>
                   )}
                 </div>
@@ -1053,7 +1061,7 @@ export function AircraftDetail() {
                       type="number"
                       step="0.01"
                       min="0"
-                      value={numberInputValue(editAircraft?.propellerTsn)}
+                      value={editAircraft?.propellerTsn ?? ""}
                       onChange={(e) =>
                         handleInputChange("propellerTsn", e.target.value)
                       }
@@ -1062,7 +1070,10 @@ export function AircraftDetail() {
                     />
                   ) : (
                     <p className="text-gray-900">
-                      {numOrZero(aircraft.propellerTsn)}
+                      {aircraft.propellerTsn == null ||
+                      aircraft.propellerTsn === ""
+                        ? "N/A"
+                        : numOrZero(aircraft.propellerTsn)}
                     </p>
                   )}
                 </div>

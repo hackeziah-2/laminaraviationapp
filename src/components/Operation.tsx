@@ -53,6 +53,7 @@ import {
   getMissingAircraftFieldsForNewAtl,
   buildAircraftDetailsRequiredForAtlHtml,
   ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+  resolveAircraftAirframeAftt,
   resolveAircraftEnginePropHour,
 } from "../utility/atlAircraftPrerequisites";
 import {
@@ -177,9 +178,11 @@ export function Operation() {
   const canCreateOperationAtl = canCreate("operation") || canCreate("logbook");
   const canUpdateOperationAtl = canUpdate("operation") || canUpdate("logbook");
   const canDeleteOperationAtl = canDelete("operation") || canDelete("logbook");
-  const operationAtlPermissionModuleCode = canUpdate("operation")
-    ? "operation"
-    : "logbook";
+  /** Align with Add modal: create checks canCreate(mod); must be "operation" if user can create/update ATL under operation, not only when they can update. */
+  const operationAtlPermissionModuleCode =
+    canUpdate("operation") || canCreate("operation")
+      ? "operation"
+      : "logbook";
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
@@ -377,7 +380,6 @@ export function Operation() {
     sequenceFromQuery,
   ]);
 
-  // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
   const getAirframeDisplay = (r: AircraftTechnicalLog) => {
     const run =
       resolveAtlComponentMetric(r, "airframeRunTime") != null
@@ -1156,6 +1158,9 @@ export function Operation() {
                             (aircraft as any).life_time_limit_propeller
                         )
                       : "-"}
+                  </span>
+                  <span>
+                    Airframe AFTT: {toFormat2(resolveAircraftAirframeAftt(aircraft))}
                   </span>
                   <span>
                     Engine TSO:{" "}

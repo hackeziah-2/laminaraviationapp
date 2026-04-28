@@ -3,6 +3,32 @@ import type { Aircraft } from "../types/Aircraft";
 export const ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE = "Aircraft Details Required";
 
 /** Flat or nested aircraft payload (after toCamel / toCamelDeep). */
+export function resolveAircraftAirframeAftt(
+  aircraft: Aircraft | null | undefined
+): unknown {
+  const a = (aircraft ?? {}) as Record<string, unknown>;
+  const nestedAirframe =
+    a.airframe && typeof a.airframe === "object"
+      ? (a.airframe as Record<string, unknown>)
+      : null;
+  const nestedAircraftInfo =
+    a.aircraftInformation && typeof a.aircraftInformation === "object"
+      ? (a.aircraftInformation as Record<string, unknown>)
+      : null;
+  return (
+    aircraft?.airframeAftt ??
+    a.airframeAftt ??
+    a.airframe_aftt ??
+    a.aftt ??
+    nestedAirframe?.aftt ??
+    nestedAirframe?.airframeAftt ??
+    nestedAirframe?.airframe_aftt ??
+    nestedAircraftInfo?.airframeAftt ??
+    nestedAircraftInfo?.airframe_aftt
+  );
+}
+
+/** Flat or nested aircraft payload (after toCamel / toCamelDeep). */
 export function resolveAircraftEnginePropHour(
   aircraft: Aircraft | null | undefined,
   field: "engineTso" | "engineTsn" | "propellerTso" | "propellerTsn"
@@ -59,12 +85,20 @@ export function isMissingLifeLimitForAtl(value: unknown): boolean {
   return value == null || value === "" || Number(value) === 0;
 }
 
-/** Engine / propeller TSO required: finite number and not zero (0.00 blocks Add Record / ATL). TSN is not gated. */
+/** Required ATL numeric prerequisites: finite number and not zero (0.00 blocks Add Record / ATL). */
 export function isMissingComponentHoursForAtl(value: unknown): boolean {
   if (value == null || value === "") return true;
   const n = Number(value);
   if (!Number.isFinite(n)) return true;
   return n === 0;
+}
+
+/** Engine/Prop TSN: required on aircraft; must be a finite number ≥ 0 (0.00 is valid). */
+export function isMissingTsnForAtlPrerequisite(value: unknown): boolean {
+  if (value == null || value === "") return true;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return true;
+  return n < 0;
 }
 
 /** All prerequisites before creating/editing ATL from aircraft master data. */
@@ -82,12 +116,29 @@ export function getMissingAircraftFieldsForNewAtl(
   if (isMissingLifeLimitForAtl(propellerLimit)) {
     missing.push("Propeller Life Time Limit");
   }
+  if (isMissingComponentHoursForAtl(resolveAircraftAirframeAftt(aircraft))) {
+    missing.push("Airframe AFTT");
+  }
+  if (
+    isMissingTsnForAtlPrerequisite(
+      resolveAircraftEnginePropHour(aircraft, "engineTsn")
+    )
+  ) {
+    missing.push("Engine TSN");
+  }
   if (
     isMissingComponentHoursForAtl(
       resolveAircraftEnginePropHour(aircraft, "engineTso")
     )
   ) {
     missing.push("Engine TSO");
+  }
+  if (
+    isMissingTsnForAtlPrerequisite(
+      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
+    )
+  ) {
+    missing.push("Propeller TSN");
   }
   if (
     isMissingComponentHoursForAtl(
@@ -112,7 +163,10 @@ export function buildAircraftDetailsRequiredForAtlHtml(
   const engineLimit = aircraft?.engineLifeTimeLimit ?? a.life_time_limit_engine;
   const propellerLimit =
     aircraft?.propellerLifeTimeLimit ?? a.life_time_limit_propeller;
+  const airframeAftt = resolveAircraftAirframeAftt(aircraft);
+  const engineTsn = resolveAircraftEnginePropHour(aircraft, "engineTsn");
   const engineTso = resolveAircraftEnginePropHour(aircraft, "engineTso");
+  const propellerTsn = resolveAircraftEnginePropHour(aircraft, "propellerTsn");
   const propellerTso = resolveAircraftEnginePropHour(aircraft, "propellerTso");
 
   const rows: [string, string][] = [
@@ -121,7 +175,10 @@ export function buildAircraftDetailsRequiredForAtlHtml(
       "Propeller Life Time Limit",
       formatAircraftDetailAlertValue(propellerLimit),
     ],
+    ["Airframe AFTT", formatAircraftDetailAlertValue(airframeAftt)],
+    ["Engine TSN", formatAircraftDetailAlertValue(engineTsn)],
     ["Engine TSO", formatAircraftDetailAlertValue(engineTso)],
+    ["Propeller TSN", formatAircraftDetailAlertValue(propellerTsn)],
     ["Propeller TSO", formatAircraftDetailAlertValue(propellerTso)],
   ];
 
@@ -129,7 +186,7 @@ export function buildAircraftDetailsRequiredForAtlHtml(
 
   return (
     '<p style="margin:0 0 0.75em 0"><strong>Complete Engine & Propeller Details</strong></p>' +
-    '<p style="margin:0 0 1em 0">ATL entry requires valid Lifetime Limits, <strong>Engine TSO</strong>, and <strong>Propeller TSO</strong> (must be greater than 0). <strong>Engine TSN</strong> and <strong>Propeller TSN</strong> are optional.</p>' +
+    '<p style="margin:0 0 1em 0"><strong>Complete required fields:</strong> Lifetime Limits & Airframe AFTT must be valid. Engine/Propeller TSN cannot be empty (0 allowed). Engine/Propeller TSO must be greater than 0.</p>' +
     '<div style="text-align:left;line-height:1.65">' +
     list +
     "</div>"
