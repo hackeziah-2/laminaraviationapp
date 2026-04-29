@@ -10,10 +10,18 @@ import {
   Trash2,
   Loader2,
   History,
+  ChevronDown,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { Spinner } from "./ui/spinner";
 import { LinkButton } from "./ui/LinkButton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import {
   getOrganizationalApprovalsPaged,
@@ -53,6 +61,13 @@ function toApiDate(value: string | null | undefined): string {
 
 const SEARCH_DEBOUNCE_MS = 400;
 const OA_HISTORY_PAGE_SIZE = 10;
+
+const OA_EXPORT_HEADERS = [
+  "Approval Type",
+  "Number",
+  "Expiration",
+  "Link",
+] as const;
 
 export function OrganizationalApprovals() {
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
@@ -99,6 +114,7 @@ export function OrganizationalApprovals() {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyTotalPages, setHistoryTotalPages] = useState(1);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   const certificateOptions = useMemo(() => {
     const byId = new Map<number, { id: number; name: string }>();
@@ -203,6 +219,86 @@ export function OrganizationalApprovals() {
     setSortBy(field);
     setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
     setCurrentPage(1);
+  };
+
+  const handleOaExport = async (format: "csv" | "xlsx") => {
+    const certificateFilter =
+      filterType === "all" ? undefined : Number(filterType) || filterType;
+    const exportLimit = Math.max(total, 1);
+    setExportLoading(true);
+    try {
+      const res = await getOrganizationalApprovalsPaged(
+        1,
+        exportLimit,
+        debouncedSearchTerm.trim(),
+        sortBy,
+        sortOrder,
+        certificateFilter
+      );
+      const rows = res.items ?? [];
+      if (!rows.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no approvals matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+      const escapeCsvValue = (value: string) =>
+        `"${String(value).replace(/"/g, '""')}"`;
+      const linkStr = (a: OrganizationalApproval) => {
+        const w = a.webLink?.trim() ?? "";
+        if (w) return w;
+        const f = a.fileLink?.trim() ?? "";
+        return f && f !== "#" ? f : "";
+      };
+      const dataRows = rows.map((a) => [
+        a.approvalTypeName ?? a.certificate ?? "",
+        a.number ?? "",
+        formatExpiryDisplay(a.expiry),
+        linkStr(a),
+      ]);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const baseName = `organizational_approvals_export_${stamp}`;
+      if (format === "csv") {
+        const headerLine = [...OA_EXPORT_HEADERS]
+          .map(escapeCsvValue)
+          .join(",");
+        const csvLines = [
+          headerLine,
+          ...dataRows.map((cells) => cells.map(escapeCsvValue).join(",")),
+        ];
+        const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = window.URL.createObjectURL(csvBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${baseName}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      } else {
+        const aoa: string[][] = [[...OA_EXPORT_HEADERS], ...dataRows];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Approvals");
+        XLSX.writeFile(wb, `${baseName}.xlsx`);
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Could not export approvals.";
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text: message,
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   /** Path param for organizational-approvals-history/{oa_history}/paged */
@@ -477,10 +573,43 @@ export function OrganizationalApprovals() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading || loading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">Export</span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleOaExport("csv")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleOaExport("xlsx")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {canCreate("regulatory-compliance") && (
             <button

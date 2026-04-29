@@ -8,9 +8,17 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  ChevronDown,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { LinkButton } from "./ui/LinkButton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import {
   getOemPublicationsPaged,
@@ -28,6 +36,8 @@ import {
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 const SEARCH_DEBOUNCE_MS = 400;
+
+const OEM_EXPORT_HEADERS = ["Item", "Expiration", "Link"] as const;
 
 const CATEGORY_TYPE_OPTIONS = [
   { value: "CERTIFICATE", label: "CERTIFICATE" },
@@ -95,6 +105,7 @@ export function OEMTechnicalPublication() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   useEffect(() => {
     getOemItemTypesList().then(setItemTypes);
@@ -300,6 +311,81 @@ export function OEMTechnicalPublication() {
     setCurrentPage(1);
   };
 
+  const handleOemExport = async (format: "csv" | "xlsx") => {
+    const exportLimit = Math.max(total, 1);
+    setExportLoading(true);
+    try {
+      const res = await getOemPublicationsPaged(
+        1,
+        exportLimit,
+        debouncedSearchTerm.trim(),
+        sortBy,
+        sortOrder
+      );
+      const rows = res.items ?? [];
+      if (!rows.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no publications matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+      const escapeCsvValue = (value: string) =>
+        `"${String(value).replace(/"/g, '""')}"`;
+      const linkStr = (p: OemTechnicalPublication) => {
+        const u =
+          p.linkToManual && p.linkToManual !== "#"
+            ? p.linkToManual.trim()
+            : (p.webLink ?? "").trim();
+        return u && u !== "#" ? u : "";
+      };
+      const dataRows = rows.map((p) => [
+        p.itemName ?? "",
+        formatExpiryDisplay(p.dateOfExpiration ?? p.expiry),
+        linkStr(p),
+      ]);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const baseName = `oem_technical_publications_export_${stamp}`;
+      if (format === "csv") {
+        const headerLine = [...OEM_EXPORT_HEADERS]
+          .map(escapeCsvValue)
+          .join(",");
+        const csvLines = [
+          headerLine,
+          ...dataRows.map((cells) => cells.map(escapeCsvValue).join(",")),
+        ];
+        const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = window.URL.createObjectURL(csvBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${baseName}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      } else {
+        const aoa: string[][] = [[...OEM_EXPORT_HEADERS], ...dataRows];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Publications");
+        XLSX.writeFile(wb, `${baseName}.xlsx`);
+      }
+    } catch (err: unknown) {
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text: getOemApiErrorMessage(err, "Could not export publications."),
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const startIndex = (currentPage - 1) * itemsPerPage;
 
   const handleSearchChange = (value: string) => setSearchTerm(value);
@@ -316,10 +402,43 @@ export function OEMTechnicalPublication() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading || loading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">Export</span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleOemExport("csv")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleOemExport("xlsx")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {canCreate("regulatory-compliance") && (
             <button
               onClick={openAddModal}

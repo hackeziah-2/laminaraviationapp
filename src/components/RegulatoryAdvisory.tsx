@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, Download, Filter, RotateCcw, X, Loader2 } from "lucide-react";
+import {
+  Search,
+  Download,
+  Filter,
+  RotateCcw,
+  X,
+  Loader2,
+  ChevronDown,
+} from "lucide-react";
+import * as XLSX from "xlsx";
 import Swal from "sweetalert2";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
@@ -13,9 +22,30 @@ import {
   type AdvisorySortOrder,
 } from "../api/advisoryApi";
 import { Spinner } from "./ui/spinner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /** Renew / Withhold on advisory list always for this role (aligns with ATL tech-pub role variants). */
+const ADVISORY_EXPORT_HEADERS = [
+  "ITEM",
+  "TYPE",
+  "EXPIRY",
+  "REMAINING VALIDITY",
+  "WEB LINK",
+] as const;
+
+function advisoryRemainingValidityExportLabel(a: AdvisoryItem): string {
+  if (a.remainingValidity === "Expired" || a.remainingValidity === "") {
+    return "Expired";
+  }
+  return `${a.remainingValidity} DAYS`;
+}
+
 function isTechnicalPublicationAdvisoryRole(
   role: string | undefined | null
 ): boolean {
@@ -68,6 +98,7 @@ export function RegulatoryAdvisory() {
   /** Ignore late responses when Renew is opened for another row before fetch finishes. */
   const renewDetailSeqRef = useRef(0);
   const [withholdSubmitting, setWithholdSubmitting] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,6 +293,86 @@ export function RegulatoryAdvisory() {
     }
   };
 
+  const handleAdvisoryExport = async (format: "csv" | "xlsx") => {
+    const typeParam = filterType === "all" ? undefined : filterType;
+    const exportLimit = Math.max(total, 1);
+    setExportLoading(true);
+    try {
+      const res = await getAdvisoryPaged(
+        1,
+        exportLimit,
+        searchTerm,
+        typeParam,
+        sortBy,
+        sortOrder
+      );
+      const rows = res.items ?? [];
+      if (!rows.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no advisory records matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+      const escapeCsvValue = (value: string) =>
+        `"${String(value).replace(/"/g, '""')}"`;
+      const dataRows = rows.map((a) => [
+        a.item,
+        a.type,
+        a.expiry,
+        advisoryRemainingValidityExportLabel(a),
+        a.web_link ?? "",
+      ]);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const baseName = `advisory_export_${stamp}`;
+      if (format === "csv") {
+        const headerLine = [...ADVISORY_EXPORT_HEADERS]
+          .map(escapeCsvValue)
+          .join(",");
+        const csvLines = [
+          headerLine,
+          ...dataRows.map((cells) => cells.map(escapeCsvValue).join(",")),
+        ];
+        const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = window.URL.createObjectURL(csvBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${baseName}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      } else {
+        const aoa: string[][] = [
+          [...ADVISORY_EXPORT_HEADERS],
+          ...dataRows,
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Advisory");
+        XLSX.writeFile(wb, `${baseName}.xlsx`);
+      }
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ??
+        (err as Error)?.message ??
+        "Could not export advisory data.";
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text: message,
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const getValidityColor = (validity: string) => {
     if (validity === "Expired" || validity === "") {
       return "text-red-600 font-semibold";
@@ -290,10 +401,43 @@ export function RegulatoryAdvisory() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading || loading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">Export</span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleAdvisoryExport("csv")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleAdvisoryExport("xlsx")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
