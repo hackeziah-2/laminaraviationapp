@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import * as XLSX from "xlsx";
 import {
   getAuthStampListFromAccountInformation,
   getAccountInformationById,
@@ -38,6 +39,12 @@ import {
   type AuthorizationScopeOption,
 } from "../api/authorizationScopeApi";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /** Same shape as API record for view/edit. */
@@ -59,6 +66,37 @@ function PersonnelDetailRow({
 }
 
 const AUTH_SEARCH_DEBOUNCE_MS = 350;
+
+const MATRIX1_EXPORT_HEADERS = [
+  "AUTH NO",
+  "NAME",
+  "POSITION",
+  "LIC NO / TYPE",
+  "AUTH INITIAL DOI",
+  "AUTH ISSUE DATE",
+  "ITEM TYPE",
+  "AUTHORIZATION_SCOPE",
+  "EXPIRY_DATE",
+] as const;
+
+/** 15 columns; scope/type-training Cessna & Baron sub-columns use distinct titles (same labels as table). */
+const MATRIX2_EXPORT_HEADERS = [
+  "AUTHORIZATION NO",
+  "NAME",
+  "POSITION",
+  "LIC NO / TYPE",
+  "AUTH INITIAL DOI",
+  "AUTH ISSUE DATE",
+  "AUTH EXPIRY DATE",
+  "AUTHORIZATION SCOPE — CESSNA 150, 152, 172",
+  "AUTHORIZATION SCOPE — BARON 95-C55",
+  "AUTHORIZATION SCOPE — OTHERS",
+  "OTHERS EXPIRY DATE",
+  "CAAP LIC EXPIRY",
+  "HF TRAINING EXPIRY",
+  "TYPE TRAINING EXPIRY — CESSNA 150, 152, 172",
+  "TYPE TRAINING EXPIRY — BARON 95-C55",
+] as const;
 /** Request at least 10 options for Authorization Number dropdown (search is case-insensitive). */
 const AUTH_STAMP_LIST_LIMIT = 10;
 
@@ -262,6 +300,7 @@ export function PersonnelAuthorization() {
 
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [saving, setSaving] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   const fetchPersonnel = useCallback(async () => {
     setListLoading(true);
@@ -586,6 +625,146 @@ export function PersonnelAuthorization() {
     }
   };
 
+  const handlePersonnelExport = async (
+    format: "csv" | "xlsx",
+    matrix: "matrix1" | "matrix2"
+  ) => {
+    const nameOpt =
+      debouncedNameSearch.trim() !== ""
+        ? debouncedNameSearch.trim()
+        : undefined;
+    setExportLoading(true);
+    try {
+      const rows =
+        matrix === "matrix1"
+          ? await getPersonnelAuthorizations({
+              itemType: itemTypeFilter || undefined,
+              sortExpiryDate: expiryDateSort,
+              name: nameOpt,
+            })
+          : await getPersonnelAuthorizationsMatrix2({
+              sortExpiryDate: expiryDateSort,
+              name: nameOpt,
+            });
+
+      if (!rows.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no personnel records matching the current search for this matrix.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      const escapeCsvValue = (value: string) =>
+        `"${String(value).replace(/"/g, '""')}"`;
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const suffix =
+        matrix === "matrix1"
+          ? "personnel_authorization_matrix1"
+          : "personnel_authorization_matrix2";
+      const baseName = `${suffix}_${stamp}`;
+
+      if (matrix === "matrix1") {
+        const dataRows = rows.map((p) => [
+          p.authorizationNo,
+          p.name,
+          p.position,
+          p.licNoType,
+          p.authInitialDOI,
+          p.authIssueDate,
+          itemTypeDisplayLabel(p.itemType) || p.itemType || "",
+          p.authorizationScope,
+          p.expiryDate,
+        ]);
+        if (format === "csv") {
+          const headerLine = [...MATRIX1_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...dataRows.map((cells) => cells.map(escapeCsvValue).join(",")),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${baseName}.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [[...MATRIX1_EXPORT_HEADERS], ...dataRows];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Matrix 1");
+          XLSX.writeFile(wb, `${baseName}.xlsx`);
+        }
+      } else {
+        const dataRows = rows.map((p) => [
+          p.authorizationNo,
+          p.name,
+          p.position,
+          p.licNoType,
+          p.authInitialDOI,
+          p.authIssueDate,
+          p.authExpiryDate,
+          p.scopeCessna,
+          p.scopeBaron,
+          p.scopeOthers,
+          p.othersExpiryDate,
+          p.caapLicExpiry,
+          p.hfTrainingExpiry,
+          p.typeTrainingCessna,
+          p.typeTrainingBaron,
+        ]);
+        if (format === "csv") {
+          const headerLine = [...MATRIX2_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...dataRows.map((cells) => cells.map(escapeCsvValue).join(",")),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${baseName}.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [[...MATRIX2_EXPORT_HEADERS], ...dataRows];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Matrix 2");
+          XLSX.writeFile(wb, `${baseName}.xlsx`);
+        }
+      }
+    } catch (err: unknown) {
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text: getPersonnelApiErrorMessage(
+          err,
+          "Could not export personnel authorization data."
+        ),
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const getScopeTypeLabel = (type: "cessna" | "baron" | "others") => {
     switch (type) {
       case "cessna":
@@ -754,10 +933,57 @@ export function PersonnelAuthorization() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading || listLoading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">Export</span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[16rem] max-h-[min(24rem,70vh)] overflow-y-auto border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading || listLoading}
+                onSelect={() => void handlePersonnelExport("csv", "matrix1")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Matrix 1 — CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || listLoading}
+                onSelect={() => void handlePersonnelExport("xlsx", "matrix1")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Matrix 1 — XLSX
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || listLoading}
+                onSelect={() => void handlePersonnelExport("csv", "matrix2")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Matrix 2 — CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || listLoading}
+                onSelect={() => void handlePersonnelExport("xlsx", "matrix2")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Matrix 2 — XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {canCreate("regulatory-compliance") && (
             <button
               type="button"

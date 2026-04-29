@@ -4,6 +4,7 @@ import {
   Plus,
   X,
   Loader,
+  Loader2,
   Filter,
   Eye,
   Pencil,
@@ -12,6 +13,7 @@ import {
   Check,
   History,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import {
@@ -27,6 +29,12 @@ import { getAircrafts } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { LinkButton } from "./ui/LinkButton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 function DetailRow({ label, value }: { label: string; value: string }) {
@@ -39,6 +47,14 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 const ASC_HISTORY_PAGE_SIZE = 10;
+
+const ASC_EXPORT_HEADERS = [
+  "Registration",
+  "Model",
+  "MSN",
+  "Date of Expiration",
+  "Web Link",
+] as const;
 
 /** Backend filter values for aircraft-statutory-certificates */
 const CERTIFICATE_TYPE_FILTER = {
@@ -157,6 +173,7 @@ export function AircraftStatutoryCertificates() {
     webLink: "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   // Aircraft Registry searchable dropdown
   const [aircraftSearchTerm, setAircraftSearchTerm] = useState("");
@@ -461,6 +478,113 @@ export function AircraftStatutoryCertificates() {
     }
   };
 
+  const handleAscExport = async (format: "csv" | "xlsx") => {
+    const exportLimit = Math.max(totalRecords, 1);
+    setExportLoading(true);
+    try {
+      const filters: { certificate_type?: string } = {};
+      if (filterCertificateType.trim())
+        filters.certificate_type = filterCertificateType.trim();
+      const response = await getAircraftStatutoryCertificates(
+        1,
+        exportLimit,
+        searchDebounced,
+        Object.keys(filters).length ? filters : undefined
+      );
+      let list = [...response.items];
+      const q = searchQuery.trim().toLowerCase();
+      if (q) {
+        list = list.filter(
+          (c) =>
+            getRegistration(c).toLowerCase().includes(q) ||
+            getMakeModel(c).toLowerCase().includes(q) ||
+            getMsn(c).toLowerCase().includes(q)
+        );
+      }
+      list.sort((a, b) => {
+        const regA = getRegistration(a);
+        const regB = getRegistration(b);
+        const mmA = getMakeModel(a);
+        const mmB = getMakeModel(b);
+        const msnA = getMsn(a);
+        const msnB = getMsn(b);
+        const expA = a.expiryDate ? new Date(a.expiryDate).getTime() : 0;
+        const expB = b.expiryDate ? new Date(b.expiryDate).getTime() : 0;
+        let cmp = 0;
+        if (sortBy === "registration") cmp = regA.localeCompare(regB);
+        else if (sortBy === "makeModel") cmp = mmA.localeCompare(mmB);
+        else if (sortBy === "msn") cmp = msnA.localeCompare(msnB);
+        else cmp = expA - expB;
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+      if (!list.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no certificates matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+      const escapeCsvValue = (value: string) =>
+        `"${String(value).replace(/"/g, '""')}"`;
+      const webStr = (c: CertificateType) =>
+        String(c.webLink ?? "").trim();
+      const dateStr = (c: CertificateType) => {
+        const raw = c.expiryDate;
+        if (!raw) return "";
+        const disp = formatExpiry(raw);
+        return disp === "—" ? "" : disp;
+      };
+      const dataRows = list.map((c) => [
+        getRegistration(c),
+        getMakeModel(c),
+        getMsn(c),
+        dateStr(c),
+        webStr(c),
+      ]);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const baseName = `aircraft_statutory_certificates_export_${stamp}`;
+      if (format === "csv") {
+        const headerLine = [...ASC_EXPORT_HEADERS]
+          .map(escapeCsvValue)
+          .join(",");
+        const csvLines = [
+          headerLine,
+          ...dataRows.map((cells) => cells.map(escapeCsvValue).join(",")),
+        ];
+        const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = window.URL.createObjectURL(csvBlob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${baseName}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      } else {
+        const aoa: string[][] = [[...ASC_EXPORT_HEADERS], ...dataRows];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Certificates");
+        XLSX.writeFile(wb, `${baseName}.xlsx`);
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Could not export certificates.";
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text: message,
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const handleAddCertificate = () => {
     setFormData({
       aircraftId: "",
@@ -670,13 +794,43 @@ export function AircraftStatutoryCertificates() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-          >
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading || loading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">Export</span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleAscExport("csv")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading || loading}
+                onSelect={() => void handleAscExport("xlsx")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {canCreate("regulatory-compliance") && (
             <button
               type="button"
