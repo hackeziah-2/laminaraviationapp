@@ -12,6 +12,7 @@ import {
   FileText,
   Clock,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import Swal from "sweetalert2";
@@ -20,6 +21,7 @@ import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import {
+  getAircraftTechnicalLogs,
   getManagedAircraftTechnicalLogs,
   getAircraftTechnicalLogById,
   createAircraftTechnicalLog,
@@ -91,6 +93,9 @@ export function AircraftTechnicalLogbook() {
   const isQualityManager =
     normalizedUserRole === "quality manager" ||
     normalizedUserRole.endsWith(" quality manager");
+  const isMaintenancePlanner =
+    normalizedUserRole === "maintenance planner" ||
+    normalizedUserRole.endsWith(" maintenance planner");
 
   // Map backend data to frontend format
   const mapToLogbookEntry = (
@@ -164,13 +169,23 @@ export function AircraftTechnicalLogbook() {
     setLoading(true);
     setError(null);
     try {
-      const response = await getManagedAircraftTechnicalLogs(
-        currentPage,
-        itemsPerPage,
-        debouncedSearchTerm, // Use debounced search term
-        selectedAircraftFk,
-        sortBy // Sort parameter
-      );
+      // Maintenance Planner: use fleet paged endpoint so REJECTED_* rows are included
+      // (manage/paged may omit them for this role).
+      const response = isMaintenancePlanner
+        ? await getAircraftTechnicalLogs(
+            currentPage,
+            itemsPerPage,
+            debouncedSearchTerm,
+            selectedAircraftFk,
+            sortBy
+          )
+        : await getManagedAircraftTechnicalLogs(
+            currentPage,
+            itemsPerPage,
+            debouncedSearchTerm,
+            selectedAircraftFk,
+            sortBy
+          );
 
       const mappedEntries = response.items.map((entry, index) =>
         mapToLogbookEntry(entry, index)
@@ -227,7 +242,14 @@ export function AircraftTechnicalLogbook() {
 
   useEffect(() => {
     fetchEntries();
-  }, [currentPage, itemsPerPage, debouncedSearchTerm, selectedAircraftFk, sortBy]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    debouncedSearchTerm,
+    selectedAircraftFk,
+    sortBy,
+    isMaintenancePlanner,
+  ]);
 
   // Reset to page 1 when sort changes
   useEffect(() => {
@@ -407,7 +429,9 @@ export function AircraftTechnicalLogbook() {
         | "APPROVED"
         | "REJECTED_MAINTENANCE"
         | "COMPLETED"
-        | "REJECTED_QUALITY";
+        | "REJECTED_QUALITY"
+        | "PENDING"
+        | "FOR_REVIEW";
       confirmTitle: string;
       confirmButtonText: string;
       successMessage: string;
@@ -703,6 +727,54 @@ export function AircraftTechnicalLogbook() {
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
+                            {isMaintenancePlanner &&
+                              (() => {
+                                const ws = normalizeAtlWorkStatus(
+                                  entry.workStatus
+                                );
+                                if (
+                                  ws !== "REJECTED_QUALITY" &&
+                                  ws !== "REJECTED_MAINTENANCE"
+                                ) {
+                                  return null;
+                                }
+                                const renewConfig =
+                                  ws === "REJECTED_QUALITY"
+                                    ? {
+                                        nextWorkStatus: "PENDING" as const,
+                                        confirmTitle:
+                                          "Renew this ATL? Work status will change to Pending.",
+                                        confirmButtonText: "Renew",
+                                        successMessage:
+                                          "Work status has been successfully updated to Pending.",
+                                        confirmButtonColor: "#2563eb",
+                                      }
+                                    : {
+                                        nextWorkStatus: "FOR_REVIEW" as const,
+                                        confirmTitle:
+                                          "Renew this ATL? Work status will change to For Review.",
+                                        confirmButtonText: "Renew",
+                                        successMessage:
+                                          "Work status has been successfully updated to For Review.",
+                                        confirmButtonColor: "#2563eb",
+                                      };
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleWorkStatusAction(
+                                        entry,
+                                        renewConfig
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-sky-800 bg-sky-50 hover:bg-sky-100 rounded transition-colors"
+                                    title="Renew ATL"
+                                  >
+                                    <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                                    Renew
+                                  </button>
+                                );
+                              })()}
                             {isMaintenanceManager &&
                               normalizeAtlWorkStatus(entry.workStatus) ===
                                 "FOR_REVIEW" && (

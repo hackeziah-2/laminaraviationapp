@@ -16,7 +16,7 @@
  * - Maintenance Planner → APPROVED, AWAITING_ATTACHMENT
  * - Maintenance Manager → FOR_REVIEW, APPROVED
  * - Technical Publication → AWAITING_ATTACHMENT, PENDING
- * - Quality Manager → PENDING, COMPLETED
+ * - Quality Manager → PENDING, COMPLETED, REJECTED_QUALITY
  *
  * Roles not listed here are not gated by work status (module update permission still applies).
  */
@@ -137,7 +137,7 @@ const ATL_EDIT_TARGET_ALLOWED_BY_ROLE: Record<
   maintenance_planner: new Set(["APPROVED", "AWAITING_ATTACHMENT"]),
   maintenance_manager: new Set(["FOR_REVIEW", "APPROVED"]),
   technical_publication: new Set(["AWAITING_ATTACHMENT", "PENDING"]),
-  quality_manager: new Set(["PENDING", "COMPLETED"]),
+  quality_manager: new Set(["PENDING", "COMPLETED", "REJECTED_QUALITY"]),
 };
 
 /**
