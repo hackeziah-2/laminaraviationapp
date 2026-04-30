@@ -25,15 +25,20 @@ import {
   Pencil,
   Eye,
   RefreshCw,
+  Filter,
 } from "lucide-react";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
+import { AddAtlBatchModal } from "./AddAtlBatchModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import {
   getAircraftTechnicalLogs,
   deleteAircraftTechnicalLog,
   importAircraftTechnicalLogExcel,
+  getAtlBatchesForSelect,
+  pickLatestAtlBatchId,
   AircraftTechnicalLog,
+  type AtlBatch,
   type AtlListViewComputedComponentTimes,
   resolveAtlComponentMetric,
 } from "../api/aircraftTechnicalLogApi";
@@ -58,6 +63,7 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import {
   ATL_WORK_STATUS_KEYS,
+  isAtlBatchFilterAndBranchManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
@@ -85,9 +91,25 @@ function formatFleetWorkStatus(status: string | undefined): string {
   return status.replace(/_/g, " ");
 }
 
+/** All batches filter: show "Batch name - sequence no"; single-batch filter: sequence only. */
+function formatOperationSequenceNoCell(
+  record: AircraftTechnicalLog,
+  allBatchesMode: boolean
+): string {
+  const seq = (record.sequenceNo ?? "").trim() || "-";
+  if (!allBatchesMode) return seq;
+  const batchName = record.atlBatch?.name?.trim();
+  if (batchName) return `${batchName} - ${seq}`;
+  return seq;
+}
+
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
 const OPERATION_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+
+/** Sentinel `<option>` values — not real branch ids */
+const ATL_BRANCH_CREATE_VALUE = "__atl_branch_create__";
+const ATL_BRANCH_EDIT_VALUE = "__atl_branch_edit__";
 
 type ExportColumnDefinition = {
   key: string;
@@ -172,6 +194,11 @@ export function Operation() {
     [sessionRoleName, user?.role]
   );
 
+  const canManageAtlBatchFilterAndBranches = useMemo(
+    () => isAtlBatchFilterAndBranchManagementRole(operationAtlRole),
+    [operationAtlRole]
+  );
+
   const operationTechPubUploadOnly =
     isTechnicalPublicationRole(operationAtlRole);
 
@@ -180,9 +207,7 @@ export function Operation() {
   const canDeleteOperationAtl = canDelete("operation") || canDelete("logbook");
   /** Align with Add modal: create checks canCreate(mod); must be "operation" if user can create/update ATL under operation, not only when they can update. */
   const operationAtlPermissionModuleCode =
-    canUpdate("operation") || canCreate("operation")
-      ? "operation"
-      : "logbook";
+    canUpdate("operation") || canCreate("operation") ? "operation" : "logbook";
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
@@ -326,6 +351,14 @@ export function Operation() {
   const [searchQuery, setSearchQuery] = useState(selectedSequenceNo);
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
   const [workStatusFilter, setWorkStatusFilter] = useState("");
+  const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
+  const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
+    { id: number; name: string }[]
+  >([]);
+  const [atlBatchModalOpen, setAtlBatchModalOpen] = useState(false);
+  const [atlBatchModalEditId, setAtlBatchModalEditId] = useState<number | null>(
+    null
+  );
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
     AircraftTechnicalLog[]
   >([]);
@@ -346,10 +379,22 @@ export function Operation() {
     []
   );
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
+  const atlBatchFilterTouchedRef = useRef(false);
   const effectiveAircraftId =
     Number.isFinite(selectedAircraftId) && selectedAircraftId > 0
       ? selectedAircraftId
       : aircraftId;
+
+  const selectedAtlBatchFk = useMemo(() => {
+    if (!canManageAtlBatchFilterAndBranches) return undefined;
+    const n =
+      selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [canManageAtlBatchFilterAndBranches, selectedAtlBatchId]);
+
+  /** "All" batch filter (or no batch param) → Sequence column shows `Batch name - seq`. */
+  const showSeqNoWithBatchName = selectedAtlBatchFk == null;
 
   useEffect(() => {
     if (Number.isFinite(aircraftId) && aircraftId > 0) {
@@ -502,6 +547,44 @@ export function Operation() {
     fetchAccounts();
   }, []);
 
+  useEffect(() => {
+    if (!canManageAtlBatchFilterAndBranches) {
+      setAtlBatchFilterOptions([]);
+      return;
+    }
+    let cancelled = false;
+    getAtlBatchesForSelect()
+      .then((list) => {
+        if (cancelled) return;
+        const batches = Array.isArray(list) ? list : [];
+        setAtlBatchFilterOptions(
+          batches.map((b) => ({ id: b.id, name: b.name }))
+        );
+        setSelectedAtlBatchId((prev) => {
+          if (batches.length === 0) return prev;
+          if (prev !== "") return prev;
+          if (atlBatchFilterTouchedRef.current) return prev;
+          const latest = pickLatestAtlBatchId(batches);
+          return latest != null ? String(latest) : prev;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setAtlBatchFilterOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageAtlBatchFilterAndBranches]);
+
+  useEffect(() => {
+    if (!canManageAtlBatchFilterAndBranches) {
+      setSelectedAtlBatchId("");
+      atlBatchFilterTouchedRef.current = false;
+      setAtlBatchModalOpen(false);
+      setAtlBatchModalEditId(null);
+    }
+  }, [canManageAtlBatchFilterAndBranches]);
+
   // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
     const fetchRecords = async () => {
@@ -518,7 +601,8 @@ export function Operation() {
           selectedSequenceNo,
           effectiveAircraftId,
           sortParam,
-          workStatusFilter || undefined
+          workStatusFilter || undefined,
+          selectedAtlBatchFk
         );
         setFleetTimeRecords(
           Array.isArray(response.items) ? response.items : []
@@ -543,12 +627,13 @@ export function Operation() {
     refreshKey,
     sequenceSort,
     workStatusFilter,
+    selectedAtlBatchFk,
   ]);
 
   // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSequenceNo, workStatusFilter, itemsPerPage]);
+  }, [selectedSequenceNo, workStatusFilter, itemsPerPage, selectedAtlBatchId]);
 
   const paginatedRecords = fleetTimeRecords;
 
@@ -601,7 +686,8 @@ export function Operation() {
       {
         key: "sequenceNo",
         label: "Sequence No",
-        getValue: (record) => record.sequenceNo || "-",
+        getValue: (record) =>
+          formatOperationSequenceNoCell(record, showSeqNoWithBatchName),
       },
       {
         key: "workStatus",
@@ -863,7 +949,7 @@ export function Operation() {
             : "-",
       },
     ],
-    [accountsMap, aircraft]
+    [accountsMap, aircraft, showSeqNoWithBatchName]
   );
 
   useEffect(() => {
@@ -880,9 +966,10 @@ export function Operation() {
     Swal.fire({
       icon: "success",
       title: "Added",
-      text: `Record #${
-        record.sequenceNo ?? record.id
-      } added to reliability tracking`,
+      text: `Record ${formatOperationSequenceNoCell(
+        record,
+        showSeqNoWithBatchName
+      )} (#${record.id}) added to reliability tracking`,
       timer: 2000,
       showConfirmButton: false,
     });
@@ -896,9 +983,10 @@ export function Operation() {
     const result = await Swal.fire({
       icon: "warning",
       title: "Delete ATL Entry",
-      html: `Are you sure you want to delete entry <strong>${
-        record.sequenceNo ?? record.id
-      }</strong>? This action cannot be undone.`,
+      html: `Are you sure you want to delete entry <strong>${formatOperationSequenceNoCell(
+        record,
+        showSeqNoWithBatchName
+      )}</strong>? This action cannot be undone.`,
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
       cancelButtonColor: "#6b7280",
@@ -964,7 +1052,8 @@ export function Operation() {
         selectedSequenceNo,
         effectiveAircraftId,
         sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
-        workStatusFilter || undefined
+        workStatusFilter || undefined,
+        selectedAtlBatchFk
       );
 
       if (!recordsResponse.items.length) {
@@ -1084,7 +1173,8 @@ export function Operation() {
           selectedSequenceNo,
           effectiveAircraftId,
           sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
-          workStatusFilter || undefined
+          workStatusFilter || undefined,
+          selectedAtlBatchFk
         ),
       ]);
       setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
@@ -1160,7 +1250,8 @@ export function Operation() {
                       : "-"}
                   </span>
                   <span>
-                    Airframe AFTT: {toFormat2(resolveAircraftAirframeAftt(aircraft))}
+                    Airframe AFTT:{" "}
+                    {toFormat2(resolveAircraftAirframeAftt(aircraft))}
                   </span>
                   <span>
                     Engine TSO:{" "}
@@ -1335,6 +1426,61 @@ export function Operation() {
                   </button>
                 )}
               </div>
+              {canManageAtlBatchFilterAndBranches && (
+                <div className="flex flex-wrap items-center gap-2 min-w-[200px]">
+                  <label
+                    htmlFor="operation-atl-branch"
+                    className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
+                  >
+                    <Filter className="w-4 h-4 text-gray-500 shrink-0" />
+                    ATL batch
+                  </label>
+                  <select
+                    id="operation-atl-branch"
+                    value={selectedAtlBatchId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === ATL_BRANCH_CREATE_VALUE) {
+                        setAtlBatchModalEditId(null);
+                        setAtlBatchModalOpen(true);
+                        return;
+                      }
+                      if (v === ATL_BRANCH_EDIT_VALUE) {
+                        const n =
+                          selectedAtlBatchId.trim() !== ""
+                            ? Number(selectedAtlBatchId)
+                            : NaN;
+                        if (!Number.isFinite(n) || n <= 0) {
+                          void Swal.fire({
+                            icon: "info",
+                            title: "Select a branch",
+                            text: "Choose a branch in the dropdown before editing.",
+                            confirmButtonColor: "#2563eb",
+                          });
+                          return;
+                        }
+                        setAtlBatchModalEditId(n);
+                        setAtlBatchModalOpen(true);
+                        return;
+                      }
+                      atlBatchFilterTouchedRef.current = true;
+                      setSelectedAtlBatchId(v);
+                    }}
+                    className="min-w-[200px] px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900"
+                  >
+                    <option value="">All</option>
+                    {atlBatchFilterOptions.map((b) => (
+                      <option key={b.id} value={String(b.id)}>
+                        {b.name}
+                      </option>
+                    ))}
+                    <option value={ATL_BRANCH_CREATE_VALUE}>
+                      + Create branch…
+                    </option>
+                    <option value={ATL_BRANCH_EDIT_VALUE}>Edit branch…</option>
+                  </select>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <label
                   htmlFor="fleet-work-status"
@@ -1411,7 +1557,8 @@ export function Operation() {
                             selectedSequenceNo,
                             effectiveAircraftId,
                             sortParam,
-                            workStatusFilter || undefined
+                            workStatusFilter || undefined,
+                            selectedAtlBatchFk
                           );
                           setFleetTimeRecords(
                             Array.isArray(response.items) ? response.items : []
@@ -1765,7 +1912,10 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {record.sequenceNo || "-"}
+                                      {formatOperationSequenceNoCell(
+                                        record,
+                                        showSeqNoWithBatchName
+                                      )}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -2338,7 +2488,10 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {record.sequenceNo || "-"}
+                                    {formatOperationSequenceNoCell(
+                                      record,
+                                      showSeqNoWithBatchName
+                                    )}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -2531,7 +2684,10 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {record.sequenceNo || "-"}
+                                      {formatOperationSequenceNoCell(
+                                        record,
+                                        showSeqNoWithBatchName
+                                      )}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -2729,7 +2885,10 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {record.sequenceNo || "-"}
+                                    {formatOperationSequenceNoCell(
+                                      record,
+                                      showSeqNoWithBatchName
+                                    )}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -2976,12 +3135,33 @@ export function Operation() {
         </div>
       </div>
 
+      <AddAtlBatchModal
+        isOpen={atlBatchModalOpen && canManageAtlBatchFilterAndBranches}
+        editBatchId={atlBatchModalEditId}
+        onClose={() => {
+          setAtlBatchModalOpen(false);
+          setAtlBatchModalEditId(null);
+        }}
+        onSaved={(batch: AtlBatch) => {
+          setAtlBatchFilterOptions((prev) => {
+            const without = prev.filter((b) => b.id !== batch.id);
+            return [...without, { id: batch.id, name: batch.name }].sort(
+              (a, b) => a.name.localeCompare(b.name)
+            );
+          });
+          setSelectedAtlBatchId(String(batch.id));
+        }}
+      />
+
       {/* Add Record Modal – CREATE */}
       <AddTechnicalLogbookEntryModal
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={effectiveAircraftId}
         permissionModuleCode={operationAtlPermissionModuleCode}
+        defaultAtlBatchFk={
+          canManageAtlBatchFilterAndBranches ? selectedAtlBatchFk : undefined
+        }
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
