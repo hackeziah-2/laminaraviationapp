@@ -125,6 +125,8 @@ export interface AircraftTechnicalLog {
   autoPropellerTsn?: number | string;
   autoPropellerTso?: number;
   autoPropellerTbo?: number;
+  atlBatchFk?: number | null;
+  atlBatch?: { id: number; name?: string };
 }
 
 /** Per-row component times as shown on Operation ATL list (client-computed when API omits cumulative fields). */
@@ -512,23 +514,39 @@ const fetchAircraftTechnicalLogs = async (
   search = "",
   aircraftFk?: number,
   sort = "",
-  workStatus?: string
+  workStatus?: string,
+  atlBatchFk?: number
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
+
+    // Query order: atl_batch* first, then page, limit, aircraft_fk, sort, search, work_status
+    // e.g. .../paged?atl_batch=7&atl_batch_fk=7&page=1&limit=10&aircraft_fk=39&sort=sequence_no
+    if (
+      atlBatchFk != null &&
+      Number.isFinite(atlBatchFk) &&
+      atlBatchFk > 0
+    ) {
+      const idStr = String(atlBatchFk);
+      params.append("atl_batch", idStr);
+      params.append("atl_batch_fk", idStr);
+    }
+
     params.append("page", page.toString());
     params.append("limit", limit.toString());
 
-    if (search.trim() !== "") {
-      params.append("search", search);
-    }
-
-    if (aircraftFk) {
-      params.append("aircraft_fk", aircraftFk.toString());
+    const aircraftIdNum =
+      aircraftFk != null ? Number(aircraftFk) : NaN;
+    if (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0) {
+      params.append("aircraft_fk", String(aircraftIdNum));
     }
 
     if (sort) {
       params.append("sort", sort);
+    }
+
+    if (search.trim() !== "") {
+      params.append("search", search.trim());
     }
 
     if (workStatus != null && workStatus.trim() !== "") {
@@ -584,7 +602,9 @@ const fetchAircraftTechnicalLogs = async (
 };
 
 /**
- * Get paginated list of Aircraft Technical Log entries for operation views
+ * Get paginated list of Aircraft Technical Log entries for operation views.
+ * `GET /api/v1/aircraft-technical-log/paged` — when `atlBatchFk` is set, `atl_batch` / `atl_batch_fk` are first in the
+ * query string, then `page`, `limit`, `aircraft_fk`, `sort`, and optional `search` / `work_status`.
  */
 export const getAircraftTechnicalLogs = async (
   page = 1,
@@ -592,7 +612,8 @@ export const getAircraftTechnicalLogs = async (
   search = "",
   aircraftFk?: number,
   sort = "",
-  workStatus?: string
+  workStatus?: string,
+  atlBatchFk?: number
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/paged",
@@ -601,7 +622,8 @@ export const getAircraftTechnicalLogs = async (
     search,
     aircraftFk,
     sort,
-    workStatus
+    workStatus,
+    atlBatchFk
   );
 
 /**
@@ -613,7 +635,8 @@ export const getManagedAircraftTechnicalLogs = async (
   search = "",
   aircraftFk?: number,
   sort = "",
-  workStatus?: string
+  workStatus?: string,
+  atlBatchFk?: number
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/manage/paged",
@@ -622,7 +645,8 @@ export const getManagedAircraftTechnicalLogs = async (
     search,
     aircraftFk,
     sort,
-    workStatus
+    workStatus,
+    atlBatchFk
   );
 
 /**
@@ -870,3 +894,132 @@ export const importAircraftTechnicalLogExcel = async (
   );
   return response.data ?? response;
 };
+
+/** ATL batch row for dropdowns (GET list endpoint). */
+export interface AtlBatch {
+  id: number;
+  name: string;
+  description?: string;
+  /** ISO or parseable date when API sends created_at / createdAt */
+  createdAt?: string;
+}
+
+function parseAtlBatchPayload(raw: unknown): AtlBatch {
+  const r =
+    raw && typeof raw === "object"
+      ? (raw as Record<string, unknown>)
+      : {};
+  const id = Number(r.id ?? r.pk ?? 0);
+  const name = String(
+    r.name ?? r.batch_name ?? r.batchName ?? ""
+  ).trim();
+  const description =
+    r.description != null ? String(r.description).trim() : undefined;
+  const createdRaw = r.created_at ?? r.createdAt;
+  const createdAt =
+    createdRaw != null && String(createdRaw).trim() !== ""
+      ? String(createdRaw).trim()
+      : undefined;
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("Invalid ATL batch response from server.");
+  }
+  return {
+    id,
+    name: name || `Batch ${id}`,
+    ...(description !== undefined && description !== ""
+      ? { description }
+      : {}),
+    ...(createdAt !== undefined ? { createdAt } : {}),
+  };
+}
+
+/** Default filter selection: most recently created batch (by createdAt when present, else highest id). */
+export function pickLatestAtlBatchId(batches: AtlBatch[]): number | null {
+  if (!batches.length) return null;
+  const dated = batches.filter(
+    (b) => b.createdAt != null && String(b.createdAt).trim() !== ""
+  );
+  if (dated.length > 0) {
+    const sorted = [...dated].sort(
+      (a, b) =>
+        new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+    );
+    return sorted[0].id;
+  }
+  return Math.max(...batches.map((b) => b.id));
+}
+
+/**
+ * Options for ATL batch `<select>` (filter form, entry modal).
+ * GET /api/v1/atl-batch/list
+ */
+export async function getAtlBatchesForSelect(): Promise<AtlBatch[]> {
+  try {
+    const res = await apiClient.get("atl-batch/list", {
+      headers: { Accept: "application/json" },
+    });
+    const data = res.data?.data ?? res.data;
+    const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
+    const list = Array.isArray(raw) ? raw : [];
+    return list
+      .map((row: Record<string, unknown>) => {
+        try {
+          return parseAtlBatchPayload(row);
+        } catch {
+          return null;
+        }
+      })
+      .filter((b): b is AtlBatch => b != null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * GET /api/v1/atl-batch/{id}/
+ */
+export async function getAtlBatchById(id: number): Promise<AtlBatch> {
+  const res = await apiClient.get(`atl-batch/${id}/`, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlBatchPayload(raw);
+}
+
+/**
+ * Create an ATL batch — POST /api/v1/atl-batch/
+ */
+export async function createAtlBatch(payload: {
+  name: string;
+  description?: string;
+}): Promise<AtlBatch> {
+  const body = {
+    name: payload.name.trim(),
+    ...(payload.description != null && payload.description.trim() !== ""
+      ? { description: payload.description.trim() }
+      : {}),
+  };
+  const res = await apiClient.post("atl-batch/", body, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlBatchPayload(raw);
+}
+
+/**
+ * Update an ATL batch — PATCH /api/v1/atl-batch/{id}/
+ */
+export async function updateAtlBatch(
+  id: number,
+  payload: { name: string; description?: string }
+): Promise<AtlBatch> {
+  const body = {
+    name: payload.name.trim(),
+    description: (payload.description ?? "").trim(),
+  };
+  const res = await apiClient.patch(`atl-batch/${id}/`, body, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlBatchPayload(raw);
+}

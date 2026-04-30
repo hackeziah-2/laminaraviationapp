@@ -90,6 +90,29 @@ export function canUploadWhiteAtlAndDfpFiles(
   return isTechnicalPublicationRole(userRole);
 }
 
+/**
+ * Fleet / logbook "Filter by ATL batch" and Operation branch (batch) create–update UI.
+ * Allowed: Admin, Maintenance Planner, Maintenance Manager (and common name variants).
+ */
+export function isAtlBatchFilterAndBranchManagementRole(
+  userRole: string | undefined
+): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  if (n === "admin" || n.endsWith(" admin")) return true;
+  const isPlanner =
+    n === "maintenance planner" ||
+    n === "maint planner" ||
+    n === "maintenance planning" ||
+    n.endsWith(" maintenance planner");
+  if (isPlanner) return true;
+  const isMaintManager =
+    n === "maintenance manager" ||
+    n === "maint manager" ||
+    n.endsWith(" maintenance manager");
+  return isMaintManager;
+}
+
 function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return null;

@@ -13,8 +13,9 @@ import {
   Clock,
   Trash2,
   RefreshCw,
+  Filter,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import { Spinner } from "../components/ui/spinner";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
@@ -28,10 +29,13 @@ import {
   deleteAircraftTechnicalLog,
   updateAircraftTechnicalLog,
   AircraftTechnicalLog,
+  getAtlBatchesForSelect,
+  pickLatestAtlBatchId,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftList } from "../api/aircraftApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
+  isAtlBatchFilterAndBranchManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
@@ -49,6 +53,7 @@ interface LogbookEntry {
   fltTime: string;
   pilot: string;
   workStatus?: string;
+  atlBatchName?: string;
 }
 
 interface AircraftFilterOption {
@@ -57,18 +62,36 @@ interface AircraftFilterOption {
   model?: string;
 }
 
+/** All batches: `Batch name - Sequence No.`; single-batch filter: sequence only. */
+function formatLogbookSequenceNoCell(
+  seqNo: string,
+  atlBatchName: string | undefined,
+  allBatchesMode: boolean
+): string {
+  const seq = (seqNo ?? "").trim() || "—";
+  if (!allBatchesMode) return seq;
+  const batchName = atlBatchName?.trim();
+  if (batchName && batchName !== "—") return `${batchName} - ${seq}`;
+  return seq;
+}
+
 export function AircraftTechnicalLogbook() {
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [selectedAircraftId, setSelectedAircraftId] = useState("");
-  const [aircraftOptions, setAircraftOptions] = useState<AircraftFilterOption[]>(
-    []
-  );
+  const [aircraftOptions, setAircraftOptions] = useState<
+    AircraftFilterOption[]
+  >([]);
   const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
+  const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
+    { id: number; name: string }[]
+  >([]);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const atlBatchFilterTouchedRef = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -83,6 +106,17 @@ export function AircraftTechnicalLogbook() {
 
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
+  const canManageAtlBatchFilter = useMemo(
+    () => isAtlBatchFilterAndBranchManagementRole(user?.role),
+    [user?.role]
+  );
+  const selectedAtlBatchFk = useMemo(() => {
+    if (!canManageAtlBatchFilter) return undefined;
+    const n =
+      selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [canManageAtlBatchFilter, selectedAtlBatchId]);
+  const showSeqWithBatchName = selectedAtlBatchFk == null;
   const normalizedUserRole = (user?.role || "")
     .trim()
     .toLowerCase()
@@ -160,6 +194,7 @@ export function AircraftTechnicalLogbook() {
       fltTime: fltTime,
       pilot: pilotName,
       workStatus: apiEntry.workStatus,
+      atlBatchName: apiEntry.atlBatch?.name?.trim() || "—",
       // status: status,
     };
   };
@@ -177,14 +212,18 @@ export function AircraftTechnicalLogbook() {
             itemsPerPage,
             debouncedSearchTerm,
             selectedAircraftFk,
-            sortBy
+            sortBy,
+            undefined,
+            selectedAtlBatchFk
           )
         : await getManagedAircraftTechnicalLogs(
             currentPage,
             itemsPerPage,
             debouncedSearchTerm,
             selectedAircraftFk,
-            sortBy
+            sortBy,
+            undefined,
+            selectedAtlBatchFk
           );
 
       const mappedEntries = response.items.map((entry, index) =>
@@ -247,6 +286,7 @@ export function AircraftTechnicalLogbook() {
     itemsPerPage,
     debouncedSearchTerm,
     selectedAircraftFk,
+    selectedAtlBatchFk,
     sortBy,
     isMaintenancePlanner,
   ]);
@@ -259,6 +299,47 @@ export function AircraftTechnicalLogbook() {
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedAircraftId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedAtlBatchId]);
+
+  useEffect(() => {
+    if (!canManageAtlBatchFilter) {
+      setAtlBatchFilterOptions([]);
+      atlBatchFilterTouchedRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    getAtlBatchesForSelect()
+      .then((list) => {
+        if (cancelled) return;
+        const batches = Array.isArray(list) ? list : [];
+        setAtlBatchFilterOptions(
+          batches.map((b) => ({ id: b.id, name: b.name }))
+        );
+        setSelectedAtlBatchId((prev) => {
+          if (batches.length === 0) return prev;
+          if (prev !== "") return prev;
+          if (atlBatchFilterTouchedRef.current) return prev;
+          const latest = pickLatestAtlBatchId(batches);
+          return latest != null ? String(latest) : prev;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setAtlBatchFilterOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageAtlBatchFilter]);
+
+  useEffect(() => {
+    if (!canManageAtlBatchFilter && selectedAtlBatchId !== "") {
+      setSelectedAtlBatchId("");
+      atlBatchFilterTouchedRef.current = false;
+    }
+  }, [canManageAtlBatchFilter, selectedAtlBatchId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -277,7 +358,9 @@ export function AircraftTechnicalLogbook() {
             registration: String(item?.registration ?? "").trim(),
             model: String(item?.model ?? "").trim(),
           }))
-          .filter((item: AircraftFilterOption) => item.id > 0 && item.registration)
+          .filter(
+            (item: AircraftFilterOption) => item.id > 0 && item.registration
+          )
           .sort((a: AircraftFilterOption, b: AircraftFilterOption) =>
             a.registration.localeCompare(b.registration)
           );
@@ -381,7 +464,7 @@ export function AircraftTechnicalLogbook() {
   const handleDeleteEntry = async (entry: LogbookEntry) => {
     const result = await Swal.fire({
       title: "Are you sure?",
-      text: `Are you sure you want to delete entry with Sequence No ${entry.seqNo}? This action cannot be undone.`,
+      text: `Are you sure you want to delete entry with Sequence No ${formatLogbookSequenceNoCell(entry.seqNo, entry.atlBatchName, showSeqWithBatchName)}? This action cannot be undone.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
@@ -608,6 +691,33 @@ export function AircraftTechnicalLogbook() {
               ))}
             </select>
           </div>
+          {canManageAtlBatchFilter && (
+            <div className="md:w-72">
+              <label
+                htmlFor="logbook-atl-batch-filter"
+                className="block text-gray-700 mb-2 flex items-center gap-2"
+              >
+                <Filter className="w-4 h-4 text-gray-500 shrink-0" />
+                ATL batch
+              </label>
+              <select
+                id="logbook-atl-batch-filter"
+                value={selectedAtlBatchId}
+                onChange={(e) => {
+                  atlBatchFilterTouchedRef.current = true;
+                  setSelectedAtlBatchId(e.target.value);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+              >
+                <option value="">All batches</option>
+                {atlBatchFilterOptions.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -683,7 +793,11 @@ export function AircraftTechnicalLogbook() {
                         className="hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-6 py-3.5 text-gray-900">
-                          {entry.seqNo}
+                          {formatLogbookSequenceNoCell(
+                            entry.seqNo,
+                            entry.atlBatchName,
+                            showSeqWithBatchName
+                          )}
                         </td>
                         <td className="px-6 py-3.5 text-gray-900">
                           {entry.acReg}
@@ -762,10 +876,7 @@ export function AircraftTechnicalLogbook() {
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      handleWorkStatusAction(
-                                        entry,
-                                        renewConfig
-                                      )
+                                      handleWorkStatusAction(entry, renewConfig)
                                     }
                                     className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-sky-800 bg-sky-50 hover:bg-sky-100 rounded transition-colors"
                                     title="Renew ATL"
@@ -782,18 +893,15 @@ export function AircraftTechnicalLogbook() {
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      handleWorkStatusAction(
-                                        entry,
-                                        {
-                                          nextWorkStatus: "APPROVED",
-                                          confirmTitle:
-                                            "Are you sure you what to Approved this ATL",
-                                          confirmButtonText: "Approve",
-                                          successMessage:
-                                            "Update Work status to Approved",
-                                          confirmButtonColor: "#2563eb",
-                                        }
-                                      )
+                                      handleWorkStatusAction(entry, {
+                                        nextWorkStatus: "APPROVED",
+                                        confirmTitle:
+                                          "Are you sure you what to Approved this ATL",
+                                        confirmButtonText: "Approve",
+                                        successMessage:
+                                          "Update Work status to Approved",
+                                        confirmButtonColor: "#2563eb",
+                                      })
                                     }
                                     className="px-2.5 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded transition-colors"
                                     title="Approve ATL"
@@ -803,19 +911,15 @@ export function AircraftTechnicalLogbook() {
                                   <button
                                     type="button"
                                     onClick={() =>
-                                      handleWorkStatusAction(
-                                        entry,
-                                        {
-                                          nextWorkStatus:
-                                            "REJECTED_MAINTENANCE",
-                                          confirmTitle:
-                                            "Are you sure you what to Reject this ATL",
-                                          confirmButtonText: "Reject",
-                                          successMessage:
-                                            "Update Work status to Rejected Maintenance",
-                                          confirmButtonColor: "#dc2626",
-                                        }
-                                      )
+                                      handleWorkStatusAction(entry, {
+                                        nextWorkStatus: "REJECTED_MAINTENANCE",
+                                        confirmTitle:
+                                          "Are you sure you what to Reject this ATL",
+                                        confirmButtonText: "Reject",
+                                        successMessage:
+                                          "Update Work status to Rejected Maintenance",
+                                        confirmButtonColor: "#dc2626",
+                                      })
                                     }
                                     className="px-2.5 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded transition-colors"
                                     title="Reject ATL"
@@ -964,6 +1068,14 @@ export function AircraftTechnicalLogbook() {
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleCreateSuccess}
         permissionModuleCode="logbook"
+        defaultAtlBatchFk={
+          canManageAtlBatchFilter &&
+          selectedAtlBatchFk != null &&
+          Number.isFinite(selectedAtlBatchFk) &&
+          selectedAtlBatchFk > 0
+            ? selectedAtlBatchFk
+            : undefined
+        }
       />
 
       {/* Edit Entry Modal – READ + UPDATE */}

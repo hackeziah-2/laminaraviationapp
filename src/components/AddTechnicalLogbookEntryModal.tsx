@@ -27,6 +27,8 @@ import {
   AircraftTechnicalLogUpdate,
   resolveAtlComponentMetric,
   type AtlListViewComputedComponentTimes,
+  getAtlBatchesForSelect,
+  type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
   snakeAllKeys,
@@ -45,6 +47,7 @@ import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   canUploadWhiteAtlAndDfpFiles,
+  isAtlBatchFilterAndBranchManagementRole,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
@@ -56,7 +59,9 @@ function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
     v === null || v === undefined || v === "" ? "" : String(v);
 
   return {
-    airframeRunTime: numStr(resolveAtlComponentMetric(entry, "airframeRunTime")),
+    airframeRunTime: numStr(
+      resolveAtlComponentMetric(entry, "airframeRunTime")
+    ),
     airframeAftt: numStr(resolveAtlComponentMetric(entry, "airframeAftt")),
     engineRunTime: numStr(resolveAtlComponentMetric(entry, "engineRunTime")),
     engineTsn: numStr(resolveAtlComponentMetric(entry, "engineTsn")),
@@ -71,7 +76,9 @@ function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
   };
 }
 
-function parseFiniteFloatField(value: string | undefined | null): number | null {
+function parseFiniteFloatField(
+  value: string | undefined | null
+): number | null {
   if (value == null) return null;
   const t = String(value).trim();
   if (t === "") return null;
@@ -79,7 +86,7 @@ function parseFiniteFloatField(value: string | undefined | null): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
-/** engine_tsn / propeller_tsn: always send a number after validateForm (required, ≥0). */
+/** engine_tsn / propeller_tsn: optional on form; empty → 0 on submit (≥0 when present). */
 function resolveTsnForApi(value: string | undefined | null): number {
   return parseFiniteFloatField(value) ?? 0;
 }
@@ -115,6 +122,8 @@ interface AddTechnicalLogbookEntryModalProps {
   editRestrictedToWhiteAtlDfpOnly?: boolean;
   /** Operation: per-row list computed component times when READ-by-id omits cumulative fields. */
   listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
+  /** When creating, pre-select ATL batch (e.g. match parent "Filter by ATL batch"). Ignored when editEntry is set. */
+  defaultAtlBatchFk?: number;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -127,6 +136,7 @@ export function AddTechnicalLogbookEntryModal({
   viewerRole,
   editRestrictedToWhiteAtlDfpOnly = false,
   listViewComputedTimes = null,
+  defaultAtlBatchFk,
 }: AddTechnicalLogbookEntryModalProps) {
   const {
     canUpdate,
@@ -166,6 +176,13 @@ export function AddTechnicalLogbookEntryModal({
     [atlAuthRole, permUser?.role, viewerRole]
   );
 
+  const canManageAtlBatchField = useMemo(
+    () => isAtlBatchFilterAndBranchManagementRole(atlRoleForWorkStatus),
+    [atlRoleForWorkStatus]
+  );
+
+  const showAtlBatchFormField = Boolean(editEntry || canManageAtlBatchField);
+
   const canUploadAtlAttachments = useMemo(
     () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
     [atlRoleForWorkStatus]
@@ -181,6 +198,7 @@ export function AddTechnicalLogbookEntryModal({
     seqNo: "",
     workStatus: "FOR_REVIEW",
     acReg: "",
+    atlBatchFk: "",
     natureOfFlight: "",
     // Off-blocks/Origin
     offBlocksDate: "",
@@ -322,6 +340,8 @@ export function AddTechnicalLogbookEntryModal({
   );
   const aircraftDropdownRef = useRef<HTMLDivElement>(null);
 
+  const [atlBatchOptions, setAtlBatchOptions] = useState<AtlBatch[]>([]);
+
   // Account dropdowns state
   const [remarksAccounts, setRemarksAccounts] = useState<Account[]>([]);
   const [actionsTakenAccounts, setActionsTakenAccounts] = useState<Account[]>(
@@ -393,6 +413,25 @@ export function AddTechnicalLogbookEntryModal({
       fetchAircrafts();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!editEntry && !canManageAtlBatchField) {
+      setAtlBatchOptions([]);
+      return;
+    }
+    let cancelled = false;
+    getAtlBatchesForSelect()
+      .then((list) => {
+        if (!cancelled) setAtlBatchOptions(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setAtlBatchOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, editEntry, canManageAtlBatchField]);
 
   // Auto-select aircraft when aircraftId prop is provided (from useParams)
   useEffect(() => {
@@ -581,6 +620,11 @@ export function AddTechnicalLogbookEntryModal({
           return key || raw || "";
         })(),
         acReg: editEntry.aircraft?.registration || "",
+        atlBatchFk: (() => {
+          const fk = editEntry.atlBatchFk ?? editEntry.atlBatch?.id ?? null;
+          if (fk != null && Number(fk) > 0) return String(fk);
+          return "";
+        })(),
         // null/empty from API -> "" (-); VOID from API -> "VOID"; normalize TR W/ PIREM -> TR_WITH_PIREM
         natureOfFlight: (() => {
           const nof = String(editEntry.natureOfFlight ?? "").trim();
@@ -740,6 +784,12 @@ export function AddTechnicalLogbookEntryModal({
         seqNo: "",
         workStatus: "FOR_REVIEW",
         acReg: "",
+        atlBatchFk:
+          defaultAtlBatchFk != null &&
+          Number.isFinite(defaultAtlBatchFk) &&
+          defaultAtlBatchFk > 0
+            ? String(defaultAtlBatchFk)
+            : "",
         natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
@@ -811,7 +861,7 @@ export function AddTechnicalLogbookEntryModal({
       });
       setComponentRecords([]);
     }
-  }, [editEntry, isOpen, listViewComputedTimes]);
+  }, [editEntry, isOpen, listViewComputedTimes, defaultAtlBatchFk]);
 
   // Fetch latest technical log entry to populate start values (only for new entries)
   const fetchLatestTechnicalLog = async () => {
@@ -840,8 +890,7 @@ export function AddTechnicalLogbookEntryModal({
           setPreviousEngineTsn(
             parseFloat(
               String(
-                latestEntry.engineTsn != null &&
-                  latestEntry.engineTsn !== ""
+                latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
                   ? latestEntry.engineTsn
                   : 0
               )
@@ -1119,8 +1168,7 @@ export function AddTechnicalLogbookEntryModal({
           setPreviousEngineTsn(
             parseFloat(
               String(
-                latestEntry.engineTsn != null &&
-                  latestEntry.engineTsn !== ""
+                latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
                   ? latestEntry.engineTsn
                   : 0
               )
@@ -1717,12 +1765,9 @@ export function AddTechnicalLogbookEntryModal({
       errors.tachometerEnd = "Tachometer End must be a valid number";
     }
 
-    const requiredTsn = (v: string | undefined, key: string) => {
+    const optionalTsn = (v: string | undefined, key: string) => {
       const t = (v ?? "").trim();
-      if (t === "") {
-        errors[key] = "Required";
-        return;
-      }
+      if (t === "") return;
       const n = parseFloat(t);
       if (!Number.isFinite(n)) {
         errors[key] = "Must be a valid number";
@@ -1732,8 +1777,8 @@ export function AddTechnicalLogbookEntryModal({
         errors[key] = "Must be 0 or greater";
       }
     };
-    requiredTsn(formData.engineTsn, "engineTsn");
-    requiredTsn(formData.propellerTsn, "propellerTsn");
+    optionalTsn(formData.engineTsn, "engineTsn");
+    optionalTsn(formData.propellerTsn, "propellerTsn");
 
     // Time format validation for Zulu times
     if (formData.pilotAcceptTime && formData.pilotAcceptTime.trim() !== "") {
@@ -2039,6 +2084,15 @@ export function AddTechnicalLogbookEntryModal({
         })),
         // Fleet Time Monitoring: on update send work_status from form (connected to update API); on create overwritten to FOR_REVIEW below
         workStatus: formData.workStatus || undefined,
+        ...(() => {
+          const raw = formData.atlBatchFk?.trim() ?? "";
+          if (raw === "") {
+            return editEntry ? { atlBatchFk: null } : {};
+          }
+          const n = parseInt(raw, 10);
+          if (Number.isFinite(n) && n > 0) return { atlBatchFk: n };
+          return editEntry ? { atlBatchFk: null } : {};
+        })(),
       };
 
       // Fleet Time Monitoring: on create only, default work_status FOR_REVIEW (API enum name); on update workStatus is already in apiDataCamel from form
@@ -2128,6 +2182,7 @@ export function AddTechnicalLogbookEntryModal({
         seqNo: "",
         workStatus: "FOR_REVIEW",
         acReg: "",
+        atlBatchFk: "",
         natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
@@ -2581,71 +2636,104 @@ export function AddTechnicalLogbookEntryModal({
                   : ""
               }`}
             >
-              {/* Sequence No. | Work Status | A/C Registration (same order in View / Add / Edit) */}
-              <div
-                className={`grid gap-4 ${
-                  !aircraftId ? "grid-cols-3" : "grid-cols-2"
-                }`}
-              >
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Sequence No. *
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={formData.seqNo}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, "");
-                      setFormData({ ...formData, seqNo: digits });
-                      if (validationErrors.seqNo) {
-                        setValidationErrors({ ...validationErrors, seqNo: "" });
-                      }
-                    }}
-                    className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900 placeholder:text-gray-400 ${
-                      validationErrors.seqNo
-                        ? "border-red-500 ring-1 ring-red-400"
-                        : "border-gray-300"
-                    }`}
-                    placeholder="e.g. 001"
-                    required
-                  />
-                  {validationErrors.seqNo && (
-                    <p className="mt-1 text-xs text-red-600">
-                      {validationErrors.seqNo}
-                    </p>
-                  )}
-                </div>
+              {/* Sequence No. | Work Status | ATL batch (one row); A/C Registration below when picking aircraft */}
+              <div className="space-y-4">
                 <div
-                  className={
-                    attachmentsOnlyLocked
-                      ? "pointer-events-auto relative z-[1]"
-                      : undefined
-                  }
+                  className={`grid grid-cols-1 gap-4 ${
+                    showAtlBatchFormField ? "md:grid-cols-3" : "md:grid-cols-2"
+                  }`}
                 >
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Work Status
-                  </label>
-                  {editEntry ? (
-                    <select
-                      value={formData.workStatus}
-                      onChange={(e) =>
-                        setFormData({ ...formData, workStatus: e.target.value })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
-                      aria-label="Work status"
-                    >
-                      <option value="">— Select —</option>
-                      {workStatusDropdownKeys.map((key) => (
-                        <option key={key} value={key}>
-                          {formatAtlWorkStatusLabel(key)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
-                      FOR REVIEW
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Sequence No. *
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={formData.seqNo}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "");
+                        setFormData({ ...formData, seqNo: digits });
+                        if (validationErrors.seqNo) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            seqNo: "",
+                          });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900 placeholder:text-gray-400 ${
+                        validationErrors.seqNo
+                          ? "border-red-500 ring-1 ring-red-400"
+                          : "border-gray-300"
+                      }`}
+                      placeholder="e.g. 001"
+                      required
+                    />
+                    {validationErrors.seqNo && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {validationErrors.seqNo}
+                      </p>
+                    )}
+                  </div>
+                  <div
+                    className={
+                      attachmentsOnlyLocked
+                        ? "pointer-events-auto relative z-[1]"
+                        : undefined
+                    }
+                  >
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Work Status
+                    </label>
+                    {editEntry ? (
+                      <select
+                        value={formData.workStatus}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            workStatus: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                        aria-label="Work status"
+                      >
+                        <option value="">— Select —</option>
+                        {workStatusDropdownKeys.map((key) => (
+                          <option key={key} value={key}>
+                            {formatAtlWorkStatusLabel(key)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
+                        FOR REVIEW
+                      </div>
+                    )}
+                  </div>
+                  {showAtlBatchFormField && (
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        ATL batch
+                      </label>
+                      <select
+                        value={formData.atlBatchFk}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            atlBatchFk: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                        aria-label="ATL batch"
+                      >
+                        <option value="">— None —</option>
+                        {atlBatchOptions.map((b) => (
+                          <option key={b.id} value={String(b.id)}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   )}
                 </div>
@@ -2743,7 +2831,8 @@ export function AddTechnicalLogbookEntryModal({
                                     <span className="text-gray-900">
                                       {aircraft.registration}
                                     </span>
-                                    {formData.acReg === aircraft.registration && (
+                                    {formData.acReg ===
+                                      aircraft.registration && (
                                       <Check className="w-4 h-4 text-blue-600" />
                                     )}
                                   </li>
@@ -3795,25 +3884,14 @@ export function AddTechnicalLogbookEntryModal({
                             type="text"
                             value={formData.engineTsn}
                             onChange={(e) => {
-                              if (validationErrors.engineTsn) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  engineTsn: "",
-                                });
-                              }
                               setFormData({
                                 ...formData,
                                 engineTsn: e.target.value,
                               });
                             }}
-                            className={`w-full px-2 py-1 border rounded text-sm text-center bg-white ${
-                              validationErrors.engineTsn
-                                ? "border-red-500"
-                                : "border-gray-300"
-                            }`}
-                            placeholder=""
-                            required
-                            title="Required: 0 or greater"
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="0 or greater when entered"
                           />
                           {validationErrors.engineTsn && (
                             <p className="text-red-500 text-xs mt-0.5 text-center">
@@ -3871,25 +3949,14 @@ export function AddTechnicalLogbookEntryModal({
                             type="text"
                             value={formData.propellerTsn}
                             onChange={(e) => {
-                              if (validationErrors.propellerTsn) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  propellerTsn: "",
-                                });
-                              }
                               setFormData({
                                 ...formData,
                                 propellerTsn: e.target.value,
                               });
                             }}
-                            className={`w-full px-2 py-1 border rounded text-sm text-center bg-white ${
-                              validationErrors.propellerTsn
-                                ? "border-red-500"
-                                : "border-gray-300"
-                            }`}
-                            placeholder=""
-                            required
-                            title="Required: 0 or greater. Auto: Prev TSN + Prop Run"
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="0 or greater when entered. Auto: Prev TSN + Prop Run"
                           />
                           {validationErrors.propellerTsn && (
                             <p className="text-red-500 text-xs mt-0.5 text-center">
