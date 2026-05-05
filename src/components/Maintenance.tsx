@@ -16,12 +16,13 @@ import {
   Pencil,
   Trash2,
   Loader,
+  ChevronDown,
 } from "lucide-react";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ADWorkOrders } from "./ADWorkOrders";
-import { CPCPMonitoring } from "./CPCPMonitoring";
-import { TCCDetailContent } from "./TCCDetail";
+import { CPCPMonitoring, type CPCPMonitoringHandle } from "./CPCPMonitoring";
+import { TCCDetailContent, type TCCDetailContentHandle } from "./TCCDetail";
 import {
   getAircraftLdndMonitoring,
   getAircraftLdndMonitoringLatest,
@@ -39,8 +40,55 @@ import {
   downloadAdMonitoringFile,
   type ADMonitoring,
 } from "../api/adMonitoringApi";
+import { getAircraftById } from "../api/aircraftApi";
+import { toCamel } from "../utility/utils";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+import * as XLSX from "xlsx";
+
+const LDND_EXPORT_HEADERS = [
+  "INSPECTION TYPE",
+  "UNIT",
+  "LAST DONE TACH DUE",
+  "LAST DONE TACH DONE",
+  "NEXT DUE TACH HOURS",
+] as const;
+
+function ldndItemToExportRow(item: LDNDMonitoring): string[] {
+  return [
+    String(item.inspectionType ?? item.type ?? "").trim(),
+    String(item.unit ?? ""),
+    item.lastDoneTachDue != null ? String(item.lastDoneTachDue) : "",
+    item.lastDoneTachDone != null ? String(item.lastDoneTachDone) : "",
+    item.nextDueTachHours != null ? String(item.nextDueTachHours) : "",
+  ];
+}
+
+const AD_EXPORT_HEADERS = [
+  "AD NUMBER",
+  "SUBJECT",
+  "INSPECTION INTERVAL",
+  "DATE OF EFFECTIVITY",
+  "WORK ORDERS",
+] as const;
+
+function adItemToExportRow(item: ADMonitoring): string[] {
+  return [
+    String(item.adNumber ?? "").trim(),
+    String(item.subject ?? "").trim(),
+    String(item.inspectionInterval ?? "").trim(),
+    String(item.compliDate ?? "").trim(),
+    String(item.workOrders ?? 0),
+  ];
+}
 
 interface LDNDItem {
   id: number;
@@ -50,6 +98,7 @@ interface LDNDItem {
   lastDoneTachDone: number | null;
   nextDueTachHours: number | null;
   performedDateStart: string | null;
+  performedDateEnd: string | null;
 }
 
 interface ADItem {
@@ -94,6 +143,7 @@ export function Maintenance() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
 
   // Derive active category from URL path (profile/:id/maintenance-ldnd -> LDND, etc.)
@@ -160,6 +210,7 @@ export function Maintenance() {
     tsn: "",
     csn: "",
   });
+  const [registration, setRegistration] = useState<string | null>(null);
 
   // Pagination state for LDND
   const [currentPage, setCurrentPage] = useState(1);
@@ -177,6 +228,7 @@ export function Maintenance() {
     lastDoneTachDone: "",
     nextDueTachHours: "",
     performedDateStart: "",
+    performedDateEnd: "",
   });
 
   // Add Entry form state for AD
@@ -202,6 +254,12 @@ export function Maintenance() {
   const [ldndSaving, setLdndSaving] = useState(false);
   const [ldndLatest, setLdndLatest] = useState<LDNDLatest | null>(null);
   const [ldndLatestLoading, setLdndLatestLoading] = useState(false);
+  const [ldndExportLoading, setLdndExportLoading] = useState(false);
+  const [adExportLoading, setAdExportLoading] = useState(false);
+  const tccExportRef = useRef<TCCDetailContentHandle>(null);
+  const [tccExportLoading, setTccExportLoading] = useState(false);
+  const cpcpExportRef = useRef<CPCPMonitoringHandle>(null);
+  const [cpcpExportLoading, setCpcpExportLoading] = useState(false);
 
   // AD API state
   const [adItems, setAdItems] = useState<ADMonitoring[]>([]);
@@ -318,8 +376,29 @@ export function Maintenance() {
     setAdCurrentPage(1);
   }, [adSearchQuery]);
 
+  useEffect(() => {
+    if (!Number.isFinite(aircraftId) || aircraftId <= 0) {
+      setRegistration(null);
+      return;
+    }
+    let cancelled = false;
+    getAircraftById(aircraftId)
+      .then((res) => {
+        if (cancelled) return;
+        const data = toCamel(res.data) as { registration?: string };
+        const reg = data.registration?.trim();
+        setRegistration(reg && reg.length > 0 ? reg : null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegistration(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftId]);
+
   const handleLdndCreateOrUpdate = async () => {
-    const type = String(newEntry.type).trim();
+    const type = String(newEntry.type).replace(/\r\n?/g, "\n").trim();
     if (!type) {
       await Swal.fire({
         icon: "warning",
@@ -346,6 +425,7 @@ export function Maintenance() {
             ? null
             : Number(newEntry.nextDueTachHours),
         performedDateStart: newEntry.performedDateStart?.trim() || null,
+        performedDateEnd: newEntry.performedDateEnd?.trim() || null,
       };
       if (editingLdndEntry) {
         await updateAircraftLdndMonitoring(
@@ -365,6 +445,7 @@ export function Maintenance() {
         lastDoneTachDone: "",
         nextDueTachHours: "",
         performedDateStart: "",
+        performedDateEnd: "",
       });
       await fetchLdnd();
       await fetchLdndLatest();
@@ -381,6 +462,19 @@ export function Maintenance() {
       });
     } finally {
       setLdndSaving(false);
+    }
+  };
+
+  const handleLdndEnterKey = (
+    e:
+      | React.KeyboardEvent<HTMLInputElement>
+      | React.KeyboardEvent<HTMLSelectElement>
+      | React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (!ldndSaving) {
+      void handleLdndCreateOrUpdate();
     }
   };
 
@@ -414,6 +508,168 @@ export function Maintenance() {
     }
   };
 
+  const handleLdndExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      if (!Number.isFinite(aircraftId) || aircraftId <= 0) return;
+      setLdndExportLoading(true);
+      try {
+        const exportLimit = Math.max(ldndTotal, ldndItems.length, 1);
+        const res = await getAircraftLdndMonitoring(
+          aircraftId,
+          1,
+          exportLimit,
+          ldndSearchQuery
+        );
+        if (!res.items.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no LDND records matching the current search.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const fileReg = registration?.trim() || `aircraft_${aircraftId}`;
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...LDND_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...res.items.map((item) =>
+              ldndItemToExportRow(item).map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_ldnd_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...LDND_EXPORT_HEADERS],
+            ...res.items.map(ldndItemToExportRow),
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "LDND");
+          XLSX.writeFile(wb, `${fileReg}_ldnd_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export LDND data.",
+          confirmButtonColor: "#2563eb",
+        });
+      } finally {
+        setLdndExportLoading(false);
+      }
+    },
+    [aircraftId, ldndItems.length, ldndSearchQuery, ldndTotal, registration]
+  );
+
+  const handleAdExport = useCallback(
+    async (format: "csv" | "xlsx") => {
+      if (!Number.isFinite(aircraftId) || aircraftId <= 0) return;
+      setAdExportLoading(true);
+      try {
+        const exportLimit = Math.max(adTotal, adItems.length, 1);
+        const res = await getAircraftAdMonitoring(
+          aircraftId,
+          1,
+          exportLimit,
+          adSearchQuery
+        );
+        if (!res.items.length) {
+          await Swal.fire({
+            icon: "info",
+            title: "No data to export",
+            text: "There are no AD records matching the current search.",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const fileReg = registration?.trim() || `aircraft_${aircraftId}`;
+        if (format === "csv") {
+          const escapeCsvValue = (value: string) =>
+            `"${String(value).replace(/"/g, '""')}"`;
+          const headerLine = [...AD_EXPORT_HEADERS]
+            .map(escapeCsvValue)
+            .join(",");
+          const csvLines = [
+            headerLine,
+            ...res.items.map((item) =>
+              adItemToExportRow(item).map(escapeCsvValue).join(",")
+            ),
+          ];
+          const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const url = window.URL.createObjectURL(csvBlob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${fileReg}_ad_export.csv`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          const aoa: string[][] = [
+            [...AD_EXPORT_HEADERS],
+            ...res.items.map(adItemToExportRow),
+          ];
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "AD");
+          XLSX.writeFile(wb, `${fileReg}_ad_export.xlsx`);
+        }
+      } catch (err: any) {
+        await Swal.fire({
+          icon: "error",
+          title: "Export failed",
+          text:
+            err?.response?.data?.detail ??
+            err?.message ??
+            "Could not export AD data.",
+          confirmButtonColor: "#2563eb",
+        });
+      } finally {
+        setAdExportLoading(false);
+      }
+    },
+    [aircraftId, adItems.length, adSearchQuery, adTotal, registration]
+  );
+
+  const handleTccExportHeader = useCallback(async (format: "csv" | "xlsx") => {
+    setTccExportLoading(true);
+    try {
+      await tccExportRef.current?.exportTcc(format);
+    } finally {
+      setTccExportLoading(false);
+    }
+  }, []);
+
+  const handleCpcpExportHeader = useCallback(async (format: "csv" | "xlsx") => {
+    setCpcpExportLoading(true);
+    try {
+      await cpcpExportRef.current?.exportCpcp(format);
+    } finally {
+      setCpcpExportLoading(false);
+    }
+  }, []);
+
   const openEditLdnd = (item: LDNDMonitoring) => {
     setEditingLdndEntry(item);
     setNewEntry({
@@ -426,6 +682,7 @@ export function Maintenance() {
       nextDueTachHours:
         item.nextDueTachHours != null ? String(item.nextDueTachHours) : "",
       performedDateStart: item.performedDateStart ?? "",
+      performedDateEnd: item.performedDateEnd ?? "",
     });
     setShowAddModal(true);
   };
@@ -561,7 +818,10 @@ export function Maintenance() {
   };
 
   /** AD file download — same pattern as Fleet Time Monitoring (Operation): folder/download/filename */
-  const handleADDownloadFile = async (filePath: string, displayName?: string) => {
+  const handleADDownloadFile = async (
+    filePath: string,
+    displayName?: string
+  ) => {
     if (!filePath?.trim()) {
       await Swal.fire({
         icon: "error",
@@ -572,7 +832,10 @@ export function Maintenance() {
     }
     try {
       const downloadFileName =
-        displayName || extractADFilename(filePath) || filePath.split("/").pop() || "download";
+        displayName ||
+        extractADFilename(filePath) ||
+        filePath.split("/").pop() ||
+        "download";
       const responseBlob = await downloadAdMonitoringFile(aircraftId, filePath);
       const blob = new Blob([responseBlob]);
       const url = window.URL.createObjectURL(blob);
@@ -918,19 +1181,184 @@ export function Maintenance() {
               Maintenance Forecasting
             </h2>
             <p className="text-gray-500 mt-1 text-sm">
-              Aircraft ID: {aircraftId}
+              Aircraft Registration: {registration ?? "—"}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="relative z-20 flex items-center gap-2">
           <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print</span>
           </button>
-          <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
+          {activeCategory === "LDND" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={ldndExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {ldndExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={ldndExportLoading}
+                  onSelect={() => void handleLdndExport("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={ldndExportLoading}
+                  onSelect={() => void handleLdndExport("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : activeCategory === "AD" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={adExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {adExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={adExportLoading}
+                  onSelect={() => void handleAdExport("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={adExportLoading}
+                  onSelect={() => void handleAdExport("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : activeCategory === "TCC" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={tccExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {tccExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={tccExportLoading}
+                  onSelect={() => void handleTccExportHeader("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={tccExportLoading}
+                  onSelect={() => void handleTccExportHeader("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : activeCategory === "CPCP" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={cpcpExportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {cpcpExportLoading ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Export</span>
+                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+              >
+                <DropdownMenuItem
+                  disabled={cpcpExportLoading}
+                  onSelect={() => void handleCpcpExportHeader("csv")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={cpcpExportLoading}
+                  onSelect={() => void handleCpcpExportHeader("xlsx")}
+                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
+                >
+                  Export XLSX
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                void Swal.fire({
+                  icon: "info",
+                  title: "Export",
+                  text: "CSV and XLSX export for LDND, AD, TCC, or CPCP is on those tabs, beside Print.",
+                  confirmButtonColor: "#2563eb",
+                });
+              }}
+              className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Export</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1024,24 +1452,27 @@ export function Maintenance() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingLdndEntry(null);
-                    setNewEntry({
-                      type: "",
-                      unit: "HRS",
-                      lastDoneTachDue: "",
-                      lastDoneTachDone: "",
-                      nextDueTachHours: "",
-                      performedDateStart: "",
-                    });
-                    setShowAddModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Entry
-                </button>
+                {canCreate("maintenance") && (
+                  <button
+                    onClick={() => {
+                      setEditingLdndEntry(null);
+                      setNewEntry({
+                        type: "",
+                        unit: "HRS",
+                        lastDoneTachDue: "",
+                        lastDoneTachDone: "",
+                        nextDueTachHours: "",
+                        performedDateStart: "",
+                        performedDateEnd: "",
+                      });
+                      setShowAddModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Entry
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1094,7 +1525,7 @@ export function Maintenance() {
                         LAST DONE
                       </th>
                       <th
-                        colSpan={1}
+                        colSpan={2}
                         className="px-3 py-2 text-center text-white text-xs border-l border-white/30"
                       >
                         DATE PERFORMED
@@ -1130,6 +1561,9 @@ export function Maintenance() {
                         PERFORMED DATE START
                       </th>
                       <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
+                        PERFORMED DATE END
+                      </th>
+                      <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
                         NEXT DUE TACH HOURS
                       </th>
                       <th className="px-3 py-2 text-center text-gray-900 text-xs border-l border-gray-300">
@@ -1154,8 +1588,18 @@ export function Maintenance() {
                           style={{ backgroundColor: "#E8F5E9" }}
                           className="border-b border-gray-200"
                         >
-                          <td className="px-3 py-2 text-gray-900 text-sm">
-                            {item.type}
+                          <td className="px-3 py-2 text-gray-900 text-sm align-top">
+                            <div className="space-y-1">
+                              {String(item.type ?? "")
+                                .replace(/\r\n?/g, "\n")
+                                .split("\n")
+                                .filter((line) => line.trim() !== "")
+                                .map((line, index) => (
+                                  <div key={`${item.id}-type-${index}`}>
+                                    {line}
+                                  </div>
+                                ))}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.unit}
@@ -1169,27 +1613,35 @@ export function Maintenance() {
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.performedDateStart ?? "—"}
                           </td>
+
+                          <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
+                            {item.performedDateEnd ?? "—"}
+                          </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.nextDueTachHours ?? "—"}
                           </td>
                           <td className="px-3 py-2 text-center border-l border-gray-300">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditLdnd(item)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleLdndDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditLdnd(item)}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleLdndDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1200,33 +1652,17 @@ export function Maintenance() {
               )}
             </div>
 
-            {/* Pagination */}
+            {/* Pagination Controls */}
             {ldndTotal > 0 && !ldndLoading && (
-              <div className="px-5 py-3 border-t border-gray-200 flex items-center justify-center gap-2">
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={currentPage === 1 || ldndLoading}
-                  className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {currentPage} of {totalPages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) =>
-                      Math.min(totalPages || 1, prev + 1)
-                    )
-                  }
-                  disabled={currentPage >= (totalPages || 1) || ldndLoading}
-                  className="px-3 py-1 text-sm text-gray-600 hover:bg-gray-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={totalPages || 1}
+                onPageChange={setCurrentPage}
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                showRangeText={false}
+                disabled={ldndLoading}
+              />
             )}
           </>
         )}
@@ -1250,24 +1686,26 @@ export function Maintenance() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingADEntry(null);
-                    setNewADEntry({
-                      adNumber: "",
-                      subject: "",
-                      inspectionInterval: "",
-                      compliDate: "",
-                    });
-                    setAdUploadFile(null);
-                    setAdUploadFileName("");
-                    setShowADModal(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Entry
-                </button>
+                {canCreate("maintenance") && (
+                  <button
+                    onClick={() => {
+                      setEditingADEntry(null);
+                      setNewADEntry({
+                        adNumber: "",
+                        subject: "",
+                        inspectionInterval: "",
+                        compliDate: "",
+                      });
+                      setAdUploadFile(null);
+                      setAdUploadFileName("");
+                      setShowADModal(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Entry
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1316,7 +1754,7 @@ export function Maintenance() {
                         Inspection Interval
                       </th>
                       <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                        Compli Date
+                        DATE OF EFFECTIVITY
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
                         Work Orders
@@ -1400,29 +1838,33 @@ export function Maintenance() {
                           </td>
                           <td className="px-5 py-4 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditAD(item)}
-                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                title="Edit"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleADDelete(item)}
-                                className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditAD(item)}
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                                  title="Edit"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+
                               <button
                                 onClick={() => handleViewADWorkOrders(item.id)}
                                 className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 text-sm"
                               >
                                 <Eye className="w-4 h-4" />
-                                View
                               </button>
+                              {canDelete("maintenance") && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleADDelete(item)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1435,31 +1877,15 @@ export function Maintenance() {
 
             {/* Pagination Controls */}
             {adTotal > 0 && !adLoading && (
-              <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
-                <button
-                  onClick={() =>
-                    setAdCurrentPage((prev) => Math.max(1, prev - 1))
-                  }
-                  disabled={adCurrentPage === 1 || adLoading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {adCurrentPage} of {adTotalPages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setAdCurrentPage((prev) =>
-                      Math.min(adTotalPages || 1, prev + 1)
-                    )
-                  }
-                  disabled={adCurrentPage >= (adTotalPages || 1) || adLoading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
+              <DataTablePagination
+                currentPage={adCurrentPage}
+                totalPages={adTotalPages || 1}
+                onPageChange={setAdCurrentPage}
+                itemsPerPage={adItemsPerPage}
+                onItemsPerPageChange={setAdItemsPerPage}
+                showRangeText={false}
+                disabled={adLoading}
+              />
             )}
           </>
         )}
@@ -1467,7 +1893,11 @@ export function Maintenance() {
         {/* TCC Forecasting – category filter (Powerplant, Airframe, Propeller) + search */}
         {activeCategory === "TCC" && (
           <div className="p-5">
-            <TCCDetailContent aircraftId={id ?? ""} showAddButton={true} />
+            <TCCDetailContent
+              ref={tccExportRef}
+              aircraftId={id ?? ""}
+              showAddButton={true}
+            />
           </div>
         )}
 
@@ -1475,8 +1905,9 @@ export function Maintenance() {
         {activeCategory === "CPCP" && (
           <div className="p-5">
             <CPCPMonitoring
-              msn={String(id ?? "")}
-              registration={`Aircraft ${id}`}
+              ref={cpcpExportRef}
+              msn=""
+              registration={registration ?? "—"}
               embedded
               aircraftId={id}
             />
@@ -1524,15 +1955,21 @@ export function Maintenance() {
                     <label className="block text-gray-600 text-xs mb-1.5">
                       Type
                     </label>
-                    <input
-                      type="text"
+                    <textarea
                       value={newEntry.type}
                       onChange={(e) =>
                         setNewEntry({ ...newEntry, type: e.target.value })
                       }
-                      placeholder="e.g., 5H"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      rows={5}
+                      spellCheck={false}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[120px]"
                     />
+                    <div className="mt-2 space-y-1 text-xs text-gray-500">
+                      <p>
+                        Enter one value per line. Press Enter to create a new
+                        line and separate entries by Enter, not by comma.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -1554,6 +1991,7 @@ export function Maintenance() {
                             unit: e.target.value as "HRS" | "CYCLES",
                           })
                         }
+                        onKeyDown={handleLdndEnterKey}
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none cursor-pointer"
                         style={{
                           backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
@@ -1581,6 +2019,7 @@ export function Maintenance() {
                             lastDoneTachDue: e.target.value,
                           })
                         }
+                        onKeyDown={handleLdndEnterKey}
                         placeholder="Optional"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                       />
@@ -1599,6 +2038,7 @@ export function Maintenance() {
                             lastDoneTachDone: e.target.value,
                           })
                         }
+                        onKeyDown={handleLdndEnterKey}
                         placeholder="Optional"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                       />
@@ -1624,6 +2064,25 @@ export function Maintenance() {
                           performedDateStart: e.target.value,
                         })
                       }
+                      onKeyDown={handleLdndEnterKey}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-600 text-xs mb-1.5">
+                      Performed Date End
+                    </label>
+                    <input
+                      type="date"
+                      value={newEntry.performedDateEnd || ""}
+                      onChange={(e) =>
+                        setNewEntry({
+                          ...newEntry,
+                          performedDateEnd: e.target.value,
+                        })
+                      }
+                      onKeyDown={handleLdndEnterKey}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
@@ -1648,6 +2107,7 @@ export function Maintenance() {
                           nextDueTachHours: e.target.value,
                         })
                       }
+                      onKeyDown={handleLdndEnterKey}
                       placeholder="Optional"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
@@ -1665,17 +2125,20 @@ export function Maintenance() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleLdndCreateOrUpdate}
-                disabled={ldndSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {ldndSaving
-                  ? "Saving..."
-                  : editingLdndEntry
-                  ? "Update Entry"
-                  : "Add Entry"}
-              </button>
+              {((!editingLdndEntry && canCreate("maintenance")) ||
+                (editingLdndEntry && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleLdndCreateOrUpdate}
+                  disabled={ldndSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {ldndSaving
+                    ? "Saving..."
+                    : editingLdndEntry
+                    ? "Update Entry"
+                    : "Add Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1723,10 +2186,7 @@ export function Maintenance() {
                   <button
                     type="button"
                     onClick={() => {
-                      handleADDownloadFile(
-                        adViewFilePath,
-                        adViewFileName
-                      );
+                      handleADDownloadFile(adViewFilePath, adViewFileName);
                     }}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 text-gray-700"
                   >
@@ -1886,7 +2346,9 @@ export function Maintenance() {
                   }}
                   accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                 />
-                {editingADEntry && getADFilePath(editingADEntry) && !adUploadFile ? (
+                {editingADEntry &&
+                getADFilePath(editingADEntry) &&
+                !adUploadFile ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
                       <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
@@ -1966,17 +2428,20 @@ export function Maintenance() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleADCreateOrUpdate}
-                disabled={adSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {adSaving
-                  ? "Saving..."
-                  : editingADEntry
-                  ? "Update Entry"
-                  : "Add Entry"}
-              </button>
+              {((!editingADEntry && canCreate("maintenance")) ||
+                (editingADEntry && canUpdate("maintenance"))) && (
+                <button
+                  onClick={handleADCreateOrUpdate}
+                  disabled={adSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {adSaving
+                    ? "Saving..."
+                    : editingADEntry
+                    ? "Update Entry"
+                    : "Add Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>

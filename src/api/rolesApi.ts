@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from "axios";
 import apiClient from "./index";
 
 export interface Role {
@@ -11,8 +12,10 @@ export interface Role {
 export interface Permission {
   module: string;
   read: boolean;
-  write: boolean;
-  approve: boolean;
+  create: boolean;
+  update: boolean;
+  /** Remove records in this module (API may send `delete` or `can_delete`). */
+  delete: boolean;
 }
 
 /** Role as returned by GET /roles/:id and POST /roles/ (includes permissions). */
@@ -37,23 +40,32 @@ function normalizeRole(raw: Record<string, unknown>): Role {
   };
 }
 
-/** List roles: GET /api/v1/roles/ (fallback: GET roles/roles-list if roles/ returns 404) */
+/** List roles: try GET roles/roles-list and roles/paged first (many backends use POST-only on roles/). */
 export const getRoles = async (): Promise<Role[]> => {
   const toList = (raw: unknown) => {
     const data = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.results ?? (raw as Record<string, unknown>)?.items ?? (raw as Record<string, unknown>)?.data ?? [];
     return (Array.isArray(data) ? data : []).map((item: Record<string, unknown>) => normalizeRole(item));
   };
-  try {
-    const response = await apiClient.get("roles/");
-    return toList(response.data ?? {});
-  } catch (e) {
-    const status = (e as { response?: { status?: number } })?.response?.status;
-    if (status === 404 || status === 405) {
-      const response = await apiClient.get("roles/roles-list");
+  const silent = {
+    skipGlobalErrorLog: true,
+  } as AxiosRequestConfig & { skipGlobalErrorLog?: boolean };
+  const paths = [
+    "roles/roles-list",
+    "roles/paged/?page=1&limit=500",
+    "roles/",
+  ] as const;
+  let lastError: unknown;
+  for (const path of paths) {
+    try {
+      const response = await apiClient.get(path, silent);
       return toList(response.data ?? {});
+    } catch (e) {
+      lastError = e;
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status !== 404 && status !== 405) throw e;
     }
-    throw e;
   }
+  throw lastError ?? new Error("Failed to load roles");
 };
 
 /** Get role with permissions: GET /api/v1/roles/{role_id}/ */
@@ -67,9 +79,23 @@ export const getRole = async (roleId: number): Promise<RoleWithPermissions> => {
 function normalizePermission(raw: Record<string, unknown>): Permission {
   const module = String(raw.module ?? "");
   const read = Boolean(raw.read);
-  const write = Boolean(raw.write);
-  const approve = Boolean(raw.approve);
-  return { module, read, write, approve };
+  const del = Boolean(
+    raw.delete ?? raw.can_delete ?? raw.canDelete ?? false
+  );
+  const hasCreate = raw.create !== undefined && raw.create !== null;
+  const hasUpdate = raw.update !== undefined && raw.update !== null;
+  let create: boolean;
+  let update: boolean;
+  if (hasCreate || hasUpdate) {
+    create = Boolean(raw.create);
+    update = Boolean(raw.update);
+  } else {
+    const write = Boolean(raw.write);
+    const approve = Boolean(raw.approve);
+    create = write;
+    update = write || approve;
+  }
+  return { module, read, create, update, delete: del };
 }
 
 function normalizeRoleWithPermissions(raw: Record<string, unknown>): RoleWithPermissions {

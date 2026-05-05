@@ -1,5 +1,5 @@
 import apiClient from "./index";
-import { toCamel } from "../utility/utils";
+import { toCamelDeep } from "../utility/utils";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -115,6 +115,32 @@ export interface AircraftTechnicalLog {
   createdBy?: number;
   createdAt?: string;
   updatedAt?: string;
+  autoAirframeRunTime?: number;
+  autoAirframeAftt?: number;
+  autoEngineRunTime?: number;
+  autoEngineTsn?: number | string;
+  autoEngineTso?: number;
+  autoEngineTbo?: number;
+  autoPropellerRunTime?: number;
+  autoPropellerTsn?: number | string;
+  autoPropellerTso?: number;
+  autoPropellerTbo?: number;
+  atlBatchFk?: number | null;
+  atlBatch?: { id: number; name?: string };
+}
+
+/** Per-row component times as shown on Operation ATL list (client-computed when API omits cumulative fields). */
+export interface AtlListViewComputedComponentTimes {
+  airframeRunTime: number | null;
+  airframeAftt: number | null;
+  engineRunTime: number | null;
+  engineTsn: number | null;
+  engineTso: number | null;
+  engineTbo: number | null;
+  propellerRunTime: number | null;
+  propellerTsn: number | null;
+  propellerTso: number | null;
+  propellerTbo: number | null;
 }
 
 export interface AircraftTechnicalLogCreate {
@@ -250,74 +276,378 @@ export interface AircraftTechnicalLogSearchAircraft {
 
 /** Single result from search by ATL Sequence Number */
 export interface AircraftTechnicalLogSearchResult {
+  /** Technical log row id — use as atl_ref when linking TCC/CPCP to ATL */
+  id: number;
   sequenceNo: string;
   aircraft: AircraftTechnicalLogSearchAircraft;
+  natureOfFlight?: string;
+  /** Present when API returns full row — used for CPCP ATL picker line format */
+  tachometerEnd?: number;
+  autoAirframeAftt?: number;
+  originDate?: string;
+}
+
+export type AtlComponentMetric =
+  | "airframeRunTime"
+  | "airframeAftt"
+  | "engineRunTime"
+  | "engineTsn"
+  | "engineTso"
+  | "engineTbo"
+  | "propellerRunTime"
+  | "propellerTsn"
+  | "propellerTso"
+  | "propellerTbo";
+
+const ATL_COMPONENT_METRIC_CANDIDATES: Record<AtlComponentMetric, string[]> = {
+  airframeRunTime: [
+    "autoAirframeRunTime",
+    "auto_airframe_run_time",
+    "airframeRunTime",
+    "airframeTotalTime",
+    "airframeRun",
+  ],
+  airframeAftt: [
+    "autoAirframeAftt",
+    "auto_airframe_aftt",
+    "airframeAftt",
+    "airframeTotalTime",
+  ],
+  engineRunTime: [
+    "autoEngineRunTime",
+    "auto_engine_run_time",
+    "engineRunTime",
+    "engineTotalTime",
+    "engineRun",
+  ],
+  engineTsn: ["autoEngineTsn", "auto_engine_tsn", "engineTsn", "engine_tsn"],
+  engineTso: ["autoEngineTso", "auto_engine_tso", "engineTso", "engine_tso"],
+  engineTbo: ["autoEngineTbo", "auto_engine_tbo", "engineTbo", "engine_tbo"],
+  propellerRunTime: [
+    "autoPropellerRunTime",
+    "auto_propeller_run_time",
+    "propellerRunTime",
+    "propellerTotalTime",
+    "propellerRun",
+  ],
+  propellerTsn: [
+    "autoPropellerTsn",
+    "auto_propeller_tsn",
+    "propellerTsn",
+    "propeller_tsn",
+  ],
+  propellerTso: [
+    "autoPropellerTso",
+    "auto_propeller_tso",
+    "propellerTso",
+    "propeller_tso",
+  ],
+  propellerTbo: [
+    "autoPropellerTbo",
+    "auto_propeller_tbo",
+    "propellerTbo",
+    "propeller_tbo",
+  ],
+};
+
+export function resolveAtlComponentMetric(
+  entry: AircraftTechnicalLog | Record<string, unknown> | null | undefined,
+  metric: AtlComponentMetric
+): unknown {
+  if (!entry || typeof entry !== "object") return undefined;
+
+  const record = entry as Record<string, unknown>;
+  const auto =
+    record.auto && typeof record.auto === "object"
+      ? (record.auto as Record<string, unknown>)
+      : null;
+  const airframe =
+    record.airframe && typeof record.airframe === "object"
+      ? (record.airframe as Record<string, unknown>)
+      : null;
+  const engine =
+    record.engine && typeof record.engine === "object"
+      ? (record.engine as Record<string, unknown>)
+      : null;
+  const propeller =
+    record.propeller && typeof record.propeller === "object"
+      ? (record.propeller as Record<string, unknown>)
+      : null;
+
+  for (const key of ATL_COMPONENT_METRIC_CANDIDATES[metric]) {
+    const value = record[key];
+    if (value != null && value !== "") return value;
+  }
+
+  const nestedCandidates: Record<AtlComponentMetric, unknown[]> = {
+    airframeRunTime: [
+      auto?.airframeRunTime,
+      auto?.airframe_run_time,
+      airframe?.hrsTime,
+      airframe?.run,
+    ],
+    airframeAftt: [
+      auto?.airframeAftt,
+      auto?.airframe_aftt,
+      airframe?.aftt,
+    ],
+    engineRunTime: [
+      auto?.engineRunTime,
+      auto?.engine_run_time,
+      engine?.hrsTime,
+      engine?.run,
+    ],
+    engineTsn: [
+      auto?.engineTsn,
+      auto?.engine_tsn,
+      engine?.tsn,
+      engine?.engineTsn,
+      engine?.engine_tsn,
+    ],
+    engineTso: [
+      auto?.engineTso,
+      auto?.engine_tso,
+      engine?.tso,
+      engine?.engineTso,
+      engine?.engine_tso,
+    ],
+    engineTbo: [
+      auto?.engineTbo,
+      auto?.engine_tbo,
+      engine?.tbo,
+      engine?.engineTbo,
+      engine?.engine_tbo,
+    ],
+    propellerRunTime: [
+      auto?.propellerRunTime,
+      auto?.propeller_run_time,
+      propeller?.hrsTime,
+      propeller?.run,
+    ],
+    propellerTsn: [
+      auto?.propellerTsn,
+      auto?.propeller_tsn,
+      propeller?.tsn,
+      propeller?.propellerTsn,
+      propeller?.propeller_tsn,
+    ],
+    propellerTso: [
+      auto?.propellerTso,
+      auto?.propeller_tso,
+      propeller?.tso,
+      propeller?.propellerTso,
+      propeller?.propeller_tso,
+    ],
+    propellerTbo: [
+      auto?.propellerTbo,
+      auto?.propeller_tbo,
+      propeller?.tbo,
+      propeller?.propellerTbo,
+      propeller?.propeller_tbo,
+    ],
+  };
+
+  return nestedCandidates[metric].find((value) => value != null && value !== "");
+}
+
+/** Normalize rows from GET /aircraft-technical-log/paged (and manage/paged) across common response shapes. */
+function extractPagedLogRows(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+
+  const tryObject = (p: Record<string, unknown>): unknown[] => {
+    if (Array.isArray(p.items)) return p.items;
+    if (Array.isArray(p.results)) return p.results;
+    if (Array.isArray(p.records)) return p.records;
+    if (Array.isArray(p.logs)) return p.logs;
+    if (Array.isArray(p.entries)) return p.entries;
+    if (Array.isArray(p.data)) return p.data;
+    return [];
+  };
+
+  const p = payload as Record<string, unknown>;
+  let rows = tryObject(p);
+  const inner = p.data;
+  if (
+    rows.length === 0 &&
+    inner != null &&
+    typeof inner === "object" &&
+    !Array.isArray(inner)
+  ) {
+    rows = tryObject(inner as Record<string, unknown>);
+  }
+  return rows;
+}
+
+function readPagedNumeric(
+  payload: unknown,
+  keys: string[],
+  fallback: number
+): number {
+  if (!payload || typeof payload !== "object") return fallback;
+  const p = payload as Record<string, unknown>;
+  const inner =
+    p.data != null && typeof p.data === "object" && !Array.isArray(p.data)
+      ? (p.data as Record<string, unknown>)
+      : null;
+  const meta =
+    p.meta != null && typeof p.meta === "object" && !Array.isArray(p.meta)
+      ? (p.meta as Record<string, unknown>)
+      : null;
+  for (const key of keys) {
+    for (const src of [p, inner, meta]) {
+      if (!src) continue;
+      const v = src[key];
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return fallback;
 }
 
 // CRUD Operations
 
-/**
- * Get paginated list of Aircraft Technical Log entries
- */
-export const getAircraftTechnicalLogs = async (
+const fetchAircraftTechnicalLogs = async (
+  endpoint: string,
   page = 1,
   limit = 10,
   search = "",
   aircraftFk?: number,
-  sort = ""
+  sort = "",
+  workStatus?: string,
+  atlBatchFk?: number
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
+
+    // Query order: atl_batch* first, then page, limit, aircraft_fk, sort, search, work_status
+    // e.g. .../paged?atl_batch=7&atl_batch_fk=7&page=1&limit=10&aircraft_fk=39&sort=sequence_no
+    if (
+      atlBatchFk != null &&
+      Number.isFinite(atlBatchFk) &&
+      atlBatchFk > 0
+    ) {
+      const idStr = String(atlBatchFk);
+      params.append("atl_batch", idStr);
+      params.append("atl_batch_fk", idStr);
+    }
+
     params.append("page", page.toString());
     params.append("limit", limit.toString());
 
-    if (search.trim() !== "") {
-      params.append("search", search);
-    }
-
-    if (aircraftFk) {
-      params.append("aircraft_fk", aircraftFk.toString());
+    const aircraftIdNum =
+      aircraftFk != null ? Number(aircraftFk) : NaN;
+    if (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0) {
+      params.append("aircraft_fk", String(aircraftIdNum));
     }
 
     if (sort) {
       params.append("sort", sort);
     }
 
-    const response = await apiClient.get(
-      `aircraft-technical-log/paged?${params.toString()}`
+    if (search.trim() !== "") {
+      params.append("search", search.trim());
+    }
+
+    if (workStatus != null && workStatus.trim() !== "") {
+      params.append("work_status", workStatus.trim());
+    }
+
+    const response = await apiClient.get(`${endpoint}?${params.toString()}`);
+
+    const payload = response.data?.data ?? response.data;
+    const rawItems = extractPagedLogRows(payload);
+
+    const transformedItems = rawItems.map(
+      (item) => toCamelDeep(item) as AircraftTechnicalLog
     );
 
-    // Transform the response to camelCase (recursively handle nested objects and arrays)
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          console.log(camel, "camelcamelcamelcamel");
-          result[camel] = transformToCamel(obj[key]);
-        }
-        return result;
-      }
-      return obj;
-    };
-
-    const transformedItems = response.data.items.map((item: any) =>
-      transformToCamel(item)
+    const totalRaw = readPagedNumeric(
+      payload,
+      ["total", "count", "totalCount", "total_count"],
+      transformedItems.length
     );
+    const currentPageRaw = readPagedNumeric(
+      payload,
+      ["page", "currentPage", "current_page"],
+      page
+    );
+    const pagesRaw = readPagedNumeric(
+      payload,
+      ["pages", "totalPages", "total_pages"],
+      NaN
+    );
+
+    const normalizedTotal = Number.isFinite(totalRaw)
+      ? Math.max(0, totalRaw)
+      : transformedItems.length;
+    const normalizedPage = Number.isFinite(currentPageRaw)
+      ? Math.max(1, currentPageRaw)
+      : Math.max(1, page);
+    const normalizedPages = Number.isFinite(pagesRaw)
+      ? Math.max(1, pagesRaw)
+      : limit > 0
+        ? Math.max(1, Math.ceil(normalizedTotal / limit))
+        : 1;
 
     return {
       items: transformedItems,
-      total: response.data.total,
-      page: response.data.page,
-      pages: response.data.pages,
+      total: normalizedTotal,
+      page: normalizedPage,
+      pages: normalizedPages,
     };
   } catch (error) {
     throw error;
   }
 };
+
+/**
+ * Get paginated list of Aircraft Technical Log entries for operation views.
+ * `GET /api/v1/aircraft-technical-log/paged` — when `atlBatchFk` is set, `atl_batch` / `atl_batch_fk` are first in the
+ * query string, then `page`, `limit`, `aircraft_fk`, `sort`, and optional `search` / `work_status`.
+ */
+export const getAircraftTechnicalLogs = async (
+  page = 1,
+  limit = 10,
+  search = "",
+  aircraftFk?: number,
+  sort = "",
+  workStatus?: string,
+  atlBatchFk?: number
+): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
+  fetchAircraftTechnicalLogs(
+    "aircraft-technical-log/paged",
+    page,
+    limit,
+    search,
+    aircraftFk,
+    sort,
+    workStatus,
+    atlBatchFk
+  );
+
+/**
+ * Get paginated list of Aircraft Technical Log entries for manage/list views
+ */
+export const getManagedAircraftTechnicalLogs = async (
+  page = 1,
+  limit = 10,
+  search = "",
+  aircraftFk?: number,
+  sort = "",
+  workStatus?: string,
+  atlBatchFk?: number
+): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
+  fetchAircraftTechnicalLogs(
+    "aircraft-technical-log/manage/paged",
+    page,
+    limit,
+    search,
+    aircraftFk,
+    sort,
+    workStatus,
+    atlBatchFk
+  );
 
 /**
  * Get a single Aircraft Technical Log entry by ID
@@ -327,25 +657,9 @@ export const getAircraftTechnicalLogById = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const response = await apiClient.get(`aircraft-technical-log/${logId}`);
+    const raw = response.data?.data ?? response.data;
 
-    // Transform the response to camelCase (recursively handle nested objects and arrays)
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          result[camel] = transformToCamel(obj[key]);
-        }
-        console.log(result);
-        return result;
-      }
-      return obj;
-    };
-
-    return transformToCamel(response.data);
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
@@ -392,10 +706,40 @@ export const searchAircraftTechnicalLogBySequence = async (
               type: aircraft.type ?? "",
             }
           : { id: 0, registration: "", model: "", type: "" };
+      const logId = Number(item.id ?? item.pk ?? 0);
+      const tachRaw =
+        item.tachometer_end ??
+        item.tachometerEnd ??
+        item.tach_end ??
+        item.tachEnd;
+      const tachNum =
+        tachRaw != null && tachRaw !== ""
+          ? Number(typeof tachRaw === "string" ? tachRaw.replace(/,/g, "") : tachRaw)
+          : NaN;
+      const afttRaw =
+        item.auto_airframe_aftt ??
+        item.autoAirframeAftt ??
+        item.airframe_aftt ??
+        item.airframeAftt;
+      const afttNum =
+        afttRaw != null && afttRaw !== ""
+          ? Number(typeof afttRaw === "string" ? afttRaw.replace(/,/g, "") : afttRaw)
+          : NaN;
+      const originDateRaw =
+        item.origin_date ?? item.originDate ?? item.date_of_origin ?? item.dateOfOrigin;
       return {
+        id: Number.isFinite(logId) ? logId : 0,
         sequenceNo:
           item.sequence_no ?? item.sequenceNo ?? item.sequence_number ?? "",
         aircraft: aircraftObj,
+        natureOfFlight:
+          item.nature_of_flight ?? item.natureOfFlight ?? undefined,
+        tachometerEnd: Number.isFinite(tachNum) ? tachNum : undefined,
+        autoAirframeAftt: Number.isFinite(afttNum) ? afttNum : undefined,
+        originDate:
+          originDateRaw != null && String(originDateRaw).trim() !== ""
+            ? String(originDateRaw).trim()
+            : undefined,
       };
     });
   } catch (error) {
@@ -421,8 +765,7 @@ export const createAircraftTechnicalLog = async (
 ): Promise<AircraftTechnicalLog> => {
   try {
     const hasFiles =
-      files &&
-      (files.whiteAtl instanceof File || files.dfp instanceof File);
+      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
       const formData = new FormData();
       formData.append("json_data", JSON.stringify(data));
@@ -432,14 +775,20 @@ export const createAircraftTechnicalLog = async (
       if (files.dfp instanceof File) {
         formData.append("dfp", files.dfp);
       }
-      const response = await apiClient.post("aircraft-technical-log/", formData, {
-        headers: { Accept: "application/json" },
-        // Do not set Content-Type — browser sets multipart/form-data with boundary
-      });
-      return toCamel(response.data);
+      const response = await apiClient.post(
+        "aircraft-technical-log/",
+        formData,
+        {
+          headers: { Accept: "application/json" },
+          // Do not set Content-Type — browser sets multipart/form-data with boundary
+        }
+      );
+      const raw = response.data?.data ?? response.data;
+      return toCamelDeep(raw) as AircraftTechnicalLog;
     }
     const response = await apiClient.post("aircraft-technical-log/", data);
-    return toCamel(response.data);
+    const raw = response.data?.data ?? response.data;
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
@@ -457,24 +806,8 @@ export const updateAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const transformToCamel = (obj: any): any => {
-      if (Array.isArray(obj)) {
-        return obj.map(transformToCamel);
-      }
-      if (obj !== null && typeof obj === "object") {
-        const result: any = {};
-        for (const key in obj) {
-          const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-          result[camel] = transformToCamel(obj[key]);
-        }
-        return result;
-      }
-      return obj;
-    };
-
     const hasFiles =
-      files &&
-      (files.whiteAtl instanceof File || files.dfp instanceof File);
+      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
     if (hasFiles) {
       const formData = new FormData();
       formData.append("json_data", JSON.stringify(data));
@@ -491,14 +824,16 @@ export const updateAircraftTechnicalLog = async (
           headers: { Accept: "application/json" },
         }
       );
-      return transformToCamel(response.data);
+      const raw = response.data?.data ?? response.data;
+      return toCamelDeep(raw) as AircraftTechnicalLog;
     }
 
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       data
     );
-    return transformToCamel(response.data);
+    const raw = response.data?.data ?? response.data;
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     throw error;
   }
@@ -527,7 +862,9 @@ export const getLatestAircraftTechnicalLog = async (
     const response = await apiClient.get(
       `aircraft-technical-log/latest?aircraft_fk=${aircraftFk}`
     );
-    return toCamel(response.data);
+    const raw = response.data?.data ?? response.data;
+    if (raw == null || typeof raw !== "object") return null;
+    return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
     // If no latest entry exists, return null
     if ((error as any)?.response?.status === 404) {
@@ -557,3 +894,132 @@ export const importAircraftTechnicalLogExcel = async (
   );
   return response.data ?? response;
 };
+
+/** ATL batch row for dropdowns (GET list endpoint). */
+export interface AtlBatch {
+  id: number;
+  name: string;
+  description?: string;
+  /** ISO or parseable date when API sends created_at / createdAt */
+  createdAt?: string;
+}
+
+function parseAtlBatchPayload(raw: unknown): AtlBatch {
+  const r =
+    raw && typeof raw === "object"
+      ? (raw as Record<string, unknown>)
+      : {};
+  const id = Number(r.id ?? r.pk ?? 0);
+  const name = String(
+    r.name ?? r.batch_name ?? r.batchName ?? ""
+  ).trim();
+  const description =
+    r.description != null ? String(r.description).trim() : undefined;
+  const createdRaw = r.created_at ?? r.createdAt;
+  const createdAt =
+    createdRaw != null && String(createdRaw).trim() !== ""
+      ? String(createdRaw).trim()
+      : undefined;
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("Invalid ATL batch response from server.");
+  }
+  return {
+    id,
+    name: name || `Batch ${id}`,
+    ...(description !== undefined && description !== ""
+      ? { description }
+      : {}),
+    ...(createdAt !== undefined ? { createdAt } : {}),
+  };
+}
+
+/** Default filter selection: most recently created batch (by createdAt when present, else highest id). */
+export function pickLatestAtlBatchId(batches: AtlBatch[]): number | null {
+  if (!batches.length) return null;
+  const dated = batches.filter(
+    (b) => b.createdAt != null && String(b.createdAt).trim() !== ""
+  );
+  if (dated.length > 0) {
+    const sorted = [...dated].sort(
+      (a, b) =>
+        new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+    );
+    return sorted[0].id;
+  }
+  return Math.max(...batches.map((b) => b.id));
+}
+
+/**
+ * Options for ATL batch `<select>` (filter form, entry modal).
+ * GET /api/v1/atl-batch/list
+ */
+export async function getAtlBatchesForSelect(): Promise<AtlBatch[]> {
+  try {
+    const res = await apiClient.get("atl-batch/list", {
+      headers: { Accept: "application/json" },
+    });
+    const data = res.data?.data ?? res.data;
+    const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
+    const list = Array.isArray(raw) ? raw : [];
+    return list
+      .map((row: Record<string, unknown>) => {
+        try {
+          return parseAtlBatchPayload(row);
+        } catch {
+          return null;
+        }
+      })
+      .filter((b): b is AtlBatch => b != null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * GET /api/v1/atl-batch/{id}/
+ */
+export async function getAtlBatchById(id: number): Promise<AtlBatch> {
+  const res = await apiClient.get(`atl-batch/${id}/`, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlBatchPayload(raw);
+}
+
+/**
+ * Create an ATL batch — POST /api/v1/atl-batch/
+ */
+export async function createAtlBatch(payload: {
+  name: string;
+  description?: string;
+}): Promise<AtlBatch> {
+  const body = {
+    name: payload.name.trim(),
+    ...(payload.description != null && payload.description.trim() !== ""
+      ? { description: payload.description.trim() }
+      : {}),
+  };
+  const res = await apiClient.post("atl-batch/", body, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlBatchPayload(raw);
+}
+
+/**
+ * Update an ATL batch — PATCH /api/v1/atl-batch/{id}/
+ */
+export async function updateAtlBatch(
+  id: number,
+  payload: { name: string; description?: string }
+): Promise<AtlBatch> {
+  const body = {
+    name: payload.name.trim(),
+    description: (payload.description ?? "").trim(),
+  };
+  const res = await apiClient.patch(`atl-batch/${id}/`, body, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlBatchPayload(raw);
+}

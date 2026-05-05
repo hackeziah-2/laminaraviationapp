@@ -1,8 +1,22 @@
-import { X, Upload, Plus, Trash2, ChevronDown, Check, Loader2, Download, Eye } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import {
+  X,
+  Upload,
+  Plus,
+  Trash2,
+  ChevronDown,
+  Check,
+  Loader2,
+  Download,
+  Eye,
+} from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
-import { getAccountsByDesignation, getAllAccounts, Account } from "../api/accountApi";
+import {
+  getAccountsByDesignation,
+  getAllAccounts,
+  Account,
+} from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import {
   getLatestAircraftTechnicalLog,
@@ -11,9 +25,85 @@ import {
   AircraftTechnicalLogCreate,
   updateAircraftTechnicalLog,
   AircraftTechnicalLogUpdate,
+  resolveAtlComponentMetric,
+  type AtlListViewComputedComponentTimes,
+  getAtlBatchesForSelect,
+  type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
-import { snakeAllKeys, computeTotalBlockTime } from "../utility/utils";
+import {
+  snakeAllKeys,
+  computeTotalBlockTimeFromUtc,
+  toCamel,
+} from "../utility/utils";
+import {
+  getMissingAircraftFieldsForNewAtl,
+  buildAircraftDetailsRequiredForAtlHtml,
+  ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+} from "../utility/atlAircraftPrerequisites";
+import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+import {
+  formatAtlWorkStatusLabel,
+  getAtlWorkStatusDropdownKeysForRole,
+  canUploadWhiteAtlAndDfpFiles,
+  isAtlBatchFilterAndBranchManagementRole,
+  normalizeAtlWorkStatus,
+} from "../utility/atlEditRbac";
+
+/**
+ * Flat + nested engine/propeller/airframe shapes from the ATL API (matches Operation list display).
+ */
+function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
+  const numStr = (v: unknown) =>
+    v === null || v === undefined || v === "" ? "" : String(v);
+
+  return {
+    airframeRunTime: numStr(
+      resolveAtlComponentMetric(entry, "airframeRunTime")
+    ),
+    airframeAftt: numStr(resolveAtlComponentMetric(entry, "airframeAftt")),
+    engineRunTime: numStr(resolveAtlComponentMetric(entry, "engineRunTime")),
+    engineTsn: numStr(resolveAtlComponentMetric(entry, "engineTsn")),
+    engineTso: numStr(resolveAtlComponentMetric(entry, "engineTso")),
+    engineTbo: numStr(resolveAtlComponentMetric(entry, "engineTbo")),
+    propellerRunTime: numStr(
+      resolveAtlComponentMetric(entry, "propellerRunTime")
+    ),
+    propellerTsn: numStr(resolveAtlComponentMetric(entry, "propellerTsn")),
+    propellerTso: numStr(resolveAtlComponentMetric(entry, "propellerTso")),
+    propellerTbo: numStr(resolveAtlComponentMetric(entry, "propellerTbo")),
+  };
+}
+
+function parseFiniteFloatField(
+  value: string | undefined | null
+): number | null {
+  if (value == null) return null;
+  const t = String(value).trim();
+  if (t === "") return null;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** engine_tsn / propeller_tsn: optional on form; empty → 0 on submit (≥0 when present). */
+function resolveTsnForApi(value: string | undefined | null): number {
+  return parseFiniteFloatField(value) ?? 0;
+}
+
+/** Prefer resolved API string; else list row computed number; else fallback ("" or e.g. "0.0"). */
+function mergeAtlResolvedWithListComputed(
+  resolved: string,
+  listComputed: number | null | undefined,
+  fallbackWhenBothMissing: string
+): string {
+  const r = (resolved ?? "").trim();
+  if (r !== "") return r;
+  if (listComputed != null && Number.isFinite(listComputed)) {
+    return listComputed.toFixed(2);
+  }
+  return fallbackWhenBothMissing;
+}
 
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -21,6 +111,19 @@ interface AddTechnicalLogbookEntryModalProps {
   editEntry?: AircraftTechnicalLog | null;
   onSuccess?: () => void;
   aircraftId?: number; // Optional aircraft ID from useParams
+  /** Module code for role Update permission (e.g. operation, logbook). Required when editEntry is set. */
+  permissionModuleCode?: string;
+  /** When editing, limits Work Status options to statuses allowed for this role (see atlEditRbac). */
+  viewerRole?: string;
+  /**
+   * Operation / Technical Publication: edit modal only allows uploading White ATL and DFP;
+   * all other fields are read-only and Update requires a new file selection.
+   */
+  editRestrictedToWhiteAtlDfpOnly?: boolean;
+  /** Operation: per-row list computed component times when READ-by-id omits cumulative fields. */
+  listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
+  /** When creating, pre-select ATL batch (e.g. match parent "Filter by ATL batch"). Ignored when editEntry is set. */
+  defaultAtlBatchFk?: number;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -29,11 +132,73 @@ export function AddTechnicalLogbookEntryModal({
   editEntry,
   onSuccess,
   aircraftId,
+  permissionModuleCode,
+  viewerRole,
+  editRestrictedToWhiteAtlDfpOnly = false,
+  listViewComputedTimes = null,
+  defaultAtlBatchFk,
 }: AddTechnicalLogbookEntryModalProps) {
+  const {
+    canUpdate,
+    canCreate,
+    user: permUser,
+    loading: permLoading,
+  } = useUserPermissions();
+
+  /**
+   * Role name from GET /auth/me while editing — source of truth for Work Status dropdown RBAC
+   * (matches logged-in user’s role from the session).
+   */
+  const [atlAuthRole, setAtlAuthRole] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAtlAuthRole(undefined);
+      return;
+    }
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setAtlAuthRole(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setAtlAuthRole(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  /** Prefer /me (login), then permissions hook, then parent prop — all should match after load. */
+  const atlRoleForWorkStatus = useMemo(
+    () =>
+      atlAuthRole || permUser?.role?.trim() || viewerRole?.trim() || undefined,
+    [atlAuthRole, permUser?.role, viewerRole]
+  );
+
+  const canManageAtlBatchField = useMemo(
+    () => isAtlBatchFilterAndBranchManagementRole(atlRoleForWorkStatus),
+    [atlRoleForWorkStatus]
+  );
+
+  const showAtlBatchFormField = Boolean(editEntry || canManageAtlBatchField);
+
+  const canUploadAtlAttachments = useMemo(
+    () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
+    [atlRoleForWorkStatus]
+  );
+
+  const attachmentsOnlyLocked = Boolean(
+    editRestrictedToWhiteAtlDfpOnly && editEntry
+  );
+
+  const mod = permissionModuleCode;
+
   const [formData, setFormData] = useState({
     seqNo: "",
     workStatus: "FOR_REVIEW",
     acReg: "",
+    atlBatchFk: "",
     natureOfFlight: "",
     // Off-blocks/Origin
     offBlocksDate: "",
@@ -102,7 +267,7 @@ export function AddTechnicalLogbookEntryModal({
     engineFlightTime: "",
     engineTotalTime: "",
     engineRunTime: "",
-    engineTsn: "0.0",
+    engineTsn: "",
     engineTso: "",
     engineTbo: "",
     propellerPrevTime: "",
@@ -115,6 +280,36 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitEngine: "",
     lifeTimeLimitPropeller: "",
   });
+
+  const allowSubmit = useMemo(
+    () =>
+      (!editEntry && (!mod || canCreate(mod))) ||
+      (!!editEntry &&
+        Boolean(mod) &&
+        (attachmentsOnlyLocked
+          ? canUploadAtlAttachments &&
+            (formData.whiteAtl instanceof File || formData.dfp instanceof File)
+          : canUpdate(mod as string))),
+    [
+      editEntry,
+      mod,
+      canCreate,
+      canUpdate,
+      attachmentsOnlyLocked,
+      canUploadAtlAttachments,
+      formData.whiteAtl,
+      formData.dfp,
+    ]
+  );
+
+  const workStatusDropdownKeys = useMemo(
+    () =>
+      getAtlWorkStatusDropdownKeysForRole(atlRoleForWorkStatus, {
+        pendingRole: Boolean(editEntry && permLoading && !atlRoleForWorkStatus),
+        currentWorkStatus: formData.workStatus,
+      }),
+    [editEntry, permLoading, atlRoleForWorkStatus, formData.workStatus]
+  );
 
   // Component Records state
   interface ComponentRecord {
@@ -133,11 +328,6 @@ export function AddTechnicalLogbookEntryModal({
     []
   );
 
-  // Previous values for ATL auto-compute (set when loading latest or edit)
-  const [previousEngineTso, setPreviousEngineTso] = useState<number>(0);
-  const [previousPropellerTsn, setPreviousPropellerTsn] = useState<number>(0);
-  const [previousPropellerTso, setPreviousPropellerTso] = useState<number>(0);
-
   // Aircraft searchable dropdown state
   const [aircrafts, setAircrafts] = useState<
     Array<{ id: number; registration: string }>
@@ -149,6 +339,8 @@ export function AddTechnicalLogbookEntryModal({
     null
   );
   const aircraftDropdownRef = useRef<HTMLDivElement>(null);
+
+  const [atlBatchOptions, setAtlBatchOptions] = useState<AtlBatch[]>([]);
 
   // Account dropdowns state
   const [remarksAccounts, setRemarksAccounts] = useState<Account[]>([]);
@@ -209,12 +401,37 @@ export function AddTechnicalLogbookEntryModal({
   // Latest entry sequence number (for format validation: must match same digit length as latest, e.g. 00013)
   const [latestSequenceNo, setLatestSequenceNo] = useState<string | null>(null);
 
+  /** Baseline cumulative times before this leg (engine/prop TSN/TSO) for auto-calculations. */
+  const [previousEngineTsn, setPreviousEngineTsn] = useState(0);
+  const [previousEngineTso, setPreviousEngineTso] = useState(0);
+  const [previousPropellerTsn, setPreviousPropellerTsn] = useState(0);
+  const [previousPropellerTso, setPreviousPropellerTso] = useState(0);
+
   // Fetch aircrafts when modal opens
   useEffect(() => {
     if (isOpen) {
       fetchAircrafts();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!editEntry && !canManageAtlBatchField) {
+      setAtlBatchOptions([]);
+      return;
+    }
+    let cancelled = false;
+    getAtlBatchesForSelect()
+      .then((list) => {
+        if (!cancelled) setAtlBatchOptions(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setAtlBatchOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, editEntry, canManageAtlBatchField]);
 
   // Auto-select aircraft when aircraftId prop is provided (from useParams)
   useEffect(() => {
@@ -226,6 +443,18 @@ export function AddTechnicalLogbookEntryModal({
           try {
             const response = await getAircraftById(aircraftId);
             const aircraftData = response.data;
+            const aircraftCamel = toCamel(aircraftData) as Aircraft;
+            const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
+            if (missing.length > 0) {
+              await Swal.fire({
+                icon: "warning",
+                title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+                confirmButtonColor: "#2563eb",
+              });
+              onClose();
+              return;
+            }
             setFormData((prev) => ({
               ...prev,
               acReg: aircraftData.registration || "",
@@ -268,6 +497,26 @@ export function AddTechnicalLogbookEntryModal({
             if (aircrafts.length > 0) {
               const aircraft = aircrafts.find((ac) => ac.id === aircraftId);
               if (aircraft) {
+                try {
+                  const fullRes = await getAircraftById(aircraftId);
+                  const aircraftCamel = toCamel(fullRes.data) as Aircraft;
+                  const missing =
+                    getMissingAircraftFieldsForNewAtl(aircraftCamel);
+                  if (missing.length > 0) {
+                    await Swal.fire({
+                      icon: "warning",
+                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                      html: buildAircraftDetailsRequiredForAtlHtml(
+                        aircraftCamel
+                      ),
+                      confirmButtonColor: "#2563eb",
+                    });
+                    onClose();
+                    return;
+                  }
+                } catch {
+                  return;
+                }
                 setFormData((prev) => ({
                   ...prev,
                   acReg: aircraft.registration,
@@ -326,31 +575,64 @@ export function AddTechnicalLogbookEntryModal({
   useEffect(() => {
     if (editEntry && isOpen) {
       setLatestSequenceNo(null); // No format validation when editing
+      const comp = resolveAtlEditComponentSources(editEntry);
+      const lc = listViewComputedTimes;
+      const mergedEngineTso = mergeAtlResolvedWithListComputed(
+        comp.engineTso,
+        lc?.engineTso,
+        ""
+      );
+      const mergedPropTsn = mergeAtlResolvedWithListComputed(
+        comp.propellerTsn,
+        lc?.propellerTsn,
+        ""
+      );
+      const mergedPropTso = mergeAtlResolvedWithListComputed(
+        comp.propellerTso,
+        lc?.propellerTso,
+        ""
+      );
+      const mergedEngineTsnStr = mergeAtlResolvedWithListComputed(
+        comp.engineTsn,
+        lc?.engineTsn,
+        "0.0"
+      );
       const tachStart = Number(editEntry.tachometerStart) || 0;
       const tachEnd = Number(editEntry.tachometerEnd) || 0;
       const run = tachEnd - tachStart;
-      setPreviousEngineTso(
-        Math.max(0, (Number(editEntry.engineTso) || 0) - run)
+      setPreviousEngineTsn(
+        Math.max(0, (parseFloat(mergedEngineTsnStr) || 0) - run)
       );
+      setPreviousEngineTso(Math.max(0, (Number(mergedEngineTso) || 0) - run));
       setPreviousPropellerTsn(
-        Math.max(0, (parseFloat(String(editEntry.propellerTsn)) || 0) - run)
+        Math.max(0, (parseFloat(String(mergedPropTsn)) || 0) - run)
       );
-      setPreviousPropellerTso(
-        Math.max(0, (Number(editEntry.propellerTso) || 0) - run)
-      );
+      setPreviousPropellerTso(Math.max(0, (Number(mergedPropTso) || 0) - run));
       // Populate form data from editEntry (normalize workStatus: API may return "FOR REVIEW" or "FOR_REVIEW")
       setFormData({
         seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
-        workStatus:
-          (editEntry.workStatus === "FOR REVIEW" ? "FOR_REVIEW" : editEntry.workStatus) || "",
+        workStatus: (() => {
+          const raw =
+            editEntry.workStatus === "FOR REVIEW"
+              ? "FOR_REVIEW"
+              : String(editEntry.workStatus ?? "").trim();
+          const key = normalizeAtlWorkStatus(raw);
+          return key || raw || "";
+        })(),
         acReg: editEntry.aircraft?.registration || "",
+        atlBatchFk: (() => {
+          const fk = editEntry.atlBatchFk ?? editEntry.atlBatch?.id ?? null;
+          if (fk != null && Number(fk) > 0) return String(fk);
+          return "";
+        })(),
         // null/empty from API -> "" (-); VOID from API -> "VOID"; normalize TR W/ PIREM -> TR_WITH_PIREM
-        natureOfFlight:
-          editEntry.natureOfFlight === "VOID"
-            ? "VOID"
-            : editEntry.natureOfFlight === "TR W/ PIREM" || editEntry.natureOfFlight === "TR_WITH_PIREM"
-              ? "TR_WITH_PIREM"
-              : editEntry.natureOfFlight?.trim() || "",
+        natureOfFlight: (() => {
+          const nof = String(editEntry.natureOfFlight ?? "").trim();
+          if (nof === "VOID") return "VOID";
+          if (nof === "TR W/ PIREM" || nof === "TR_WITH_PIREM")
+            return "TR_WITH_PIREM";
+          return nof;
+        })(),
         offBlocksDate: editEntry.originDate || "",
         offBlocksTime: formatTimeFromAPI(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
@@ -410,25 +692,49 @@ export function AddTechnicalLogbookEntryModal({
           (editEntry as any).airframeFlightTime?.toString() || "",
         airframeTotalTime:
           (editEntry as any).airframeTotalTime?.toString() || "",
-        airframeRunTime: editEntry.airframeRunTime?.toString() || "",
-        airframeAftt: editEntry.airframeAftt?.toString() || "",
+        airframeRunTime: mergeAtlResolvedWithListComputed(
+          comp.airframeRunTime,
+          lc?.airframeRunTime,
+          ""
+        ),
+        airframeAftt: mergeAtlResolvedWithListComputed(
+          comp.airframeAftt,
+          lc?.airframeAftt,
+          ""
+        ),
         enginePrevTime: (editEntry as any).enginePrevTime?.toString() || "",
         engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
         engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
-        engineRunTime: editEntry.engineRunTime?.toString() || "",
-        engineTsn: editEntry.engineTsn != null && editEntry.engineTsn !== "" ? String(editEntry.engineTsn) : "0.0",
-        engineTso: editEntry.engineTso?.toString() || "",
-        engineTbo: editEntry.engineTbo?.toString() || "",
+        engineRunTime: mergeAtlResolvedWithListComputed(
+          comp.engineRunTime,
+          lc?.engineRunTime,
+          ""
+        ),
+        engineTsn: mergedEngineTsnStr,
+        engineTso: mergedEngineTso,
+        engineTbo: mergeAtlResolvedWithListComputed(
+          comp.engineTbo,
+          lc?.engineTbo,
+          ""
+        ),
         propellerPrevTime:
           (editEntry as any).propellerPrevTime?.toString() || "",
         propellerFlightTime:
           (editEntry as any).propellerFlightTime?.toString() || "",
         propellerTotalTime:
           (editEntry as any).propellerTotalTime?.toString() || "",
-        propellerRunTime: editEntry.propellerRunTime?.toString() || "",
-        propellerTsn: editEntry.propellerTsn?.toString() ?? "",
-        propellerTso: editEntry.propellerTso?.toString() || "",
-        propellerTbo: editEntry.propellerTbo?.toString() || "",
+        propellerRunTime: mergeAtlResolvedWithListComputed(
+          comp.propellerRunTime,
+          lc?.propellerRunTime,
+          ""
+        ),
+        propellerTsn: mergedPropTsn,
+        propellerTso: mergedPropTso,
+        propellerTbo: mergeAtlResolvedWithListComputed(
+          comp.propellerTbo,
+          lc?.propellerTbo,
+          ""
+        ),
         lifeTimeLimitEngine: editEntry.lifeTimeLimitEngine?.toString() || "",
         lifeTimeLimitPropeller:
           editEntry.lifeTimeLimitPropeller?.toString() || "",
@@ -470,6 +776,7 @@ export function AddTechnicalLogbookEntryModal({
       }
     } else if (!editEntry && isOpen) {
       // Reset form when creating new entry
+      setPreviousEngineTsn(0);
       setPreviousEngineTso(0);
       setPreviousPropellerTsn(0);
       setPreviousPropellerTso(0);
@@ -477,6 +784,12 @@ export function AddTechnicalLogbookEntryModal({
         seqNo: "",
         workStatus: "FOR_REVIEW",
         acReg: "",
+        atlBatchFk:
+          defaultAtlBatchFk != null &&
+          Number.isFinite(defaultAtlBatchFk) &&
+          defaultAtlBatchFk > 0
+            ? String(defaultAtlBatchFk)
+            : "",
         natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
@@ -533,7 +846,7 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: "",
         engineTotalTime: "",
         engineRunTime: "",
-        engineTsn: "0.0",
+        engineTsn: "",
         engineTso: "",
         engineTbo: "",
         propellerPrevTime: "",
@@ -548,7 +861,7 @@ export function AddTechnicalLogbookEntryModal({
       });
       setComponentRecords([]);
     }
-  }, [editEntry, isOpen]);
+  }, [editEntry, isOpen, listViewComputedTimes, defaultAtlBatchFk]);
 
   // Fetch latest technical log entry to populate start values (only for new entries)
   const fetchLatestTechnicalLog = async () => {
@@ -574,6 +887,15 @@ export function AddTechnicalLogbookEntryModal({
         );
         if (latestEntry) {
           setLatestSequenceNo(latestEntry.sequenceNo ?? null);
+          setPreviousEngineTsn(
+            parseFloat(
+              String(
+                latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                  ? latestEntry.engineTsn
+                  : 0
+              )
+            ) || 0
+          );
           setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
           setPreviousPropellerTsn(
             parseFloat(String(latestEntry.propellerTsn)) || 0
@@ -611,7 +933,12 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
+            engineTsn:
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? String(latestEntry.engineTsn)
+                : prev.engineTsn != null
+                ? String(prev.engineTsn)
+                : "",
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -797,6 +1124,32 @@ export function AddTechnicalLogbookEntryModal({
   );
 
   const handleAircraftSelect = async (id: number, registration: string) => {
+    if (!editEntry) {
+      try {
+        const res = await getAircraftById(id);
+        const aircraftCamel = toCamel(res.data) as Aircraft;
+        const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
+        if (missing.length > 0) {
+          await Swal.fire({
+            icon: "warning",
+            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+            html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+      } catch (err) {
+        console.error("Could not verify aircraft for ATL:", err);
+        await Swal.fire({
+          icon: "error",
+          title: "Validation error",
+          text: "Could not load aircraft information. Please try again.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+    }
+
     setFormData({ ...formData, acReg: registration });
     setSelectedAircraftId(id);
     setAircraftSearchTerm("");
@@ -812,6 +1165,15 @@ export function AddTechnicalLogbookEntryModal({
         const latestEntry = await getLatestAircraftTechnicalLog(id);
         if (latestEntry) {
           setLatestSequenceNo(latestEntry.sequenceNo ?? null);
+          setPreviousEngineTsn(
+            parseFloat(
+              String(
+                latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                  ? latestEntry.engineTsn
+                  : 0
+              )
+            ) || 0
+          );
           setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
           setPreviousPropellerTsn(
             parseFloat(String(latestEntry.propellerTsn)) || 0
@@ -849,7 +1211,12 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.engineRunTime?.toString() ??
               latestEntry.engineTotalTime?.toString() ??
               prev.engineRunTime,
-            engineTsn: latestEntry.engineTsn != null && latestEntry.engineTsn !== "" ? String(latestEntry.engineTsn) : (prev.engineTsn != null ? String(prev.engineTsn) : "0.0"),
+            engineTsn:
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? String(latestEntry.engineTsn)
+                : prev.engineTsn != null
+                ? String(prev.engineTsn)
+                : "",
             engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
             engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
             propellerRunTime:
@@ -885,12 +1252,12 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for Remarks (Pilot and Maintenance Engineer)
+  // Fetch accounts for Remarks (Pilot and Mechanic)
   const fetchRemarksAccounts = async (search: string = "") => {
     setLoadingRemarksAccounts(true);
     try {
       const accounts = await getAccountsByDesignation(
-        ["Pilot", "Maintenance Engineer"],
+        ["Pilot", "Mechanic"],
         search
       );
       setRemarksAccounts(accounts);
@@ -902,14 +1269,11 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for Actions Taken (Maintenance Engineer only)
+  // Fetch accounts for Actions Taken (Mechanic only)
   const fetchActionsTakenAccounts = async (search: string = "") => {
     setLoadingActionsTakenAccounts(true);
     try {
-      const accounts = await getAccountsByDesignation(
-        ["Maintenance Engineer"],
-        search
-      );
+      const accounts = await getAccountsByDesignation(["Mechanic"], search);
       setActionsTakenAccounts(accounts);
     } catch (err) {
       console.error("Error fetching actions taken accounts:", err);
@@ -933,12 +1297,12 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Fetch accounts for RTS Name (Maintenance Engineer or Mechanic)
+  // Fetch accounts for RTS Name (Mechanic or Mechanic)
   const fetchRtsAccounts = async (search: string = "") => {
     setLoadingRtsAccounts(true);
     try {
       const accounts = await getAccountsByDesignation(
-        ["Maintenance Engineer", "Mechanic"],
+        ["Mechanic", "Mechanic"],
         search
       );
       setRtsAccounts(accounts);
@@ -1169,18 +1533,25 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Auto-calculate Total Flight Time (destinationTime - originTime) when times change
-  // Uses computeTotalBlockTime - same formula as Operations, ATL, View modal
+  // Total flight time = destination − origin using UTC dates + Zulu times when dates are set;
+  // otherwise time-of-day only (overnight +24h wrap), same as Operations / view modal.
   useEffect(() => {
-    const calculatedTime = computeTotalBlockTime(
+    const calculatedTime = computeTotalBlockTimeFromUtc(
+      formData.offBlocksDate,
       formData.offBlocksTime,
+      formData.onBlocksDate,
       formData.onBlocksTime
     );
     setFormData((prev) => ({
       ...prev,
       totalFlightTime: calculatedTime === "0" ? "" : calculatedTime,
     }));
-  }, [formData.offBlocksTime, formData.onBlocksTime]);
+  }, [
+    formData.offBlocksDate,
+    formData.offBlocksTime,
+    formData.onBlocksDate,
+    formData.onBlocksTime,
+  ]);
 
   // hobbsMeterTotal = hobbsMeterEnd - hobbsMeterStart (accepts negative)
   useEffect(() => {
@@ -1213,6 +1584,8 @@ export function AddTechnicalLogbookEntryModal({
     const prevAftt = parseFloat(formData.airframePrevTime) || 0;
     const airframeAftt = prevAftt + airframeRunTime;
     const engineRunTime = airframeRunTime;
+    const prevEngineTsn = previousEngineTsn || 0;
+    const engineTsnVal = prevEngineTsn + engineRunTime;
     const prevEngineTso = previousEngineTso || 0;
     const engineTso = prevEngineTso + engineRunTime;
     const lifeEngine = parseFloat(formData.lifeTimeLimitEngine) || 0;
@@ -1228,6 +1601,7 @@ export function AddTechnicalLogbookEntryModal({
 
     setFormData((prev) => {
       const hasPrevAftt = prevAftt > 0;
+      const hasPrevEngineTsn = previousEngineTsn > 0;
       const hasPrevEngineTso = previousEngineTso > 0;
       const hasPrevPropTsn = previousPropellerTsn > 0;
       const hasPrevPropTso = previousPropellerTso > 0;
@@ -1238,7 +1612,9 @@ export function AddTechnicalLogbookEntryModal({
           ? airframeAftt.toFixed(2)
           : (parseFloat(prev.airframeAftt) || airframeRunTime).toFixed(2),
         engineRunTime: engineRunTime.toFixed(2),
-        engineTsn: "0.0",
+        engineTsn: hasPrevEngineTsn
+          ? engineTsnVal.toFixed(2)
+          : prev.engineTsn || engineRunTime.toFixed(2),
         engineTso: hasPrevEngineTso
           ? engineTso.toFixed(2)
           : prev.engineTso || engineRunTime.toFixed(2),
@@ -1259,6 +1635,7 @@ export function AddTechnicalLogbookEntryModal({
     formData.airframePrevTime,
     formData.lifeTimeLimitEngine,
     formData.lifeTimeLimitPropeller,
+    previousEngineTsn,
     previousEngineTso,
     previousPropellerTsn,
     previousPropellerTso,
@@ -1298,7 +1675,8 @@ export function AddTechnicalLogbookEntryModal({
       const latestNumLen = getLatestNumericLength(latestSequenceNo);
       const enteredNumLen = seqTrim.length;
       if (latestNumLen > 0 && enteredNumLen !== latestNumLen) {
-        const latestNumPart = (latestSequenceNo || "").trim().match(/(\d+)$/)?.[1] ?? "";
+        const latestNumPart =
+          (latestSequenceNo || "").trim().match(/(\d+)$/)?.[1] ?? "";
         errors.seqNo = `Sequence No. must be the same length as the latest entry (e.g. ${latestNumPart}). Expected ${latestNumLen} digit(s).`;
       }
 
@@ -1315,7 +1693,7 @@ export function AddTechnicalLogbookEntryModal({
         enteredNum > latestNum + 15
       ) {
         const maxNum = latestNum + 15;
-        const padLen = (latestNumMatch[1] || "").length;
+        const padLen = (latestNumMatch?.[1] || "").length;
         const maxSeq = (latestSequenceNo || "").replace(
           /\d+$/,
           String(maxNum).padStart(padLen, "0")
@@ -1387,6 +1765,21 @@ export function AddTechnicalLogbookEntryModal({
       errors.tachometerEnd = "Tachometer End must be a valid number";
     }
 
+    const optionalTsn = (v: string | undefined, key: string) => {
+      const t = (v ?? "").trim();
+      if (t === "") return;
+      const n = parseFloat(t);
+      if (!Number.isFinite(n)) {
+        errors[key] = "Must be a valid number";
+        return;
+      }
+      if (n < 0) {
+        errors[key] = "Must be 0 or greater";
+      }
+    };
+    optionalTsn(formData.engineTsn, "engineTsn");
+    optionalTsn(formData.propellerTsn, "propellerTsn");
+
     // Time format validation for Zulu times
     if (formData.pilotAcceptTime && formData.pilotAcceptTime.trim() !== "") {
       if (!/^\d{2}:\d{2}$/.test(formData.pilotAcceptTime)) {
@@ -1422,49 +1815,39 @@ export function AddTechnicalLogbookEntryModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate form (for both create and update) – errors shown on fields only, no SweetAlert
-    const validationResult = validateForm();
-    if (!validationResult.isValid) {
-      return;
+    if (attachmentsOnlyLocked) {
+      if (
+        !(formData.whiteAtl instanceof File || formData.dfp instanceof File)
+      ) {
+        return;
+      }
+      setValidationErrors({});
+    } else {
+      const validationResult = validateForm();
+      if (!validationResult.isValid) {
+        return;
+      }
     }
 
-    // Before creating/editing ATL: ensure aircraft has life_time_limit_engine and life_time_limit_propeller set (not 0 or empty)
+    // Before creating/editing ATL: engine/propeller limits + AFTT + Engine/Prop TSN + TSO on aircraft master
     const aid = aircraftId ?? selectedAircraftId ?? null;
-    if (aid != null) {
+    if (aid != null && !attachmentsOnlyLocked) {
       try {
         const res = await getAircraftById(aid);
-        const data = res.data || {};
-        const engineLimit =
-          data.engine_life_time_limit ?? data.life_time_limit_engine;
-        const propellerLimit =
-          data.propeller_life_time_limit ?? data.life_time_limit_propeller;
-        const engineMissing =
-          engineLimit == null ||
-          engineLimit === "" ||
-          Number(engineLimit) === 0;
-        const propellerMissing =
-          propellerLimit == null ||
-          propellerLimit === "" ||
-          Number(propellerLimit) === 0;
-        if (engineMissing || propellerMissing) {
-          Swal.fire({
+        const aircraftCamel = toCamel(res.data) as Aircraft;
+        const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
+        if (missing.length > 0) {
+          await Swal.fire({
             icon: "warning",
-            title: "Aircraft limits required",
-            html:
-              "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating or editing an ATL entry.<br/><br/>" +
-              (engineMissing
-                ? "• Set <strong>Engine Life Time Limit</strong> (life_time_limit_engine)<br/>"
-                : "") +
-              (propellerMissing
-                ? "• Set <strong>Propeller Life Time Limit</strong> (life_time_limit_propeller)"
-                : ""),
+            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+            html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
             confirmButtonColor: "#2563eb",
           });
           return;
         }
       } catch (err) {
-        console.error("Failed to validate aircraft limits:", err);
-        Swal.fire({
+        console.error("Failed to validate aircraft prerequisites:", err);
+        await Swal.fire({
           icon: "error",
           title: "Validation error",
           text: "Could not load aircraft information. Please try again.",
@@ -1488,19 +1871,26 @@ export function AddTechnicalLogbookEntryModal({
             if (username) {
               const accounts = await getAllAccounts();
               const account = accounts.find(
-                (a) => a.username?.toLowerCase() === String(username).toLowerCase()
+                (a) =>
+                  a.username?.toLowerCase() === String(username).toLowerCase()
               );
               if (account) createdByAccountId = account.id;
             }
           }
         } catch (err) {
-          console.warn("Could not resolve current user account_information_id:", err);
+          console.warn(
+            "Could not resolve current user account_information_id:",
+            err
+          );
         }
       }
 
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
       const aircraftFkValue = aircraftId ?? selectedAircraftId;
-      if (!editEntry && (aircraftFkValue == null || aircraftFkValue === undefined)) {
+      if (
+        !editEntry &&
+        (aircraftFkValue == null || aircraftFkValue === undefined)
+      ) {
         setIsSubmitting(false);
         Swal.fire({
           icon: "error",
@@ -1595,7 +1985,7 @@ export function AddTechnicalLogbookEntryModal({
           : formData.engineTotalTime
           ? parseFloat(formData.engineTotalTime)
           : undefined,
-        engineTsn: formData.engineTsn || undefined,
+        engineTsn: resolveTsnForApi(formData.engineTsn),
         engineTso: formData.engineTso
           ? parseFloat(formData.engineTso)
           : undefined,
@@ -1607,7 +1997,7 @@ export function AddTechnicalLogbookEntryModal({
           : formData.propellerTotalTime
           ? parseFloat(formData.propellerTotalTime)
           : undefined,
-        propellerTsn: formData.propellerTsn || undefined,
+        propellerTsn: resolveTsnForApi(formData.propellerTsn),
         propellerTso: formData.propellerTso
           ? parseFloat(formData.propellerTso)
           : undefined,
@@ -1694,19 +2084,41 @@ export function AddTechnicalLogbookEntryModal({
         })),
         // Fleet Time Monitoring: on update send work_status from form (connected to update API); on create overwritten to FOR_REVIEW below
         workStatus: formData.workStatus || undefined,
+        ...(() => {
+          const raw = formData.atlBatchFk?.trim() ?? "";
+          if (raw === "") {
+            return editEntry ? { atlBatchFk: null } : {};
+          }
+          const n = parseInt(raw, 10);
+          if (Number.isFinite(n) && n > 0) return { atlBatchFk: n };
+          return editEntry ? { atlBatchFk: null } : {};
+        })(),
       };
 
       // Fleet Time Monitoring: on create only, default work_status FOR_REVIEW (API enum name); on update workStatus is already in apiDataCamel from form
       if (!editEntry) {
         apiDataCamel.workStatus = "FOR_REVIEW";
-        if (createdByAccountId != null) apiDataCamel.createdBy = createdByAccountId;
+        if (createdByAccountId != null)
+          apiDataCamel.createdBy = createdByAccountId;
+      }
+
+      // Operation / Technical Publication: new White ATL or DFP implies Pending if status left blank
+      if (
+        editEntry &&
+        attachmentsOnlyLocked &&
+        canUploadAtlAttachments &&
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File) &&
+        !String(apiDataCamel.workStatus ?? "").trim()
+      ) {
+        apiDataCamel.workStatus = "PENDING";
       }
 
       // Convert camelCase to snake_case before sending to API
       const apiDataSnake = snakeAllKeys(apiDataCamel);
 
       const files =
-        formData.whiteAtl instanceof File || formData.dfp instanceof File
+        canUploadAtlAttachments &&
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File)
           ? {
               whiteAtl:
                 formData.whiteAtl instanceof File ? formData.whiteAtl : null,
@@ -1744,7 +2156,10 @@ export function AddTechnicalLogbookEntryModal({
       }
 
       // Create new entry — payload is snake_case for backend; work_status FOR_REVIEW and createdBy set above
-      const createdEntry = await createAircraftTechnicalLog(apiDataSnake, files);
+      const createdEntry = await createAircraftTechnicalLog(
+        apiDataSnake,
+        files
+      );
 
       // Show success message
       await Swal.fire({
@@ -1767,6 +2182,7 @@ export function AddTechnicalLogbookEntryModal({
         seqNo: "",
         workStatus: "FOR_REVIEW",
         acReg: "",
+        atlBatchFk: "",
         natureOfFlight: "",
         offBlocksDate: "",
         offBlocksTime: "",
@@ -1823,7 +2239,7 @@ export function AddTechnicalLogbookEntryModal({
         engineFlightTime: "",
         engineTotalTime: "",
         engineRunTime: "",
-        engineTsn: "0.0",
+        engineTsn: "",
         engineTso: "",
         engineTbo: "",
         propellerPrevTime: "",
@@ -1968,7 +2384,18 @@ export function AddTechnicalLogbookEntryModal({
     field: "pilotSignature" | "mechanicSignature" | "whiteAtl" | "dfp",
     file: File | null
   ) => {
-    setFormData((prev) => ({ ...prev, [field]: file }));
+    setFormData((prev) => {
+      const next: typeof prev = { ...prev, [field]: file };
+      if (
+        attachmentsOnlyLocked &&
+        editEntry &&
+        (field === "whiteAtl" || field === "dfp") &&
+        file instanceof File
+      ) {
+        next.workStatus = "PENDING";
+      }
+      return next;
+    });
     if (field === "whiteAtl") {
       setWhiteAtlFileName(file ? file.name : "");
     } else if (field === "dfp") {
@@ -1992,7 +2419,10 @@ export function AddTechnicalLogbookEntryModal({
     displayName?: string
   ) => {
     if (!filePath?.trim()) return;
-    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    let path = filePath
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${path}`;
     try {
       const response = await apiClient.get(endpoint, {
@@ -2013,7 +2443,10 @@ export function AddTechnicalLogbookEntryModal({
       Swal.fire({
         icon: "error",
         title: "Download Failed",
-        text: err?.response?.data?.detail || err?.message || "Failed to download file.",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to download file.",
       });
     }
   };
@@ -2035,14 +2468,20 @@ export function AddTechnicalLogbookEntryModal({
   };
 
   /** View file in modal (image popup; other types get download/open link) */
-  const handleViewAtlFile = async (folder: "white_atl" | "dfp", filePath: string) => {
+  const handleViewAtlFile = async (
+    folder: "white_atl" | "dfp",
+    filePath: string
+  ) => {
     if (!filePath?.trim()) return;
     setFileViewLoading(true);
     setFileViewError(null);
     setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
-    let path = filePath.trim().replace(/^\/+/, "").replace(/^api\/v1\//, "");
+    let path = filePath
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/^api\/v1\//, "");
     const endpoint = `${folder}/download/${path}`;
     try {
       const response = await apiClient.get(endpoint, {
@@ -2051,15 +2490,19 @@ export function AddTechnicalLogbookEntryModal({
       });
       const blob = response.data as Blob;
       const url = window.URL.createObjectURL(blob);
-      const serverType = blob.type || (response as any).headers?.["content-type"] || null;
-      const isOctetStream = !serverType || serverType === "application/octet-stream";
+      const serverType =
+        blob.type || (response as any).headers?.["content-type"] || null;
+      const isOctetStream =
+        !serverType || serverType === "application/octet-stream";
       const mimeType = isOctetStream ? getMimeFromFilename(path) : serverType;
       setFileViewBlobUrl(url);
       setFileViewMimeType(mimeType ?? null);
       setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
-      setFileViewError(err?.response?.data?.detail || err?.message || "Failed to open file.");
+      setFileViewError(
+        err?.response?.data?.detail || err?.message || "Failed to open file."
+      );
       setFileViewBlobUrl(null);
       setFileViewMimeType(null);
     } finally {
@@ -2186,1758 +2629,876 @@ export function AddTechnicalLogbookEntryModal({
         {/* Form Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
-            {/* Sequence No. | Work Status | A/C Registration (same order in View / Add / Edit) */}
             <div
-              className={`grid gap-4 ${
-                !aircraftId ? "grid-cols-3" : "grid-cols-2"
+              className={`space-y-6 ${
+                attachmentsOnlyLocked
+                  ? "pointer-events-none select-none opacity-[0.92]"
+                  : ""
               }`}
             >
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Sequence No. *
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={formData.seqNo}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, "");
-                    setFormData({ ...formData, seqNo: digits });
-                    if (validationErrors.seqNo) {
-                      setValidationErrors({ ...validationErrors, seqNo: "" });
-                    }
-                  }}
-                  className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900 placeholder:text-gray-400 ${
-                    validationErrors.seqNo
-                      ? "border-red-500 ring-1 ring-red-400"
-                      : "border-gray-300"
+              {/* Sequence No. | Work Status | ATL batch (one row); A/C Registration below when picking aircraft */}
+              <div className="space-y-4">
+                <div
+                  className={`grid grid-cols-1 gap-4 ${
+                    showAtlBatchFormField ? "md:grid-cols-3" : "md:grid-cols-2"
                   }`}
-                  placeholder="e.g. 001"
-                  required
-                />
-                {validationErrors.seqNo && (
-                  <p className="mt-1 text-xs text-red-600">
-                    {validationErrors.seqNo}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Work Status
-                </label>
-                {editEntry ? (
-                  <select
-                    value={formData.workStatus}
-                    onChange={(e) =>
-                      setFormData({ ...formData, workStatus: e.target.value })
+                >
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Sequence No. *
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={formData.seqNo}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "");
+                        setFormData({ ...formData, seqNo: digits });
+                        if (validationErrors.seqNo) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            seqNo: "",
+                          });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900 placeholder:text-gray-400 ${
+                        validationErrors.seqNo
+                          ? "border-red-500 ring-1 ring-red-400"
+                          : "border-gray-300"
+                      }`}
+                      placeholder="e.g. 001"
+                      required
+                    />
+                    {validationErrors.seqNo && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {validationErrors.seqNo}
+                      </p>
+                    )}
+                  </div>
+                  <div
+                    className={
+                      attachmentsOnlyLocked
+                        ? "pointer-events-auto relative z-[1]"
+                        : undefined
                     }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
-                    aria-label="Work status"
                   >
-                    <option value="">— Select —</option>
-                    <option value="FOR_REVIEW">FOR REVIEW</option>
-                    <option value="REJECTED_MAINTENANCE">REJECTED_MAINTENANCE</option>
-                    <option value="APPROVED">APPROVED</option>
-                    <option value="AWAITING_ATTACHMENT">AWAITING_ATTACHMENT</option>
-                    <option value="REJECTED_QUALITY">REJECTED_QUALITY</option>
-                    <option value="PENDING">PENDING</option>
-                    <option value="COMPLETED">COMPLETED</option>
-                  </select>
-                ) : (
-                  <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
-                    FOR REVIEW
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Work Status
+                    </label>
+                    {editEntry ? (
+                      <select
+                        value={formData.workStatus}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            workStatus: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                        aria-label="Work status"
+                      >
+                        <option value="">— Select —</option>
+                        {workStatusDropdownKeys.map((key) => (
+                          <option key={key} value={key}>
+                            {formatAtlWorkStatusLabel(key)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
+                        FOR REVIEW
+                      </div>
+                    )}
+                  </div>
+                  {showAtlBatchFormField && (
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        ATL batch
+                      </label>
+                      <select
+                        value={formData.atlBatchFk}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            atlBatchFk: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                        aria-label="ATL batch"
+                      >
+                        <option value="">— None —</option>
+                        {atlBatchOptions.map((b) => (
+                          <option key={b.id} value={String(b.id)}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+                {!aircraftId && (
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      A/C Registration *
+                    </label>
+                    {editEntry ? (
+                      <input
+                        type="text"
+                        value={formData.acReg}
+                        readOnly
+                        disabled
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
+                        aria-label="A/C Registration"
+                      />
+                    ) : (
+                      <div className="relative" ref={aircraftDropdownRef}>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={
+                              isAircraftDropdownOpen
+                                ? aircraftSearchTerm
+                                : formData.acReg
+                            }
+                            onChange={(e) => {
+                              setAircraftSearchTerm(e.target.value);
+                              setIsAircraftDropdownOpen(true);
+                              // Clear error when user starts typing
+                              if (validationErrors.acReg) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  acReg: "",
+                                });
+                              }
+                            }}
+                            onFocus={() => {
+                              setIsAircraftDropdownOpen(true);
+                              setAircraftSearchTerm("");
+                            }}
+                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                              validationErrors.acReg
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
+                            required
+                            placeholder="Search aircraft registration..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
+                            }
+                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform ${
+                                isAircraftDropdownOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {isAircraftDropdownOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {loadingAircrafts ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                Loading aircrafts...
+                              </div>
+                            ) : filteredAircrafts.length === 0 ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                {aircraftSearchTerm
+                                  ? "No aircrafts found"
+                                  : "No aircrafts available"}
+                              </div>
+                            ) : (
+                              <ul className="py-1">
+                                {filteredAircrafts.map((aircraft) => (
+                                  <li
+                                    key={aircraft.id}
+                                    onClick={() =>
+                                      handleAircraftSelect(
+                                        aircraft.id,
+                                        aircraft.registration
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      formData.acReg === aircraft.registration
+                                        ? "bg-blue-50"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900">
+                                      {aircraft.registration}
+                                    </span>
+                                    {formData.acReg ===
+                                      aircraft.registration && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {validationErrors.acReg && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {validationErrors.acReg}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
-              {!aircraftId && (
+
+              {/* Nature of Flight, NEXT INSP. DUE, TACH TIME DUE */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    A/C Registration *
+                    Nature of Flight
                   </label>
-                  <div className="relative" ref={aircraftDropdownRef}>
-                    <div className="relative">
+                  <select
+                    value={formData.natureOfFlight}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        natureOfFlight: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                  >
+                    <option value="">-</option>
+                    <option value="TR">TR - Training Flight</option>
+                    <option value="PSF">PSF - Post Flight Inspection</option>
+                    <option value="PRF">PRF - Pre Flight Inspection</option>
+                    <option value="EGR">EGR - Engine Run-up</option>
+                    <option value="ME">ME - Maintenance Entry</option>
+                    <option value="TR_WITH_PIREM">
+                      TR W/ PIREM - Training Flight with Pilot Remarks
+                    </option>
+                    <option value="VOID">VOID - Void</option>
+                    <option value="ATL_REPL">ATL REPL</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    NEXT INSP. DUE
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.nextInspectionDue}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        nextInspectionDue: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1.5">
+                    TACH TIME DUE
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.tachTimeDue}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        tachTimeDue: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                  />
+                </div>
+              </div>
+
+              {/* Off-Blocks/Origin & On-Blocks/Destination */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Off-Blocks/Origin */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Off-Blocks / Origin</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Station (STN)
+                      </label>
                       <input
                         type="text"
-                        value={
-                          isAircraftDropdownOpen
-                            ? aircraftSearchTerm
-                            : formData.acReg
-                        }
+                        value={formData.offBlocksStation}
                         onChange={(e) => {
-                          setAircraftSearchTerm(e.target.value);
-                          setIsAircraftDropdownOpen(true);
-                          // Clear error when user starts typing
-                          if (validationErrors.acReg) {
+                          setFormData({
+                            ...formData,
+                            offBlocksStation: e.target.value,
+                          });
+                          if (validationErrors.offBlocksStation) {
                             setValidationErrors({
                               ...validationErrors,
-                              acReg: "",
+                              offBlocksStation: "",
                             });
                           }
                         }}
-                        onFocus={() => {
-                          setIsAircraftDropdownOpen(true);
-                          setAircraftSearchTerm("");
-                        }}
-                        className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                          validationErrors.acReg
+                        className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                          validationErrors.offBlocksStation
                             ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                             : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                         }`}
-                        required
-                        placeholder="Search aircraft registration..."
                       />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
-                        }
-                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            isAircraftDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {isAircraftDropdownOpen && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                        {loadingAircrafts ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            Loading aircrafts...
-                          </div>
-                        ) : filteredAircrafts.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            {aircraftSearchTerm
-                              ? "No aircrafts found"
-                              : "No aircrafts available"}
-                          </div>
-                        ) : (
-                          <ul className="py-1">
-                            {filteredAircrafts.map((aircraft) => (
-                              <li
-                                key={aircraft.id}
-                                onClick={() =>
-                                  handleAircraftSelect(
-                                    aircraft.id,
-                                    aircraft.registration
-                                  )
-                                }
-                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                  formData.acReg === aircraft.registration
-                                    ? "bg-blue-50"
-                                    : ""
-                                }`}
-                              >
-                                <span className="text-gray-900">
-                                  {aircraft.registration}
-                                </span>
-                                {formData.acReg === aircraft.registration && (
-                                  <Check className="w-4 h-4 text-blue-600" />
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {validationErrors.acReg && (
-                    <p className="mt-1 text-xs text-red-600">
-                      {validationErrors.acReg}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Nature of Flight, NEXT INSP. DUE, TACH TIME DUE */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Nature of Flight
-                </label>
-                <select
-                  value={formData.natureOfFlight}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      natureOfFlight: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-                >
-                  <option value="">-</option>
-                  <option value="TR">TR - Training Flight</option>
-                  <option value="PSF">PSF - Post Flight Inspection</option>
-                  <option value="PRF">PRF - Pre Flight Inspection</option>
-                  <option value="EGR">EGR - Engine Run-up</option>
-                  <option value="ME">ME - Maintenance Entry</option>
-                  <option value="TR_WITH_PIREM">
-                    TR W/ PIREM - Training Flight with Pilot Remarks
-                  </option>
-                  <option value="VOID">VOID - Void</option>
-                  <option value="ATL_REPL">ATL REPL</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  NEXT INSP. DUE
-                </label>
-                <input
-                  type="text"
-                  value={formData.nextInspectionDue}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      nextInspectionDue: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
-              </div>
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  TACH TIME DUE
-                </label>
-                <input
-                  type="text"
-                  value={formData.tachTimeDue}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      tachTimeDue: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
-              </div>
-            </div>
-
-            {/* Off-Blocks/Origin & On-Blocks/Destination */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Off-Blocks/Origin */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Off-Blocks / Origin</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Station (STN)
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.offBlocksStation}
-                      onChange={(e) => {
-                        setFormData({
-                          ...formData,
-                          offBlocksStation: e.target.value,
-                        });
-                        if (validationErrors.offBlocksStation) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            offBlocksStation: "",
-                          });
-                        }
-                      }}
-                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                        validationErrors.offBlocksStation
-                          ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                          : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                      }`}
-                    />
-                    {validationErrors.offBlocksStation && (
-                      <p className="mt-1 text-xs text-red-600">
-                        {validationErrors.offBlocksStation}
-                      </p>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Date (UTC)
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.offBlocksDate}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            offBlocksDate: e.target.value,
-                          });
-                          if (validationErrors.offBlocksDate) {
-                            setValidationErrors({
-                              ...validationErrors,
-                              offBlocksDate: "",
-                            });
-                          }
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 ${
-                          validationErrors.offBlocksDate
-                            ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                            : "border-gray-300 focus:ring-blue-500 focus:border-transparent"
-                        }`}
-                      />
-                      {validationErrors.offBlocksDate && (
+                      {validationErrors.offBlocksStation && (
                         <p className="mt-1 text-xs text-red-600">
-                          {validationErrors.offBlocksDate}
+                          {validationErrors.offBlocksStation}
                         </p>
                       )}
                     </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Zulu Time
-                      </label>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Date (UTC)
+                        </label>
                         <input
-                          type="text"
-                          value={formData.offBlocksTime}
+                          type="date"
+                          value={formData.offBlocksDate}
                           onChange={(e) => {
-                            const formatted = formatTimeInput(e.target.value);
                             setFormData({
                               ...formData,
-                              offBlocksTime: formatted,
+                              offBlocksDate: e.target.value,
                             });
-                            if (validationErrors.offBlocksTime) {
+                            if (validationErrors.offBlocksDate) {
                               setValidationErrors({
                                 ...validationErrors,
-                                offBlocksTime: "",
+                                offBlocksDate: "",
                               });
                             }
                           }}
-                          maxLength={5}
-                          placeholder="HH:MM"
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                          className={`w-full px-3 py-2 border rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 ${
+                            validationErrors.offBlocksDate
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-blue-500 focus:border-transparent"
+                          }`}
                         />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Format: HH:MM (24-hour, e.g., 23:17)
-                        </p>
+                        {validationErrors.offBlocksDate && (
+                          <p className="mt-1 text-xs text-red-600">
+                            {validationErrors.offBlocksDate}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Zulu Time
+                        </label>
+                        <div>
+                          <input
+                            type="text"
+                            value={formData.offBlocksTime}
+                            onChange={(e) => {
+                              const formatted = formatTimeInput(e.target.value);
+                              setFormData({
+                                ...formData,
+                                offBlocksTime: formatted,
+                              });
+                              if (validationErrors.offBlocksTime) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  offBlocksTime: "",
+                                });
+                              }
+                            }}
+                            maxLength={5}
+                            placeholder="HH:MM"
+                            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Format: HH:MM (24-hour, e.g., 23:17)
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* On-Blocks/Destination */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">On-Blocks / Destination</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Station (STN)
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.onBlocksStation}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          onBlocksStation: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+                {/* On-Blocks/Destination */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">
+                    On-Blocks / Destination
+                  </h3>
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-gray-700 text-sm mb-1">
-                        Date (UTC)
+                        Station (STN)
                       </label>
                       <input
-                        type="date"
-                        value={formData.onBlocksDate}
+                        type="text"
+                        value={formData.onBlocksStation}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            onBlocksDate: e.target.value,
+                            onBlocksStation: e.target.value,
                           })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                       />
                     </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Zulu Time
-                      </label>
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Date (UTC)
+                        </label>
                         <input
-                          type="text"
-                          value={formData.onBlocksTime}
-                          onChange={(e) => {
-                            const formatted = formatTimeInput(e.target.value);
+                          type="date"
+                          value={formData.onBlocksDate}
+                          onChange={(e) =>
                             setFormData({
                               ...formData,
-                              onBlocksTime: formatted,
-                            });
-                            if (validationErrors.onBlocksTime) {
-                              setValidationErrors({
-                                ...validationErrors,
-                                onBlocksTime: "",
+                              onBlocksDate: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Zulu Time
+                        </label>
+                        <div>
+                          <input
+                            type="text"
+                            value={formData.onBlocksTime}
+                            onChange={(e) => {
+                              const formatted = formatTimeInput(e.target.value);
+                              setFormData({
+                                ...formData,
+                                onBlocksTime: formatted,
                               });
-                            }
-                          }}
-                          maxLength={5}
-                          placeholder="HH:MM"
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          Format: HH:MM (24-hour, e.g., 23:17)
-                        </p>
+                              if (validationErrors.onBlocksTime) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  onBlocksTime: "",
+                                });
+                              }
+                            }}
+                            maxLength={5}
+                            placeholder="HH:MM"
+                            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Format: HH:MM (24-hour, e.g., 23:17)
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Total Flight Time & Number of Landings */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Total Flight Time
-                </label>
-                <input
-                  type="text"
-                  value={formData.totalFlightTime}
-                  disabled
-                  readOnly
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-gray-700 text-sm mb-1.5">
-                  Number of Landings
-                </label>
-                <input
-                  type="text"
-                  value={formData.numberOfLandings}
-                  onChange={(e) => {
-                    // Only allow numeric input
-                    const value = e.target.value.replace(/\D/g, "");
-                    setFormData({
-                      ...formData,
-                      numberOfLandings: value,
-                    });
-                  }}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                />
-              </div>
-            </div>
-
-            {/* Hobbs Meter & Tachometer */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Hobbs Meter */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Start
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.hobbsMeterStart}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            hobbsMeterStart: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        End
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.hobbsMeterEnd}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            hobbsMeterEnd: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Total
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.hobbsMeterTotal}
-                      readOnly
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Tachometer */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Tachometer</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Start
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.tachometerStart}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            tachometerStart: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        End
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.tachometerEnd}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            tachometerEnd: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1">
-                      Total
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.tachometerTotal}
-                      readOnly
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Fuel & Oil Section - Table Format */}
-            <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 border-b border-gray-300">
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
-                    <th
-                      colSpan={3}
-                      className="px-4 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"
-                    >
-                      FUEL QTY. (GALS)
-                    </th>
-                    <th
-                      colSpan={3}
-                      className="px-4 py-2 text-center text-xs font-semibold text-gray-900"
-                    >
-                      OIL QTY. (QTS)
-                    </th>
-                  </tr>
-                  <tr className="bg-gray-100 border-b border-gray-300">
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                      UPLIFT QTY.
-                    </th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                      PRIOR DEPARTURE
-                    </th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                      AFTER ON-BLKS
-                    </th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                      UPLIFT QTY.
-                    </th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                      PRIOR DEPARTURE
-                    </th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900">
-                      AFTER ON-BLKS
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {/* Row label */}
-                    <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
-                      RIGHT
-                    </td>
-
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.fuelQtyRightUpliftQty}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyRightUpliftQty: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* FUEL - PRIOR DEPARTURE RIGHT */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.fuelQtyRightPriorDeparture}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyRightPriorDeparture: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* FUEL - AFTER ON-BLKS RIGHT */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.fuelQtyRightAfterOnBlks}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyRightAfterOnBlks: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* OIL - UPLIFT QTY */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.oilQtyUpliftQty}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            oilQtyUpliftQty: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* OIL - PRIOR DEPARTURE */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.oilQtyPriorDeparture}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            oilQtyPriorDeparture: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* OIL - AFTER ON-BLKS */}
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={formData.oilQtyAfterOnBlks}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            oilQtyAfterOnBlks: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                  </tr>
-                  <tr>
-                    {/* Row label */}
-                    <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
-                      LEFT
-                    </td>
-                    {/* FUEL - UPLIFT QTY LEFT */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.fuelQtyLeftUpliftQty}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyLeftUpliftQty: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* FUEL - PRIOR DEPARTURE LEFT */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.fuelQtyLeftPriorDeparture}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyLeftPriorDeparture: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* FUEL - AFTER ON-BLKS LEFT */}
-                    <td className="px-3 py-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        value={formData.fuelQtyLeftAfterOnBlks}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyLeftAfterOnBlks: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </td>
-                    {/* OIL - Empty cells for alignment */}
-                    <td className="px-3 py-2 border-r border-gray-300"></td>
-                    <td className="px-3 py-2 border-r border-gray-300"></td>
-                    <td className="px-3 py-2"></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Remarks Section */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-gray-700 mb-2">Remarks</label>
-                <textarea
-                  value={formData.pilotReport}
-                  onChange={(e) =>
-                    setFormData({ ...formData, pilotReport: e.target.value })
-                  }
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
-                />
-                <div className="mt-2">
+              {/* Total Flight Time & Number of Landings */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Name
+                    Total Flight Time
                   </label>
-                  <div className="relative" ref={remarksDropdownRef}>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={
-                          isRemarksDropdownOpen
-                            ? remarksSearchTerm
-                            : getSelectedRemarksPerson()
-                        }
-                        onChange={(e) => {
-                          setRemarksSearchTerm(e.target.value);
-                          setIsRemarksDropdownOpen(true);
-                        }}
-                        onFocus={() => {
-                          setIsRemarksDropdownOpen(true);
-                          setRemarksSearchTerm("");
-                        }}
-                        className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        placeholder="Search name..."
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsRemarksDropdownOpen(!isRemarksDropdownOpen)
-                        }
-                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            isRemarksDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {isRemarksDropdownOpen && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                        {loadingRemarksAccounts ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            Loading...
-                          </div>
-                        ) : remarksAccounts.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            {remarksSearchTerm
-                              ? "No accounts found"
-                              : "No accounts available"}
-                          </div>
-                        ) : (
-                          <ul className="py-1">
-                            {remarksAccounts.map((account) => (
-                              <li
-                                key={account.id}
-                                onClick={() =>
-                                  handleRemarksPersonSelect(
-                                    account.id.toString(),
-                                    `${account.fullName}-${account.licenseNo}`
-                                  )
-                                }
-                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                  formData.remarksPerson ===
-                                  account.id.toString()
-                                    ? "bg-blue-50"
-                                    : ""
-                                }`}
-                              >
-                                <span className="text-gray-900 text-sm">
-                                  {account.fullName}-{account.licenseNo}
-                                </span>
-                                {formData.remarksPerson ===
-                                  account.id.toString() && (
-                                  <Check className="w-4 h-4 text-blue-600" />
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <input
+                    type="text"
+                    value={formData.totalFlightTime}
+                    disabled
+                    readOnly
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
+                  />
                 </div>
-              </div>
-              <div>
-                <label className="block text-gray-700 mb-2">
-                  Actions Taken
-                </label>
-                <textarea
-                  value={formData.actionsTaken}
-                  onChange={(e) =>
-                    setFormData({ ...formData, actionsTaken: e.target.value })
-                  }
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
-                />
-                <div className="mt-2">
+                <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Name
+                    Number of Landings
                   </label>
-                  <div className="relative" ref={actionsTakenDropdownRef}>
-                    <div className="relative">
+                  <input
+                    type="text"
+                    value={formData.numberOfLandings}
+                    onChange={(e) => {
+                      // Only allow numeric input
+                      const value = e.target.value.replace(/\D/g, "");
+                      setFormData({
+                        ...formData,
+                        numberOfLandings: value,
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                  />
+                </div>
+              </div>
+
+              {/* Tachometer & Hobbs Meter */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Tachometer */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Tachometer</h3>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Start
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.tachometerStart}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              tachometerStart: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          End
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.tachometerEnd}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              tachometerEnd: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Total
+                      </label>
                       <input
                         type="text"
-                        value={
-                          isActionsTakenDropdownOpen
-                            ? actionsTakenSearchTerm
-                            : getSelectedActionsTakenPerson()
-                        }
-                        onChange={(e) => {
-                          setActionsTakenSearchTerm(e.target.value);
-                          setIsActionsTakenDropdownOpen(true);
-                        }}
-                        onFocus={() => {
-                          setIsActionsTakenDropdownOpen(true);
-                          setActionsTakenSearchTerm("");
-                        }}
-                        className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        placeholder="Search name..."
+                        value={formData.tachometerTotal}
+                        readOnly
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
                       />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setIsActionsTakenDropdownOpen(
-                            !isActionsTakenDropdownOpen
-                          )
-                        }
-                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            isActionsTakenDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
                     </div>
+                  </div>
+                </div>
 
-                    {isActionsTakenDropdownOpen && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                        {loadingActionsTakenAccounts ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            Loading...
-                          </div>
-                        ) : actionsTakenAccounts.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            {actionsTakenSearchTerm
-                              ? "No accounts found"
-                              : "No accounts available"}
-                          </div>
-                        ) : (
-                          <ul className="py-1">
-                            {actionsTakenAccounts.map((account) => (
-                              <li
-                                key={account.id}
-                                onClick={() =>
-                                  handleActionsTakenPersonSelect(
-                                    account.id.toString(),
-                                    `${account.fullName}-${account.licenseNo}`
-                                  )
-                                }
-                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                  formData.actionsTakenPerson ===
-                                  account.id.toString()
-                                    ? "bg-blue-50"
-                                    : ""
-                                }`}
-                              >
-                                <span className="text-gray-900 text-sm">
-                                  {account.fullName}-{account.licenseNo}
-                                </span>
-                                {formData.actionsTakenPerson ===
-                                  account.id.toString() && (
-                                  <Check className="w-4 h-4 text-blue-600" />
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                {/* Hobbs Meter */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Start
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.hobbsMeterStart}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              hobbsMeterStart: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
                       </div>
-                    )}
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          End
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.hobbsMeterEnd}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              hobbsMeterEnd: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Total
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.hobbsMeterTotal}
+                        readOnly
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
-                <h3 className="text-white font-semibold">
-                  AIRFRAME, ENGINE & PROPELLER TIMES
-                </h3>
-              </div>
-              <div className="overflow-x-auto">
+              {/* Fuel & Oil Section - Table Format */}
+              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
                 <table className="w-full border-collapse">
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-gray-700"></th>
-                      <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
-                        AIRFRAME
+                    <tr className="bg-gray-100 border-b border-gray-300">
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
+                      <th
+                        colSpan={3}
+                        className="px-4 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"
+                      >
+                        FUEL QTY. (GALS)
                       </th>
-                      <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
-                        ENGINE
+                      <th
+                        colSpan={3}
+                        className="px-4 py-2 text-center text-xs font-semibold text-gray-900"
+                      >
+                        OIL QTY. (QTS)
                       </th>
-                      <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
-                        PROPELLER
+                    </tr>
+                    <tr className="bg-gray-100 border-b border-gray-300">
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        UPLIFT QTY.
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        PRIOR DEPARTURE
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        AFTER ON-BLKS
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        UPLIFT QTY.
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
+                        PRIOR DEPARTURE
+                      </th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900">
+                        AFTER ON-BLKS
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
-                        PREV. TIME
+                      {/* Row label */}
+                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                        RIGHT
                       </td>
-                      <td className="border border-gray-300 px-3 py-2">
+
+                      <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          value={formData.airframePrevTime}
+                          value={formData.fuelQtyRightUpliftQty}
                           onChange={(e) =>
-                            handleTimeFieldChange(
-                              "airframePrevTime",
-                              e.target.value,
-                              "airframe"
-                            )
+                            setFormData({
+                              ...formData,
+                              fuelQtyRightUpliftQty: e.target.value,
+                            })
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
-                      <td className="border border-gray-300 px-3 py-2">
+                      {/* FUEL - PRIOR DEPARTURE RIGHT */}
+                      <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          value={formData.enginePrevTime}
+                          value={formData.fuelQtyRightPriorDeparture}
                           onChange={(e) =>
-                            handleTimeFieldChange(
-                              "enginePrevTime",
-                              e.target.value,
-                              "engine"
-                            )
+                            setFormData({
+                              ...formData,
+                              fuelQtyRightPriorDeparture: e.target.value,
+                            })
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
-                      <td className="border border-gray-300 px-3 py-2">
+                      {/* FUEL - AFTER ON-BLKS RIGHT */}
+                      <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          value={formData.propellerPrevTime}
+                          value={formData.fuelQtyRightAfterOnBlks}
                           onChange={(e) =>
-                            handleTimeFieldChange(
-                              "propellerPrevTime",
-                              e.target.value,
-                              "propeller"
-                            )
+                            setFormData({
+                              ...formData,
+                              fuelQtyRightAfterOnBlks: e.target.value,
+                            })
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </td>
+                      {/* OIL - UPLIFT QTY */}
+                      <td className="px-3 py-2 border-r border-gray-300">
+                        <input
+                          type="text"
+                          value={formData.oilQtyUpliftQty}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              oilQtyUpliftQty: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </td>
+                      {/* OIL - PRIOR DEPARTURE */}
+                      <td className="px-3 py-2 border-r border-gray-300">
+                        <input
+                          type="text"
+                          value={formData.oilQtyPriorDeparture}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              oilQtyPriorDeparture: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </td>
+                      {/* OIL - AFTER ON-BLKS */}
+                      <td className="px-3 py-2">
+                        <input
+                          type="text"
+                          value={formData.oilQtyAfterOnBlks}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              oilQtyAfterOnBlks: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
                     </tr>
                     <tr>
-                      <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
-                        FLIGHT TIME
+                      {/* Row label */}
+                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
+                        LEFT
                       </td>
-                      <td className="border border-gray-300 px-3 py-2">
+                      {/* FUEL - UPLIFT QTY LEFT */}
+                      <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          value={formData.airframeFlightTime}
+                          value={formData.fuelQtyLeftUpliftQty}
                           onChange={(e) =>
-                            handleTimeFieldChange(
-                              "airframeFlightTime",
-                              e.target.value,
-                              "airframe"
-                            )
+                            setFormData({
+                              ...formData,
+                              fuelQtyLeftUpliftQty: e.target.value,
+                            })
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
-                      <td className="border border-gray-300 px-3 py-2">
+                      {/* FUEL - PRIOR DEPARTURE LEFT */}
+                      <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          value={formData.engineFlightTime}
+                          value={formData.fuelQtyLeftPriorDeparture}
                           onChange={(e) =>
-                            handleTimeFieldChange(
-                              "engineFlightTime",
-                              e.target.value,
-                              "engine"
-                            )
+                            setFormData({
+                              ...formData,
+                              fuelQtyLeftPriorDeparture: e.target.value,
+                            })
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
-                      <td className="border border-gray-300 px-3 py-2">
+                      {/* FUEL - AFTER ON-BLKS LEFT */}
+                      <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          value={formData.propellerFlightTime}
+                          value={formData.fuelQtyLeftAfterOnBlks}
                           onChange={(e) =>
-                            handleTimeFieldChange(
-                              "propellerFlightTime",
-                              e.target.value,
-                              "propeller"
-                            )
+                            setFormData({
+                              ...formData,
+                              fuelQtyLeftAfterOnBlks: e.target.value,
+                            })
                           }
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
-                    </tr>
-                    <tr>
-                      <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
-                        TOTAL TIME
-                      </td>
-                      <td className="border border-gray-300 px-3 py-2">
-                        <input
-                          type="text"
-                          value={formData.airframeTotalTime}
-                          disabled
-                          readOnly
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-3 py-2">
-                        <input
-                          type="text"
-                          value={formData.engineTotalTime}
-                          disabled
-                          readOnly
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-3 py-2">
-                        <input
-                          type="text"
-                          value={formData.propellerTotalTime}
-                          disabled
-                          readOnly
-                          className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                        />
-                      </td>
+                      {/* OIL - Empty cells for alignment */}
+                      <td className="px-3 py-2 border-r border-gray-300"></td>
+                      <td className="px-3 py-2 border-r border-gray-300"></td>
+                      <td className="px-3 py-2"></td>
                     </tr>
                   </tbody>
                 </table>
               </div>
 
-              {/* ATL component times: RUN TIME / AFTT / TSN / TSO / TBO — connected to ATL endpoint */}
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-300">
-                  <thead>
-                    <tr>
-                      <th
-                        colSpan={2}
-                        className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
-                      >
-                        AIRFRAME
-                      </th>
-                      <th
-                        colSpan={4}
-                        className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
-                      >
-                        ENGINE
-                      </th>
-                      <th
-                        colSpan={4}
-                        className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
-                      >
-                        PROPELLER
-                      </th>
-                    </tr>
-                    <tr>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        RUN TIME
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        AFTT
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        RUN TIME
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        TSN
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        TSO
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        TBO
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        RUN TIME
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        TSN
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        TSO
-                      </th>
-                      <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                        TBO
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-gray-300">
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.airframeRunTime}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              airframeRunTime: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="0"
-                          title="Auto: tach end − tach start"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.airframeAftt}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              airframeAftt: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="AFTT"
-                          title="Auto: Prev AFTT + Airframe Run"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.engineRunTime}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              engineRunTime: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="0"
-                          title="Auto: = Airframe Run Time"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.engineTsn}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              engineTsn: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder=""
-                          title=""
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.engineTso}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              engineTso: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="TSO"
-                          title="Auto: Prev TSO + Engine Run"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.engineTbo}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              engineTbo: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="TBO"
-                          title="Auto: life limit − TSO"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.propellerRunTime}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              propellerRunTime: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="0"
-                          title="Auto: = Airframe Run Time"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.propellerTsn}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              propellerTsn: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder=""
-                          title="Auto: Prev TSN + Prop Run"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.propellerTso}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              propellerTso: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="TSO"
-                          title="Auto: Prev TSO + Prop Run"
-                        />
-                      </td>
-                      <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                        <input
-                          type="text"
-                          value={formData.propellerTbo}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              propellerTbo: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                          placeholder="TBO"
-                          title="Auto: life limit − TSO"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* COMPONENT RECORD */}
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
-                <h3 className="text-white font-semibold">COMPONENT RECORD</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse min-w-full">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        QTY
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        UNIT
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        NOMENCLATURE
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        REMOVED P/N
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        REMOVED S/N
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        INSTALLED P/N
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        INSTALLED S/N
-                      </th>
-
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        ATA CHAPTER
-                      </th>
-                      <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                        DELETE?
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {componentRecords.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={10}
-                          className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
-                        >
-                          No component records added. Click "Add another
-                          Component" to add one.
-                        </td>
-                      </tr>
-                    ) : (
-                      componentRecords.map((record) => (
-                        <tr key={record.id} className="hover:bg-gray-50">
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.qty}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "qty",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.unit}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "unit",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.nomenclature}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "nomenclature",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.removedPartNo}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "removedPartNo",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.removedSerialNo}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "removedSerialNo",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.installedPartNo}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "installedPartNo",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.installedSerialNo}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "installedSerialNo",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2">
-                            <input
-                              type="text"
-                              value={record.ataChapter}
-                              onChange={(e) =>
-                                updateComponentRecord(
-                                  record.id,
-                                  "ataChapter",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                            />
-                          </td>
-                          <td className="border border-gray-300 px-2 py-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => removeComponentRecord(record.id)}
-                              className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-                <button
-                  type="button"
-                  onClick={addComponentRecord}
-                  className="mt-3 flex items-center gap-2 text-green-600 hover:text-green-700 font-medium text-sm transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add another Component
-                </button>
-              </div>
-            </div>
-
-            {/* Signatures Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Pilot Signature */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
+              {/* Remarks Section */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-gray-700 mb-2">Remarks</label>
+                  <textarea
+                    value={formData.pilotReport}
+                    onChange={(e) =>
+                      setFormData({ ...formData, pilotReport: e.target.value })
+                    }
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
+                  />
+                  <div className="mt-2">
+                    <label className="block text-gray-700 text-sm mb-1.5">
                       Name
                     </label>
-                    <div className="relative" ref={pilotDropdownRef}>
+                    <div className="relative" ref={remarksDropdownRef}>
                       <div className="relative">
                         <input
                           type="text"
                           value={
-                            isPilotDropdownOpen
-                              ? pilotSearchTerm
-                              : getSelectedPilot()
+                            isRemarksDropdownOpen
+                              ? remarksSearchTerm
+                              : getSelectedRemarksPerson()
                           }
                           onChange={(e) => {
-                            setPilotSearchTerm(e.target.value);
-                            setIsPilotDropdownOpen(true);
-                            // Clear error when user starts typing
-                            if (validationErrors.pilotFk) {
-                              setValidationErrors({
-                                ...validationErrors,
-                                pilotFk: "",
-                              });
-                            }
+                            setRemarksSearchTerm(e.target.value);
+                            setIsRemarksDropdownOpen(true);
                           }}
                           onFocus={() => {
-                            setIsPilotDropdownOpen(true);
-                            // If there's a selected value, use it as initial search term, otherwise clear
-                            if (formData.pilotName) {
-                              setPilotSearchTerm(formData.pilotName);
-                            } else {
-                              setPilotSearchTerm("");
-                            }
-                            // Fetch accounts if not already loaded
-                            if (pilotAccounts.length === 0) {
-                              fetchPilotAccounts("");
-                            }
+                            setIsRemarksDropdownOpen(true);
+                            setRemarksSearchTerm("");
                           }}
-                          className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                            validationErrors.pilotFk
-                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                          }`}
-                          placeholder="Search pilot..."
+                          className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          placeholder="Search name..."
                         />
                         <button
                           type="button"
-                          onClick={() => {
-                            setIsPilotDropdownOpen(!isPilotDropdownOpen);
-                            // Fetch accounts if opening and not already loaded
-                            if (
-                              !isPilotDropdownOpen &&
-                              pilotAccounts.length === 0
-                            ) {
-                              fetchPilotAccounts("");
-                            }
-                          }}
+                          onClick={() =>
+                            setIsRemarksDropdownOpen(!isRemarksDropdownOpen)
+                          }
                           className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
                         >
                           <ChevronDown
                             className={`w-4 h-4 transition-transform ${
-                              isPilotDropdownOpen ? "rotate-180" : ""
+                              isRemarksDropdownOpen ? "rotate-180" : ""
                             }`}
                           />
                         </button>
                       </div>
 
-                      {isPilotDropdownOpen && (
+                      {isRemarksDropdownOpen && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                          {loadingPilotAccounts ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              Loading pilots...
-                            </div>
-                          ) : filteredPilotAccounts.length === 0 ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              {pilotSearchTerm
-                                ? "No pilots found"
-                                : "No pilots available"}
-                            </div>
-                          ) : (
-                            <ul className="py-1">
-                              {filteredPilotAccounts.map((account) => (
-                                <li
-                                  key={account.id}
-                                  onClick={() =>
-                                    handlePilotSelect(
-                                      account.id.toString(),
-                                      `${account.fullName}-${account.licenseNo}`
-                                    )
-                                  }
-                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                    formData.pilotFk === account.id.toString()
-                                      ? "bg-blue-50"
-                                      : ""
-                                  }`}
-                                >
-                                  <span className="text-gray-900 text-sm">
-                                    {account.fullName}-{account.licenseNo}
-                                  </span>
-                                  {formData.pilotFk ===
-                                    account.id.toString() && (
-                                    <Check className="w-4 h-4 text-blue-600" />
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {validationErrors.pilotFk && (
-                      <p className="mt-1 text-xs text-red-600">
-                        {validationErrors.pilotFk}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Date
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.pilotAcceptDate}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          pilotAcceptDate: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Time (Zulu)
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.pilotAcceptTime}
-                      onChange={(e) => {
-                        const formatted = formatTimeInput(e.target.value);
-                        setFormData({
-                          ...formData,
-                          pilotAcceptTime: formatted,
-                        });
-                        if (validationErrors.pilotAcceptTime) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            pilotAcceptTime: "",
-                          });
-                        }
-                      }}
-                      placeholder="HH:MM"
-                      maxLength={5}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Return to Service */}
-              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 className="text-gray-900 mb-3">Return to Service</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Name
-                    </label>
-                    <div className="relative" ref={rtsDropdownRef}>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={
-                            isRtsDropdownOpen ? rtsSearchTerm : getSelectedRts()
-                          }
-                          onChange={(e) => {
-                            setRtsSearchTerm(e.target.value);
-                            setIsRtsDropdownOpen(true);
-                            // Clear error when user starts typing
-                            if (validationErrors.rtsSignedBy) {
-                              setValidationErrors({
-                                ...validationErrors,
-                                rtsSignedBy: "",
-                              });
-                            }
-                          }}
-                          onFocus={() => {
-                            setIsRtsDropdownOpen(true);
-                            // If there's a selected value, use it as initial search term, otherwise clear
-                            if (formData.rtsName) {
-                              setRtsSearchTerm(formData.rtsName);
-                            } else {
-                              setRtsSearchTerm("");
-                            }
-                            // Fetch accounts if not already loaded
-                            if (rtsAccounts.length === 0) {
-                              fetchRtsAccounts("");
-                            }
-                          }}
-                          className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                            validationErrors.rtsSignedBy
-                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                          }`}
-                          placeholder="Search maintenance engineer or mechanic..."
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsRtsDropdownOpen(!isRtsDropdownOpen);
-                            // Fetch accounts if opening and not already loaded
-                            if (
-                              !isRtsDropdownOpen &&
-                              rtsAccounts.length === 0
-                            ) {
-                              fetchRtsAccounts("");
-                            }
-                          }}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                        >
-                          <ChevronDown
-                            className={`w-4 h-4 transition-transform ${
-                              isRtsDropdownOpen ? "rotate-180" : ""
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {isRtsDropdownOpen && (
-                        <div className="absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                          {loadingRtsAccounts ? (
+                          {loadingRemarksAccounts ? (
                             <div className="px-4 py-3 text-sm text-gray-500 text-center">
                               Loading...
                             </div>
-                          ) : filteredRtsAccounts.length === 0 ? (
+                          ) : remarksAccounts.length === 0 ? (
                             <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              {rtsSearchTerm
+                              {remarksSearchTerm
                                 ? "No accounts found"
                                 : "No accounts available"}
                             </div>
                           ) : (
                             <ul className="py-1">
-                              {filteredRtsAccounts.map((account) => (
+                              {remarksAccounts.map((account) => (
                                 <li
                                   key={account.id}
                                   onClick={() =>
-                                    handleRtsSelect(
+                                    handleRemarksPersonSelect(
                                       account.id.toString(),
                                       `${account.fullName}-${account.licenseNo}`
                                     )
                                   }
                                   className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                    formData.rtsSignedBy ===
+                                    formData.remarksPerson ===
                                     account.id.toString()
                                       ? "bg-blue-50"
                                       : ""
@@ -3946,7 +3507,7 @@ export function AddTechnicalLogbookEntryModal({
                                   <span className="text-gray-900 text-sm">
                                     {account.fullName}-{account.licenseNo}
                                   </span>
-                                  {formData.rtsSignedBy ===
+                                  {formData.remarksPerson ===
                                     account.id.toString() && (
                                     <Check className="w-4 h-4 text-blue-600" />
                                   )}
@@ -3957,58 +3518,1019 @@ export function AddTechnicalLogbookEntryModal({
                         </div>
                       )}
                     </div>
-                    {validationErrors.rtsSignedBy && (
-                      <p className="mt-1 text-xs text-red-600">
-                        {validationErrors.rtsSignedBy}
-                      </p>
-                    )}
                   </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Date
+                </div>
+                <div>
+                  <label className="block text-gray-700 mb-2">
+                    Actions Taken
+                  </label>
+                  <textarea
+                    value={formData.actionsTaken}
+                    onChange={(e) =>
+                      setFormData({ ...formData, actionsTaken: e.target.value })
+                    }
+                    rows={2}
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
+                  />
+                  <div className="mt-2">
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Name
                     </label>
-                    <input
-                      type="date"
-                      value={formData.rtsDate}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          rtsDate: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <div className="relative" ref={actionsTakenDropdownRef}>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={
+                            isActionsTakenDropdownOpen
+                              ? actionsTakenSearchTerm
+                              : getSelectedActionsTakenPerson()
+                          }
+                          onChange={(e) => {
+                            setActionsTakenSearchTerm(e.target.value);
+                            setIsActionsTakenDropdownOpen(true);
+                          }}
+                          onFocus={() => {
+                            setIsActionsTakenDropdownOpen(true);
+                            setActionsTakenSearchTerm("");
+                          }}
+                          className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          placeholder="Search name..."
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIsActionsTakenDropdownOpen(
+                              !isActionsTakenDropdownOpen
+                            )
+                          }
+                          className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                        >
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform ${
+                              isActionsTakenDropdownOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {isActionsTakenDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          {loadingActionsTakenAccounts ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              Loading...
+                            </div>
+                          ) : actionsTakenAccounts.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {actionsTakenSearchTerm
+                                ? "No accounts found"
+                                : "No accounts available"}
+                            </div>
+                          ) : (
+                            <ul className="py-1">
+                              {actionsTakenAccounts.map((account) => (
+                                <li
+                                  key={account.id}
+                                  onClick={() =>
+                                    handleActionsTakenPersonSelect(
+                                      account.id.toString(),
+                                      `${account.fullName}-${account.licenseNo}`
+                                    )
+                                  }
+                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                    formData.actionsTakenPerson ===
+                                    account.id.toString()
+                                      ? "bg-blue-50"
+                                      : ""
+                                  }`}
+                                >
+                                  <span className="text-gray-900 text-sm">
+                                    {account.fullName}-{account.licenseNo}
+                                  </span>
+                                  {formData.actionsTakenPerson ===
+                                    account.id.toString() && (
+                                    <Check className="w-4 h-4 text-blue-600" />
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1">
-                      Time (Zulu)
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.rtsTime}
-                      onChange={(e) => {
-                        const formatted = formatTimeInput(e.target.value);
-                        setFormData({
-                          ...formData,
-                          rtsTime: formatted,
-                        });
-                        if (validationErrors.rtsTime) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            rtsTime: "",
-                          });
+                </div>
+              </div>
+
+              {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
+              <div className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                  <h3 className="text-white font-semibold">
+                    AIRFRAME, ENGINE & PROPELLER TIMES
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-gray-700"></th>
+                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
+                          AIRFRAME
+                        </th>
+                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
+                          ENGINE
+                        </th>
+                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
+                          PROPELLER
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
+                          PREV. TIME
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.airframePrevTime}
+                            onChange={(e) =>
+                              handleTimeFieldChange(
+                                "airframePrevTime",
+                                e.target.value,
+                                "airframe"
+                              )
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.enginePrevTime}
+                            onChange={(e) =>
+                              handleTimeFieldChange(
+                                "enginePrevTime",
+                                e.target.value,
+                                "engine"
+                              )
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.propellerPrevTime}
+                            onChange={(e) =>
+                              handleTimeFieldChange(
+                                "propellerPrevTime",
+                                e.target.value,
+                                "propeller"
+                              )
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                          />
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
+                          FLIGHT TIME
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.airframeFlightTime}
+                            onChange={(e) =>
+                              handleTimeFieldChange(
+                                "airframeFlightTime",
+                                e.target.value,
+                                "airframe"
+                              )
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.engineFlightTime}
+                            onChange={(e) =>
+                              handleTimeFieldChange(
+                                "engineFlightTime",
+                                e.target.value,
+                                "engine"
+                              )
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.propellerFlightTime}
+                            onChange={(e) =>
+                              handleTimeFieldChange(
+                                "propellerFlightTime",
+                                e.target.value,
+                                "propeller"
+                              )
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                          />
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
+                          TOTAL TIME
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.airframeTotalTime}
+                            disabled
+                            readOnly
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.engineTotalTime}
+                            disabled
+                            readOnly
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-3 py-2">
+                          <input
+                            type="text"
+                            value={formData.propellerTotalTime}
+                            disabled
+                            readOnly
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ATL component times: RUN TIME / AFTT / TSN / TSO / TBO — connected to ATL endpoint */}
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300">
+                    <thead>
+                      <tr>
+                        <th
+                          colSpan={2}
+                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                        >
+                          AIRFRAME
+                        </th>
+                        <th
+                          colSpan={4}
+                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                        >
+                          ENGINE
+                        </th>
+                        <th
+                          colSpan={4}
+                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                        >
+                          PROPELLER
+                        </th>
+                      </tr>
+                      <tr>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          RUN TIME
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          AFTT
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          RUN TIME
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSN
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSO
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TBO
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          RUN TIME
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSN
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TSO
+                        </th>
+                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                          TBO
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-gray-300">
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.airframeRunTime}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                airframeRunTime: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="Auto: tach end − tach start"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.airframeAftt}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                airframeAftt: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="AFTT"
+                            title="Auto: Prev AFTT + Airframe Run"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.engineRunTime}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                engineRunTime: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="Auto: = Airframe Run Time"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.engineTsn}
+                            onChange={(e) => {
+                              setFormData({
+                                ...formData,
+                                engineTsn: e.target.value,
+                              });
+                            }}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="0 or greater when entered"
+                          />
+                          {validationErrors.engineTsn && (
+                            <p className="text-red-500 text-xs mt-0.5 text-center">
+                              {validationErrors.engineTsn}
+                            </p>
+                          )}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.engineTso}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                engineTso: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="TSO"
+                            title="Auto: Prev TSO + Engine Run"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.engineTbo}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                engineTbo: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="TBO"
+                            title="Auto: life limit − TSO"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.propellerRunTime}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                propellerRunTime: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="Auto: = Airframe Run Time"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.propellerTsn}
+                            onChange={(e) => {
+                              setFormData({
+                                ...formData,
+                                propellerTsn: e.target.value,
+                              });
+                            }}
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="0"
+                            title="0 or greater when entered. Auto: Prev TSN + Prop Run"
+                          />
+                          {validationErrors.propellerTsn && (
+                            <p className="text-red-500 text-xs mt-0.5 text-center">
+                              {validationErrors.propellerTsn}
+                            </p>
+                          )}
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.propellerTso}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                propellerTso: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="TSO"
+                            title="Auto: Prev TSO + Prop Run"
+                          />
+                        </td>
+                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                          <input
+                            type="text"
+                            value={formData.propellerTbo}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                propellerTbo: e.target.value,
+                              })
+                            }
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            placeholder="TBO"
+                            title="Auto: life limit − TSO"
+                          />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* COMPONENT RECORD */}
+              <div className="bg-white p-4 rounded-lg border border-gray-200">
+                <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                  <h3 className="text-white font-semibold">COMPONENT RECORD</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse min-w-full">
+                    <thead>
+                      <tr className="bg-gray-50">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          QTY
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          UNIT
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          NOMENCLATURE
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          REMOVED P/N
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          REMOVED S/N
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          INSTALLED P/N
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          INSTALLED S/N
+                        </th>
+
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          ATA CHAPTER
+                        </th>
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          DELETE?
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {componentRecords.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={10}
+                            className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
+                          >
+                            No component records added. Click "Add another
+                            Component" to add one.
+                          </td>
+                        </tr>
+                      ) : (
+                        componentRecords.map((record) => (
+                          <tr key={record.id} className="hover:bg-gray-50">
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.qty}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "qty",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.unit}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "unit",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.nomenclature}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "nomenclature",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.removedPartNo}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "removedPartNo",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.removedSerialNo}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "removedSerialNo",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.installedPartNo}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "installedPartNo",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.installedSerialNo}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "installedSerialNo",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2">
+                              <input
+                                type="text"
+                                value={record.ataChapter}
+                                onChange={(e) =>
+                                  updateComponentRecord(
+                                    record.id,
+                                    "ataChapter",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                              />
+                            </td>
+                            <td className="border border-gray-300 px-2 py-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeComponentRecord(record.id)}
+                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                  <button
+                    type="button"
+                    onClick={addComponentRecord}
+                    className="mt-3 flex items-center gap-2 text-green-600 hover:text-green-700 font-medium text-sm transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add another Component
+                  </button>
+                </div>
+              </div>
+
+              {/* Signatures Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Pilot Signature */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Name
+                      </label>
+                      <div className="relative" ref={pilotDropdownRef}>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={
+                              isPilotDropdownOpen
+                                ? pilotSearchTerm
+                                : getSelectedPilot()
+                            }
+                            onChange={(e) => {
+                              setPilotSearchTerm(e.target.value);
+                              setIsPilotDropdownOpen(true);
+                              // Clear error when user starts typing
+                              if (validationErrors.pilotFk) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  pilotFk: "",
+                                });
+                              }
+                            }}
+                            onFocus={() => {
+                              setIsPilotDropdownOpen(true);
+                              // If there's a selected value, use it as initial search term, otherwise clear
+                              if (formData.pilotName) {
+                                setPilotSearchTerm(formData.pilotName);
+                              } else {
+                                setPilotSearchTerm("");
+                              }
+                              // Fetch accounts if not already loaded
+                              if (pilotAccounts.length === 0) {
+                                fetchPilotAccounts("");
+                              }
+                            }}
+                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                              validationErrors.pilotFk
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
+                            placeholder="Search pilot..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsPilotDropdownOpen(!isPilotDropdownOpen);
+                              // Fetch accounts if opening and not already loaded
+                              if (
+                                !isPilotDropdownOpen &&
+                                pilotAccounts.length === 0
+                              ) {
+                                fetchPilotAccounts("");
+                              }
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform ${
+                                isPilotDropdownOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {isPilotDropdownOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {loadingPilotAccounts ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                Loading pilots...
+                              </div>
+                            ) : filteredPilotAccounts.length === 0 ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                {pilotSearchTerm
+                                  ? "No pilots found"
+                                  : "No pilots available"}
+                              </div>
+                            ) : (
+                              <ul className="py-1">
+                                {filteredPilotAccounts.map((account) => (
+                                  <li
+                                    key={account.id}
+                                    onClick={() =>
+                                      handlePilotSelect(
+                                        account.id.toString(),
+                                        `${account.fullName}-${account.licenseNo}`
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      formData.pilotFk === account.id.toString()
+                                        ? "bg-blue-50"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900 text-sm">
+                                      {account.fullName}-{account.licenseNo}
+                                    </span>
+                                    {formData.pilotFk ===
+                                      account.id.toString() && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {validationErrors.pilotFk && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {validationErrors.pilotFk}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.pilotAcceptDate}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            pilotAcceptDate: e.target.value,
+                          })
                         }
-                      }}
-                      placeholder="HH:MM"
-                      maxLength={5}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
-                    />
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Time (Zulu)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.pilotAcceptTime}
+                        onChange={(e) => {
+                          const formatted = formatTimeInput(e.target.value);
+                          setFormData({
+                            ...formData,
+                            pilotAcceptTime: formatted,
+                          });
+                          if (validationErrors.pilotAcceptTime) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              pilotAcceptTime: "",
+                            });
+                          }
+                        }}
+                        placeholder="HH:MM"
+                        maxLength={5}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Return to Service */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Return to Service</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Name
+                      </label>
+                      <div className="relative" ref={rtsDropdownRef}>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={
+                              isRtsDropdownOpen
+                                ? rtsSearchTerm
+                                : getSelectedRts()
+                            }
+                            onChange={(e) => {
+                              setRtsSearchTerm(e.target.value);
+                              setIsRtsDropdownOpen(true);
+                              // Clear error when user starts typing
+                              if (validationErrors.rtsSignedBy) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  rtsSignedBy: "",
+                                });
+                              }
+                            }}
+                            onFocus={() => {
+                              setIsRtsDropdownOpen(true);
+                              // If there's a selected value, use it as initial search term, otherwise clear
+                              if (formData.rtsName) {
+                                setRtsSearchTerm(formData.rtsName);
+                              } else {
+                                setRtsSearchTerm("");
+                              }
+                              // Fetch accounts if not already loaded
+                              if (rtsAccounts.length === 0) {
+                                fetchRtsAccounts("");
+                              }
+                            }}
+                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                              validationErrors.rtsSignedBy
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
+                            placeholder="Search Mechanic or mechanic..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsRtsDropdownOpen(!isRtsDropdownOpen);
+                              // Fetch accounts if opening and not already loaded
+                              if (
+                                !isRtsDropdownOpen &&
+                                rtsAccounts.length === 0
+                              ) {
+                                fetchRtsAccounts("");
+                              }
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform ${
+                                isRtsDropdownOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {isRtsDropdownOpen && (
+                          <div className="absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {loadingRtsAccounts ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                Loading...
+                              </div>
+                            ) : filteredRtsAccounts.length === 0 ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                {rtsSearchTerm
+                                  ? "No accounts found"
+                                  : "No accounts available"}
+                              </div>
+                            ) : (
+                              <ul className="py-1">
+                                {filteredRtsAccounts.map((account) => (
+                                  <li
+                                    key={account.id}
+                                    onClick={() =>
+                                      handleRtsSelect(
+                                        account.id.toString(),
+                                        `${account.fullName}-${account.licenseNo}`
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      formData.rtsSignedBy ===
+                                      account.id.toString()
+                                        ? "bg-blue-50"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900 text-sm">
+                                      {account.fullName}-{account.licenseNo}
+                                    </span>
+                                    {formData.rtsSignedBy ===
+                                      account.id.toString() && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {validationErrors.rtsSignedBy && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {validationErrors.rtsSignedBy}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.rtsDate}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            rtsDate: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Time (Zulu)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.rtsTime}
+                        onChange={(e) => {
+                          const formatted = formatTimeInput(e.target.value);
+                          setFormData({
+                            ...formData,
+                            rtsTime: formatted,
+                          });
+                          if (validationErrors.rtsTime) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              rtsTime: "",
+                            });
+                          }
+                        }}
+                        placeholder="HH:MM"
+                        maxLength={5}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
+            {attachmentsOnlyLocked && (
+              <p className="text-sm text-gray-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                As Technical Publication, choose <strong>White ATL</strong> or{" "}
+                <strong>DFP</strong> below — work status defaults to{" "}
+                <strong>Pending</strong> (you can change it above). Then click
+                Update Entry.
+              </p>
+            )}
 
-            {/* White ATL / DFP */}
+            {/* White ATL / DFP — upload only for Admin / Technical Publication */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div>
                 <label className="block text-gray-700 mb-2">White ATL</label>
@@ -4020,22 +4542,32 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("whiteAtl", e.target.files?.[0] || null)
                     }
                     className="hidden"
+                    disabled={!canUploadAtlAttachments}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
-                    htmlFor="white-atl-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                    htmlFor={
+                      canUploadAtlAttachments ? "white-atl-file" : undefined
+                    }
+                    className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                      canUploadAtlAttachments
+                        ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                        : "cursor-not-allowed opacity-60 pointer-events-none"
+                    }`}
                   >
                     <span
                       className={
                         whiteAtlFileName ? "text-gray-900" : "text-gray-400"
                       }
                     >
-                      {whiteAtlFileName || "Choose file or N/A"}
+                      {whiteAtlFileName ||
+                        (canUploadAtlAttachments
+                          ? "Choose file or N/A"
+                          : "Upload not permitted for your role")}
                     </span>
                     <Upload className="w-4 h-4 text-gray-400" />
                   </label>
-                  {whiteAtlFileName && (
+                  {canUploadAtlAttachments && whiteAtlFileName && (
                     <button
                       type="button"
                       onClick={() => handleRemoveFile("whiteAtl")}
@@ -4086,22 +4618,30 @@ export function AddTechnicalLogbookEntryModal({
                       handleFileChange("dfp", e.target.files?.[0] || null)
                     }
                     className="hidden"
+                    disabled={!canUploadAtlAttachments}
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                   />
                   <label
-                    htmlFor="dfp-file"
-                    className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between"
+                    htmlFor={canUploadAtlAttachments ? "dfp-file" : undefined}
+                    className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                      canUploadAtlAttachments
+                        ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                        : "cursor-not-allowed opacity-60 pointer-events-none"
+                    }`}
                   >
                     <span
                       className={
                         dfpFileName ? "text-gray-900" : "text-gray-400"
                       }
                     >
-                      {dfpFileName || "Choose file or N/A"}
+                      {dfpFileName ||
+                        (canUploadAtlAttachments
+                          ? "Choose file or N/A"
+                          : "Upload not permitted for your role")}
                     </span>
                     <Upload className="w-4 h-4 text-gray-400" />
                   </label>
-                  {dfpFileName && (
+                  {canUploadAtlAttachments && dfpFileName && (
                     <button
                       type="button"
                       onClick={() => handleRemoveFile("dfp")}
@@ -4154,12 +4694,14 @@ export function AddTechnicalLogbookEntryModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {editEntry ? "Update Entry" : "Save Entry"}
-            </button>
+            {allowSubmit && (
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {editEntry ? "Update Entry" : "Save Entry"}
+              </button>
+            )}
           </div>
         </form>
       </div>
@@ -4179,7 +4721,9 @@ export function AddTechnicalLogbookEntryModal({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">View file</span>
+              <span className="text-sm font-medium text-gray-900">
+                View file
+              </span>
               <button
                 type="button"
                 onClick={closeFileViewModal}

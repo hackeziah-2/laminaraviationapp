@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  History,
   Printer,
   Download,
   Pencil,
@@ -17,10 +18,43 @@ import apiClient from "../api/index";
 import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import { snakeAllKeys } from "../utility/utils";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+
+/** Aircraft Details: treat null/empty/invalid as 0 for engine/prop hour fields. */
+function numOrZero(v: unknown): number {
+  if (v == null || v === "") return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function withEnginePropNumericDefaults(a: Aircraft): Aircraft {
+  return {
+    ...a,
+    airframeAftt: a.airframeAftt == null ? null : numOrZero(a.airframeAftt),
+    engineLifeTimeLimit: numOrZero(a.engineLifeTimeLimit),
+    engineTsn: numOrNull(a.engineTsn),
+    engineTso: numOrZero(a.engineTso),
+    propellerTsn: numOrNull(a.propellerTsn),
+    propellerTso: numOrZero(a.propellerTso),
+  };
+}
+
+/** Controlled number input: show 0 when state is null, undefined, or "" (see numOrZero for display/save). */
+function numberInputValue(v: unknown): number | string {
+  if (v === "" || v == null) return 0;
+  return v as number | string;
+}
 
 export function AircraftDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { canAccess, canUpdate } = useUserPermissions();
   const [isEditMode, setIsEditMode] = useState(false);
   const [editAircraft, setEditedAircraft] = useState<Aircraft | null>(null);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
@@ -71,18 +105,23 @@ export function AircraftDetail() {
           status: data.status,
           manufacturer: data.manufacturer,
           reportDescription: data.report_description,
+          modelYear: data.model_year != null ? Number(data.model_year) : null,
+          airframeAftt:
+            data.airframe_aftt != null ? Number(data.airframe_aftt) : null,
           airframeServiceManual: data.airframe_service_manual,
           airframeIpc: data.airframe_ipc,
 
           engineModel: data.engine_model,
           engineSerialNumber: data.engine_serial_number,
-          engineLifeTimeLimit: Number(
-            data.engine_life_time_limit ?? data.life_time_limit_engine ?? 0
+          engineLifeTimeLimit: numOrZero(
+            data.engine_life_time_limit ?? data.life_time_limit_engine
           ),
           engineArc:
             data?.engine_arc && String(data.engine_arc).trim()
               ? stripArcPathPrefix(String(data.engine_arc))
               : "",
+          engineTsn: numOrNull(data.engine_tsn),
+          engineTso: numOrZero(data.engine_tso),
           propellerModel: data.propeller_model,
           propellerSerialNumber: data.propeller_serial_number,
           propellerLifeTimeLimit: Number(
@@ -94,6 +133,8 @@ export function AircraftDetail() {
             data?.propeller_arc && String(data.propeller_arc).trim()
               ? stripArcPathPrefix(String(data.propeller_arc))
               : "",
+          propellerTsn: numOrNull(data.propeller_tsn),
+          propellerTso: numOrZero(data.propeller_tso),
         };
         setEngineARCFileName(
           data?.engine_arc && String(data.engine_arc).trim()
@@ -127,20 +168,16 @@ export function AircraftDetail() {
       return Number.isFinite(num) ? num : null;
     };
 
-    // Required: life_time_limit_engine and life_time_limit_propeller must be set
-    const engineLimit = toOptionalFloat(editAircraft?.engineLifeTimeLimit);
+    const toFloatOrZero = (value: unknown): number => {
+      if (value === null || value === undefined || value === "") return 0;
+      const num = Number(value);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    // Required: life_time_limit_propeller must be set (engine life limit defaults to 0 when empty)
     const propellerLimit = toOptionalFloat(
       editAircraft?.propellerLifeTimeLimit
     );
-    if (engineLimit == null) {
-      Swal.fire({
-        icon: "warning",
-        title: "Required field",
-        text: "Engine Life Time Limit (life_time_limit_engine) is required. Please set it before saving.",
-        confirmButtonColor: "#2563eb",
-      });
-      return;
-    }
     if (propellerLimit == null) {
       Swal.fire({
         icon: "warning",
@@ -161,13 +198,24 @@ export function AircraftDetail() {
       ownership: editAircraft?.ownership,
       status: editAircraft?.status,
 
+      model_year: toOptionalFloat(
+        editAircraft?.modelYear as number | string | null | undefined
+      ),
+
+      airframe_aftt: toOptionalFloat(
+        editAircraft?.airframeAftt as number | string | null | undefined
+      ),
       airframe_service_manual: editAircraft?.airframeServiceManual,
       airframe_ipc: editAircraft?.airframeIpc,
 
       engine_model: editAircraft?.engineModel,
       engine_serial_number: editAircraft?.engineSerialNumber,
-      engine_life_time_limit: toOptionalFloat(
-        editAircraft?.engineLifeTimeLimit
+      engine_life_time_limit: toFloatOrZero(editAircraft?.engineLifeTimeLimit),
+      engine_tsn: toOptionalFloat(
+        editAircraft?.engineTsn as number | string | null | undefined
+      ),
+      engine_tso: toFloatOrZero(
+        editAircraft?.engineTso as number | string | null | undefined
       ),
       // engine_arc: editAircraft?.engineArc,
 
@@ -175,6 +223,12 @@ export function AircraftDetail() {
       propeller_serial_number: editAircraft?.propellerSerialNumber,
       propeller_life_time_limit: toOptionalFloat(
         editAircraft?.propellerLifeTimeLimit
+      ),
+      propeller_tsn: toOptionalFloat(
+        editAircraft?.propellerTsn as number | string | null | undefined
+      ),
+      propeller_tso: toFloatOrZero(
+        editAircraft?.propellerTso as number | string | null | undefined
       ),
       // propeller_arc: editAircraft?.propellerArc,
     };
@@ -193,7 +247,9 @@ export function AircraftDetail() {
 
     try {
       const response = await updateAircraft(Number(id), formData);
-      const updatedAircraft: Aircraft = response;
+      const updatedAircraft: Aircraft = withEnginePropNumericDefaults(
+        response as Aircraft
+      );
 
       setEditedAircraft(updatedAircraft);
       setAircraft(updatedAircraft);
@@ -224,7 +280,11 @@ export function AircraftDetail() {
       });
     } catch (err) {
       console.error(err);
-      alert("Failed to save changes.");
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: "Failed to save changes.",
+      });
     }
   };
 
@@ -244,6 +304,11 @@ export function AircraftDetail() {
 
   const handleBack = () => {
     navigate("/profile");
+  };
+
+  const handleHistoryClick = () => {
+    if (!id) return;
+    navigate(`/profile/${id}/history`);
   };
 
   const handleEngineCancel = () => {
@@ -430,13 +495,24 @@ export function AircraftDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {!isEditMode ? (
               <>
-                <button
-                  onClick={handleEditClick}
-                  className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
-                >
-                  <Pencil className="w-4 h-4" />
-                  <span className="hidden sm:inline">Edit Aircraft</span>
-                </button>
+                {canAccess("profile") && (
+                  <button
+                    onClick={handleHistoryClick}
+                    className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+                  >
+                    <History className="w-4 h-4" />
+                    <span>History</span>
+                  </button>
+                )}
+                {canUpdate("profile") && (
+                  <button
+                    onClick={handleEditClick}
+                    className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    <span className="hidden sm:inline">Edit Aircraft</span>
+                  </button>
+                )}
               </>
             ) : (
               <>
@@ -447,13 +523,15 @@ export function AircraftDetail() {
                   <X className="w-4 h-4" />
                   <span>Cancel</span>
                 </button>
-                <button
-                  onClick={handleSaveEdit}
-                  className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Save Changes</span>
-                </button>
+                {canUpdate("profile") && (
+                  <button
+                    onClick={handleSaveEdit}
+                    className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Changes</span>
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -572,6 +650,27 @@ export function AircraftDetail() {
                     <p className="text-gray-900">{aircraft.status || "N/A"}</p>
                   )}
                 </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Model Year</p>
+                  {isEditMode ? (
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={editAircraft?.modelYear ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+                        handleInputChange("modelYear", v);
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="e.g. 2020"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.modelYear != null ? aircraft.modelYear : "N/A"}
+                    </p>
+                  )}
+                </div>
                 {/* <div>
                   <p className="text-xs text-gray-500 mb-1.5">
                     Engine Life Time Limit <span className="text-red-500">*</span>
@@ -628,6 +727,27 @@ export function AircraftDetail() {
                 Airframe Information
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 sm:gap-x-8 gap-y-4 sm:gap-y-5">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Airframe AFTT</p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={numberInputValue(editAircraft?.airframeAftt)}
+                      onChange={(e) =>
+                        handleInputChange("airframeAftt", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.airframeAftt != null
+                        ? numOrZero(aircraft.airframeAftt)
+                        : "N/A"}
+                    </p>
+                  )}
+                </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">
                     Service Manual Year
@@ -724,7 +844,7 @@ export function AircraftDetail() {
                       type="number"
                       step="0.01"
                       min="0"
-                      value={editAircraft?.engineLifeTimeLimit ?? 0}
+                      value={numberInputValue(editAircraft?.engineLifeTimeLimit)}
                       onChange={(e) =>
                         handleInputChange("engineLifeTimeLimit", e.target.value)
                       }
@@ -732,10 +852,49 @@ export function AircraftDetail() {
                     />
                   ) : (
                     <p className="text-gray-900">
-                      {aircraft.engineLifeTimeLimit ||
-                      aircraft.engineLifeTimeLimit === 0
-                        ? aircraft.engineLifeTimeLimit
-                        : "N/A"}
+                      {numOrZero(aircraft.engineLifeTimeLimit)}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Engine TSN</p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editAircraft?.engineTsn ?? ""}
+                      onChange={(e) =>
+                        handleInputChange("engineTsn", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Time Since New"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.engineTsn == null || aircraft.engineTsn === ""
+                        ? "N/A"
+                        : numOrZero(aircraft.engineTsn)}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Engine TSO</p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={numberInputValue(editAircraft?.engineTso)}
+                      onChange={(e) =>
+                        handleInputChange("engineTso", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Time Since Overhaul"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {numOrZero(aircraft.engineTso)}
                     </p>
                   )}
                 </div>
@@ -896,6 +1055,49 @@ export function AircraftDetail() {
                   )}
                 </div>
                 <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Propeller TSN</p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={editAircraft?.propellerTsn ?? ""}
+                      onChange={(e) =>
+                        handleInputChange("propellerTsn", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Time Since New"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {aircraft.propellerTsn == null ||
+                      aircraft.propellerTsn === ""
+                        ? "N/A"
+                        : numOrZero(aircraft.propellerTsn)}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">Propeller TSO</p>
+                  {isEditMode ? (
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={numberInputValue(editAircraft?.propellerTso)}
+                      onChange={(e) =>
+                        handleInputChange("propellerTso", e.target.value)
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Time Since Overhaul"
+                    />
+                  ) : (
+                    <p className="text-gray-900">
+                      {numOrZero(aircraft.propellerTso)}
+                    </p>
+                  )}
+                </div>
+                <div>
                   <p className="text-xs text-gray-500 mb-1.5">Propeller ARC</p>
                   <div>
                     {isEditMode ? (
@@ -970,7 +1172,7 @@ export function AircraftDetail() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-gray-500 text-sm">N/A</p>
+                      <p className="text-gray-900">0</p>
                     )}
                   </div>
                 </div>

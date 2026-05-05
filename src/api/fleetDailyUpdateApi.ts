@@ -1,6 +1,14 @@
 import apiClient from "./index";
 import { toCamel } from "../utility/utils";
 
+/** Backend enum `fleet_daily_update_status_enum`: Operational, Ongoing Maintenance, AOG (legacy: Running → Operational). */
+function normalizeFleetDailyStatus(value: unknown): string {
+  const s = value == null ? "" : String(value).trim();
+  if (!s) return "";
+  if (s.toLowerCase() === "running") return "Operational";
+  return s;
+}
+
 /**
  * Fleet Daily Update item (one row in the list).
  * API may return snake_case; we normalize to camelCase.
@@ -14,7 +22,10 @@ export interface FleetDailyUpdateItem {
   status?: string;
   workStatus?: string;
   nextInspDue?: string;
+  /** e.g. HRS, CYCLES — from next_insp_due_unit / nextInspectionDueUnit */
+  nextInspDueUnit?: string;
   nextInspectionDue?: string;
+  nextInspectionDueUnit?: string;
   tachDue?: number;
   tachTimeDue?: number;
   /** Tach time at end of day — from fleet-daily-update or eod table (tach_time_eod) */
@@ -49,19 +60,29 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
     camel?.registration ??
     aircraft?.registration ??
     "";
+  const rawStatus = camel?.status ?? camel?.workStatus ?? o?.work_status ?? "";
+  const rawWorkStatus = camel?.workStatus ?? o?.work_status;
   return {
     id: camel?.id ?? o?.id,
     aircraftId: camel?.aircraftId ?? camel?.aircraftFk ?? o?.aircraft_id ?? o?.aircraft_fk,
     ident: String(ident),
     registration: camel?.registration ?? aircraft?.registration ?? ident,
-    status: camel?.status ?? camel?.workStatus ?? o?.work_status ?? "",
-    workStatus: camel?.workStatus ?? o?.work_status,
+    status: normalizeFleetDailyStatus(rawStatus),
+    workStatus: normalizeFleetDailyStatus(rawWorkStatus),
     nextInspDue:
       camel?.nextInspDue ??
       camel?.nextInspectionDue ??
       o?.next_inspection_due ??
       "",
+    nextInspDueUnit:
+      camel?.nextInspDueUnit ??
+      camel?.nextInspectionDueUnit ??
+      o?.next_insp_due_unit ??
+      o?.next_inspection_due_unit ??
+      "",
     nextInspectionDue: camel?.nextInspectionDue ?? o?.next_inspection_due,
+    nextInspectionDueUnit:
+      camel?.nextInspectionDueUnit ?? o?.next_inspection_due_unit ?? "",
     tachDue: camel?.tachDue ?? camel?.tachTimeDue ?? o?.tach_time_due,
     tachTimeDue: camel?.tachTimeDue ?? o?.tach_time_due,
     // EOD (end of day) tach: from fleet-daily-update or from eod table (tach_time_eod / eod.tach_time_eod)
@@ -126,19 +147,22 @@ export async function getAircraftFleetDailyUpdate(
 /**
  * Get paginated fleet daily update list (all aircraft).
  * Supports pagination, search, and status filter.
- * GET api/v1/fleet-daily-update/?page=&limit=&search=&status=
+ * GET api/v1/fleet-daily-update/paged?page=&limit=&search=&status=&sort=
+ * e.g. sort=-registration (desc) or sort=registration (asc)
  */
 export async function getFleetDailyUpdatePaged(
   page = 1,
   limit = 10,
   search = "",
-  status = ""
+  status = "",
+  sort = "-registration"
 ): Promise<FleetDailyUpdatePagedResponse> {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("limit", String(limit));
   if (search.trim()) params.set("search", search.trim());
   if (status && status !== "all") params.set("status", status);
+  if (sort.trim()) params.set("sort", sort.trim());
 
   const tryEndpoint = async (path: string) => {
     const res = await apiClient.get(path, {

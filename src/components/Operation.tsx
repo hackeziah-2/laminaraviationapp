@@ -1,5 +1,16 @@
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
+import {
+  useParams,
+  useNavigate,
+  useLocation,
+  useSearchParams,
+} from "react-router-dom";
 import {
   ArrowLeft,
   Plus,
@@ -14,28 +25,54 @@ import {
   Pencil,
   Eye,
   RefreshCw,
+  Filter,
 } from "lucide-react";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
+import { AddAtlBatchModal } from "./AddAtlBatchModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import {
   getAircraftTechnicalLogs,
   deleteAircraftTechnicalLog,
   importAircraftTechnicalLogExcel,
+  getAtlBatchesForSelect,
+  pickLatestAtlBatchId,
   AircraftTechnicalLog,
+  type AtlBatch,
+  type AtlListViewComputedComponentTimes,
+  resolveAtlComponentMetric,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
+import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
-  toCamel,
+  toCamelDeep,
   formatTimeZulu,
-  computeTotalBlockTime,
-  computeTotalFlightHoursDecimal,
+  computeTotalBlockTimeFromUtc,
+  computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
+import {
+  getMissingAircraftFieldsForNewAtl,
+  buildAircraftDetailsRequiredForAtlHtml,
+  ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+  resolveAircraftAirframeAftt,
+  resolveAircraftEnginePropHour,
+} from "../utility/atlAircraftPrerequisites";
+import {
+  ATL_WORK_STATUS_KEYS,
+  isAtlBatchFilterAndBranchManagementRole,
+  isAtlEditAllowedForRoleAndWorkStatus,
+  isTechnicalPublicationRole,
+  normalizeAtlWorkStatus,
+  type AtlWorkStatusKey,
+} from "../utility/atlEditRbac";
 import { getAllAccounts, Account } from "../api/accountApi";
+import { getMe } from "../api/authApi";
+import { useUserPermissions } from "../hooks/useUserPermissions";
+import * as XLSX from "xlsx";
 
 type GroupByOption =
   | "allColumns"
@@ -48,10 +85,132 @@ const STICKY_SEQ_CLASS =
 const STICKY_SEQ_CELL_CLASS =
   "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
 
+/** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
+function formatFleetWorkStatus(status: string | undefined): string {
+  if (!status || status.trim() === "") return "-";
+  return status.replace(/_/g, " ");
+}
+
+/** All batches filter: show "Batch name - sequence no"; single-batch filter: sequence only. */
+function formatOperationSequenceNoCell(
+  record: AircraftTechnicalLog,
+  allBatchesMode: boolean
+): string {
+  const seq = (record.sequenceNo ?? "").trim() || "-";
+  if (!allBatchesMode) return seq;
+  const batchName = record.atlBatch?.name?.trim();
+  if (batchName) return `${batchName} - ${seq}`;
+  return seq;
+}
+
+const FLEET_WORK_STATUS_BASE_TD =
+  "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
+const OPERATION_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+
+/** Sentinel `<option>` values — not real branch ids */
+const ATL_BRANCH_CREATE_VALUE = "__atl_branch_create__";
+const ATL_BRANCH_EDIT_VALUE = "__atl_branch_edit__";
+
+type ExportColumnDefinition = {
+  key: string;
+  label: string;
+  getValue: (record: AircraftTechnicalLog) => string;
+};
+
+function toNullableMetricNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+/** Hobbs / tach / tach due: API may send numbers as strings; avoids `.toFixed` runtime errors. */
+function formatOptionalNumber1dp(value: unknown): string {
+  if (value == null || value === "") return "-";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(1) : "-";
+}
+
+/** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
+const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
+  FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
+  REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
+  APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
+  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
+  REJECTED_QUALITY: { backgroundColor: "#fff1f2", color: "#9f1239" },
+  PENDING: { backgroundColor: "#f5f3ff", color: "#5b21b6" },
+  COMPLETED: { backgroundColor: "#f0fdf4", color: "#166534" },
+};
+
+function getFleetWorkStatusCellProps(status: string | undefined): {
+  className: string;
+  style: CSSProperties | undefined;
+} {
+  const key = normalizeAtlWorkStatus(status);
+  if (!key) {
+    return {
+      className: `${FLEET_WORK_STATUS_BASE_TD} bg-white text-gray-900`,
+      style: undefined,
+    };
+  }
+  return {
+    className: FLEET_WORK_STATUS_BASE_TD,
+    style: FLEET_WORK_STATUS_STYLE[key],
+  };
+}
+
 export function Operation() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const aircraftId = parseInt(id || "1");
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
+  const aircraftId = parseInt(id || "1", 10);
+  const navigationState = (location.state ?? {}) as {
+    aircraft_id?: number | string;
+    sequence_no?: string;
+  };
+
+  /** Role name from GET /auth/me — aligns ATL edit RBAC with login session (same as Edit modal). */
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const operationAtlRole = useMemo(
+    () => sessionRoleName || user?.role?.trim() || undefined,
+    [sessionRoleName, user?.role]
+  );
+
+  const canManageAtlBatchFilterAndBranches = useMemo(
+    () => isAtlBatchFilterAndBranchManagementRole(operationAtlRole),
+    [operationAtlRole]
+  );
+
+  const operationTechPubUploadOnly =
+    isTechnicalPublicationRole(operationAtlRole);
+
+  const canCreateOperationAtl = canCreate("operation") || canCreate("logbook");
+  const canUpdateOperationAtl = canUpdate("operation") || canUpdate("logbook");
+  const canDeleteOperationAtl = canDelete("operation") || canDelete("logbook");
+  /** Align with Add modal: create checks canCreate(mod); must be "operation" if user can create/update ATL under operation, not only when they can update. */
+  const operationAtlPermissionModuleCode =
+    canUpdate("operation") || canCreate("operation") ? "operation" : "logbook";
+
+  const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
+    isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
 
   const handleBack = () => {
     navigate("/profile");
@@ -87,11 +246,14 @@ export function Operation() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error("Download error:", err);
-      alert(
-        err?.response?.data?.detail ||
+      await Swal.fire({
+        icon: "error",
+        title: "Download failed",
+        text:
+          err?.response?.data?.detail ||
           err?.message ||
-          "Failed to download file."
-      );
+          "Failed to download file.",
+      });
     }
   };
 
@@ -169,8 +331,34 @@ export function Operation() {
   const [selectedEntry, setSelectedEntry] =
     useState<AircraftTechnicalLog | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-  const [searchQuery, setSearchQuery] = useState("");
+  const [itemsPerPage, setItemsPerPage] = useState<number>(
+    OPERATION_PAGE_SIZE_OPTIONS[0]
+  );
+  const [selectedAircraftId, setSelectedAircraftId] = useState<number>(
+    Number.isFinite(aircraftId) ? aircraftId : 0
+  );
+  const sequenceFromQuery = useMemo(
+    () => searchParams.get("sequence_no")?.trim() ?? "",
+    [searchParams]
+  );
+  const [selectedSequenceNo, setSelectedSequenceNo] = useState(
+    () =>
+      sequenceFromQuery ||
+      (typeof navigationState.sequence_no === "string"
+        ? navigationState.sequence_no.trim()
+        : "")
+  );
+  const [searchQuery, setSearchQuery] = useState(selectedSequenceNo);
+  /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
+  const [workStatusFilter, setWorkStatusFilter] = useState("");
+  const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
+  const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
+    { id: number; name: string }[]
+  >([]);
+  const [atlBatchModalOpen, setAtlBatchModalOpen] = useState(false);
+  const [atlBatchModalEditId, setAtlBatchModalEditId] = useState<number | null>(
+    null
+  );
   const [fleetTimeRecords, setFleetTimeRecords] = useState<
     AircraftTechnicalLog[]
   >([]);
@@ -185,127 +373,161 @@ export function Operation() {
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
   const [importLoading, setImportLoading] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [selectedExportColumns, setSelectedExportColumns] = useState<string[]>(
+    []
+  );
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
+  const atlBatchFilterTouchedRef = useRef(false);
+  const effectiveAircraftId =
+    Number.isFinite(selectedAircraftId) && selectedAircraftId > 0
+      ? selectedAircraftId
+      : aircraftId;
 
-  // Helpers for airframe/engine/propeller from nested or flat API (ATL fields)
-  type ComputedRow =
-    | {
-        airframeRunTime: number | null;
-        airframeAftt: number | null;
-        engineRunTime: number | null;
-        engineTsn: number | null;
-        engineTso: number | null;
-        engineTbo: number | null;
-        propellerRunTime: number | null;
-        propellerTsn: number | null;
-        propellerTso: number | null;
-        propellerTbo: number | null;
-      }
-    | undefined;
-  const getAirframeDisplay = (
-    r: AircraftTechnicalLog,
-    computed?: ComputedRow
-  ) => {
+  const selectedAtlBatchFk = useMemo(() => {
+    if (!canManageAtlBatchFilterAndBranches) return undefined;
+    const n =
+      selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [canManageAtlBatchFilterAndBranches, selectedAtlBatchId]);
+
+  /** "All" batch filter (or no batch param) → Sequence column shows `Batch name - seq`. */
+  const showSeqNoWithBatchName = selectedAtlBatchFk == null;
+
+  useEffect(() => {
+    if (Number.isFinite(aircraftId) && aircraftId > 0) {
+      setSelectedAircraftId(aircraftId);
+    }
+  }, [aircraftId]);
+
+  useEffect(() => {
+    const nextAircraftId = Number(navigationState.aircraft_id);
+    const normalizedAircraftId =
+      Number.isFinite(nextAircraftId) && nextAircraftId > 0
+        ? nextAircraftId
+        : aircraftId;
+    const nextSequenceNo =
+      sequenceFromQuery ||
+      (typeof navigationState.sequence_no === "string"
+        ? navigationState.sequence_no.trim()
+        : "");
+
+    setSelectedAircraftId(normalizedAircraftId);
+    setSelectedSequenceNo(nextSequenceNo);
+    setSearchQuery(nextSequenceNo);
+    setCurrentPage(1);
+  }, [
+    aircraftId,
+    navigationState.aircraft_id,
+    navigationState.sequence_no,
+    sequenceFromQuery,
+  ]);
+
+  const getAirframeDisplay = (r: AircraftTechnicalLog) => {
     const run =
-      computed?.airframeRunTime != null
-        ? Number(computed.airframeRunTime).toFixed(2)
-        : (r as any).airframe?.hrsTime != null || (r as any).airframe?.run != null
-          ? toFormat2(Number((r as any).airframe?.hrsTime ?? (r as any).airframe?.run))
-          : r.airframeRunTime != null || r.airframeTotalTime != null
-            ? toFormat2(Number(r.airframeRunTime ?? r.airframeTotalTime))
-            : (r as any).airframeRun != null
-              ? toFormat2(Number((r as any).airframeRun))
-              : "-";
+      resolveAtlComponentMetric(r, "airframeRunTime") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeRunTime")))
+        : "-";
     const aftt =
-      computed?.airframeAftt != null
-        ? Number(computed.airframeAftt).toFixed(2)
-        : r.airframeAftt != null || (r as any).airframeTotalTime != null
-          ? toFormat2(Number(r.airframeAftt ?? (r as any).airframeTotalTime))
-          : "-";
+      resolveAtlComponentMetric(r, "airframeAftt") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeAftt")))
+        : "-";
     return `${run} / ${aftt}`;
   };
-  const getEngineDisplay = (
-    r: AircraftTechnicalLog,
-    computed?: ComputedRow
-  ) => {
+  const getEngineDisplay = (r: AircraftTechnicalLog) => {
     const run =
-      computed?.engineRunTime != null
-        ? Number(computed.engineRunTime).toFixed(2)
-        : (r as any).engine?.hrsTime != null || (r as any).engine?.run != null
-          ? toFormat2(Number((r as any).engine?.hrsTime ?? (r as any).engine?.run))
-          : r.engineRunTime != null || r.engineTotalTime != null
-            ? toFormat2(Number(r.engineRunTime ?? r.engineTotalTime))
-            : (r as any).engineRun != null
-              ? toFormat2(Number((r as any).engineRun))
-              : "-";
+      resolveAtlComponentMetric(r, "engineRunTime") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineRunTime")))
+        : "-";
     const tsn =
-      computed?.engineTsn != null
-        ? Number(computed.engineTsn).toFixed(2)
-        : (r as any).engine?.tsn != null || r.engineTsn != null
-          ? toFormat2(Number((r as any).engine?.tsn ?? r.engineTsn))
-          : "-";
+      resolveAtlComponentMetric(r, "engineTsn") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTsn")))
+        : "-";
     const tso =
-      computed?.engineTso != null
-        ? Number(computed.engineTso).toFixed(2)
-        : (r as any).engine?.tso != null || r.engineTso != null
-          ? toFormat2(Number((r as any).engine?.tso ?? r.engineTso))
-          : "-";
+      resolveAtlComponentMetric(r, "engineTso") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTso")))
+        : "-";
     const tbo =
-      computed?.engineTbo != null
-        ? Number(computed.engineTbo).toFixed(2)
-        : (r as any).engine?.tbo != null || r.engineTbo != null
-          ? toFormat2(Number((r as any).engine?.tbo ?? r.engineTbo))
-          : "-";
+      resolveAtlComponentMetric(r, "engineTbo") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTbo")))
+        : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
-  const getPropellerDisplay = (
-    r: AircraftTechnicalLog,
-    computed?: ComputedRow
-  ) => {
+  const getPropellerDisplay = (r: AircraftTechnicalLog) => {
     const run =
-      computed?.propellerRunTime != null
-        ? Number(computed.propellerRunTime).toFixed(2)
-        : (r as any).propeller?.hrsTime != null || (r as any).propeller?.run != null
-          ? toFormat2(Number((r as any).propeller?.hrsTime ?? (r as any).propeller?.run))
-          : r.propellerRunTime != null || r.propellerTotalTime != null
-            ? toFormat2(Number(r.propellerRunTime ?? r.propellerTotalTime))
-            : (r as any).propellerRun != null
-              ? toFormat2(Number((r as any).propellerRun))
-              : "-";
+      resolveAtlComponentMetric(r, "propellerRunTime") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerRunTime")))
+        : "-";
     const tsn =
-      computed?.propellerTsn != null
-        ? Number(computed.propellerTsn).toFixed(2)
-        : (r as any).propeller?.tsn != null || r.propellerTsn != null
-          ? toFormat2(Number((r as any).propeller?.tsn ?? r.propellerTsn))
-          : "-";
+      resolveAtlComponentMetric(r, "propellerTsn") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTsn")))
+        : "-";
     const tso =
-      computed?.propellerTso != null
-        ? Number(computed.propellerTso).toFixed(2)
-        : (r as any).propeller?.tso != null || r.propellerTso != null
-          ? toFormat2(Number((r as any).propeller?.tso ?? r.propellerTso))
-          : "-";
+      resolveAtlComponentMetric(r, "propellerTso") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTso")))
+        : "-";
     const tbo =
-      computed?.propellerTbo != null
-        ? Number(computed.propellerTbo).toFixed(2)
-        : (r as any).propeller?.tbo != null || r.propellerTbo != null
-          ? toFormat2(Number((r as any).propeller?.tbo ?? r.propellerTbo))
-          : "-";
+      resolveAtlComponentMetric(r, "propellerTbo") != null
+        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTbo")))
+        : "-";
     return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
   };
+
+  const editListComputedTimes =
+    useMemo<AtlListViewComputedComponentTimes | null>(
+      () =>
+        selectedEntry
+          ? {
+              airframeRunTime: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "airframeRunTime")
+              ),
+              airframeAftt: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "airframeAftt")
+              ),
+              engineRunTime: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineRunTime")
+              ),
+              engineTsn: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineTsn")
+              ),
+              engineTso: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineTso")
+              ),
+              engineTbo: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "engineTbo")
+              ),
+              propellerRunTime: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerRunTime")
+              ),
+              propellerTsn: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerTsn")
+              ),
+              propellerTso: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerTso")
+              ),
+              propellerTbo: toNullableMetricNumber(
+                resolveAtlComponentMetric(selectedEntry, "propellerTbo")
+              ),
+            }
+          : null,
+      [selectedEntry]
+    );
 
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
-      if (!aircraftId) return;
+      if (!effectiveAircraftId) return;
       try {
-        const response = await getAircraftById(aircraftId);
-        setAircraft(toCamel(response.data));
+        const response = await getAircraftById(effectiveAircraftId);
+        setAircraft(toCamelDeep(response.data) as Aircraft);
       } catch (err) {
         console.error("Error fetching aircraft:", err);
       }
     };
     fetchAircraft();
-  }, [aircraftId]);
+  }, [effectiveAircraftId]);
 
   // Fetch all accounts for lookup
   useEffect(() => {
@@ -325,10 +547,48 @@ export function Operation() {
     fetchAccounts();
   }, []);
 
-  // Fetch ATL records from API
+  useEffect(() => {
+    if (!canManageAtlBatchFilterAndBranches) {
+      setAtlBatchFilterOptions([]);
+      return;
+    }
+    let cancelled = false;
+    getAtlBatchesForSelect()
+      .then((list) => {
+        if (cancelled) return;
+        const batches = Array.isArray(list) ? list : [];
+        setAtlBatchFilterOptions(
+          batches.map((b) => ({ id: b.id, name: b.name }))
+        );
+        setSelectedAtlBatchId((prev) => {
+          if (batches.length === 0) return prev;
+          if (prev !== "") return prev;
+          if (atlBatchFilterTouchedRef.current) return prev;
+          const latest = pickLatestAtlBatchId(batches);
+          return latest != null ? String(latest) : prev;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setAtlBatchFilterOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageAtlBatchFilterAndBranches]);
+
+  useEffect(() => {
+    if (!canManageAtlBatchFilterAndBranches) {
+      setSelectedAtlBatchId("");
+      atlBatchFilterTouchedRef.current = false;
+      setAtlBatchModalOpen(false);
+      setAtlBatchModalEditId(null);
+    }
+  }, [canManageAtlBatchFilterAndBranches]);
+
+  // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
     const fetchRecords = async () => {
-      if (!aircraftId) return;
+      if (!effectiveAircraftId) return;
 
       setLoading(true);
       setError(null);
@@ -338,11 +598,15 @@ export function Operation() {
         const response = await getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
-          searchQuery,
-          aircraftId,
-          sortParam
+          selectedSequenceNo,
+          effectiveAircraftId,
+          sortParam,
+          workStatusFilter || undefined,
+          selectedAtlBatchFk
         );
-        setFleetTimeRecords(response.items);
+        setFleetTimeRecords(
+          Array.isArray(response.items) ? response.items : []
+        );
         setTotalRecords(response.total);
         setTotalPages(response.pages);
       } catch (err: any) {
@@ -356,154 +620,359 @@ export function Operation() {
 
     fetchRecords();
   }, [
-    aircraftId,
+    effectiveAircraftId,
     currentPage,
     itemsPerPage,
-    searchQuery,
+    selectedSequenceNo,
     refreshKey,
     sequenceSort,
+    workStatusFilter,
+    selectedAtlBatchFk,
   ]);
 
-  // Reset to page 1 when search query changes
+  // Reset to page 1 when search or work status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [selectedSequenceNo, workStatusFilter, itemsPerPage, selectedAtlBatchId]);
 
   const paginatedRecords = fleetTimeRecords;
 
-  // List view computations: Engine Run = Airframe Run; TSN/TSO = Previous + Run; TBO = limit - current TSO (same for propeller)
-  const toNum = (v: unknown): number | null => {
-    if (v == null || v === "") return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  };
-  /** Format computation result always as 2 decimal places (.2f) */
+  /** Format ATL component values from the API with 2 decimal places. */
   const toFormat2 = (v: unknown): string => {
     const n = v != null && v !== "" ? Number(v) : null;
     return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
   };
-  const computedEnginePropellerList = useMemo(() => {
-    const list: Array<{
-      airframeRunTime: number | null;
-      airframeAftt: number | null;
-      engineRunTime: number | null;
-      engineTsn: number | null;
-      engineTso: number | null;
-      engineTbo: number | null;
-      propellerRunTime: number | null;
-      propellerTsn: number | null;
-      propellerTso: number | null;
-      propellerTbo: number | null;
-    }> = [];
-    const engineLimit =
-      aircraft != null
-        ? toNum(
-            (aircraft as any).engineLifeTimeLimit ??
-              (aircraft as any).life_time_limit_engine
-          ) ?? null
-        : null;
-    const propellerLimit =
-      aircraft != null
-        ? toNum(
-            (aircraft as any).propellerLifeTimeLimit ??
-              (aircraft as any).life_time_limit_propeller
-          ) ?? null
-        : null;
+  const formatDisplayDate = (value?: string | null) =>
+    value
+      ? new Date(value)
+          .toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+          })
+          .replace(/ /g, "-")
+      : "-";
 
-    for (let i = 0; i < paginatedRecords.length; i++) {
-      const r = paginatedRecords[i];
-      const airframeRun =
-        toNum(r.airframeRunTime) ??
-        toNum(r.airframeTotalTime) ??
-        (r.tachometerStart != null && r.tachometerEnd != null
-          ? r.tachometerEnd - r.tachometerStart
-          : null);
-      const engineRunTime = airframeRun;
-      const propellerRunTime = airframeRun;
+  const getAccountDisplay = (accountId?: number | null) => {
+    if (!accountId || !accountsMap.has(accountId)) return "-";
+    const account = accountsMap.get(accountId)!;
+    return [account.fullName, account.licenseNo].filter(Boolean).join(" - ");
+  };
 
-      // Airframe AFTT = Previous Airframe AFTT + Airframe current run time
-      let airframeAftt: number | null;
-      if (i === 0) {
-        airframeAftt =
-          toNum(r.airframeAftt) ??
-          (airframeRun != null ? airframeRun : null);
-      } else {
-        const prev = list[i - 1];
-        airframeAftt =
-          prev.airframeAftt != null && airframeRun != null
-            ? prev.airframeAftt + airframeRun
-            : prev.airframeAftt ?? toNum(r.airframeAftt);
-      }
+  const getPilotDisplay = (record: AircraftTechnicalLog) => {
+    const pilotId = record.pilotAcceptedBy ?? record.pilotFk;
+    return getAccountDisplay(pilotId);
+  };
 
-      let engineTsn: number | null;
-      let engineTso: number | null;
-      let propellerTsn: number | null;
-      let propellerTso: number | null;
+  const getComponentRecordDisplay = (record: AircraftTechnicalLog) => {
+    if (!record.componentParts || record.componentParts.length === 0)
+      return "-";
+    return record.componentParts
+      .map((part) =>
+        [
+          `Removed P/N: ${part.removedPartNo ?? "-"}`,
+          `Removed S/N: ${part.removedSerialNo ?? "-"}`,
+          `Installed P/N: ${part.installedPartNo ?? "-"}`,
+          `Installed S/N: ${part.installedSerialNo ?? "-"}`,
+          `Nomenclature: ${part.nomenclature ?? "-"}`,
+          `ATA Chapter: ${part.ataChapter ?? (part as any).ata_chapter ?? "-"}`,
+        ].join(" | ")
+      )
+      .join(" ; ");
+  };
 
-      if (i === 0) {
-        engineTsn =
-          toNum(r.engineTsn) ?? (engineRunTime != null ? engineRunTime : null);
-        engineTso =
-          toNum(r.engineTso) ?? (engineRunTime != null ? engineRunTime : null);
-        propellerTsn =
-          toNum(r.propellerTsn) ??
-          (propellerRunTime != null ? propellerRunTime : null);
-        propellerTso =
-          toNum(r.propellerTso) ??
-          (propellerRunTime != null ? propellerRunTime : null);
-      } else {
-        const prev = list[i - 1];
-        engineTsn =
-          prev.engineTsn != null && engineRunTime != null
-            ? prev.engineTsn + engineRunTime
-            : prev.engineTsn ?? toNum(r.engineTsn);
-        engineTso =
-          prev.engineTso != null && engineRunTime != null
-            ? prev.engineTso + engineRunTime
-            : prev.engineTso ?? toNum(r.engineTso);
-        propellerTsn =
-          prev.propellerTsn != null && propellerRunTime != null
-            ? prev.propellerTsn + propellerRunTime
-            : prev.propellerTsn ?? toNum(r.propellerTsn);
-        propellerTso =
-          prev.propellerTso != null && propellerRunTime != null
-            ? prev.propellerTso + propellerRunTime
-            : prev.propellerTso ?? toNum(r.propellerTso);
-      }
+  const exportColumnDefinitions = useMemo<ExportColumnDefinition[]>(
+    () => [
+      {
+        key: "sequenceNo",
+        label: "Sequence No",
+        getValue: (record) =>
+          formatOperationSequenceNoCell(record, showSeqNoWithBatchName),
+      },
+      {
+        key: "workStatus",
+        label: "Work Status",
+        getValue: (record) => formatFleetWorkStatus(record.workStatus),
+      },
+      {
+        key: "natureOfFlight",
+        label: "Nature of Flight",
+        getValue: (record) =>
+          record.natureOfFlight === "VOID"
+            ? "VOID"
+            : record.natureOfFlight?.trim() || "-",
+      },
+      {
+        key: "nextInspectionDue",
+        label: "Next Insp. Date",
+        getValue: (record) => record.nextInspectionDue || "-",
+      },
+      {
+        key: "tachTimeDue",
+        label: "Tach Time",
+        getValue: (record) => formatOptionalNumber1dp(record.tachTimeDue),
+      },
+      {
+        key: "originDate",
+        label: "Off Blocks Date",
+        getValue: (record) => formatDisplayDate(record.originDate),
+      },
+      {
+        key: "originTime",
+        label: "Off Blocks Time (Zulu)",
+        getValue: (record) => formatTimeZulu(record.originTime),
+      },
+      {
+        key: "destinationDate",
+        label: "On Blocks Date",
+        getValue: (record) => formatDisplayDate(record.destinationDate),
+      },
+      {
+        key: "destinationTime",
+        label: "On Blocks Time (Zulu)",
+        getValue: (record) => formatTimeZulu(record.destinationTime),
+      },
+      {
+        key: "totalFlightHours",
+        label: "Total Flight Hours",
+        getValue: (record) =>
+          computeTotalBlockTimeFromUtc(
+            record.originDate,
+            record.originTime,
+            record.destinationDate,
+            record.destinationTime
+          ),
+      },
+      {
+        key: "numberOfLandings",
+        label: "No. of Landings",
+        getValue: (record) => String(record.numberOfLandings ?? "-"),
+      },
+      {
+        key: "hobbsMeterStart",
+        label: "Hobbs Start",
+        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterStart),
+      },
+      {
+        key: "hobbsMeterEnd",
+        label: "Hobbs End",
+        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterEnd),
+      },
+      {
+        key: "hobbsMeterTotal",
+        label: "Hobbs Total",
+        getValue: (record) => {
+          const start = Number(record.hobbsMeterStart);
+          const end = Number(record.hobbsMeterEnd);
+          if (
+            record.hobbsMeterStart != null &&
+            record.hobbsMeterEnd != null &&
+            Number.isFinite(start) &&
+            Number.isFinite(end)
+          ) {
+            return (end - start).toFixed(1);
+          }
+          return formatOptionalNumber1dp(record.hobbsMeterTotal);
+        },
+      },
+      {
+        key: "tachometerStart",
+        label: "Tachometer Start",
+        getValue: (record) => formatOptionalNumber1dp(record.tachometerStart),
+      },
+      {
+        key: "tachometerEnd",
+        label: "Tachometer End",
+        getValue: (record) => formatOptionalNumber1dp(record.tachometerEnd),
+      },
+      {
+        key: "airframeRun",
+        label: "Airframe Hrs Run",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "airframeRunTime")),
+      },
+      {
+        key: "airframeAftt",
+        label: "Airframe AFTT",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "airframeAftt")),
+      },
+      {
+        key: "engineRun",
+        label: "Engine Hrs Run",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineRunTime")),
+      },
+      {
+        key: "engineTsn",
+        label: "Engine TSN",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineTsn")),
+      },
+      {
+        key: "engineTso",
+        label: "Engine TSO",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineTso")),
+      },
+      {
+        key: "engineTbo",
+        label: "Engine TBO",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "engineTbo")),
+      },
+      {
+        key: "propellerRun",
+        label: "Propeller Hrs Run",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerRunTime")),
+      },
+      {
+        key: "propellerTsn",
+        label: "Propeller TSN",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerTsn")),
+      },
+      {
+        key: "propellerTso",
+        label: "Propeller TSO",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerTso")),
+      },
+      {
+        key: "propellerTbo",
+        label: "Propeller TBO",
+        getValue: (record) =>
+          toFormat2(resolveAtlComponentMetric(record, "propellerTbo")),
+      },
+      {
+        key: "fuelQtyLeftUpliftQty",
+        label: "Fuel Uplift Qty Left",
+        getValue: (record) => String(record.fuelQtyLeftUpliftQty ?? "-"),
+      },
+      {
+        key: "fuelQtyRightUpliftQty",
+        label: "Fuel Uplift Qty Right",
+        getValue: (record) => String(record.fuelQtyRightUpliftQty ?? "-"),
+      },
+      {
+        key: "fuelQtyLeftPriorDeparture",
+        label: "Fuel Prior Dep. Left",
+        getValue: (record) => String(record.fuelQtyLeftPriorDeparture ?? "-"),
+      },
+      {
+        key: "fuelQtyRightPriorDeparture",
+        label: "Fuel Prior Dep. Right",
+        getValue: (record) => String(record.fuelQtyRightPriorDeparture ?? "-"),
+      },
+      {
+        key: "fuelQtyLeftAfterOnBlks",
+        label: "Fuel After On-Blks Left",
+        getValue: (record) => String(record.fuelQtyLeftAfterOnBlks ?? "-"),
+      },
+      {
+        key: "fuelQtyRightAfterOnBlks",
+        label: "Fuel After On-Blks Right",
+        getValue: (record) => String(record.fuelQtyRightAfterOnBlks ?? "-"),
+      },
+      {
+        key: "oilQtyUpliftQty",
+        label: "Oil Uplift Qty",
+        getValue: (record) => String(record.oilQtyUpliftQty ?? "-"),
+      },
+      {
+        key: "oilQtyPriorDeparture",
+        label: "Oil Prior Dep. QRE",
+        getValue: (record) => String(record.oilQtyPriorDeparture ?? "-"),
+      },
+      {
+        key: "oilQtyAfterOnBlks",
+        label: "Oil After On-Blks",
+        getValue: (record) => String(record.oilQtyAfterOnBlks ?? "-"),
+      },
+      {
+        key: "remarks",
+        label: "Remarks",
+        getValue: (record) => record.remarks || "-",
+      },
+      {
+        key: "remarkPerson",
+        label: "Remark Person",
+        getValue: (record) => getAccountDisplay(record.maintenanceFk),
+      },
+      {
+        key: "actionsTaken",
+        label: "Actions Taken",
+        getValue: (record) => record.actionsTaken || "-",
+      },
+      {
+        key: "actionTakenPerson",
+        label: "Action Taken Person",
+        getValue: (record) => getAccountDisplay(record.maintenanceFk),
+      },
+      {
+        key: "componentRecord",
+        label: "Component Record",
+        getValue: (record) => getComponentRecordDisplay(record),
+      },
+      {
+        key: "rtsSignedBy",
+        label: "Return To Service Name",
+        getValue: (record) => getAccountDisplay(record.rtsSignedBy),
+      },
+      {
+        key: "rtsDate",
+        label: "Return To Service Date",
+        getValue: (record) => record.rtsDate || "-",
+      },
+      {
+        key: "rtsTime",
+        label: "Return To Service Time (Zulu)",
+        getValue: (record) => formatTimeZulu(record.rtsTime),
+      },
+      {
+        key: "pilotAcceptedBy",
+        label: "Pilot Acceptance Name",
+        getValue: (record) => getPilotDisplay(record),
+      },
+      {
+        key: "pilotAcceptDate",
+        label: "Pilot Acceptance Date",
+        getValue: (record) => record.pilotAcceptDate?.trim() || "-",
+      },
+      {
+        key: "pilotAcceptTime",
+        label: "Pilot Acceptance Time (Zulu)",
+        getValue: (record) =>
+          record.pilotAcceptTime?.trim()
+            ? formatTimeZulu(record.pilotAcceptTime)
+            : "-",
+      },
+    ],
+    [accountsMap, aircraft, showSeqNoWithBatchName]
+  );
 
-      // Engine TBO = life_time_limit_engine - ENGINE CURRENT TSO
-      const engineTbo =
-        engineLimit != null && engineTso != null
-          ? engineLimit - engineTso
-          : toNum(r.engineTbo) ?? null;
-      // Propeller TBO = life_time_limit_propeller - Propeller current TSO
-      const propellerTbo =
-        propellerLimit != null && propellerTso != null
-          ? propellerLimit - propellerTso
-          : toNum(r.propellerTbo) ?? null;
-
-      list.push({
-        airframeRunTime: airframeRun,
-        airframeAftt,
-        engineRunTime,
-        engineTsn,
-        engineTso,
-        engineTbo,
-        propellerRunTime,
-        propellerTsn,
-        propellerTso,
-        propellerTbo,
-      });
-    }
-    return list;
-  }, [paginatedRecords, aircraft]);
+  useEffect(() => {
+    setSelectedExportColumns((current) => {
+      const availableKeys = exportColumnDefinitions.map((column) => column.key);
+      if (current.length === 0) return availableKeys;
+      return current.filter((key) => availableKeys.includes(key));
+    });
+  }, [exportColumnDefinitions]);
 
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
     console.log("Adding record to reliability tracking:", record);
-    alert(
-      `Record #${record.sequenceNo ?? record.id} added to reliability tracking`
-    );
+    Swal.fire({
+      icon: "success",
+      title: "Added",
+      text: `Record ${formatOperationSequenceNoCell(
+        record,
+        showSeqNoWithBatchName
+      )} (#${record.id}) added to reliability tracking`,
+      timer: 2000,
+      showConfirmButton: false,
+    });
   };
 
   const handleSeeReliability = (record: AircraftTechnicalLog) => {
@@ -514,9 +983,10 @@ export function Operation() {
     const result = await Swal.fire({
       icon: "warning",
       title: "Delete ATL Entry",
-      html: `Are you sure you want to delete entry <strong>${
-        record.sequenceNo ?? record.id
-      }</strong>? This action cannot be undone.`,
+      html: `Are you sure you want to delete entry <strong>${formatOperationSequenceNoCell(
+        record,
+        showSeqNoWithBatchName
+      )}</strong>? This action cannot be undone.`,
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
       cancelButtonColor: "#6b7280",
@@ -553,15 +1023,118 @@ export function Operation() {
     importFileInputRef.current?.click();
   };
 
+  const toggleExportColumn = (columnKey: string) => {
+    setSelectedExportColumns((current) =>
+      current.includes(columnKey)
+        ? current.filter((key) => key !== columnKey)
+        : [...current, columnKey]
+    );
+  };
+
+  const handleExport = async (format: "csv" | "xlsx") => {
+    if (!effectiveAircraftId) return;
+    if (selectedExportColumns.length === 0) {
+      await Swal.fire({
+        icon: "warning",
+        title: "No columns selected",
+        text: "Choose at least one column to include in the export.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+
+    setExportLoading(true);
+    try {
+      const exportPageSize = Math.max(totalRecords, paginatedRecords.length, 1);
+      const recordsResponse = await getAircraftTechnicalLogs(
+        1,
+        exportPageSize,
+        selectedSequenceNo,
+        effectiveAircraftId,
+        sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+        workStatusFilter || undefined,
+        selectedAtlBatchFk
+      );
+
+      if (!recordsResponse.items.length) {
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no records matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      const selectedColumns = exportColumnDefinitions.filter((column) =>
+        selectedExportColumns.includes(column.key)
+      );
+      const fileRegistration =
+        aircraft?.registration || `aircraft_${effectiveAircraftId}`;
+
+      if (format === "xlsx") {
+        const aoa: string[][] = [
+          selectedColumns.map((column) => column.label),
+          ...recordsResponse.items.map((record) =>
+            selectedColumns.map((column) => column.getValue(record))
+          ),
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "ATL");
+        XLSX.writeFile(wb, `${fileRegistration}_operation_export.xlsx`);
+        setShowExportModal(false);
+        return;
+      }
+
+      const escapeCsvValue = (value: string) =>
+        `"${value.replace(/"/g, '""')}"`;
+      const csvLines = [
+        selectedColumns.map((column) => escapeCsvValue(column.label)).join(","),
+        ...recordsResponse.items.map((record) =>
+          selectedColumns
+            .map((column) => escapeCsvValue(column.getValue(record)))
+            .join(",")
+        ),
+      ];
+
+      const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = window.URL.createObjectURL(csvBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${fileRegistration}_operation_export.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setShowExportModal(false);
+    } catch (err: any) {
+      console.error("Export error:", err);
+      await Swal.fire({
+        icon: "error",
+        title: "Export failed",
+        text:
+          err?.response?.data?.detail ||
+          err?.message ||
+          "Failed to export records.",
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const handleImportFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !aircraftId) return;
+    if (!file || !effectiveAircraftId) return;
     setImportLoading(true);
     try {
-      await importAircraftTechnicalLogExcel(file, aircraftId);
+      await importAircraftTechnicalLogExcel(file, effectiveAircraftId);
       await refreshPage();
       await Swal.fire({
         icon: "success",
@@ -586,24 +1159,28 @@ export function Operation() {
     }
   };
 
-  // Refresh aircraft + records so list view recomputes (Engine TSN/TSO/TBO, Propeller, Airframe AFTT, etc.)
+  // Refresh aircraft + records so list view shows the latest API-provided auto_* values.
   const refreshPage = async () => {
-    if (!aircraftId) return;
+    if (!effectiveAircraftId) return;
     setLoading(true);
     setError(null);
     try {
       const [aircraftRes, recordsRes] = await Promise.all([
-        getAircraftById(aircraftId),
+        getAircraftById(effectiveAircraftId),
         getAircraftTechnicalLogs(
           currentPage,
           itemsPerPage,
-          searchQuery,
-          aircraftId,
-          sequenceSort === "asc" ? "sequence_no" : "-sequence_no"
+          selectedSequenceNo,
+          effectiveAircraftId,
+          sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+          workStatusFilter || undefined,
+          selectedAtlBatchFk
         ),
       ]);
-      setAircraft(toCamel(aircraftRes.data));
-      setFleetTimeRecords(recordsRes.items);
+      setAircraft(toCamelDeep(aircraftRes.data) as Aircraft);
+      setFleetTimeRecords(
+        Array.isArray(recordsRes.items) ? recordsRes.items : []
+      );
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
     } catch (err: any) {
@@ -618,8 +1195,8 @@ export function Operation() {
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 sm:gap-4">
+      <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <button
             onClick={handleBack}
             className="p-2 hover:bg-gray-100 rounded transition-colors"
@@ -672,6 +1249,34 @@ export function Operation() {
                         )
                       : "-"}
                   </span>
+                  <span>
+                    Airframe AFTT:{" "}
+                    {toFormat2(resolveAircraftAirframeAftt(aircraft))}
+                  </span>
+                  <span>
+                    Engine TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTso")
+                    )}
+                  </span>
+                  <span>
+                    Engine TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "engineTsn")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSO:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTso")
+                    )}
+                  </span>
+                  <span>
+                    Propeller TSN:{" "}
+                    {toFormat2(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
+                    )}
+                  </span>
                 </div>
               )}
             </div>
@@ -681,69 +1286,74 @@ export function Operation() {
                 onClick={refreshPage}
                 disabled={loading}
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Refresh list and recalculate computed values"
+                title="Refresh list data"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
+                />
                 <span className="hidden sm:inline">Refresh</span>
               </button>
               <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
                 <Printer className="w-4 h-4" />
                 <span className="hidden sm:inline">Print</span>
               </button>
-              <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(true)}
+                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+              >
                 <Download className="w-4 h-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              <input
-                type="file"
-                ref={importFileInputRef}
-                onChange={handleImportFileChange}
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                aria-label="Import ATL from Excel"
-              />
-              <button
-                type="button"
-                onClick={handleImportClick}
-                disabled={importLoading}
-                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Import Aircraft Technical Log from Excel"
-              >
-                <Upload className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`} />
-                <span className="hidden sm:inline">{importLoading ? "Importing…" : "Import"}</span>
-              </button>
-              <button
-                onClick={() => {
-                  const engineLimit =
-                    aircraft?.engineLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_engine;
-                  const propellerLimit =
-                    aircraft?.propellerLifeTimeLimit ??
-                    (aircraft as any)?.life_time_limit_propeller;
-                  const engineMissing =
-                    engineLimit == null ||
-                    engineLimit === "" ||
-                    Number(engineLimit) === 0;
-                  const propellerMissing =
-                    propellerLimit == null ||
-                    propellerLimit === "" ||
-                    Number(propellerLimit) === 0;
-                  if (engineMissing || propellerMissing) {
-                    Swal.fire({
-                      icon: "warning",
-                      title: "Aircraft limits required",
-                      html: "Engine Life Time Limit and Propeller Life Time Limit must be set (not 0 or empty) in <strong>Aircraft Details</strong> before creating an ATL entry.<br/><br/>",
-                      confirmButtonColor: "#2563eb",
-                    });
-                    return;
-                  }
-                  setShowAddRecordModal(true);
-                }}
-                className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add Record</span>
-              </button>
+              {canCreateOperationAtl && (
+                <>
+                  <input
+                    type="file"
+                    ref={importFileInputRef}
+                    onChange={handleImportFileChange}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    aria-label="Import ATL from Excel"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImportClick}
+                    disabled={importLoading}
+                    className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Import Aircraft Technical Log from Excel"
+                  >
+                    <Upload
+                      className={`w-4 h-4 ${
+                        importLoading ? "animate-pulse" : ""
+                      }`}
+                    />
+                    <span className="hidden sm:inline">
+                      {importLoading ? "Importing…" : "Import"}
+                    </span>
+                  </button>
+                </>
+              )}
+              {canCreateOperationAtl && (
+                <button
+                  onClick={() => {
+                    const missing = getMissingAircraftFieldsForNewAtl(aircraft);
+                    if (missing.length > 0) {
+                      Swal.fire({
+                        icon: "warning",
+                        title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                        html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
+                        confirmButtonColor: "#2563eb",
+                      });
+                      return;
+                    }
+                    setShowAddRecordModal(true);
+                  }}
+                  className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add Record</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -752,9 +1362,13 @@ export function Operation() {
             <div className="bg-white rounded-lg border border-gray-200 p-5">
               <p className="text-gray-500 text-sm mb-2">Current Tach</p>
               <p className="text-gray-900 text-2xl">
-                {fleetTimeRecords.length > 0 &&
-                fleetTimeRecords[0].tachometerEnd
-                  ? `${fleetTimeRecords[0].tachometerEnd.toFixed(1)} Hrs`
+                {fleetTimeRecords.length > 0
+                  ? (() => {
+                      const s = formatOptionalNumber1dp(
+                        fleetTimeRecords[0].tachometerEnd
+                      );
+                      return s === "-" ? "-" : `${s} Hrs`;
+                    })()
                   : "-"}
               </p>
             </div>
@@ -791,19 +1405,102 @@ export function Operation() {
               <div className="relative flex-1 min-w-[200px]">
                 <input
                   type="text"
-                  placeholder="Search by sequence number, tach time..."
+                  placeholder="Search by sequence number..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    const nextSequenceNo = e.target.value;
+                    setSearchQuery(nextSequenceNo);
+                    setSelectedSequenceNo(nextSequenceNo.trim());
+                  }}
                   className="w-full px-4 py-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 placeholder:text-gray-400"
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSelectedSequenceNo("");
+                    }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 )}
+              </div>
+              {canManageAtlBatchFilterAndBranches && (
+                <div className="flex flex-wrap items-center gap-2 min-w-[200px]">
+                  <label
+                    htmlFor="operation-atl-branch"
+                    className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
+                  >
+                    <Filter className="w-4 h-4 text-gray-500 shrink-0" />
+                    ATL batch
+                  </label>
+                  <select
+                    id="operation-atl-branch"
+                    value={selectedAtlBatchId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === ATL_BRANCH_CREATE_VALUE) {
+                        setAtlBatchModalEditId(null);
+                        setAtlBatchModalOpen(true);
+                        return;
+                      }
+                      if (v === ATL_BRANCH_EDIT_VALUE) {
+                        const n =
+                          selectedAtlBatchId.trim() !== ""
+                            ? Number(selectedAtlBatchId)
+                            : NaN;
+                        if (!Number.isFinite(n) || n <= 0) {
+                          void Swal.fire({
+                            icon: "info",
+                            title: "Select a branch",
+                            text: "Choose a branch in the dropdown before editing.",
+                            confirmButtonColor: "#2563eb",
+                          });
+                          return;
+                        }
+                        setAtlBatchModalEditId(n);
+                        setAtlBatchModalOpen(true);
+                        return;
+                      }
+                      atlBatchFilterTouchedRef.current = true;
+                      setSelectedAtlBatchId(v);
+                    }}
+                    className="min-w-[200px] px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900"
+                  >
+                    <option value="">All</option>
+                    {atlBatchFilterOptions.map((b) => (
+                      <option key={b.id} value={String(b.id)}>
+                        {b.name}
+                      </option>
+                    ))}
+                    <option value={ATL_BRANCH_CREATE_VALUE}>
+                      + Create branch…
+                    </option>
+                    <option value={ATL_BRANCH_EDIT_VALUE}>Edit branch…</option>
+                  </select>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="fleet-work-status"
+                  className="text-gray-700 text-sm font-medium whitespace-nowrap"
+                >
+                  Work Status
+                </label>
+                <select
+                  id="fleet-work-status"
+                  value={workStatusFilter}
+                  onChange={(e) => setWorkStatusFilter(e.target.value)}
+                  className="px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900 min-w-[200px]"
+                >
+                  <option value="">All</option>
+                  {ATL_WORK_STATUS_KEYS.map((key) => (
+                    <option key={key} value={key}>
+                      {formatFleetWorkStatus(key)}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex items-center gap-2">
                 <label
@@ -846,17 +1543,26 @@ export function Operation() {
                       setCurrentPage(1);
                       // Trigger refetch
                       const fetchRecords = async () => {
-                        if (!aircraftId) return;
+                        if (!effectiveAircraftId) return;
                         setLoading(true);
                         setError(null);
                         try {
+                          const sortParam =
+                            sequenceSort === "asc"
+                              ? "sequence_no"
+                              : "-sequence_no";
                           const response = await getAircraftTechnicalLogs(
                             currentPage,
                             itemsPerPage,
-                            searchQuery,
-                            aircraftId
+                            selectedSequenceNo,
+                            effectiveAircraftId,
+                            sortParam,
+                            workStatusFilter || undefined,
+                            selectedAtlBatchFk
                           );
-                          setFleetTimeRecords(response.items);
+                          setFleetTimeRecords(
+                            Array.isArray(response.items) ? response.items : []
+                          );
                           setTotalRecords(response.total);
                           setTotalPages(response.pages);
                         } catch (err: any) {
@@ -906,6 +1612,14 @@ export function Operation() {
                                   <ChevronDown className="w-4 h-4 inline" />
                                 )}
                               </span>
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                            >
+                              WORK
+                              <br />
+                              STATUS
                             </th>
                             <th
                               rowSpan={2}
@@ -964,7 +1678,7 @@ export function Operation() {
                               HOBBS METER
                             </th>
                             <th
-                              colSpan={3}
+                              colSpan={2}
                               className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
                               TACHOMETER
@@ -1076,9 +1790,6 @@ export function Operation() {
                               TACH END
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TOTAL
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               HRS
                               <br />
                               RUN
@@ -1184,7 +1895,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={50}
+                                colSpan={51}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -1193,7 +1904,7 @@ export function Operation() {
                               </td>
                             </tr>
                           ) : (
-                            paginatedRecords.map((record, rowIndex) => (
+                            paginatedRecords.map((record) => (
                               <tr
                                 key={record.id}
                                 className="hover:bg-gray-50/50 transition-colors"
@@ -1201,7 +1912,10 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {record.sequenceNo || "-"}
+                                      {formatOperationSequenceNoCell(
+                                        record,
+                                        showSeqNoWithBatchName
+                                      )}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -1214,27 +1928,57 @@ export function Operation() {
                                       >
                                         View
                                       </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowEditModal(true);
-                                        }}
-                                        className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                        title="Edit"
-                                      >
-                                        Edit
-                                      </button>
-                                      <span className="text-gray-400">|</span>
-                                      <button
-                                        onClick={() => handleDeleteAtl(record)}
-                                        className="text-red-600 hover:underline text-xs"
-                                        title="Delete"
-                                      >
-                                        Delete
-                                      </button>
+                                      {(canUpdateOperationAtl ||
+                                        operationTechPubUploadOnly) && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              !allowAtlEditForRecord(record)
+                                            }
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDeleteOperationAtl && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            onClick={() =>
+                                              handleDeleteAtl(record)
+                                            }
+                                            className="text-red-600 hover:underline text-xs"
+                                            title="Delete"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
+                                </td>
+                                <td
+                                  {...getFleetWorkStatusCellProps(
+                                    record.workStatus
+                                  )}
+                                >
+                                  {formatFleetWorkStatus(record.workStatus)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {record.natureOfFlight === "VOID"
@@ -1247,9 +1991,7 @@ export function Operation() {
                                   {record.nextInspectionDue || "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.tachTimeDue
-                                    ? record.tachTimeDue.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.originDate
@@ -1280,144 +2022,163 @@ export function Operation() {
                                   {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {computeTotalBlockTime(
+                                  {computeTotalBlockTimeFromUtc(
+                                    record.originDate,
                                     record.originTime,
+                                    record.destinationDate,
                                     record.destinationTime
                                   )}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.numberOfLandings || "-"}
+                                  {record.numberOfLandings ?? "-"}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterStart != null
-                                    ? record.hobbsMeterStart.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(
+                                    record.hobbsMeterStart
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterEnd != null
-                                    ? record.hobbsMeterEnd.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(
+                                    record.hobbsMeterEnd
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.hobbsMeterStart != null &&
-                                  record.hobbsMeterEnd != null
-                                    ? (
-                                        record.hobbsMeterEnd -
-                                        record.hobbsMeterStart
-                                      ).toFixed(1)
-                                    : record.hobbsMeterTotal != null
-                                    ? record.hobbsMeterTotal.toFixed(1)
-                                    : "-"}
+                                  {(() => {
+                                    const start = Number(
+                                      record.hobbsMeterStart
+                                    );
+                                    const end = Number(record.hobbsMeterEnd);
+                                    if (
+                                      record.hobbsMeterStart != null &&
+                                      record.hobbsMeterEnd != null &&
+                                      Number.isFinite(start) &&
+                                      Number.isFinite(end)
+                                    ) {
+                                      return (end - start).toFixed(1);
+                                    }
+                                    return formatOptionalNumber1dp(
+                                      record.hobbsMeterTotal
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerStart != null
-                                    ? record.tachometerStart.toFixed(1)
-                                    : "-"}
+                                  {formatOptionalNumber1dp(
+                                    record.tachometerStart
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerEnd != null
-                                    ? record.tachometerEnd.toFixed(1)
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.tachometerStart != null &&
-                                  record.tachometerEnd != null
-                                    ? (
-                                        record.tachometerEnd -
-                                        record.tachometerStart
-                                      ).toFixed(1)
-                                    : record.tachometerTotal != null
-                                    ? record.tachometerTotal.toFixed(1)
-                                    : "-"}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.airframeRunTime ?? record.airframeRunTime
+                                  {formatOptionalNumber1dp(
+                                    record.tachometerEnd
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.airframeAftt ?? record.airframeAftt
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "airframeRunTime"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineRunTime ?? record.engineRunTime
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "airframeAftt"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineTsn ?? record.engineTsn
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineRunTime"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineTso ?? record.engineTso
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineTsn"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.engineTbo ?? record.engineTbo
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineTso"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerRunTime ?? record.propellerRunTime
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "engineTbo"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerTsn ?? record.propellerTsn
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerRunTime"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerTso ?? record.propellerTso
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerTsn"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {toFormat2(
-                                    computedEnginePropellerList[rowIndex]
-                                      ?.propellerTbo ?? record.propellerTbo
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerTso"
+                                    )
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                  {toFormat2(
+                                    resolveAtlComponentMetric(
+                                      record,
+                                      "propellerTbo"
+                                    )
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftUpliftQty || "-"}
+                                  {record.fuelQtyLeftUpliftQty ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightUpliftQty || "-"}
+                                  {record.fuelQtyRightUpliftQty ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftPriorDeparture || "-"}
+                                  {record.fuelQtyLeftPriorDeparture ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightPriorDeparture || "-"}
+                                  {record.fuelQtyRightPriorDeparture ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftAfterOnBlks || "-"}
+                                  {record.fuelQtyLeftAfterOnBlks ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightAfterOnBlks || "-"}
+                                  {record.fuelQtyRightAfterOnBlks ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyUpliftQty || "-"}
+                                  {record.oilQtyUpliftQty ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyPriorDeparture || "-"}
+                                  {record.oilQtyPriorDeparture ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyAfterOnBlks || "-"}
+                                  {record.oilQtyAfterOnBlks ?? "-"}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.remarks || "-"}
@@ -1727,7 +2488,10 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {record.sequenceNo || "-"}
+                                    {formatOperationSequenceNoCell(
+                                      record,
+                                      showSeqNoWithBatchName
+                                    )}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -1739,23 +2503,43 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {(canUpdateOperationAtl ||
+                                      operationTechPubUploadOnly) && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            !allowAtlEditForRecord(record)
+                                          }
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDeleteOperationAtl && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -1795,8 +2579,10 @@ export function Operation() {
                                   : ""}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTime(
+                                {computeTotalBlockTimeFromUtc(
+                                  record.originDate,
                                   record.originTime,
+                                  record.destinationDate,
                                   record.destinationTime
                                 )}
                               </td>
@@ -1830,27 +2616,54 @@ export function Operation() {
                   </div>
                 )}
 
-                {/* Maintenance Planning */}
+                {/* Maintenance Planning — separate columns: OFF BLOCKS, ON BLOCKS, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
                 {groupBy === "maintenancePlanning" && (
                   <div className="overflow-x-auto">
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
-                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th className={`${STICKY_SEQ_CLASS} rounded-tl-lg`}>
+                            ATL SEQ
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             NATURE OF FLIGHT
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            OFF BLOCKS / ON BLOCKS
+
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DATE | OFF BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME (RUN / AFTT)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DATE | ON BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE (RUN / TSN / TSO / TBO)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME RUN
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER (RUN / TSN / TSO / TBO)
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME AFTT
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE RUN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TSN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TSO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ENGINE TBO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER RUN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER TSN
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PROPELLER TSO
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap rounded-tr-lg">
+                            PROPELLER TBO
                           </th>
                         </tr>
                       </thead>
@@ -1858,98 +2671,168 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={6}
+                              colSpan={16}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
-                              <td className={STICKY_SEQ_CELL_CLASS}>
-                                <div className="flex flex-col">
-                                  <span className="font-medium">
-                                    {record.sequenceNo || "-"}
-                                  </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowViewModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      View
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                          paginatedRecords.map((record) => {
+                            return (
+                              <tr key={record.id} className="hover:bg-gray-50">
+                                <td className={STICKY_SEQ_CELL_CLASS}>
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">
+                                      {formatOperationSequenceNoCell(
+                                        record,
+                                        showSeqNoWithBatchName
+                                      )}
+                                    </span>
+                                    <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedEntry(record);
+                                          setShowViewModal(true);
+                                        }}
+                                        className="hover:underline text-xs"
+                                      >
+                                        View
+                                      </button>
+                                      {(canUpdateOperationAtl ||
+                                        operationTechPubUploadOnly) && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              !allowAtlEditForRecord(record)
+                                            }
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                            title={
+                                              allowAtlEditForRecord(record)
+                                                ? "Edit"
+                                                : "Editing is not allowed for your role at this work status."
+                                            }
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                      {canDeleteOperationAtl && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            onClick={() =>
+                                              handleDeleteAtl(record)
+                                            }
+                                            className="text-red-600 hover:underline text-xs"
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.originDate
-                                  ? new Date(record.originDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}{" "}
-                                /{" "}
-                                {record.destinationDate
-                                  ? new Date(record.destinationDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getEngineDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-sm">
-                                {getPropellerDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
-                              </td>
-                            </tr>
-                          ))
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {record.natureOfFlight === "VOID"
+                                    ? "VOID"
+                                    : record.natureOfFlight?.trim()
+                                    ? record.natureOfFlight
+                                    : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                  {record.originDate
+                                    ? new Date(record.originDate)
+                                        .toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })
+                                        .replace(/ /g, "-")
+                                    : "-"}
+                                  {record.originTime
+                                    ? ` ${formatTimeZulu(record.originTime)}`
+                                    : ""}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                  {record.destinationDate
+                                    ? new Date(record.destinationDate)
+                                        .toLocaleDateString("en-GB", {
+                                          day: "2-digit",
+                                          month: "short",
+                                          year: "numeric",
+                                        })
+                                        .replace(/ /g, "-")
+                                    : "-"}
+                                  {record.destinationTime
+                                    ? ` ${formatTimeZulu(
+                                        record.destinationTime
+                                      )}`
+                                    : ""}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getAirframeDisplay(record)?.split(
+                                    " / "
+                                  )?.[0] ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getAirframeDisplay(record)?.split(
+                                    " / "
+                                  )?.[1] ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[0]
+                                    ?.replace("RUN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[1]
+                                    ?.replace("TSN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[2]
+                                    ?.replace("TSO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getEngineDisplay(record)
+                                    ?.split(" / ")?.[3]
+                                    ?.replace("TBO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[0]
+                                    ?.replace("RUN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[1]
+                                    ?.replace("TSN ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[2]
+                                    ?.replace("TSO ", "") ?? "-"}
+                                </td>
+                                <td className="px-3 py-2 text-sm">
+                                  {getPropellerDisplay(record)
+                                    ?.split(" / ")?.[3]
+                                    ?.replace("TBO ", "") ?? "-"}
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -1997,12 +2880,15 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record, rowIndex) => (
+                          paginatedRecords.map((record) => (
                             <tr key={record.id} className="hover:bg-gray-50">
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {record.sequenceNo || "-"}
+                                    {formatOperationSequenceNoCell(
+                                      record,
+                                      showSeqNoWithBatchName
+                                    )}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -2014,23 +2900,43 @@ export function Operation() {
                                     >
                                       View
                                     </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => {
-                                        setSelectedEntry(record);
-                                        setShowEditModal(true);
-                                      }}
-                                      className="hover:underline text-xs"
-                                    >
-                                      Edit
-                                    </button>
-                                    <span className="text-gray-400">|</span>
-                                    <button
-                                      onClick={() => handleDeleteAtl(record)}
-                                      className="text-red-600 hover:underline text-xs"
-                                    >
-                                      Delete
-                                    </button>
+                                    {(canUpdateOperationAtl ||
+                                      operationTechPubUploadOnly) && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            !allowAtlEditForRecord(record)
+                                          }
+                                          onClick={() => {
+                                            setSelectedEntry(record);
+                                            setShowEditModal(true);
+                                          }}
+                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
+                                          title={
+                                            allowAtlEditForRecord(record)
+                                              ? "Edit"
+                                              : "Editing is not allowed for your role at this work status."
+                                          }
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    {canDeleteOperationAtl && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
+                                          className="text-red-600 hover:underline text-xs"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -2042,14 +2948,13 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(
-                                  record,
-                                  computedEnginePropellerList[rowIndex]
-                                )}
+                                {getAirframeDisplay(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTime(
+                                {computeTotalBlockTimeFromUtc(
+                                  record.originDate,
                                   record.originTime,
+                                  record.destinationDate,
                                   record.destinationTime
                                 )}
                               </td>
@@ -2166,12 +3071,31 @@ export function Operation() {
             )}
 
             {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Showing{" "}
-                {totalRecords === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}-
-                {Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
-                {totalRecords} records
+            <div className="px-6 py-4 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-700">Items per page:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                    className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                    aria-label="Items per page"
+                  >
+                    {OPERATION_PAGE_SIZE_OPTIONS.map((pageSize) => (
+                      <option key={pageSize} value={pageSize}>
+                        {pageSize}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-sm text-gray-600">
+                  Showing{" "}
+                  {totalRecords === 0
+                    ? 0
+                    : (currentPage - 1) * itemsPerPage + 1}
+                  -{Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
+                  {totalRecords} records
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -2211,11 +3135,33 @@ export function Operation() {
         </div>
       </div>
 
+      <AddAtlBatchModal
+        isOpen={atlBatchModalOpen && canManageAtlBatchFilterAndBranches}
+        editBatchId={atlBatchModalEditId}
+        onClose={() => {
+          setAtlBatchModalOpen(false);
+          setAtlBatchModalEditId(null);
+        }}
+        onSaved={(batch: AtlBatch) => {
+          setAtlBatchFilterOptions((prev) => {
+            const without = prev.filter((b) => b.id !== batch.id);
+            return [...without, { id: batch.id, name: batch.name }].sort(
+              (a, b) => a.name.localeCompare(b.name)
+            );
+          });
+          setSelectedAtlBatchId(String(batch.id));
+        }}
+      />
+
       {/* Add Record Modal – CREATE */}
       <AddTechnicalLogbookEntryModal
         isOpen={showAddRecordModal}
         onClose={() => setShowAddRecordModal(false)}
-        aircraftId={aircraftId}
+        aircraftId={effectiveAircraftId}
+        permissionModuleCode={operationAtlPermissionModuleCode}
+        defaultAtlBatchFk={
+          canManageAtlBatchFilterAndBranches ? selectedAtlBatchFk : undefined
+        }
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -2231,7 +3177,11 @@ export function Operation() {
             setSelectedEntry(null);
           }}
           entryId={selectedEntry.id}
-          aircraftId={aircraftId}
+          aircraftId={effectiveAircraftId}
+          permissionModuleCode={operationAtlPermissionModuleCode}
+          viewerRole={operationAtlRole}
+          editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
+          listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
@@ -2258,8 +3208,10 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: `${computeTotalFlightHoursDecimal(
+            fltTime: `${computeTotalFlightHoursDecimalFromUtc(
+              selectedEntry.originDate,
               selectedEntry.originTime,
+              selectedEntry.destinationDate,
               selectedEntry.destinationTime
             ).toFixed(2)}h`,
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
@@ -2267,6 +3219,108 @@ export function Operation() {
           }}
           fullEntry={selectedEntry}
         />
+      )}
+
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Export Columns
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Select the columns to include in the export. White ATL and DFP
+                  are intentionally excluded.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !exportLoading && setShowExportModal(false)}
+                className="rounded p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close export dialog"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="border-b border-gray-200 px-6 py-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedExportColumns(
+                      exportColumnDefinitions.map((column) => column.key)
+                    )
+                  }
+                  className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedExportColumns([])}
+                  className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  Clear All
+                </button>
+                <span className="self-center text-sm text-gray-500">
+                  {selectedExportColumns.length} of{" "}
+                  {exportColumnDefinitions.length} selected
+                </span>
+              </div>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {exportColumnDefinitions.map((column) => (
+                  <label
+                    key={column.key}
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+                  >
+                    <Checkbox
+                      checked={selectedExportColumns.includes(column.key)}
+                      onCheckedChange={() => toggleExportColumn(column.key)}
+                      className="mt-0.5 border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
+                    />
+                    <span className="text-sm text-gray-800">
+                      {column.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                disabled={exportLoading}
+                className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExport("csv")}
+                disabled={exportLoading}
+                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exportLoading ? "Exporting..." : "Export CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExport("xlsx")}
+                disabled={exportLoading}
+                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {exportLoading ? "Exporting..." : "Export XLSX"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}

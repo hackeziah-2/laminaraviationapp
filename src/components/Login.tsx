@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plane } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { login as loginApi } from "../api/authApi";
+import { getMe, getPostLoginPath, login as loginApi } from "../api/authApi";
+import laminarAviationLogo from "../assets/laminar-aviation-logo.png";
 
 interface LoginProps {
   onLogin: (username: string) => void;
@@ -16,6 +16,14 @@ export function Login({ onLogin }: LoginProps) {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "Laminar · Sign in";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,7 +64,12 @@ export function Login({ onLogin }: LoginProps) {
       const resolvedUsername =
         response?.user?.username ?? response?.user?.email ?? username.trim();
       onLogin(resolvedUsername);
-      navigate("/dashboard");
+      try {
+        const me = await getMe();
+        navigate(getPostLoginPath(me.role));
+      } catch {
+        navigate("/dashboard");
+      }
     } catch (err) {
       const fallback = "Invalid username or password";
       const detail = (
@@ -97,14 +110,16 @@ export function Login({ onLogin }: LoginProps) {
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div
-            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
-            style={{ backgroundColor: "#38BDF8" }}
-          >
-            <Plane className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center rounded-2xl bg-white/95 px-6 py-4 shadow-lg shadow-blue-900/20 mb-5">
+            <img
+              src={laminarAviationLogo}
+              alt="Laminar Aviation"
+              className="h-12 sm:h-14 w-auto max-w-[min(100%,320px)] object-contain object-center"
+            />
           </div>
-          <h1 className="text-white mb-2">Laminar</h1>
-          <p className="text-gray-200">Sign in to access your dashboard</p>
+          <p className="text-blue-950 text-base sm:text-lg font-medium drop-shadow-sm">
+            Sign in to access your dashboard
+          </p>
         </div>
 
         {/* Login Form */}
@@ -163,15 +178,15 @@ export function Login({ onLogin }: LoginProps) {
 
           {/* Additional Info */}
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <p className="text-center text-gray-600">
-              Ask credential to Administrator
+            <p className="text-center text-gray-600 text-sm">
+              Contact your administrator for credentials
             </p>
           </div>
         </div>
 
         {/* Footer */}
-        <p className="text-center text-gray-200 mt-8">
-          © 2025 Aircraft Fleet Management System
+        <p className="text-center text-blue-950/90 text-sm font-medium mt-8 drop-shadow-sm">
+          © 2026 Aircraft Fleet Management System
         </p>
       </div>
     </div>

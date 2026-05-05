@@ -30,12 +30,14 @@ import {
   type CertificateMonitoringUpdate,
 } from "../api/certificateMonitoringApi";
 import { Spinner } from "./ui/spinner";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /**
  * Certificate Monitoring (global): /certificate-monitoring
  * Columns: AIRCRAFT, CERTIFICATE, EXPIRY DATE, DAYS LEFT, STATUS, ACTIONS
  */
 export function CertificateMonitoring() {
+  const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -653,14 +655,16 @@ export function CertificateMonitoring() {
             <Download className="w-4 h-4" />
             Export
           </button>
-          <button
-            type="button"
-            onClick={handleAddCertificate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            Add Certificate
-          </button>
+          {canCreate("regulatory-compliance") && (
+            <button
+              type="button"
+              onClick={handleAddCertificate}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              Add Certificate
+            </button>
+          )}
         </div>
       </div>
 
@@ -887,22 +891,26 @@ export function CertificateMonitoring() {
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={() => certId && handleEdit(certId)}
-                                className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
-                                title="Edit"
-                                disabled={!certId}
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => certId && handleDelete(certId)}
-                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                                title="Delete"
-                                disabled={!certId}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {canUpdate("regulatory-compliance") && (
+                                <button
+                                  onClick={() => certId && handleEdit(certId)}
+                                  className="p-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
+                                  title="Edit"
+                                  disabled={!certId}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
+                              {canDelete("regulatory-compliance") && (
+                                <button
+                                  onClick={() => certId && handleDelete(certId)}
+                                  className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                  title="Delete"
+                                  disabled={!certId}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1265,15 +1273,20 @@ export function CertificateMonitoring() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving && <Loader className="w-4 h-4 animate-spin" />}
-                {editingCertificate ? "Update Entry" : "Save Entry"}
-              </button>
+              {((!editingCertificate &&
+                canCreate("regulatory-compliance")) ||
+                (editingCertificate &&
+                  canUpdate("regulatory-compliance"))) && (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSaving && <Loader className="w-4 h-4 animate-spin" />}
+                  {editingCertificate ? "Update Entry" : "Save Entry"}
+                </button>
+              )}
             </div>
           </div>
         </div>

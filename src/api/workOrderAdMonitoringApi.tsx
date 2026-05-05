@@ -3,6 +3,8 @@ import apiClient from "./index";
 export interface WorkOrderAdMonitoring {
   id: number;
   woNumber: string;
+  /** May be set per row from API, or filled from parent AD in UI/export */
+  subject?: string;
   lastDoneActt: string | number;
   lastDoneTach: string | number;
   lastDoneDate: string;
@@ -46,6 +48,13 @@ function normalizeItem(raw: any): WorkOrderAdMonitoring {
   return {
     id: r.id ?? r.pk,
     woNumber: r.work_order_number ?? r.wo_number ?? r.woNumber ?? "",
+    subject:
+      r.subject ??
+      r.ad_subject ??
+      (typeof r.ad_monitoring === "object" && r.ad_monitoring
+        ? r.ad_monitoring.subject
+        : undefined) ??
+      undefined,
     lastDoneActt: r.last_done_actt ?? r.last_done_acft ?? r.lastDoneActt ?? "",
     lastDoneTach: r.last_done_tach ?? r.lastDoneTach ?? "",
     lastDoneDate: r.last_done_date ?? r.lastDoneDate ?? "",

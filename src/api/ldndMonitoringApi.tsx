@@ -10,6 +10,7 @@ export interface LDNDMonitoring {
   lastDoneTachDone: number | null;
   nextDueTachHours: number | null;
   performedDateStart: string | null;
+  performedDateEnd: string | null;
 }
 
 export interface LDNDMonitoringCreate {
@@ -20,6 +21,7 @@ export interface LDNDMonitoringCreate {
   lastDoneTachDone?: number | string | null;
   nextDueTachHours?: number | string | null;
   performedDateStart?: string | null;
+  performedDateEnd?: string | null;
 }
 
 export interface LDNDMonitoringUpdate {
@@ -30,6 +32,7 @@ export interface LDNDMonitoringUpdate {
   lastDoneTachDone?: number | string | null;
   nextDueTachHours?: number | string | null;
   performedDateStart?: string | null;
+  performedDateEnd?: string | null;
 }
 
 export interface PaginatedLDNDResponse {
@@ -47,7 +50,8 @@ export interface LDNDLatest {
   lastUpdated: string | null;
 }
 
-const LDND_PATH = (aircraftId: number) => `aircraft/${aircraftId}/ldnd-monitoring/`;
+const LDND_PATH = (aircraftId: number) =>
+  `aircraft/${aircraftId}/ldnd-monitoring/`;
 
 function toNum(v: any): number | null {
   if (v == null || v === "") return null;
@@ -68,6 +72,7 @@ function normalizeItem(raw: any): LDNDMonitoring {
     lastDoneTachDone: toNum(r.last_done_tach_done ?? r.lastDoneTachDone),
     nextDueTachHours: toNum(r.next_due_tach_hours ?? r.nextDueTachHours),
     performedDateStart: r.performed_date_start ?? r.performedDateStart ?? null,
+    performedDateEnd: r.performed_date_end ?? r.performedDateEnd ?? null,
   };
 }
 
@@ -87,7 +92,8 @@ export const getAircraftLdndMonitoringLatest = async (
     return {
       currentTach: r.current_tach ?? r.currentTach ?? null,
       nextInspectionDue: toNum(r.next_inspection_due ?? r.nextInspectionDue),
-      nextInspectionUnit: r.next_inspection_unit ?? r.nextInspectionUnit ?? null,
+      nextInspectionUnit:
+        r.next_inspection_unit ?? r.nextInspectionUnit ?? null,
       lastUpdated: r.last_updated ?? r.lastUpdated ?? null,
     };
   } catch (err: any) {
@@ -139,8 +145,10 @@ export const getAircraftLdndMonitoring = async (
   const data = res?.data?.data ?? res?.data;
   const rawItems = Array.isArray(data)
     ? data
-    : (data && typeof data === "object" && (data.items ?? data.results ?? data.data))
-    ? (data.items ?? data.results ?? data.data)
+    : data &&
+      typeof data === "object" &&
+      (data.items ?? data.results ?? data.data)
+    ? data.items ?? data.results ?? data.data
     : [];
   const rawList = Array.isArray(rawItems) ? rawItems : [];
   const allItems = rawList.filter((x: any) => x != null).map(normalizeItem);
@@ -175,10 +183,20 @@ export const createAircraftLdndMonitoring = async (
     aircraft_fk: aircraftId,
     inspection_type: String(data.inspectionType ?? data.type ?? "").trim(),
     unit,
-    last_done_tach_due: data.lastDoneTachDue != null && data.lastDoneTachDue !== "" ? Number(data.lastDoneTachDue) : null,
-    last_done_tach_done: data.lastDoneTachDone != null && data.lastDoneTachDone !== "" ? Number(data.lastDoneTachDone) : null,
-    next_due_tach_hours: data.nextDueTachHours != null && data.nextDueTachHours !== "" ? Number(data.nextDueTachHours) : null,
+    last_done_tach_due:
+      data.lastDoneTachDue != null && data.lastDoneTachDue !== ""
+        ? Number(data.lastDoneTachDue)
+        : null,
+    last_done_tach_done:
+      data.lastDoneTachDone != null && data.lastDoneTachDone !== ""
+        ? Number(data.lastDoneTachDone)
+        : null,
+    next_due_tach_hours:
+      data.nextDueTachHours != null && data.nextDueTachHours !== ""
+        ? Number(data.nextDueTachHours)
+        : null,
     performed_date_start: data.performedDateStart?.trim() || null,
+    performed_date_end: data.performedDateEnd?.trim() || null,
   };
   const res = await apiClient.post(LDND_PATH(aircraftId), payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -195,6 +213,7 @@ export const createAircraftLdndMonitoring = async (
       lastDoneTachDone: payload.last_done_tach_done,
       nextDueTachHours: payload.next_due_tach_hours,
       performedDateStart: payload.performed_date_start,
+      performedDateEnd: payload.performed_date_end,
     };
   }
   throw new Error("Invalid create response");
@@ -210,10 +229,20 @@ export const updateAircraftLdndMonitoring = async (
     aircraft_fk: aircraftId,
     inspection_type: String(data.inspectionType ?? data.type ?? "").trim(),
     unit: data.unit ?? "HRS",
-    last_done_tach_due: data.lastDoneTachDue != null && data.lastDoneTachDue !== "" ? Number(data.lastDoneTachDue) : null,
-    last_done_tach_done: data.lastDoneTachDone != null && data.lastDoneTachDone !== "" ? Number(data.lastDoneTachDone) : null,
-    next_due_tach_hours: data.nextDueTachHours != null && data.nextDueTachHours !== "" ? Number(data.nextDueTachHours) : null,
+    last_done_tach_due:
+      data.lastDoneTachDue != null && data.lastDoneTachDue !== ""
+        ? Number(data.lastDoneTachDue)
+        : null,
+    last_done_tach_done:
+      data.lastDoneTachDone != null && data.lastDoneTachDone !== ""
+        ? Number(data.lastDoneTachDone)
+        : null,
+    next_due_tach_hours:
+      data.nextDueTachHours != null && data.nextDueTachHours !== ""
+        ? Number(data.nextDueTachHours)
+        : null,
     performed_date_start: data.performedDateStart?.trim() || null,
+    performed_date_end: data.performedDateEnd?.trim() || null,
   };
   const res = await apiClient.put(`${LDND_PATH(aircraftId)}${id}/`, payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -229,6 +258,7 @@ export const updateAircraftLdndMonitoring = async (
     lastDoneTachDone: payload.last_done_tach_done as number | null,
     nextDueTachHours: payload.next_due_tach_hours as number | null,
     performedDateStart: (payload.performed_date_start as string) ?? null,
+    performedDateEnd: (payload.performed_date_end as string) ?? null,
   };
 };
 

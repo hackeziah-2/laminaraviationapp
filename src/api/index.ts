@@ -18,7 +18,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.error("API Error:", error.response?.data || error.message);
+    const skip =
+      (error.config as { skipGlobalErrorLog?: boolean } | undefined)
+        ?.skipGlobalErrorLog === true;
+    if (!skip) {
+      console.error("API Error:", error.response?.data || error.message);
+    }
     if (error?.response?.status === 401) {
       localStorage.removeItem("access_token");
       localStorage.removeItem("refresh_token");

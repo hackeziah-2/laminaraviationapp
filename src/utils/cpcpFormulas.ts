@@ -55,6 +55,13 @@ function formatDate(d: Date | null): string {
   return `${y}-${m}-${day}`;
 }
 
+/** API / normalized list values use "-" for empty; treat those as absent so we can fall back to formulas */
+function hasApiDisplayValue(v: any): boolean {
+  if (v == null) return false;
+  const s = String(v).trim();
+  return s !== "" && s !== "-";
+}
+
 /** Status from remaining %: Due → red, <10% → orange, <20% → yellow, <40% → green, else white */
 export type CPCPRemainingStatus = "red" | "orange" | "yellow" | "green" | "white";
 
@@ -76,16 +83,22 @@ export interface CPCPComputed {
 
 /**
  * Compute Next Due and Remaining from last done + interval, and aircraft current Tach/AFTT.
+ * When the paged API supplies `next_due_*` / `remaining_*` (on `item.nextDue` / `item.remaining`), those are shown first.
  * Returns display strings; uses "-" when value cannot be computed.
  */
 export function computeCpcpRow(
   item: {
     lastDone?: { date?: any; tach?: any; tech?: any; aftf?: any };
     interval?: { hours?: any; months?: any };
+    nextDue?: { date?: any; tach?: any; tech?: any; aftf?: any };
+    remaining?: { months?: any; days?: any; tach?: any; aftf?: any };
   },
   aircraftTach: number | string | undefined,
   aircraftAftt: number | string | undefined
 ): CPCPComputed {
+  const apiNext = item.nextDue;
+  const apiRem = item.remaining;
+
   const lastTach = parseNum(item.lastDone?.tach ?? item.lastDone?.tech);
   const lastAftt = parseNum(item.lastDone?.aftf);
   const lastDate = parseDate(item.lastDone?.date);
@@ -120,21 +133,32 @@ export function computeCpcpRow(
   const remainingAftt =
     nextDueAftt != null && aAftt != null ? nextDueAftt - aAftt : null;
 
+  // Prefer API numbers for status when the list endpoint provides them
+  const statusRemMonths = hasApiDisplayValue(apiRem?.months)
+    ? parseNum(apiRem.months)
+    : remainingMonths;
+  const statusRemTach = hasApiDisplayValue(apiRem?.tach)
+    ? parseNum(apiRem.tach)
+    : remainingTach;
+  const statusRemAftt = hasApiDisplayValue(apiRem?.aftf)
+    ? parseNum(apiRem.aftf)
+    : remainingAftt;
+
   // Remaining % vs interval for status (legend: Due → red, <10% → orange, <20% → yellow, <40% → green)
   const percentages: number[] = [];
-  if (intMonths != null && intMonths > 0 && remainingMonths != null) {
-    percentages.push((remainingMonths / intMonths) * 100);
+  if (intMonths != null && intMonths > 0 && statusRemMonths != null) {
+    percentages.push((statusRemMonths / intMonths) * 100);
   }
-  if (intHours != null && intHours > 0 && remainingTach != null) {
-    percentages.push((remainingTach / intHours) * 100);
+  if (intHours != null && intHours > 0 && statusRemTach != null) {
+    percentages.push((statusRemTach / intHours) * 100);
   }
-  if (intHours != null && intHours > 0 && remainingAftt != null) {
-    percentages.push((remainingAftt / intHours) * 100);
+  if (intHours != null && intHours > 0 && statusRemAftt != null) {
+    percentages.push((statusRemAftt / intHours) * 100);
   }
   const anyDue =
-    (remainingMonths != null && remainingMonths <= 0) ||
-    (remainingTach != null && remainingTach <= 0) ||
-    (remainingAftt != null && remainingAftt <= 0);
+    (statusRemMonths != null && statusRemMonths <= 0) ||
+    (statusRemTach != null && statusRemTach <= 0) ||
+    (statusRemAftt != null && statusRemAftt <= 0);
   let status: CPCPRemainingStatus = "white";
   if (anyDue) {
     status = "red";
@@ -145,17 +169,39 @@ export function computeCpcpRow(
     else if (minPct < 40) status = "green";
   }
 
+  const nextDueDateStr = nextDueDate ? formatDate(nextDueDate) : "-";
+  const nextDueTachStr = formatNum(nextDueTach);
+  const nextDueAfttStr = formatNum(nextDueAftt);
+  const remMonthsStr = remainingMonths != null ? formatNum(remainingMonths) : "-";
+  const remDaysStr = remainingDays != null ? String(remainingDays) : "-";
+  const remTachStr = formatNum(remainingTach);
+  const remAfttStr = formatNum(remainingAftt);
+
   return {
     nextDue: {
-      date: nextDueDate ? formatDate(nextDueDate) : "-",
-      tach: formatNum(nextDueTach),
-      aftf: formatNum(nextDueAftt),
+      date: hasApiDisplayValue(apiNext?.date)
+        ? String(apiNext!.date).trim()
+        : nextDueDateStr,
+      tach: hasApiDisplayValue(apiNext?.tach ?? apiNext?.tech)
+        ? String(apiNext!.tach ?? apiNext!.tech).trim()
+        : nextDueTachStr,
+      aftf: hasApiDisplayValue(apiNext?.aftf)
+        ? String(apiNext!.aftf).trim()
+        : nextDueAfttStr,
     },
     remaining: {
-      months: remainingMonths != null ? formatNum(remainingMonths) : "-",
-      days: remainingDays != null ? String(remainingDays) : "-",
-      tach: formatNum(remainingTach),
-      aftf: formatNum(remainingAftt),
+      months: hasApiDisplayValue(apiRem?.months)
+        ? String(apiRem!.months).trim()
+        : remMonthsStr,
+      days: hasApiDisplayValue(apiRem?.days)
+        ? String(apiRem!.days).trim()
+        : remDaysStr,
+      tach: hasApiDisplayValue(apiRem?.tach)
+        ? String(apiRem!.tach).trim()
+        : remTachStr,
+      aftf: hasApiDisplayValue(apiRem?.aftf)
+        ? String(apiRem!.aftf).trim()
+        : remAfttStr,
     },
     status,
   };

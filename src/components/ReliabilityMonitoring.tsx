@@ -10,6 +10,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { formatTimeZulu } from "../utility/utils";
+import { useUserPermissions } from "../hooks/useUserPermissions";
 
 interface ReliabilityRecord {
   atlSeqNo: string;
@@ -34,6 +35,7 @@ interface ReliabilityRecord {
 export function ReliabilityMonitoring() {
   const { id, recordId } = useParams<{ id: string; recordId: string }>();
   const navigate = useNavigate();
+  const { canCreate } = useUserPermissions();
   const aircraftId = parseInt(id || "1");
   const recordIdNum = parseInt(recordId || "1");
 
@@ -309,13 +311,15 @@ export function ReliabilityMonitoring() {
               <Download className="w-4 h-4" />
               Export
             </button>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
-            >
-              <Plus className="w-4 h-4" />
-              Add New Record
-            </button>
+            {canCreate("operation") && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                Add New Record
+              </button>
+            )}
           </div>
         </div>
 
@@ -791,12 +795,14 @@ export function ReliabilityMonitoring() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSubmit}
-                className="px-5 py-2 text-white bg-gray-900 rounded hover:bg-gray-800 transition-colors text-sm"
-              >
-                Add Record
-              </button>
+              {canCreate("operation") && (
+                <button
+                  onClick={handleSubmit}
+                  className="px-5 py-2 text-white bg-gray-900 rounded hover:bg-gray-800 transition-colors text-sm"
+                >
+                  Add Record
+                </button>
+              )}
             </div>
           </div>
         </div>
