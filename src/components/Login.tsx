@@ -110,11 +110,11 @@ export function Login({ onLogin }: LoginProps) {
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center rounded-2xl bg-white/95 px-6 py-4 shadow-lg shadow-blue-900/20 mb-5">
+          <div className="inline-flex items-center justify-center rounded-2xl bg-white/95 px-5 py-3 shadow-lg shadow-blue-900/20 mb-5">
             <img
               src={laminarAviationLogo}
               alt="Laminar Aviation"
-              className="h-12 sm:h-14 w-auto max-w-[min(100%,320px)] object-contain object-center"
+              className="h-10 sm:h-12 w-auto max-w-[min(100%,280px)] object-contain object-center"
             />
           </div>
           <p className="text-blue-950 text-base sm:text-lg font-medium drop-shadow-sm">
