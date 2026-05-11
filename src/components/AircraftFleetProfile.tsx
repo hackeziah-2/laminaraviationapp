@@ -6,8 +6,6 @@ import {
   Eye,
   Pencil,
   Trash2,
-  ChevronLeft,
-  ChevronRight,
   Printer,
   Download,
   Plus,
@@ -21,6 +19,7 @@ import Swal from "sweetalert2";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { AircraftForm } from "../types/Aircraft";
@@ -117,7 +116,7 @@ export function AircraftFleetProfile() {
     );
   };
 
-  const { aircrafts, loading, error, totalItems, page, totalPage, refresh } =
+  const { aircrafts, loading, error, totalItems, totalPage, refresh } =
     useAircrafts(
       currentPage,
       itemsPerPage,
@@ -756,95 +755,21 @@ export function AircraftFleetProfile() {
               </table>
             </div>
 
-            {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700">Items per page:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6"
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) => Math.max(prev - 1, 1))
-                  }
-                  disabled={page <= 1}
-                  className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                {/* Dynamic page numbers */}
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  let pageNum = page;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors ${
-                        currentPage === pageNum
-                          ? "bg-blue-600 text-white"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-
-                {totalPages > 5 && currentPage < totalPages - 2 && (
-                  <>
-                    <span className="px-2 text-gray-500">...</span>
-                    <button
-                      onClick={() => setCurrentPage(totalPages)}
-                      className="min-w-[2rem] px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                    >
-                      {totalPages}
-                    </button>
-                  </>
-                )}
-
-                <button
-                  onClick={() =>
-                    setCurrentPage((prev) =>
-                      Math.min(prev + 1, Math.max(1, totalPages))
-                    )
-                  }
-                  disabled={totalPages === 0 || page >= totalPages}
-                  className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={totalItems}
+              totalLabel="aircraft"
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={setItemsPerPage}
+              pageSizeOptions={[10, 20, 50]}
+              disabled={loading}
+              className="px-6"
+            />
           </div>
         </>
       )}
-      <div className="text-gray-600 text-sm">
-        Showing {totalItems > 0 ? (page - 1) * itemsPerPage + 1 : 0} to{" "}
-        {Math.min(page * itemsPerPage, totalItems)} of {totalItems} aircraft
-      </div>
 
       {/* Add Aircraft Modal */}
       {showAddAircraftModal && (

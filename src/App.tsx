@@ -30,7 +30,7 @@ import { ReliabilityMonitoring } from './components/ReliabilityMonitoring';
 import { TCCDetail } from './components/TCCDetail';
 import { ADWorkOrders } from './components/ADWorkOrders';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { Bell, Copy, Menu } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { SpinnerIcon } from './components/ui/spinner';
@@ -138,7 +138,7 @@ function AuthenticatedShell({
       {/* Top Header - Hidden for special pages */}
       {!isSpecialPage && (
         <header
-          className={`sticky top-0 z-[100] border-b border-gray-200/80 bg-white/90 shadow-sm backdrop-blur-md ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'} transition-all duration-300`}
+          className={`z-30 border-b border-gray-200/80 bg-white/90 shadow-sm backdrop-blur-md ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'} transition-all duration-300`}
         >
           <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
@@ -150,9 +150,6 @@ function AuthenticatedShell({
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm">
-                <Copy className="h-4 w-4" />
-              </div>
               <div className="min-w-0">
                 <h1 className="truncate text-sm font-semibold tracking-tight text-gray-900 sm:text-base lg:text-lg">
                   Aircraft Fleet Management
@@ -163,7 +160,7 @@ function AuthenticatedShell({
             <button
               type="button"
               onClick={() => openNotifications()}
-              className="relative z-[101] shrink-0 overflow-visible rounded-xl p-2.5 text-gray-600 ring-1 ring-gray-200/80 transition-colors hover:bg-gray-50 hover:text-gray-900"
+              className="relative shrink-0 overflow-visible rounded-xl p-2.5 text-gray-600 ring-1 ring-gray-200/80 transition-colors hover:bg-gray-50 hover:text-gray-900"
               aria-label={
                 unreadCount > 0
                   ? `Open notifications, ${unreadCount} unread`
@@ -189,7 +186,7 @@ function AuthenticatedShell({
         <button
           type="button"
           onClick={() => openNotifications()}
-          className="fixed right-4 top-4 z-[100] overflow-visible rounded-xl border border-gray-200/80 bg-white/95 p-2.5 text-gray-600 shadow-md backdrop-blur-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
+          className="fixed right-4 top-4 z-30 overflow-visible rounded-xl border border-gray-200/80 bg-white/95 p-2.5 text-gray-600 shadow-md backdrop-blur-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
           aria-label={
             unreadCount > 0
               ? `Open notifications, ${unreadCount} unread`

@@ -312,7 +312,6 @@ export function AircraftHistory() {
               itemsPerPage={HISTORY_PAGE_SIZE}
               disabled={loading}
               showRangeText
-              maxVisiblePages={5}
               className="border-t border-gray-200"
             />
           </>

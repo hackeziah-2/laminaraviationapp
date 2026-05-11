@@ -40,12 +40,14 @@ import {
   AircraftTechnicalLog,
   type AtlBatch,
   type AtlListViewComputedComponentTimes,
+  type ComponentPartsRecord,
   resolveAtlComponentMetric,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
@@ -79,6 +81,14 @@ type GroupByOption =
   | "fuelAndOilData"
   | "maintenancePlanning"
   | "reliabilityMonitoring";
+
+/** Nested `component_parts` from paged API may be camelCase or snake_case. */
+type AtlComponentPartRow = ComponentPartsRecord & {
+  part_removed_remaining_time?: string | number;
+  part_installed_remaining_time?: string | number;
+  part_remark?: string;
+  ata_chapter?: string;
+};
 
 const STICKY_SEQ_CLASS =
   "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
@@ -653,6 +663,41 @@ export function Operation() {
           .replace(/ /g, "-")
       : "-";
 
+  /** `date_time_reported` / `date_time_released` (ISO or date) for list cells */
+  const formatAtlDateTimeListCell = (raw?: string | null) => {
+    if (raw == null || String(raw).trim() === "") return "-";
+    const s = String(raw).trim();
+    const m = s.match(
+      /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2}(?::\d{2})?)/i
+    );
+    if (m) {
+      const dateLine = formatDisplayDate(m[1]);
+      const timeLine = formatTimeZulu(m[2].slice(0, 5));
+      return timeLine && timeLine !== "-"
+        ? `${dateLine} ${timeLine}`.trim()
+        : dateLine;
+    }
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      return `${formatDisplayDate(`${y}-${mo}-${day}`)} ${formatTimeZulu(
+        `${hh}:${mm}`
+      )}`.trim();
+    }
+    return s;
+  };
+
+  const partRemainingRemoved = (part: AtlComponentPartRow) =>
+    part.partRemovedRemainingTime ?? part.part_removed_remaining_time ?? "-";
+  const partRemainingInstalled = (part: AtlComponentPartRow) =>
+    part.partInstalledRemainingTime ?? part.part_installed_remaining_time ?? "-";
+  const partRemarkCell = (part: AtlComponentPartRow) =>
+    part.partRemark ?? part.part_remark ?? "-";
+
   const getAccountDisplay = (accountId?: number | null) => {
     if (!accountId || !accountsMap.has(accountId)) return "-";
     const account = accountsMap.get(accountId)!;
@@ -668,16 +713,20 @@ export function Operation() {
     if (!record.componentParts || record.componentParts.length === 0)
       return "-";
     return record.componentParts
-      .map((part) =>
-        [
-          `Removed P/N: ${part.removedPartNo ?? "-"}`,
-          `Removed S/N: ${part.removedSerialNo ?? "-"}`,
-          `Installed P/N: ${part.installedPartNo ?? "-"}`,
-          `Installed S/N: ${part.installedSerialNo ?? "-"}`,
-          `Nomenclature: ${part.nomenclature ?? "-"}`,
-          `ATA Chapter: ${part.ataChapter ?? (part as any).ata_chapter ?? "-"}`,
-        ].join(" | ")
-      )
+      .map((part) => {
+        const p = part as AtlComponentPartRow;
+        return [
+          `Removed P/N: ${p.removedPartNo ?? "-"}`,
+          `Removed S/N: ${p.removedSerialNo ?? "-"}`,
+          `Removed Remaining Time: ${partRemainingRemoved(p)}`,
+          `Installed P/N: ${p.installedPartNo ?? "-"}`,
+          `Installed S/N: ${p.installedSerialNo ?? "-"}`,
+          `Installed Remaining Time: ${partRemainingInstalled(p)}`,
+          `Nomenclature: ${p.nomenclature ?? "-"}`,
+          `ATA Chapter: ${p.ataChapter ?? p.ata_chapter ?? "-"}`,
+          `Part Remarks: ${partRemarkCell(p)}`,
+        ].join(" | ");
+      })
       .join(" ; ");
   };
 
@@ -916,6 +965,18 @@ export function Operation() {
         getValue: (record) => getComponentRecordDisplay(record),
       },
       {
+        key: "dateTimeReported",
+        label: "Reported Date",
+        getValue: (record) =>
+          formatAtlDateTimeListCell(record.dateTimeReported ?? null),
+      },
+      {
+        key: "dateTimeReleased",
+        label: "Released Date",
+        getValue: (record) =>
+          formatAtlDateTimeListCell(record.dateTimeReleased ?? null),
+      },
+      {
         key: "rtsSignedBy",
         label: "Return To Service Name",
         getValue: (record) => getAccountDisplay(record.rtsSignedBy),
@@ -952,13 +1013,74 @@ export function Operation() {
     [accountsMap, aircraft, showSeqNoWithBatchName]
   );
 
+  const activeExportColumnDefinitions = useMemo<ExportColumnDefinition[]>(() => {
+    if (groupBy === "allColumns") return exportColumnDefinitions;
+
+    const keysByGroup: Record<GroupByOption, string[]> = {
+      allColumns: exportColumnDefinitions.map((column) => column.key),
+      fuelAndOilData: [
+        "sequenceNo",
+        "workStatus",
+        "natureOfFlight",
+        "originDate",
+        "originTime",
+        "destinationDate",
+        "destinationTime",
+        "totalFlightHours",
+        "fuelQtyLeftUpliftQty",
+        "fuelQtyRightUpliftQty",
+        "oilQtyUpliftQty",
+        "remarks",
+        "remarkPerson",
+      ],
+      maintenancePlanning: [
+        "sequenceNo",
+        "workStatus",
+        "natureOfFlight",
+        "originDate",
+        "originTime",
+        "destinationDate",
+        "destinationTime",
+        "airframeRun",
+        "airframeAftt",
+        "engineRun",
+        "engineTsn",
+        "engineTso",
+        "engineTbo",
+        "propellerRun",
+        "propellerTsn",
+        "propellerTso",
+        "propellerTbo",
+      ],
+      reliabilityMonitoring: [
+        "sequenceNo",
+        "workStatus",
+        "natureOfFlight",
+        "dateTimeReported",
+        "dateTimeReleased",
+        "airframeRun",
+        "airframeAftt",
+        "totalFlightHours",
+        "numberOfLandings",
+        "remarks",
+        "actionsTaken",
+        "componentRecord",
+      ],
+    };
+
+    const allowed = new Set(keysByGroup[groupBy] ?? []);
+    return exportColumnDefinitions.filter((column) => allowed.has(column.key));
+  }, [exportColumnDefinitions, groupBy]);
+
   useEffect(() => {
     setSelectedExportColumns((current) => {
-      const availableKeys = exportColumnDefinitions.map((column) => column.key);
+      const availableKeys = activeExportColumnDefinitions.map(
+        (column) => column.key
+      );
       if (current.length === 0) return availableKeys;
       return current.filter((key) => availableKeys.includes(key));
     });
-  }, [exportColumnDefinitions]);
+  }, [activeExportColumnDefinitions]);
 
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
@@ -1019,7 +1141,37 @@ export function Operation() {
     }
   };
 
-  const handleImportClick = () => {
+  const validateAircraftPrerequisitesForAtlImport = async (): Promise<boolean> => {
+    if (!effectiveAircraftId) return false;
+    try {
+      const aircraftRes = await getAircraftById(effectiveAircraftId);
+      const aircraftData = toCamelDeep(aircraftRes.data) as Aircraft;
+      const missing = getMissingAircraftFieldsForNewAtl(aircraftData);
+      if (missing.length > 0) {
+        await Swal.fire({
+          icon: "warning",
+          title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+          html: buildAircraftDetailsRequiredForAtlHtml(aircraftData),
+          confirmButtonColor: "#2563eb",
+        });
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error("Failed to validate aircraft prerequisites for import:", err);
+      await Swal.fire({
+        icon: "error",
+        title: "Validation error",
+        text: "Could not load aircraft information. Please try again.",
+        confirmButtonColor: "#2563eb",
+      });
+      return false;
+    }
+  };
+
+  const handleImportClick = async () => {
+    const canProceed = await validateAircraftPrerequisitesForAtlImport();
+    if (!canProceed) return;
     importFileInputRef.current?.click();
   };
 
@@ -1066,7 +1218,7 @@ export function Operation() {
         return;
       }
 
-      const selectedColumns = exportColumnDefinitions.filter((column) =>
+      const selectedColumns = activeExportColumnDefinitions.filter((column) =>
         selectedExportColumns.includes(column.key)
       );
       const fileRegistration =
@@ -1132,9 +1284,15 @@ export function Operation() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !effectiveAircraftId) return;
+    const canProceed = await validateAircraftPrerequisitesForAtlImport();
+    if (!canProceed) return;
     setImportLoading(true);
     try {
-      await importAircraftTechnicalLogExcel(file, effectiveAircraftId);
+      await importAircraftTechnicalLogExcel(
+        file,
+        effectiveAircraftId,
+        selectedAtlBatchFk
+      );
       await refreshPage();
       await Swal.fire({
         icon: "success",
@@ -1143,11 +1301,13 @@ export function Operation() {
         confirmButtonColor: "#2563eb",
       });
     } catch (err: any) {
-      const message =
-        err?.response?.data?.detail ??
-        err?.response?.data?.message ??
-        err?.message ??
-        "Import failed.";
+      const isServerError500 = Number(err?.response?.status) === 500;
+      const message = isServerError500
+        ? "Server Error contact to Admin"
+        : err?.response?.data?.detail ??
+          err?.response?.data?.message ??
+          err?.message ??
+          "Import failed.";
       await Swal.fire({
         icon: "error",
         title: "Import failed",
@@ -1742,11 +1902,27 @@ export function Operation() {
                               PERSON
                             </th>
                             <th
-                              colSpan={6}
+                              colSpan={9}
                               rowSpan={2}
                               className="px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
                             >
                               COMPONENT RECORD
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                            >
+                              REPORTED
+                              <br />
+                              DATE
+                            </th>
+                            <th
+                              rowSpan={2}
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                            >
+                              RELEASED
+                              <br />
+                              DATE
                             </th>
                             <th
                               colSpan={3}
@@ -1895,7 +2071,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={51}
+                                colSpan={58}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -2211,20 +2387,20 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td
-                                  colSpan={6}
+                                  colSpan={9}
                                   className="px-0 py-0 align-top border-r border-gray-200 bg-white"
                                 >
                                   <table className="w-full border-collapse min-w-full">
                                     <thead>
                                       <tr className="bg-gray-200">
                                         <th
-                                          colSpan={2}
+                                          colSpan={3}
                                           className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                         >
                                           PARTS REMOVED
                                         </th>
                                         <th
-                                          colSpan={2}
+                                          colSpan={3}
                                           className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                         >
                                           PARTS INSTALLED
@@ -2241,6 +2417,12 @@ export function Operation() {
                                         >
                                           ATA CHAPTER
                                         </th>
+                                        <th
+                                          rowSpan={2}
+                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
+                                        >
+                                          PART REMARKS
+                                        </th>
                                       </tr>
                                       <tr className="bg-white">
                                         <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
@@ -2250,10 +2432,20 @@ export function Operation() {
                                           S/N
                                         </th>
                                         <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                          REMOVED
+                                          <br />
+                                          REM. TIME
+                                        </th>
+                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                           P/N
                                         </th>
                                         <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                           S/N
+                                        </th>
+                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                          INST.
+                                          <br />
+                                          REM. TIME
                                         </th>
                                       </tr>
                                     </thead>
@@ -2277,10 +2469,20 @@ export function Operation() {
                                                 {part.removedSerialNo ?? "-"}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {String(
+                                                  partRemainingRemoved(part)
+                                                )}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                                 {part.installedPartNo ?? "-"}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                                 {part.installedSerialNo ?? "-"}
+                                              </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {String(
+                                                  partRemainingInstalled(part)
+                                                )}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                                 {part.nomenclature ?? "-"}
@@ -2290,13 +2492,16 @@ export function Operation() {
                                                   part.ata_chapter ??
                                                   "-"}
                                               </td>
+                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                                {partRemarkCell(part)}
+                                              </td>
                                             </tr>
                                           )
                                         )
                                       ) : (
                                         <tr>
                                           <td
-                                            colSpan={6}
+                                            colSpan={9}
                                             className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
                                           >
                                             -
@@ -2305,6 +2510,16 @@ export function Operation() {
                                       )}
                                     </tbody>
                                   </table>
+                                </td>
+                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                  {formatAtlDateTimeListCell(
+                                    record.dateTimeReported ?? null
+                                  )}
+                                </td>
+                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                  {formatAtlDateTimeListCell(
+                                    record.dateTimeReleased ?? null
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {record.rtsSignedBy &&
@@ -2459,7 +2674,10 @@ export function Operation() {
                             TOTAL FLIGHT TIME
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            FUEL UPLIFT QTY (L) / (R)
+                            FUEL UPLIFT QTY (L)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            FUEL UPLIFT QTY (R)
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             OIL UPLIFT QTY
@@ -2476,7 +2694,7 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={9}
+                              colSpan={10}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
@@ -2587,7 +2805,9 @@ export function Operation() {
                                 )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftUpliftQty ?? "-"} /{" "}
+                                {record.fuelQtyLeftUpliftQty ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.fuelQtyRightUpliftQty ?? "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
@@ -2850,7 +3070,16 @@ export function Operation() {
                             NATURE OF FLIGHT
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME (RUN / AFTT)
+                            REPORTED DATE
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            RELEASED DATE
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME (RUN TIME)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AIRFRAME (AFTT)
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             TOTAL FLIGHT TIME
@@ -2873,7 +3102,7 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={8}
+                              colSpan={11}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
@@ -2947,8 +3176,25 @@ export function Operation() {
                                   ? record.natureOfFlight
                                   : "-"}
                               </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                {formatAtlDateTimeListCell(
+                                  record.dateTimeReported ?? null
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                {formatAtlDateTimeListCell(
+                                  record.dateTimeReleased ?? null
+                                )}
+                              </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)}
+                                {getAirframeDisplay(record)?.split(
+                                  " / "
+                                )?.[0] ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {getAirframeDisplay(record)?.split(
+                                  " / "
+                                )?.[1] ?? "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {computeTotalBlockTimeFromUtc(
@@ -2972,13 +3218,13 @@ export function Operation() {
                                   <thead>
                                     <tr className="bg-gray-200">
                                       <th
-                                        colSpan={2}
+                                        colSpan={3}
                                         className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                       >
                                         PARTS REMOVED
                                       </th>
                                       <th
-                                        colSpan={2}
+                                        colSpan={3}
                                         className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                       >
                                         PARTS INSTALLED
@@ -2995,6 +3241,12 @@ export function Operation() {
                                       >
                                         ATA CHAPTER
                                       </th>
+                                      <th
+                                        rowSpan={2}
+                                        className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
+                                      >
+                                        PART REMARKS
+                                      </th>
                                     </tr>
                                     <tr className="bg-white">
                                       <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
@@ -3004,10 +3256,20 @@ export function Operation() {
                                         S/N
                                       </th>
                                       <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                        REMOVED
+                                        <br />
+                                        REM. TIME
+                                      </th>
+                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                         P/N
                                       </th>
                                       <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                         S/N
+                                      </th>
+                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
+                                        INST.
+                                        <br />
+                                        REM. TIME
                                       </th>
                                     </tr>
                                   </thead>
@@ -3031,10 +3293,20 @@ export function Operation() {
                                               {part.removedSerialNo ?? "-"}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                              {String(
+                                                partRemainingRemoved(part)
+                                              )}
+                                            </td>
+                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                               {part.installedPartNo ?? "-"}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                               {part.installedSerialNo ?? "-"}
+                                            </td>
+                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                              {String(
+                                                partRemainingInstalled(part)
+                                              )}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                               {part.nomenclature ?? "-"}
@@ -3044,13 +3316,16 @@ export function Operation() {
                                                 part.ata_chapter ??
                                                 "-"}
                                             </td>
+                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
+                                              {partRemarkCell(part)}
+                                            </td>
                                           </tr>
                                         )
                                       )
                                     ) : (
                                       <tr>
                                         <td
-                                          colSpan={6}
+                                          colSpan={9}
                                           className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
                                         >
                                           -
@@ -3070,67 +3345,17 @@ export function Operation() {
               </>
             )}
 
-            {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-200 flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">Items per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                    className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                    aria-label="Items per page"
-                  >
-                    {OPERATION_PAGE_SIZE_OPTIONS.map((pageSize) => (
-                      <option key={pageSize} value={pageSize}>
-                        {pageSize}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="text-sm text-gray-600">
-                  Showing{" "}
-                  {totalRecords === 0
-                    ? 0
-                    : (currentPage - 1) * itemsPerPage + 1}
-                  -{Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
-                  {totalRecords} records
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                  disabled={currentPage === 1}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                  (page) => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                        currentPage === page
-                          ? "bg-blue-600 text-white"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  )
-                )}
-                <button
-                  onClick={() =>
-                    setCurrentPage(Math.min(totalPages, currentPage + 1))
-                  }
-                  disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={totalRecords}
+              totalLabel="records"
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={setItemsPerPage}
+              pageSizeOptions={[...OPERATION_PAGE_SIZE_OPTIONS]}
+              className="px-6"
+            />
           </div>
         </div>
       </div>
@@ -3250,7 +3475,7 @@ export function Operation() {
                   type="button"
                   onClick={() =>
                     setSelectedExportColumns(
-                      exportColumnDefinitions.map((column) => column.key)
+                      activeExportColumnDefinitions.map((column) => column.key)
                     )
                   }
                   className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
@@ -3266,14 +3491,14 @@ export function Operation() {
                 </button>
                 <span className="self-center text-sm text-gray-500">
                   {selectedExportColumns.length} of{" "}
-                  {exportColumnDefinitions.length} selected
+                  {activeExportColumnDefinitions.length} selected
                 </span>
               </div>
             </div>
 
             <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {exportColumnDefinitions.map((column) => (
+                {activeExportColumnDefinitions.map((column) => (
                   <label
                     key={column.key}
                     className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 transition-colors hover:border-blue-300 hover:bg-blue-50/40"
