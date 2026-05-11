@@ -40,6 +40,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 import { cn } from "./ui/utils";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { DataTablePagination } from "./ui/DataTablePagination";
 
 function toDateInputValue(s: string | null | undefined): string {
   if (s == null || String(s).trim() === "") return "";
@@ -480,9 +481,6 @@ export function ADWorkOrders() {
     [aircraft_fk]
   );
 
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = Math.min(startIndex + itemsPerPage, total);
-
   return (
     <div className="flex-1 bg-gray-50 overflow-auto">
       <div className="bg-white border-b border-gray-200 px-6 py-4">
@@ -725,32 +723,17 @@ export function ADWorkOrders() {
           </div>
 
           {total > 0 && !loading && (
-            <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-gray-500 text-sm">
-                Showing {startIndex + 1} to {endIndex} of {total}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1 || loading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Previous
-                </button>
-                <span className="text-sm text-gray-600">
-                  Page {currentPage} of {pages || 1}
-                </span>
-                <button
-                  onClick={() =>
-                    setCurrentPage((p) => Math.min(pages || 1, p + 1))
-                  }
-                  disabled={currentPage >= (pages || 1) || loading}
-                  className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={pages || 1}
+              onPageChange={setCurrentPage}
+              totalItems={total}
+              totalLabel="work orders"
+              itemsPerPage={itemsPerPage}
+              showRangeText
+              disabled={loading}
+              className="px-5"
+            />
           )}
         </div>
       </div>

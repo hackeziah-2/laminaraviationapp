@@ -1040,7 +1040,6 @@ export function OrganizationalApprovals() {
                 itemsPerPage={OA_HISTORY_PAGE_SIZE}
                 disabled={historyLoading}
                 showRangeText
-                maxVisiblePages={5}
               />
             </div>
           </div>

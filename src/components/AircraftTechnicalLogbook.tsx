@@ -2,8 +2,6 @@ import {
   Search,
   Eye,
   Pencil,
-  ChevronLeft,
-  ChevronRight,
   ChevronUp,
   ChevronDown,
   Printer,
@@ -18,6 +16,7 @@ import {
 import { useState, useEffect, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
 import { Spinner } from "../components/ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
@@ -390,7 +389,6 @@ export function AircraftTechnicalLogbook() {
     }, 0)
     .toFixed(1);
 
-  const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedEntries = entries;
 
   const handleSearchChange = (value: string) => {
@@ -725,17 +723,9 @@ export function AircraftTechnicalLogbook() {
         <Spinner />
       ) : (
         <>
-          {/* Table Info */}
-          <div className="text-gray-600 text-sm">
-            {error ? (
-              <span className="text-red-600">Error: {error}</span>
-            ) : (
-              <>
-                Showing {entries.length > 0 ? startIndex + 1 : 0} to{" "}
-                {startIndex + entries.length} of {totalEntries} entries
-              </>
-            )}
-          </div>
+          {error ? (
+            <div className="text-sm text-red-600">Error: {error}</div>
+          ) : null}
 
           {/* Entries Table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -988,76 +978,18 @@ export function AircraftTechnicalLogbook() {
               </table>
             </div>
 
-            {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700 text-sm">Items per page:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  disabled={loading}
-                  className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6 text-sm"
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={30}>30</option>
-                  <option value={50}>50</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1 || loading}
-                  className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
-                >
-                  Previous
-                </button>
-
-                {/* Page numbers */}
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  let pageNum: number;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      disabled={loading}
-                      className={`min-w-[2rem] px-3 py-1.5 rounded transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed ${
-                        currentPage === pageNum
-                          ? "bg-blue-600 text-white"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-
-                <button
-                  onClick={() =>
-                    setCurrentPage(Math.min(totalPages, currentPage + 1))
-                  }
-                  disabled={
-                    currentPage === totalPages || totalPages === 0 || loading
-                  }
-                  className="px-3 py-1.5 text-gray-700 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1 text-sm"
-                >
-                  <span>Next</span>
-                </button>
-              </div>
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={totalEntries}
+              totalLabel="entries"
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={setItemsPerPage}
+              pageSizeOptions={[10, 20, 30, 50]}
+              disabled={loading}
+              className="px-6"
+            />
           </div>
         </>
       )}

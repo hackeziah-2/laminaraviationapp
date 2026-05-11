@@ -4,8 +4,6 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { getMe, getPostLoginPath, login as loginApi } from "../api/authApi";
-import laminarAviationLogo from "../assets/laminar-aviation-logo.png";
-
 interface LoginProps {
   onLogin: (username: string) => void;
 }
@@ -110,13 +108,9 @@ export function Login({ onLogin }: LoginProps) {
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center rounded-2xl bg-white/95 px-6 py-4 shadow-lg shadow-blue-900/20 mb-5">
-            <img
-              src={laminarAviationLogo}
-              alt="Laminar Aviation"
-              className="h-12 sm:h-14 w-auto max-w-[min(100%,320px)] object-contain object-center"
-            />
-          </div>
+          <h1 className="mb-3 text-2xl font-bold tracking-tight text-white drop-shadow-sm sm:text-3xl">
+            Laminar Aviation
+          </h1>
           <p className="text-blue-950 text-base sm:text-lg font-medium drop-shadow-sm">
             Sign in to access your dashboard
           </p>
