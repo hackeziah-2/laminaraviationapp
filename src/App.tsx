@@ -31,7 +31,6 @@ import { TCCDetail } from './components/TCCDetail';
 import { ADWorkOrders } from './components/ADWorkOrders';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Bell, Menu } from 'lucide-react';
-import laminarAviationLogo from './assets/laminar-aviation-logo.png';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { SpinnerIcon } from './components/ui/spinner';
@@ -151,13 +150,6 @@ function AuthenticatedShell({
               >
                 <Menu className="h-5 w-5" />
               </button>
-              <div className="isolate flex h-9 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white px-2 ring-1 ring-gray-200/80 shadow-sm">
-                <img
-                  src={laminarAviationLogo}
-                  alt="Laminar Aviation"
-                  className="h-6 w-full object-contain"
-                />
-              </div>
               <div className="min-w-0">
                 <h1 className="truncate text-sm font-semibold tracking-tight text-gray-900 sm:text-base lg:text-lg">
                   Aircraft Fleet Management

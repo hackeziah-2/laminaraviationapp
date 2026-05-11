@@ -18,6 +18,7 @@ import {
   type FleetDailyUpdateItem,
 } from "../api/fleetDailyUpdateApi";
 import { SpinnerIcon } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /** Map status text to badge/row color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
@@ -211,9 +212,6 @@ export function AircraftFleetDailyUpdate() {
     }
   }, [editingItem, remarkDraft, statusDraft, fetchData]);
 
-  const startIndex = total > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
-  const endIndex = Math.min(currentPage * itemsPerPage, total);
-
   const getRowColorClass = (
     rowColor?: string,
     statusColor?: string,
@@ -253,33 +251,6 @@ export function AircraftFleetDailyUpdate() {
         {status || "-"}
       </span>
     );
-  };
-
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    const maxPagesToShow = 5;
-    if (totalPages <= maxPagesToShow) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else if (currentPage <= 3) {
-      for (let i = 1; i <= 4; i++) pages.push(i);
-      pages.push("...");
-      pages.push(totalPages);
-    } else if (currentPage >= totalPages - 2) {
-      pages.push(1);
-      pages.push("...");
-      for (let i = totalPages - 3; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(
-        1,
-        "...",
-        currentPage - 1,
-        currentPage,
-        currentPage + 1,
-        "...",
-        totalPages
-      );
-    }
-    return pages;
   };
 
   return (
@@ -353,50 +324,23 @@ export function AircraftFleetDailyUpdate() {
 
           {/* Filters Row */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            {/* Left: Showing count and Filter */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-              <span className="text-sm text-gray-600">
-                Showing {startIndex} to {endIndex} of {total} aircraft
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">Filter by Status</span>
-                <select
-                  value={filterStatus}
-                  onChange={(e) => handleFilterChange(e.target.value)}
-                  className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                    backgroundPosition: "right 8px center",
-                  }}
-                >
-                  <option value="all">All Aircraft</option>
-                  <option value="Operational">Operational</option>
-                  <option value="Ongoing Maintenance">
-                    Ongoing Maintenance
-                  </option>
-                  <option value="AOG">AOG</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Right: Items per page */}
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <span>Items per page:</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Filter by Status</span>
               <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
+                value={filterStatus}
+                onChange={(e) => handleFilterChange(e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
                 style={{
                   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundPosition: "right 8px center",
                 }}
               >
-                <option>10</option>
-                <option>25</option>
-                <option>50</option>
+                <option value="all">All Aircraft</option>
+                <option value="Operational">Operational</option>
+                <option value="Ongoing Maintenance">
+                  Ongoing Maintenance
+                </option>
+                <option value="AOG">AOG</option>
               </select>
             </div>
           </div>
@@ -598,45 +542,18 @@ export function AircraftFleetDailyUpdate() {
           </table>
         </div>
 
-        {/* Pagination */}
         {total > 0 && !loading && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-center gap-2">
-            <button
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            {getPageNumbers().map((page, index) =>
-              page === "..." ? (
-                <span key={`ellipsis-${index}`} className="px-2 text-gray-500">
-                  ...
-                </span>
-              ) : (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page as number)}
-                  className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                    currentPage === page
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
-                >
-                  {page}
-                </button>
-              )
-            )}
-            <button
-              onClick={() =>
-                setCurrentPage(Math.min(totalPages, currentPage + 1))
-              }
-              disabled={currentPage === totalPages}
-              className="px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={total}
+            totalLabel="aircraft"
+            itemsPerPage={itemsPerPage}
+            onItemsPerPageChange={setItemsPerPage}
+            pageSizeOptions={[10, 25, 50]}
+            className="px-6"
+          />
         )}
       </div>
 

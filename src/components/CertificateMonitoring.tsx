@@ -30,6 +30,7 @@ import {
   type CertificateMonitoringUpdate,
 } from "../api/certificateMonitoringApi";
 import { Spinner } from "./ui/spinner";
+import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
 /**
@@ -921,72 +922,18 @@ export function CertificateMonitoring() {
               </table>
             </div>
 
-            {/* Pagination */}
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">Items per page:</span>
-                  <select
-                    value={itemsPerPage}
-                    onChange={(e) => {
-                      setItemsPerPage(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                    disabled={loading}
-                    className="px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.25rem_center] bg-no-repeat pr-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </div>
-                <div className="text-sm text-gray-700">
-                  Showing{" "}
-                  {certificates.length > 0
-                    ? (currentPage - 1) * itemsPerPage + 1
-                    : 0}{" "}
-                  to {Math.min(currentPage * itemsPerPage, totalRecords)} of{" "}
-                  {totalRecords} entries
-                </div>
-              </div>
-              {totalPages > 1 && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                    disabled={currentPage === 1 || loading}
-                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Previous
-                  </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                    (page) => (
-                      <button
-                        key={page}
-                        onClick={() => setCurrentPage(page)}
-                        disabled={loading}
-                        className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                          currentPage === page
-                            ? "bg-blue-600 text-white"
-                            : "text-gray-700 hover:bg-gray-100"
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
-                      >
-                        {page}
-                      </button>
-                    )
-                  )}
-                  <button
-                    onClick={() =>
-                      setCurrentPage(Math.min(totalPages, currentPage + 1))
-                    }
-                    disabled={currentPage === totalPages || loading}
-                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-            </div>
+            <DataTablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              totalItems={totalRecords}
+              totalLabel="entries"
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={setItemsPerPage}
+              pageSizeOptions={[10, 20, 50, 100]}
+              disabled={loading}
+              className="px-6"
+            />
           </>
         )}
       </div>

@@ -1282,7 +1282,6 @@ export function AircraftStatutoryCertificates() {
                 itemsPerPage={ASC_HISTORY_PAGE_SIZE}
                 disabled={historyLoading}
                 showRangeText
-                maxVisiblePages={5}
               />
             </div>
           </div>

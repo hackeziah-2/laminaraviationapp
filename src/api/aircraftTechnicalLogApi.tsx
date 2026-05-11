@@ -12,6 +12,9 @@ export interface ComponentPartsRecord {
   installedPartNo?: string;
   installedSerialNo?: string;
   ataChapter?: string;
+  partRemovedRemainingTime?: string | number;
+  partInstalledRemainingTime?: string | number;
+  partRemark?: string;
 }
 
 export interface ComponentPartsRecordCreate {
@@ -23,6 +26,9 @@ export interface ComponentPartsRecordCreate {
   installedPartNo?: string;
   installedSerialNo?: string;
   ataChapter?: string;
+  partRemovedRemainingTime?: string | number;
+  partInstalledRemainingTime?: string | number;
+  partRemark?: string;
 }
 
 export interface ComponentPartsRecordUpdate {
@@ -34,6 +40,9 @@ export interface ComponentPartsRecordUpdate {
   installedPartNo?: string;
   installedSerialNo?: string;
   ataChapter?: string;
+  partRemovedRemainingTime?: string | number;
+  partInstalledRemainingTime?: string | number;
+  partRemark?: string;
 }
 
 // Aircraft Technical Log Interfaces
@@ -104,6 +113,8 @@ export interface AircraftTechnicalLog {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  dateTimeReported?: string | null;
+  dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecord[];
   aircraft?: {
     id: number;
@@ -195,6 +206,8 @@ export interface AircraftTechnicalLogCreate {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  dateTimeReported?: string | null;
+  dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecordCreate[];
   /** Default FOR_REVIEW on create (Fleet Time Monitoring); API enum names: FOR_REVIEW, REJECTED_MAINTENANCE, APPROVED, etc. */
   workStatus?: string;
@@ -254,6 +267,8 @@ export interface AircraftTechnicalLogUpdate {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  dateTimeReported?: string | null;
+  dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecordCreate[];
   /** Fleet Time Monitoring: work status (e.g. FOR REVIEW, APPROVED) */
   workStatus?: string;
@@ -878,17 +893,25 @@ export const getLatestAircraftTechnicalLog = async (
  * Import Aircraft Technical Log entries from Excel file.
  * POST /api/v1/excel-data/aircraft-technical-log/import
  * Sends aircraft_id in query and in form body for compatibility.
+ * When `batchId` is set, sends batch_id (query + form) for the target ATL branch.
  */
 export const importAircraftTechnicalLogExcel = async (
   file: File,
-  aircraftId: number
+  aircraftId: number,
+  batchId?: number
 ): Promise<{ data?: unknown }> => {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("aircraft_id", String(aircraftId));
   formData.append("aircraft_fk", String(aircraftId));
+  const params = new URLSearchParams({ aircraft_id: String(aircraftId) });
+  if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
+    const s = String(batchId);
+    formData.append("batch_id", s);
+    params.set("batch_id", s);
+  }
   const response = await apiClient.post(
-    `excel-data/aircraft-technical-log/import?aircraft_id=${aircraftId}`,
+    `excel-data/aircraft-technical-log/import?${params.toString()}`,
     formData,
     { headers: { "Content-Type": "multipart/form-data" } }
   );
