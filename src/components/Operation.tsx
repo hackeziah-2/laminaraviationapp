@@ -34,9 +34,13 @@ import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal
 import {
   getAircraftTechnicalLogs,
   deleteAircraftTechnicalLog,
-  importAircraftTechnicalLogExcel,
+  startAtlExcelImport,
+  pollAtlExcelImportUntilDone,
+  getAtlExcelImportProcessPercent,
+  formatAtlExcelImportProgressLabel,
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
+  type AtlExcelImportProgress,
   AircraftTechnicalLog,
   type AtlBatch,
   type AtlListViewComputedComponentTimes,
@@ -52,6 +56,7 @@ import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
   toCamelDeep,
+  formatApiErrorForSwal,
   formatTimeZulu,
   computeTotalBlockTimeFromUtc,
   computeTotalFlightHoursDecimalFromUtc,
@@ -166,6 +171,27 @@ function getFleetWorkStatusCellProps(status: string | undefined): {
     className: FLEET_WORK_STATUS_BASE_TD,
     style: FLEET_WORK_STATUS_STYLE[key],
   };
+}
+
+function escapeForSwalHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** SweetAlert2 `html` body: large percent + subtitle + bar (Tailwind classes from bundled CSS). */
+function atlImportProgressSwalHtml(percent: number, subtitle: string): string {
+  const pct = Math.min(100, Math.max(0, Math.round(percent)));
+  const sub = escapeForSwalHtml(subtitle.trim() || "Processing…");
+  return `<div class="text-center py-1">
+    <p class="text-3xl font-bold text-slate-800 tracking-tight">${pct}%</p>
+    <p class="text-sm text-slate-500 mt-2">${sub}</p>
+    <div class="mt-4 h-2.5 w-full max-w-xs mx-auto rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out" style="width:${pct}%"></div>
+    </div>
+  </div>`;
 }
 
 export function Operation() {
@@ -667,9 +693,7 @@ export function Operation() {
   const formatAtlDateTimeListCell = (raw?: string | null) => {
     if (raw == null || String(raw).trim() === "") return "-";
     const s = String(raw).trim();
-    const m = s.match(
-      /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2}(?::\d{2})?)/i
-    );
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2}(?::\d{2})?)/i);
     if (m) {
       const dateLine = formatDisplayDate(m[1]);
       const timeLine = formatTimeZulu(m[2].slice(0, 5));
@@ -694,7 +718,9 @@ export function Operation() {
   const partRemainingRemoved = (part: AtlComponentPartRow) =>
     part.partRemovedRemainingTime ?? part.part_removed_remaining_time ?? "-";
   const partRemainingInstalled = (part: AtlComponentPartRow) =>
-    part.partInstalledRemainingTime ?? part.part_installed_remaining_time ?? "-";
+    part.partInstalledRemainingTime ??
+    part.part_installed_remaining_time ??
+    "-";
   const partRemarkCell = (part: AtlComponentPartRow) =>
     part.partRemark ?? part.part_remark ?? "-";
 
@@ -704,30 +730,58 @@ export function Operation() {
     return [account.fullName, account.licenseNo].filter(Boolean).join(" - ");
   };
 
+  /** Matches Fleet Time table: `Full Name-LicenseNo` (no spaces around hyphen). */
+  const formatMaintenanceLicenseDisplay = (accountId?: number | null) => {
+    if (!accountId || !accountsMap.has(accountId)) return "-";
+    const account = accountsMap.get(accountId)!;
+    const name = account.fullName?.trim() ?? "";
+    const license = account.licenseNo?.trim() ?? "";
+    if (name && license) return `${name}-${license}`;
+    return name || license || "-";
+  };
+
+  const formatOffBlocksExport = (record: AircraftTechnicalLog) => {
+    const date =
+      record.originDate != null && String(record.originDate).trim() !== ""
+        ? formatDisplayDate(record.originDate)
+        : "";
+    const time = record.originTime?.trim()
+      ? formatTimeZulu(record.originTime)
+      : "";
+    if (!date && !time) return "-";
+    return [date, time].filter(Boolean).join(" ").trim();
+  };
+
+  const formatOnBlocksExport = (record: AircraftTechnicalLog) => {
+    const date =
+      record.destinationDate != null &&
+      String(record.destinationDate).trim() !== ""
+        ? formatDisplayDate(record.destinationDate)
+        : "";
+    const time = record.destinationTime?.trim()
+      ? formatTimeZulu(record.destinationTime)
+      : "";
+    if (!date && !time) return "-";
+    return [date, time].filter(Boolean).join(" ").trim();
+  };
+
+  const formatComponentPartsField = (
+    record: AircraftTechnicalLog,
+    picker: (part: AtlComponentPartRow) => unknown
+  ) => {
+    const parts = record.componentParts;
+    if (!parts?.length) return "-";
+    return parts
+      .map((part) => {
+        const v = picker(part as AtlComponentPartRow);
+        return v != null && String(v).trim() !== "" ? String(v).trim() : "-";
+      })
+      .join(" ; ");
+  };
+
   const getPilotDisplay = (record: AircraftTechnicalLog) => {
     const pilotId = record.pilotAcceptedBy ?? record.pilotFk;
     return getAccountDisplay(pilotId);
-  };
-
-  const getComponentRecordDisplay = (record: AircraftTechnicalLog) => {
-    if (!record.componentParts || record.componentParts.length === 0)
-      return "-";
-    return record.componentParts
-      .map((part) => {
-        const p = part as AtlComponentPartRow;
-        return [
-          `Removed P/N: ${p.removedPartNo ?? "-"}`,
-          `Removed S/N: ${p.removedSerialNo ?? "-"}`,
-          `Removed Remaining Time: ${partRemainingRemoved(p)}`,
-          `Installed P/N: ${p.installedPartNo ?? "-"}`,
-          `Installed S/N: ${p.installedSerialNo ?? "-"}`,
-          `Installed Remaining Time: ${partRemainingInstalled(p)}`,
-          `Nomenclature: ${p.nomenclature ?? "-"}`,
-          `ATA Chapter: ${p.ataChapter ?? p.ata_chapter ?? "-"}`,
-          `Part Remarks: ${partRemarkCell(p)}`,
-        ].join(" | ");
-      })
-      .join(" ; ");
   };
 
   const exportColumnDefinitions = useMemo<ExportColumnDefinition[]>(
@@ -780,6 +834,16 @@ export function Operation() {
         key: "destinationTime",
         label: "On Blocks Time (Zulu)",
         getValue: (record) => formatTimeZulu(record.destinationTime),
+      },
+      {
+        key: "offBlocks",
+        label: "Off Blocks",
+        getValue: (record) => formatOffBlocksExport(record),
+      },
+      {
+        key: "onBlocks",
+        label: "On Blocks",
+        getValue: (record) => formatOnBlocksExport(record),
       },
       {
         key: "totalFlightHours",
@@ -947,7 +1011,12 @@ export function Operation() {
       {
         key: "remarkPerson",
         label: "Remark Person",
-        getValue: (record) => getAccountDisplay(record.maintenanceFk),
+        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+      },
+      {
+        key: "maintenanceNameLicense",
+        label: "Name and License",
+        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "actionsTaken",
@@ -957,12 +1026,64 @@ export function Operation() {
       {
         key: "actionTakenPerson",
         label: "Action Taken Person",
-        getValue: (record) => getAccountDisplay(record.maintenanceFk),
+        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
-        key: "componentRecord",
-        label: "Component Record",
-        getValue: (record) => getComponentRecordDisplay(record),
+        key: "componentRemovedPn",
+        label: "Removed P/N",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => p.removedPartNo),
+      },
+      {
+        key: "componentRemovedSn",
+        label: "Removed S/N",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => p.removedSerialNo),
+      },
+      {
+        key: "componentRemovedRemTime",
+        label: "Removed Rem. Time",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => partRemainingRemoved(p)),
+      },
+      {
+        key: "componentInstalledPn",
+        label: "Installed P/N",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => p.installedPartNo),
+      },
+      {
+        key: "componentInstalledSn",
+        label: "Installed S/N",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => p.installedSerialNo),
+      },
+      {
+        key: "componentInstalledRemTime",
+        label: "Inst. Rem. Time",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => partRemainingInstalled(p)),
+      },
+      {
+        key: "componentNomenclature",
+        label: "Nomenclature",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => p.nomenclature),
+      },
+      {
+        key: "componentAtaChapter",
+        label: "ATA Chapter",
+        getValue: (record) =>
+          formatComponentPartsField(
+            record,
+            (p) => p.ataChapter ?? p.ata_chapter
+          ),
+      },
+      {
+        key: "componentPartRemarks",
+        label: "Part Remarks",
+        getValue: (record) =>
+          formatComponentPartsField(record, (p) => partRemarkCell(p)),
       },
       {
         key: "dateTimeReported",
@@ -1013,34 +1134,30 @@ export function Operation() {
     [accountsMap, aircraft, showSeqNoWithBatchName]
   );
 
-  const activeExportColumnDefinitions = useMemo<ExportColumnDefinition[]>(() => {
+  const activeExportColumnDefinitions = useMemo<
+    ExportColumnDefinition[]
+  >(() => {
     if (groupBy === "allColumns") return exportColumnDefinitions;
 
     const keysByGroup: Record<GroupByOption, string[]> = {
       allColumns: exportColumnDefinitions.map((column) => column.key),
       fuelAndOilData: [
         "sequenceNo",
-        "workStatus",
         "natureOfFlight",
-        "originDate",
-        "originTime",
-        "destinationDate",
-        "destinationTime",
+        "offBlocks",
+        "onBlocks",
         "totalFlightHours",
         "fuelQtyLeftUpliftQty",
         "fuelQtyRightUpliftQty",
         "oilQtyUpliftQty",
         "remarks",
-        "remarkPerson",
+        "maintenanceNameLicense",
       ],
       maintenancePlanning: [
         "sequenceNo",
-        "workStatus",
         "natureOfFlight",
-        "originDate",
-        "originTime",
-        "destinationDate",
-        "destinationTime",
+        "offBlocks",
+        "onBlocks",
         "airframeRun",
         "airframeAftt",
         "engineRun",
@@ -1054,7 +1171,6 @@ export function Operation() {
       ],
       reliabilityMonitoring: [
         "sequenceNo",
-        "workStatus",
         "natureOfFlight",
         "dateTimeReported",
         "dateTimeReleased",
@@ -1064,7 +1180,15 @@ export function Operation() {
         "numberOfLandings",
         "remarks",
         "actionsTaken",
-        "componentRecord",
+        "componentRemovedPn",
+        "componentRemovedSn",
+        "componentRemovedRemTime",
+        "componentInstalledPn",
+        "componentInstalledSn",
+        "componentInstalledRemTime",
+        "componentNomenclature",
+        "componentAtaChapter",
+        "componentPartRemarks",
       ],
     };
 
@@ -1141,35 +1265,60 @@ export function Operation() {
     }
   };
 
-  const validateAircraftPrerequisitesForAtlImport = async (): Promise<boolean> => {
-    if (!effectiveAircraftId) return false;
-    try {
-      const aircraftRes = await getAircraftById(effectiveAircraftId);
-      const aircraftData = toCamelDeep(aircraftRes.data) as Aircraft;
-      const missing = getMissingAircraftFieldsForNewAtl(aircraftData);
-      if (missing.length > 0) {
+  /** When batch filter UI is shown, import requires a concrete batch (not "All batches"). */
+  const ensureAtlBatchSelectedForImport = async (): Promise<boolean> => {
+    if (!canManageAtlBatchFilterAndBranches) return true;
+    if (
+      selectedAtlBatchFk != null &&
+      Number.isFinite(selectedAtlBatchFk) &&
+      selectedAtlBatchFk > 0
+    ) {
+      return true;
+    }
+    await Swal.fire({
+      title: "Batch Required",
+      text: "Please create or select a batch first before importing ATL records.",
+      icon: "warning",
+      confirmButtonText: "OK",
+    });
+    return false;
+  };
+
+  const validateAircraftPrerequisitesForAtlImport =
+    async (): Promise<boolean> => {
+      if (!effectiveAircraftId) return false;
+      try {
+        const aircraftRes = await getAircraftById(effectiveAircraftId);
+        const aircraftData = toCamelDeep(aircraftRes.data) as Aircraft;
+        const missing = getMissingAircraftFieldsForNewAtl(aircraftData);
+        if (missing.length > 0) {
+          await Swal.fire({
+            icon: "warning",
+            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+            html: buildAircraftDetailsRequiredForAtlHtml(aircraftData),
+            confirmButtonColor: "#2563eb",
+          });
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.error(
+          "Failed to validate aircraft prerequisites for import:",
+          err
+        );
         await Swal.fire({
-          icon: "warning",
-          title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-          html: buildAircraftDetailsRequiredForAtlHtml(aircraftData),
+          icon: "error",
+          title: "Validation error",
+          text: "Could not load aircraft information. Please try again.",
           confirmButtonColor: "#2563eb",
         });
         return false;
       }
-      return true;
-    } catch (err) {
-      console.error("Failed to validate aircraft prerequisites for import:", err);
-      await Swal.fire({
-        icon: "error",
-        title: "Validation error",
-        text: "Could not load aircraft information. Please try again.",
-        confirmButtonColor: "#2563eb",
-      });
-      return false;
-    }
-  };
+    };
 
   const handleImportClick = async () => {
+    const batchOk = await ensureAtlBatchSelectedForImport();
+    if (!batchOk) return;
     const canProceed = await validateAircraftPrerequisitesForAtlImport();
     if (!canProceed) return;
     importFileInputRef.current?.click();
@@ -1196,6 +1345,16 @@ export function Operation() {
     }
 
     setExportLoading(true);
+    void Swal.fire({
+      title: "Exporting data",
+      text: "Fetching records and preparing your file…",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
     try {
       const exportPageSize = Math.max(totalRecords, paginatedRecords.length, 1);
       const recordsResponse = await getAircraftTechnicalLogs(
@@ -1209,6 +1368,7 @@ export function Operation() {
       );
 
       if (!recordsResponse.items.length) {
+        Swal.close();
         await Swal.fire({
           icon: "info",
           title: "No data to export",
@@ -1235,6 +1395,7 @@ export function Operation() {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "ATL");
         XLSX.writeFile(wb, `${fileRegistration}_operation_export.xlsx`);
+        Swal.close();
         setShowExportModal(false);
         return;
       }
@@ -1261,16 +1422,18 @@ export function Operation() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
+      Swal.close();
       setShowExportModal(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Export error:", err);
+      Swal.close();
+      const swalContent = formatApiErrorForSwal(err, {
+        defaultTitle: "Export failed",
+        validationTitle: "Export validation error",
+        fallbackMessage: "Failed to export records.",
+      });
       await Swal.fire({
-        icon: "error",
-        title: "Export failed",
-        text:
-          err?.response?.data?.detail ||
-          err?.message ||
-          "Failed to export records.",
+        ...swalContent,
         confirmButtonColor: "#2563eb",
       });
     } finally {
@@ -1284,43 +1447,199 @@ export function Operation() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !effectiveAircraftId) return;
+    const batchOk = await ensureAtlBatchSelectedForImport();
+    if (!batchOk) return;
     const canProceed = await validateAircraftPrerequisitesForAtlImport();
     if (!canProceed) return;
+
+    let batchIdForImport = selectedAtlBatchFk;
+    if (batchIdForImport == null) {
+      const list = await getAtlBatchesForSelect();
+      const latest = pickLatestAtlBatchId(list);
+      if (latest == null) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Batch required",
+          text: "No ATL batch is available. Create a batch or select one before importing.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+      batchIdForImport = latest;
+    }
+
+    const registration = aircraft?.registration?.trim() || undefined;
+
     setImportLoading(true);
     try {
-      await importAircraftTechnicalLogExcel(
-        file,
-        effectiveAircraftId,
-        selectedAtlBatchFk
-      );
-      await refreshPage();
-      await Swal.fire({
-        icon: "success",
-        title: "Import complete",
-        text: "Aircraft Technical Log entries have been imported successfully.",
-        confirmButtonColor: "#2563eb",
+      void Swal.fire({
+        title: "Importing data",
+        html: atlImportProgressSwalHtml(0, "Uploading file to server…"),
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
       });
-    } catch (err: any) {
-      const isServerError500 = Number(err?.response?.status) === 500;
-      const message = isServerError500
-        ? "Server Error contact to Admin"
-        : err?.response?.data?.detail ??
-          err?.response?.data?.message ??
-          err?.message ??
-          "Import failed.";
-      await Swal.fire({
-        icon: "error",
-        title: "Import failed",
-        text: typeof message === "string" ? message : "Failed to import file.",
-        confirmButtonColor: "#2563eb",
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
       });
+
+      let finalProgress: AtlExcelImportProgress;
+      try {
+        const { jobId } = await startAtlExcelImport({
+          file,
+          batchId: batchIdForImport,
+          aircraftId: effectiveAircraftId,
+          registration,
+        });
+        if (Swal.isVisible()) {
+          Swal.update({
+            title: "Importing data",
+            html: atlImportProgressSwalHtml(
+              3,
+              "File received. Waiting for the first progress update…"
+            ),
+          });
+        }
+        finalProgress = await pollAtlExcelImportUntilDone(jobId, {
+          intervalMs: 400,
+          onUpdate: (data) => {
+            const pct = getAtlExcelImportProcessPercent(data);
+            const sub = formatAtlExcelImportProgressLabel(data);
+            if (Swal.isVisible()) {
+              Swal.update({
+                title: "Importing data",
+                html: atlImportProgressSwalHtml(pct, sub),
+              });
+            }
+          },
+        });
+        if (Swal.isVisible()) {
+          const pct = getAtlExcelImportProcessPercent(finalProgress);
+          const sub = formatAtlExcelImportProgressLabel(finalProgress);
+          Swal.update({
+            title: "Importing data",
+            html: atlImportProgressSwalHtml(pct, sub),
+          });
+        }
+      } catch (importErr: unknown) {
+        Swal.close();
+        console.error("ATL import failed to transact:", importErr);
+        const err = importErr as { response?: { status?: number } };
+        if (Number(err?.response?.status) === 500) {
+          await Swal.fire({
+            icon: "error",
+            title: "Failed to transact",
+            text: "Server Error contact to Admin",
+            confirmButtonColor: "#2563eb",
+          });
+          return;
+        }
+        const swalContent = formatApiErrorForSwal(importErr, {
+          defaultTitle: "Failed to transact",
+          validationTitle: "Validation Error",
+          fallbackMessage: "Import failed.",
+        });
+        await Swal.fire({
+          ...swalContent,
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      const importFailed = (() => {
+        const s = finalProgress.status.toUpperCase().replace(/\s+/g, "_");
+        return (
+          s === "FAILED" ||
+          s === "ERROR" ||
+          s === "CANCELLED" ||
+          s === "ABORTED"
+        );
+      })();
+      if (importFailed) {
+        Swal.close();
+        const swalContent = formatApiErrorForSwal(
+          {
+            response: {
+              data: {
+                detail: finalProgress.errors ?? finalProgress.message,
+                message: finalProgress.message,
+                errors: finalProgress.errors,
+              },
+            },
+          },
+          {
+            defaultTitle: "Import failed",
+            validationTitle: "Validation Error",
+            fallbackMessage:
+              finalProgress.message?.trim() || "Import failed.",
+          }
+        );
+        await Swal.fire({
+          ...swalContent,
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      Swal.close();
+
+      void Swal.fire({
+        title: "Refreshing data",
+        text: "Updating the list with your imported records…",
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+
+      try {
+        await refreshPage({ rethrowOnError: true });
+      } catch (refreshErr: unknown) {
+        console.error(
+          "ATL import succeeded but list refresh failed:",
+          refreshErr
+        );
+        Swal.close();
+        await Swal.fire({
+          icon: "warning",
+          title: "Import complete",
+          text: "Records were imported but the list could not be refreshed. Use the Refresh button to try again.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      Swal.close();
+
+      const failedRows = finalProgress.failedRows ?? 0;
+      if (failedRows > 0) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Import complete",
+          text: `The table has been refreshed. ${failedRows} row(s) were reported as failed—verify on the server if needed.`,
+          confirmButtonColor: "#2563eb",
+        });
+      } else {
+        await Swal.fire({
+          icon: "success",
+          title: "Import complete",
+          text: "Your Aircraft Technical Log list has been updated with the imported data.",
+          confirmButtonColor: "#2563eb",
+          timer: 2800,
+        });
+      }
     } finally {
       setImportLoading(false);
     }
   };
 
   // Refresh aircraft + records so list view shows the latest API-provided auto_* values.
-  const refreshPage = async () => {
+  const refreshPage = async (options?: { rethrowOnError?: boolean }) => {
     if (!effectiveAircraftId) return;
     setLoading(true);
     setError(null);
@@ -1347,6 +1666,9 @@ export function Operation() {
       console.error("Error refreshing:", err);
       setError("Failed to load data");
       setFleetTimeRecords([]);
+      if (options?.rethrowOnError) {
+        throw err;
+      }
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
@@ -1443,7 +1765,7 @@ export function Operation() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={refreshPage}
+                onClick={() => void refreshPage()}
                 disabled={loading}
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Refresh list data"
@@ -1459,7 +1781,12 @@ export function Operation() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowExportModal(true)}
+                onClick={() => {
+                  setSelectedExportColumns(
+                    activeExportColumnDefinitions.map((column) => column.key)
+                  );
+                  setShowExportModal(true);
+                }}
                 className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
               >
                 <Download className="w-4 h-4" />
@@ -3455,8 +3782,15 @@ export function Operation() {
                   Export Columns
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  Select the columns to include in the export. White ATL and DFP
-                  are intentionally excluded.
+                  Columns match your current Group by view (
+                  {groupBy === "allColumns"
+                    ? "All Columns"
+                    : groupBy === "fuelAndOilData"
+                      ? "Fuel and Oil Data"
+                      : groupBy === "maintenancePlanning"
+                        ? "Maintenance Planning"
+                        : "Reliability Monitoring"}
+                  ). White ATL and DFP are excluded.
                 </p>
               </div>
               <button
@@ -3532,7 +3866,7 @@ export function Operation() {
                 className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Download className="h-4 w-4" />
-                {exportLoading ? "Exporting..." : "Export CSV"}
+                Export CSV
               </button>
               <button
                 type="button"
@@ -3541,7 +3875,7 @@ export function Operation() {
                 className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Download className="h-4 w-4" />
-                {exportLoading ? "Exporting..." : "Export XLSX"}
+                Export XLSX
               </button>
             </div>
           </div>
