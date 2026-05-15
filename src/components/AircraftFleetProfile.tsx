@@ -30,7 +30,11 @@ import {
   importAircraftExcel,
   deleteAircraft,
 } from "../api/aircraftApi";
-import { dateToday, snakeAllKeys } from "../utility/utils";
+import { dateToday, formatApiErrorForSwal, snakeAllKeys } from "../utility/utils";
+import {
+  readExcelFirstRowCells,
+  validateAircraftFleetImportHeaderRow,
+} from "../utility/aircraftFleetImportExcelHeaders";
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
@@ -154,6 +158,31 @@ export function AircraftFleetProfile() {
     if (!file) return;
     setImportLoading(true);
     try {
+      let headerRow: unknown[];
+      try {
+        headerRow = await readExcelFirstRowCells(file);
+      } catch {
+        await Swal.fire({
+          icon: "error",
+          title: "Invalid file",
+          text: "Could not read the Excel file. Use a valid .xlsx or .xls workbook.",
+          confirmButtonText: "OK",
+        });
+        return;
+      }
+      const headerCheck = validateAircraftFleetImportHeaderRow(headerRow);
+      if (!headerCheck.ok) {
+        await Swal.fire({
+          icon: "error",
+          title: "Invalid import headers",
+          html: `<p>The first row must include headers for all required columns.</p><p><strong>Missing:</strong> ${headerCheck.missing
+            .map((m) => `<br/>• ${m}`)
+            .join("")}</p><p style="margin-top:0.75em;font-size:0.9em;color:#4b5563">Expected at minimum: Registration, Model, MSN, and Base (or Base location).</p>`,
+          confirmButtonText: "OK",
+        });
+        return;
+      }
+
       await importAircraftExcel(file);
       Swal.fire({
         icon: "success",
@@ -163,17 +192,14 @@ export function AircraftFleetProfile() {
         timer: 2000,
       });
       refresh();
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ??
-        err?.response?.data?.message ??
-        err?.message ??
-        "Import failed. Please try again.";
-
-      Swal.fire({
-        icon: "error",
-        title: "Import Failed",
-        text: "Failed in import file.",
+    } catch (err: unknown) {
+      const swalContent = formatApiErrorForSwal(err, {
+        defaultTitle: "Import Failed",
+        validationTitle: "Validation Error",
+        fallbackMessage: "Import failed. Please try again.",
+      });
+      await Swal.fire({
+        ...swalContent,
         confirmButtonText: "OK",
       });
     } finally {
