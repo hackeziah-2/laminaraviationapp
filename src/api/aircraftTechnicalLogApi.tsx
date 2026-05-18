@@ -889,34 +889,301 @@ export const getLatestAircraftTechnicalLog = async (
   }
 };
 
-/**
- * Import Aircraft Technical Log entries from Excel file.
- * POST /api/v1/excel-data/aircraft-technical-log/import
- * Sends aircraft_id in query and in form body for compatibility.
- * When `batchId` is set, sends batch_id (query + form) for the target ATL branch.
- */
-export const importAircraftTechnicalLogExcel = async (
-  file: File,
-  aircraftId: number,
-  batchId?: number
-): Promise<{ data?: unknown }> => {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("aircraft_id", String(aircraftId));
-  formData.append("aircraft_fk", String(aircraftId));
-  const params = new URLSearchParams({ aircraft_id: String(aircraftId) });
-  if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
-    const s = String(batchId);
-    formData.append("batch_id", s);
-    params.set("batch_id", s);
+/** POST /api/v1/import-excel — async job accepted (e.g. 202). */
+export interface AtlExcelImportStartResponse {
+  jobId: string;
+  status: string;
+  message?: string;
+}
+
+/** GET /api/v1/import-progress/{job_id} */
+export interface AtlExcelImportProgress {
+  jobId: string;
+  progress?: number;
+  status: string;
+  message?: string;
+  totalRows?: number;
+  processedRows?: number;
+  failedRows?: number;
+  errors?: unknown;
+}
+
+function parseAtlExcelImportStart(raw: unknown): AtlExcelImportStartResponse {
+  const o =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const jobId = String(o.job_id ?? o.jobId ?? "").trim();
+  if (!jobId) {
+    throw new Error("Import did not return a job id.");
   }
-  const response = await apiClient.post(
-    `excel-data/aircraft-technical-log/import?${params.toString()}`,
-    formData,
-    { headers: { "Content-Type": "multipart/form-data" } }
+  return {
+    jobId,
+    status: String(o.status ?? ""),
+    message:
+      o.message != null && String(o.message).trim() !== ""
+        ? String(o.message)
+        : undefined,
+  };
+}
+
+function firstFiniteNumber(...vals: unknown[]): number | undefined {
+  for (const v of vals) {
+    if (v == null || v === "") continue;
+    const n = typeof v === "number" ? v : Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function parseAtlExcelImportProgress(raw: unknown): AtlExcelImportProgress {
+  const o =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const jobId = String(o.job_id ?? o.jobId ?? "").trim();
+  return {
+    jobId,
+    progress: firstFiniteNumber(
+      o.progress,
+      o.progress_percent,
+      o.progressPercent,
+      o.percent,
+      o.percent_complete,
+      o.percentComplete
+    ),
+    status: String(o.status ?? "").trim(),
+    message:
+      o.message != null && String(o.message).trim() !== ""
+        ? String(o.message)
+        : undefined,
+    totalRows: firstFiniteNumber(
+      o.total_rows,
+      o.totalRows,
+      o.total,
+      o.row_count,
+      o.rowCount
+    ),
+    processedRows: firstFiniteNumber(
+      o.processed_rows,
+      o.processedRows,
+      o.processed,
+      o.success_rows,
+      o.successRows
+    ),
+    failedRows: firstFiniteNumber(
+      o.failed_rows,
+      o.failedRows,
+      o.failed,
+      o.error_rows,
+      o.errorRows
+    ),
+    errors: o.errors,
+  };
+}
+
+function importRowsDoneCount(data: AtlExcelImportProgress): number | undefined {
+  const total = data.totalRows ?? 0;
+  if (total <= 0) return undefined;
+  const processed = Math.max(0, data.processedRows ?? 0);
+  const failed = Math.max(0, data.failedRows ?? 0);
+  let sum = processed + failed;
+  if (sum > total && processed <= total) {
+    sum = processed;
+  }
+  return Math.min(total, sum);
+}
+
+function statusPhaseHint(status: string): string {
+  const s = status.toUpperCase().replace(/\s+/g, "_");
+  if (
+    s.includes("PEND") ||
+    s === "QUEUED" ||
+    s === "WAITING" ||
+    s.includes("ACCEPTED")
+  ) {
+    return "Waiting to start…";
+  }
+  if (
+    s.includes("RUN") ||
+    s.includes("PROCESS") ||
+    s.includes("IMPORT") ||
+    s === "ACTIVE" ||
+    s === "WORKING"
+  ) {
+    return "Processing rows…";
+  }
+  return "Working…";
+}
+
+/**
+ * Human-readable line for import UI: API message plus row counts when present.
+ */
+export function formatAtlExcelImportProgressLabel(
+  data: AtlExcelImportProgress
+): string {
+  const msg = data.message?.trim();
+  const total = data.totalRows ?? 0;
+  const processed = Math.max(0, data.processedRows ?? 0);
+  const failed = Math.max(0, data.failedRows ?? 0);
+  const bits: string[] = [];
+  if (msg) bits.push(msg);
+  const done = importRowsDoneCount(data);
+  if (done != null && total > 0) {
+    bits.push(`${done} of ${total} rows`);
+  } else if (total > 0) {
+    bits.push(`${processed} processed${failed ? `, ${failed} failed` : ""} · ${total} total`);
+  }
+  if (bits.length > 0) return bits.join(" · ");
+  return statusPhaseHint(data.status);
+}
+
+/**
+ * 0–100 for UI: honors API `progress` (0–100 or 0–1), row counts, and terminal status.
+ */
+export function getAtlExcelImportProcessPercent(
+  data: AtlExcelImportProgress
+): number {
+  const st = data.status.toUpperCase().replace(/\s+/g, "_");
+  if (st === "COMPLETED" || st === "COMPLETE" || st === "SUCCESS") {
+    return 100;
+  }
+  if (st === "FAILED" || st === "ERROR" || st === "CANCELLED") {
+    const fromRows = percentFromRowCounts(data, true);
+    if (fromRows != null) return fromRows;
+    const fromProg = normalizeProgressField(data.progress);
+    return fromProg ?? 0;
+  }
+
+  const fromProg = normalizeProgressField(data.progress);
+  if (fromProg != null) {
+    if (fromProg >= 100 && !isTerminalImportStatus(data.status)) return 99;
+    return fromProg;
+  }
+
+  const fromRows = percentFromRowCounts(data, false);
+  if (fromRows != null) return fromRows;
+
+  if (st.includes("PEND") || st === "QUEUED" || st === "WAITING") return 2;
+  if (
+    st.includes("RUN") ||
+    st.includes("PROCESS") ||
+    st.includes("IMPORT") ||
+    st === "ACTIVE"
+  ) {
+    return 8;
+  }
+  return 0;
+}
+
+function isTerminalImportStatus(st: string): boolean {
+  const u = st.toUpperCase().replace(/\s+/g, "_");
+  return (
+    u === "COMPLETED" ||
+    u === "COMPLETE" ||
+    u === "SUCCESS" ||
+    u === "FAILED" ||
+    u === "ERROR" ||
+    u === "CANCELLED"
   );
-  return response.data ?? response;
-};
+}
+
+/** `progress` as 0–100, or 0–1 ratio from API. */
+function normalizeProgressField(
+  p: number | undefined
+): number | undefined {
+  if (p == null || !Number.isFinite(p)) return undefined;
+  if (p > 0 && p <= 1) return Math.min(100, Math.round(p * 100));
+  return Math.min(100, Math.max(0, Math.round(p)));
+}
+
+function percentFromRowCounts(
+  data: AtlExcelImportProgress,
+  forFailed: boolean
+): number | undefined {
+  const total = data.totalRows ?? 0;
+  if (total <= 0) return undefined;
+  const done = importRowsDoneCount(data);
+  if (done == null) return undefined;
+  const pct = Math.round((done / total) * 100);
+  if (
+    !forFailed &&
+    pct >= 100 &&
+    !isTerminalImportStatus(data.status)
+  ) {
+    return 99;
+  }
+  return Math.min(100, Math.max(0, pct));
+}
+
+/** Default delay between GET import-progress polls (ms). Lower = snappier UI; avoid flooding the server. */
+const ATL_EXCEL_IMPORT_POLL_INTERVAL_MS = 500;
+
+/**
+ * POST /api/v1/import-excel — multipart: file, batch_id (required), aircraft_id and/or registration.
+ * Returns 202 Accepted; long timeout for large workbooks on slow links.
+ */
+export async function startAtlExcelImport(args: {
+  file: File;
+  batchId: number;
+  aircraftId?: number;
+  registration?: string;
+}): Promise<AtlExcelImportStartResponse> {
+  if (!Number.isFinite(args.batchId) || args.batchId <= 0) {
+    throw new Error("batch_id is required for ATL Excel import.");
+  }
+  const form = new FormData();
+  form.append("file", args.file);
+  form.append("batch_id", String(args.batchId));
+  if (args.aircraftId != null && args.aircraftId > 0) {
+    form.append("aircraft_id", String(args.aircraftId));
+  }
+  const reg = args.registration?.trim();
+  if (reg) form.append("registration", reg);
+  const res = await apiClient.post("import-excel", form, {
+    headers: { Accept: "application/json" },
+    timeout: 900_000,
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseAtlExcelImportStart(raw);
+}
+
+export async function getAtlExcelImportProgress(
+  jobId: string
+): Promise<AtlExcelImportProgress> {
+  const res = await apiClient.get(
+    `import-progress/${encodeURIComponent(jobId)}`,
+    {
+      headers: { Accept: "application/json" },
+      timeout: 25_000,
+    }
+  );
+  const raw = res.data?.data ?? res.data;
+  return parseAtlExcelImportProgress(raw);
+}
+
+export async function pollAtlExcelImportUntilDone(
+  jobId: string,
+  options?: {
+    intervalMs?: number;
+    onUpdate?: (data: AtlExcelImportProgress) => void;
+  }
+): Promise<AtlExcelImportProgress> {
+  const intervalMs = options?.intervalMs ?? ATL_EXCEL_IMPORT_POLL_INTERVAL_MS;
+  let last: AtlExcelImportProgress;
+  for (;;) {
+    last = await getAtlExcelImportProgress(jobId);
+    options?.onUpdate?.(last);
+    const s = last.status.toUpperCase().replace(/\s+/g, "_");
+    if (
+      s === "COMPLETED" ||
+      s === "COMPLETE" ||
+      s === "SUCCESS" ||
+      s === "FAILED" ||
+      s === "ERROR" ||
+      s === "CANCELLED"
+    ) {
+      return last;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
 
 /** ATL batch row for dropdowns (GET list endpoint). */
 export interface AtlBatch {

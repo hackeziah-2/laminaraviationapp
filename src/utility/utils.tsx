@@ -298,3 +298,157 @@ export function computeTotalFlightHoursDecimalFromUtc(
   if (Number.isNaN(h) || Number.isNaN(m)) return 0;
   return Math.round((h + m / 60) * 100) / 100;
 }
+
+export function escapeHtmlForSwal(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export type ApiErrorSwalContent = {
+  icon: "error" | "warning";
+  title: string;
+  text?: string;
+  html?: string;
+};
+
+function pushValidationLine(lines: string[], line: string) {
+  const trimmed = line.trim();
+  if (trimmed) lines.push(trimmed);
+}
+
+function formatValidationItem(item: unknown): string {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return String(item ?? "");
+  const o = item as Record<string, unknown>;
+  if (typeof o.msg === "string") {
+    const loc = Array.isArray(o.loc)
+      ? o.loc
+          .filter((part) => part !== "body" && part !== "query")
+          .map(String)
+          .join(".")
+      : "";
+    return loc ? `${loc}: ${o.msg}` : o.msg;
+  }
+  const row = o.row != null ? `Row ${o.row}` : "";
+  const field = o.field != null ? String(o.field) : "";
+  const message =
+    typeof o.message === "string"
+      ? o.message
+      : typeof o.error === "string"
+        ? o.error
+        : "";
+  if (row || field || message) {
+    return [row, field, message].filter(Boolean).join(" — ");
+  }
+  return JSON.stringify(item);
+}
+
+/** Collect human-readable validation messages from FastAPI / import error payloads. */
+export function extractApiValidationLines(
+  detail: unknown,
+  data?: Record<string, unknown>
+): string[] {
+  const lines: string[] = [];
+
+  if (typeof detail === "string") {
+    pushValidationLine(lines, detail);
+    return lines;
+  }
+
+  if (Array.isArray(detail)) {
+    for (const item of detail) {
+      pushValidationLine(lines, formatValidationItem(item));
+    }
+    return lines;
+  }
+
+  if (detail && typeof detail === "object") {
+    const d = detail as Record<string, unknown>;
+    if (typeof d.message === "string") pushValidationLine(lines, d.message);
+    const nested = d.errors ?? d.validation_errors ?? d.validationErrors;
+    if (Array.isArray(nested)) {
+      for (const item of nested) {
+        pushValidationLine(lines, formatValidationItem(item));
+      }
+    }
+  }
+
+  const rootErrors = data?.errors ?? data?.validation_errors;
+  if (Array.isArray(rootErrors)) {
+    for (const item of rootErrors) {
+      pushValidationLine(lines, formatValidationItem(item));
+    }
+  }
+
+  return lines;
+}
+
+/** SweetAlert2 shape for API validation errors (e.g. HTTP 422). */
+export function formatValidationErrorForSwal(
+  message: string,
+  title = "Validation Error"
+): ApiErrorSwalContent {
+  return {
+    icon: "error",
+    title,
+    text: message.trim() || "Validation failed.",
+  };
+}
+
+/** Build SweetAlert2 content for API errors; 422 uses Validation Error + text. */
+export function formatApiErrorForSwal(
+  err: unknown,
+  options?: {
+    defaultTitle?: string;
+    validationTitle?: string;
+    fallbackMessage?: string;
+  }
+): ApiErrorSwalContent {
+  const defaultTitle = options?.defaultTitle ?? "Request failed";
+  const validationTitle = options?.validationTitle ?? "Validation Error";
+  const fallbackMessage =
+    options?.fallbackMessage ?? "Something went wrong. Please try again.";
+
+  const e = err as {
+    response?: { status?: number; data?: Record<string, unknown> };
+    message?: string;
+  };
+  const status = e?.response?.status;
+  const data = e?.response?.data;
+  const detail = data?.detail ?? data?.message;
+  const validationLines = extractApiValidationLines(detail, data);
+
+  if (status === 422) {
+    if (validationLines.length > 0) {
+      return formatValidationErrorForSwal(
+        validationLines.join("\n"),
+        validationTitle
+      );
+    }
+    if (typeof detail === "string" && detail.trim()) {
+      return formatValidationErrorForSwal(detail.trim(), validationTitle);
+    }
+    return formatValidationErrorForSwal(fallbackMessage, validationTitle);
+  }
+
+  if (validationLines.length > 0) {
+    return formatValidationErrorForSwal(
+      validationLines.join("\n"),
+      validationTitle
+    );
+  }
+
+  if (typeof detail === "string" && detail.trim()) {
+    return { icon: "error", title: defaultTitle, text: detail.trim() };
+  }
+
+  const message =
+    (typeof data?.message === "string" && data.message.trim()) ||
+    e?.message?.trim() ||
+    fallbackMessage;
+
+  return { icon: "error", title: defaultTitle, text: message };
+}
