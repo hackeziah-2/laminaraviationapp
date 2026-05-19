@@ -305,6 +305,20 @@ function formatNum(n: number | null): string {
   return parseFloat(n.toFixed(2)).toString();
 }
 
+/** Display label for API category value (e.g. Powerplant, Inspection Servicing) */
+function formatTccCategoryDisplay(cat: string | undefined): string {
+  if (!cat?.trim()) return "—";
+  const key = cat.trim().toLowerCase().replace(/\s+/g, " ");
+  const map: Record<string, string> = {
+    powerplant: "Powerplant",
+    airframe: "Airframe",
+    propeller: "Propeller",
+    "inspection servicing": "Inspection Servicing",
+    inspection_servicing: "Inspection Servicing",
+  };
+  return map[key] ?? cat.trim();
+}
+
 function tccComputedRowToExportCells(
   row: TCCComputedRow,
   item: ComponentItem
@@ -752,6 +766,8 @@ export const TCCDetailContent = forwardRef<
     { value: "INSPECTION_SERVICING", label: "Inspection Servicing" },
   ];
 
+  const showCategoryColumn = activeTab === "";
+
   return (
     <>
       {/* Title + Aircraft - same pattern as CPCP Monitoring */}
@@ -996,6 +1012,14 @@ export const TCCDetailContent = forwardRef<
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
+                  {showCategoryColumn && (
+                    <th
+                      rowSpan={2}
+                      className="px-3 py-2 text-xs font-bold text-gray-700 border-r border-gray-200 align-middle whitespace-nowrap"
+                    >
+                      CATEGORY
+                    </th>
+                  )}
                   <th colSpan={4} className="px-3 py-2 text-xs font-bold text-gray-700">
                     REMAINING
                   </th>
@@ -1101,6 +1125,11 @@ export const TCCDetailContent = forwardRef<
                       key={item.id}
                       className="hover:bg-gray-50 transition-colors"
                     >
+                      {showCategoryColumn && (
+                        <td className="px-3 py-3 text-gray-900 text-xs border-r border-gray-200 whitespace-nowrap">
+                          {formatTccCategoryDisplay(item.category)}
+                        </td>
+                      )}
                       {/* REMAINING: Years — color by % remaining: Red=Due, Orange=<10%, Yellow=<20%, Green=<40% */}
                       {(() => {
                         const pctYears =
