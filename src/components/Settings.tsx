@@ -20,7 +20,13 @@ import {
   EyeOff,
   Loader2,
   Braces,
+  SlidersHorizontal,
 } from "lucide-react";
+import {
+  MODULE_SETTING_OPTIONS,
+  type ModuleSettingKey,
+} from "../constants/moduleSettingsOptions";
+import { SettingsModuleSettings } from "./settings/SettingsModuleSettings";
 import * as authApi from "../api/authApi";
 import * as rolesApi from "../api/rolesApi";
 import type { Permission } from "../api/rolesApi";
@@ -1797,6 +1803,8 @@ export function Settings() {
   const [activeSection, setActiveSection] = useState<
     "users" | "roles" | "matrix"
   >("users");
+  const [moduleSettingKey, setModuleSettingKey] =
+    useState<ModuleSettingKey>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2168,12 +2176,15 @@ export function Settings() {
 
       <div className="p-6">
         {/* Section Navigation */}
-        <div className="bg-white rounded-lg border border-gray-200 p-2 mb-6 flex gap-2">
+        <div className="bg-white rounded-lg border border-gray-200 p-2 mb-6 flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setActiveSection("users")}
+            onClick={() => {
+              setModuleSettingKey("");
+              setActiveSection("users");
+            }}
             type="button"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              activeSection === "users"
+              !moduleSettingKey && activeSection === "users"
                 ? "bg-blue-600 text-white"
                 : "text-gray-700 hover:bg-gray-100"
             }`}
@@ -2182,10 +2193,13 @@ export function Settings() {
             User Accounts
           </button>
           <button
-            onClick={() => setActiveSection("roles")}
+            onClick={() => {
+              setModuleSettingKey("");
+              setActiveSection("roles");
+            }}
             type="button"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              activeSection === "roles"
+              !moduleSettingKey && activeSection === "roles"
                 ? "bg-blue-600 text-white"
                 : "text-gray-700 hover:bg-gray-100"
             }`}
@@ -2194,10 +2208,13 @@ export function Settings() {
             Roles & Permissions
           </button>
           <button
-            onClick={() => setActiveSection("matrix")}
+            onClick={() => {
+              setModuleSettingKey("");
+              setActiveSection("matrix");
+            }}
             type="button"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              activeSection === "matrix"
+              !moduleSettingKey && activeSection === "matrix"
                 ? "bg-blue-600 text-white"
                 : "text-gray-700 hover:bg-gray-100"
             }`}
@@ -2205,8 +2222,39 @@ export function Settings() {
             <Grid3x3 className="w-4 h-4" />
             Access Matrix
           </button>
+
+          <div className="ml-auto flex min-w-[220px] items-center gap-2 pl-2">
+            <SlidersHorizontal className="h-4 w-4 shrink-0 text-gray-500" />
+            <label htmlFor="settings-module-select" className="sr-only">
+              Module Settings
+            </label>
+            <select
+              id="settings-module-select"
+              value={moduleSettingKey}
+              onChange={(e) =>
+                setModuleSettingKey(e.target.value as ModuleSettingKey)
+              }
+              className={`${SELECT_BASE_CLASS} h-10 min-w-[200px] rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100`}
+              aria-label="Module Settings"
+            >
+              <option value="">Module Settings</option>
+              {MODULE_SETTING_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
+        {moduleSettingKey ? (
+          <SettingsModuleSettings
+            moduleKey={
+              moduleSettingKey as Exclude<ModuleSettingKey, "">
+            }
+          />
+        ) : (
+          <>
         {/* User Accounts Section */}
         {activeSection === "users" && (
           <div>
@@ -2769,6 +2817,8 @@ export function Settings() {
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
 

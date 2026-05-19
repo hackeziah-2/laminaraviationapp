@@ -7,6 +7,8 @@ A comprehensive fleet management application for aviation operations. This is a 
 - [Prerequisites](#prerequisites)
 - [Getting Started](#getting-started)
 - [Development](#development)
+- [AI & component standards](#ai--component-standards)
+- [Testing](#testing)
 - [Deployment](#deployment)
   - [Steps for Deployment (Prod and UAT)](#steps-for-deployment-prod-and-uat)
   - [How to Deploy (Steps)](#how-to-deploy-steps)
@@ -38,6 +40,22 @@ npm install
 # Start the development server
 npm run dev
 ```
+
+## AI & component standards
+
+See **[AI.MD](./AI.MD)** for enterprise React rules used in this repo: folder structure, component/API separation, TypeScript conventions, SweetAlert validation patterns, and migration notes for large legacy screens.
+
+## Testing
+
+```bash
+# Run tests in watch mode
+npm run test
+
+# Single run (CI)
+npm run test:run
+```
+
+Tests live next to utilities (`src/utility/*.test.ts`) or under feature `tests/` folders as described in `AI.MD`.
 
 The application will be available at `http://localhost:3000`
 

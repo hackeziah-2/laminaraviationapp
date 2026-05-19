@@ -1,0 +1,306 @@
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import Swal from "sweetalert2";
+import { Edit2, Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  deleteAtlBatch,
+  getAtlBatchesForSelect,
+  type AtlBatch,
+} from "../../api/aircraftTechnicalLogApi";
+import type { ModuleSettingKey } from "../../constants/moduleSettingsOptions";
+import { useUserPermissions } from "../../hooks/useUserPermissions";
+import { AddAtlBatchModal } from "../AddAtlBatchModal";
+
+type ActiveModuleKey = Exclude<ModuleSettingKey, "">;
+
+interface SettingsModuleSettingsProps {
+  moduleKey: ActiveModuleKey;
+}
+
+function SettingsPanelShell({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-[16px] border border-gray-200 bg-white px-6 py-5 shadow-sm sm:px-7">
+      <div className="mb-5">
+        <h2 className="text-[1.35rem] font-semibold leading-snug text-slate-900">
+          {title}
+        </h2>
+        <p className="mt-0.5 text-sm text-slate-500">{description}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function FleetTimeMonitoringSettings() {
+  return (
+    <SettingsPanelShell
+      title="Fleet Time Monitoring"
+      description="Module settings for fleet time records, work status workflow, and technical log defaults."
+    >
+      <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-4 text-sm text-gray-700">
+        <p className="mb-2 font-medium text-gray-900">Overview</p>
+        <ul className="list-disc space-y-1 pl-5 text-gray-600">
+          <li>
+            Fleet time entries use work statuses such as{" "}
+            <span className="font-medium text-gray-800">FOR REVIEW</span> and{" "}
+            <span className="font-medium text-gray-800">APPROVED</span>.
+          </li>
+          <li>
+            New entries default to review status until approved in Operations.
+          </li>
+          <li>
+            Use{" "}
+            <span className="font-medium text-gray-800">ATL Batch Settings</span>{" "}
+            to manage branches used when filtering fleet time records.
+          </li>
+        </ul>
+      </div>
+    </SettingsPanelShell>
+  );
+}
+
+function AtlBatchSettingsPanel() {
+  const { canCreate, canUpdate, canDelete } = useUserPermissions();
+  const canManageBatches = canCreate("settings") || canUpdate("settings");
+  const canRemoveBatches = canDelete("settings");
+
+  const [batches, setBatches] = useState<AtlBatch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editBatchId, setEditBatchId] = useState<number | null>(null);
+
+  const loadBatches = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await getAtlBatchesForSelect();
+      setBatches(
+        [...list].sort((a, b) => {
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          if (aTime !== bTime) return bTime - aTime;
+          return b.id - a.id;
+        })
+      );
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? "Failed to load ATL batches.");
+      setBatches([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBatches();
+  }, [loadBatches]);
+
+  const openCreate = () => {
+    setEditBatchId(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (id: number) => {
+    setEditBatchId(id);
+    setModalOpen(true);
+  };
+
+  const handleDelete = async (batch: AtlBatch) => {
+    const result = await Swal.fire({
+      title: "Delete ATL batch?",
+      text: `Delete "${batch.name}"? This action cannot be undone.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Yes, delete",
+      cancelButtonText: "Cancel",
+    });
+    if (!result.isConfirmed) return;
+
+    setDeletingId(batch.id);
+    try {
+      await deleteAtlBatch(batch.id);
+      await loadBatches();
+      await Swal.fire({
+        title: "Deleted!",
+        text: `ATL batch "${batch.name}" has been deleted.`,
+        icon: "success",
+        confirmButtonColor: "#1f2937",
+      });
+    } catch (err: unknown) {
+      const data = (
+        err as {
+          response?: { data?: { message?: string; detail?: string | unknown } };
+        }
+      )?.response?.data;
+      const msg =
+        (typeof data?.message === "string" ? data.message : null) ||
+        (typeof data?.detail === "string" ? data.detail : null) ||
+        (Array.isArray(data?.detail)
+          ? (data.detail as { msg?: string }[])
+              .map((d) => d.msg ?? "")
+              .filter(Boolean)
+              .join(", ") || null
+          : null) ||
+        (err as Error)?.message ||
+        "Failed to delete ATL batch";
+      await Swal.fire({ icon: "error", title: "Error", text: msg });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <>
+      <SettingsPanelShell
+        title="ATL Batch Settings"
+        description="Create, edit, and remove ATL branches used in Fleet Time Monitoring filters and logbook entries."
+      >
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-blue-600">
+            {loading ? "Loading…" : `${batches.length} batch${batches.length === 1 ? "" : "es"}`}
+          </span>
+          {canManageBatches && (
+            <button
+              type="button"
+              onClick={openCreate}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4" />
+              Create batch
+            </button>
+          )}
+        </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : batches.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <p className="text-sm font-medium text-gray-700">
+                No ATL batches yet
+              </p>
+              <p className="mt-1 text-sm text-gray-500">
+                Create a batch to use in fleet time filters and logbook entries.
+              </p>
+              {canManageBatches && (
+                <button
+                  type="button"
+                  onClick={openCreate}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                >
+                  <Plus className="h-4 w-4" />
+                  Create batch
+                </button>
+              )}
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-700">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-700">
+                    Description
+                  </th>
+                  {(canManageBatches || canRemoveBatches) && (
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-700">
+                      Actions
+                    </th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {batches.map((batch) => (
+                  <tr
+                    key={batch.id}
+                    className="transition-colors hover:bg-gray-50"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">
+                        {batch.name}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {batch.description?.trim() || "—"}
+                    </td>
+                    {(canManageBatches || canRemoveBatches) && (
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {canManageBatches && (
+                            <button
+                              type="button"
+                              onClick={() => openEdit(batch.id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-sm text-blue-700 transition-colors hover:bg-blue-100"
+                              title="Edit batch"
+                            >
+                              <Edit2 className="h-4 w-4" />
+                              Edit
+                            </button>
+                          )}
+                          {canRemoveBatches && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDelete(batch)}
+                              disabled={deletingId === batch.id}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-3 py-1.5 text-sm text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                              title="Delete batch"
+                            >
+                              {deletingId === batch.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </SettingsPanelShell>
+
+      <AddAtlBatchModal
+        isOpen={modalOpen}
+        editBatchId={editBatchId}
+        onClose={() => setModalOpen(false)}
+        onSaved={() => {
+          setModalOpen(false);
+          void loadBatches();
+        }}
+      />
+    </>
+  );
+}
+
+export function SettingsModuleSettings({
+  moduleKey,
+}: SettingsModuleSettingsProps) {
+  if (moduleKey === "fleet-time-monitoring") {
+    return <FleetTimeMonitoringSettings />;
+  }
+  return <AtlBatchSettingsPanel />;
+}

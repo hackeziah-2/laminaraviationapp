@@ -52,7 +52,92 @@ import {
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { importMaintenanceExcel } from "../api/maintenanceImportApi";
+import type { MaintenanceImportKind } from "../constants/maintenanceImportKinds";
+import { MAINTENANCE_IMPORT_KIND_LABELS } from "../constants/maintenanceImportKinds";
+import {
+  readMaintenanceImportHeaderRow,
+  validateMaintenanceImportHeaderRow,
+} from "../utility/maintenanceImportExcelHeaders";
+import { formatMaintenanceImportErrorForSwal } from "../utility/utils";
 import * as XLSX from "xlsx";
+
+const exportMenuItemClass =
+  "bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100";
+
+function MaintenanceExportImportActions({
+  exportLoading,
+  importLoading,
+  showImport,
+  onImportClick,
+  onExportCsv,
+  onExportXlsx,
+}: {
+  exportLoading: boolean;
+  importLoading: boolean;
+  showImport: boolean;
+  onImportClick: () => void;
+  onExportCsv: () => void;
+  onExportXlsx: () => void;
+}) {
+  return (
+    <>
+      {showImport && (
+        <button
+          type="button"
+          onClick={onImportClick}
+          disabled={importLoading || exportLoading}
+          className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Import from Excel"
+        >
+          <Upload
+            className={`w-4 h-4 ${importLoading ? "animate-pulse" : ""}`}
+          />
+          <span className="hidden sm:inline">
+            {importLoading ? "Importing…" : "Import"}
+          </span>
+        </button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            disabled={exportLoading}
+            className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {exportLoading ? (
+              <Loader className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            <span className="hidden sm:inline">Export</span>
+            <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          sideOffset={6}
+          className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+        >
+          <DropdownMenuItem
+            disabled={exportLoading}
+            onSelect={onExportCsv}
+            className={exportMenuItemClass}
+          >
+            Export CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={exportLoading}
+            onSelect={onExportXlsx}
+            className={exportMenuItemClass}
+          >
+            Export XLSX
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
 
 const LDND_EXPORT_HEADERS = [
   "INSPECTION TYPE",
@@ -139,12 +224,29 @@ const PATH_TO_CATEGORY: Record<string, MaintenanceCategory> = {
   "maintenance-cpcp": "CPCP",
 };
 
+const CATEGORY_TO_IMPORT_KIND: Record<MaintenanceCategory, MaintenanceImportKind> =
+  {
+    LDND: "maintenance-ldnd",
+    AD: "maintenance-ad",
+    TCC: "maintenance-tcc",
+    CPCP: "maintenance-cpcp",
+  };
+
 export function Maintenance() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
-  const aircraftId = parseInt(id || "1");
+  const canImportMaintenance = canCreate("maintenance");
+  const [aircraftId, setAircraftId] = useState(() => {
+    const parsed = parseInt(id ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  });
+
+  useEffect(() => {
+    const parsed = parseInt(id ?? "", 10);
+    setAircraftId(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+  }, [id]);
 
   // Derive active category from URL path (profile/:id/maintenance-ldnd -> LDND, etc.)
   const pathSegment = location.pathname.split("/").filter(Boolean);
@@ -260,6 +362,11 @@ export function Maintenance() {
   const [tccExportLoading, setTccExportLoading] = useState(false);
   const cpcpExportRef = useRef<CPCPMonitoringHandle>(null);
   const [cpcpExportLoading, setCpcpExportLoading] = useState(false);
+  const [maintenanceImportLoading, setMaintenanceImportLoading] =
+    useState(false);
+  const [embeddedDataKey, setEmbeddedDataKey] = useState(0);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImportKindRef = useRef<MaintenanceImportKind | null>(null);
 
   // AD API state
   const [adItems, setAdItems] = useState<ADMonitoring[]>([]);
@@ -669,6 +776,111 @@ export function Maintenance() {
       setCpcpExportLoading(false);
     }
   }, []);
+
+  const refreshAfterMaintenanceImport = useCallback(
+    async (kind: MaintenanceImportKind) => {
+      if (kind === "maintenance-ldnd") {
+        await Promise.all([fetchLdnd(), fetchLdndLatest()]);
+        return;
+      }
+      if (kind === "maintenance-ad") {
+        await fetchAd();
+        return;
+      }
+      setEmbeddedDataKey((k) => k + 1);
+    },
+    [fetchLdnd, fetchLdndLatest, fetchAd]
+  );
+
+  const triggerMaintenanceImport = useCallback(
+    (kind: MaintenanceImportKind) => {
+      pendingImportKindRef.current = kind;
+      importFileInputRef.current?.click();
+    },
+    []
+  );
+
+  const handleMaintenanceImportFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      const kind = pendingImportKindRef.current;
+      e.target.value = "";
+      pendingImportKindRef.current = null;
+      if (!file || !kind) return;
+      if (!Number.isFinite(aircraftId) || aircraftId <= 0) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Aircraft required",
+          text: "Open maintenance from an aircraft profile to import data.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      setMaintenanceImportLoading(true);
+      let importPhase: "validate" | "apply" = "validate";
+      try {
+        let headerRow: unknown[];
+        try {
+          headerRow = await readMaintenanceImportHeaderRow(file);
+        } catch {
+          await Swal.fire({
+            icon: "error",
+            title: "Invalid file",
+            text: "Could not read the Excel file. Use a valid .xlsx or .xls workbook.",
+            confirmButtonText: "OK",
+          });
+          return;
+        }
+        const headerCheck = validateMaintenanceImportHeaderRow(kind, headerRow);
+        if (!headerCheck.ok) {
+          const label = MAINTENANCE_IMPORT_KIND_LABELS[kind];
+          await Swal.fire({
+            icon: "error",
+            title: "Invalid import headers",
+            html: `<p>The first row must include headers for all required ${label} columns.</p><p><strong>Missing:</strong> ${headerCheck.missing
+              .map((m) => `<br/>• ${m}`)
+              .join("")}</p>`,
+            confirmButtonText: "OK",
+          });
+          return;
+        }
+
+        if (kind === "maintenance-ldnd" || kind === "maintenance-ad") {
+          await importMaintenanceExcel(kind, aircraftId, file, { dryRun: true });
+          importPhase = "apply";
+          await importMaintenanceExcel(kind, aircraftId, file, { dryRun: false });
+        } else {
+          importPhase = "apply";
+          await importMaintenanceExcel(kind, aircraftId, file);
+        }
+        await refreshAfterMaintenanceImport(kind);
+        await Swal.fire({
+          icon: "success",
+          title: "Import successful!",
+          text: `${MAINTENANCE_IMPORT_KIND_LABELS[kind]} data has been imported from the Excel file.`,
+          confirmButtonColor: "#1f2937",
+        });
+      } catch (err: unknown) {
+        const isAdValidationFailure =
+          kind === "maintenance-ad" && importPhase === "validate";
+        const swalContent = formatMaintenanceImportErrorForSwal(err, {
+          defaultTitle: isAdValidationFailure ? "Validation failed" : undefined,
+          fallbackMessage: isAdValidationFailure
+            ? "Validation failed. Please review the Excel file and try again."
+            : "Import failed. Please try again.",
+        });
+        await Swal.fire({
+          ...swalContent,
+          confirmButtonColor: "#2563eb",
+          confirmButtonText: "OK",
+        });
+      } finally {
+        setMaintenanceImportLoading(false);
+      }
+    },
+    [aircraftId, refreshAfterMaintenanceImport]
+  );
 
   const openEditLdnd = (item: LDNDMonitoring) => {
     setEditingLdndEntry(item);
@@ -1190,174 +1402,63 @@ export function Maintenance() {
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print</span>
           </button>
-          {activeCategory === "LDND" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={ldndExportLoading}
-                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  {ldndExportLoading ? (
-                    <Loader className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  <span className="hidden sm:inline">Export</span>
-                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                sideOffset={6}
-                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
-              >
-                <DropdownMenuItem
-                  disabled={ldndExportLoading}
-                  onSelect={() => void handleLdndExport("csv")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={ldndExportLoading}
-                  onSelect={() => void handleLdndExport("xlsx")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export XLSX
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : activeCategory === "AD" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={adExportLoading}
-                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  {adExportLoading ? (
-                    <Loader className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  <span className="hidden sm:inline">Export</span>
-                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                sideOffset={6}
-                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
-              >
-                <DropdownMenuItem
-                  disabled={adExportLoading}
-                  onSelect={() => void handleAdExport("csv")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={adExportLoading}
-                  onSelect={() => void handleAdExport("xlsx")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export XLSX
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : activeCategory === "TCC" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={tccExportLoading}
-                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  {tccExportLoading ? (
-                    <Loader className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  <span className="hidden sm:inline">Export</span>
-                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                sideOffset={6}
-                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
-              >
-                <DropdownMenuItem
-                  disabled={tccExportLoading}
-                  onSelect={() => void handleTccExportHeader("csv")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={tccExportLoading}
-                  onSelect={() => void handleTccExportHeader("xlsx")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export XLSX
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : activeCategory === "CPCP" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={cpcpExportLoading}
-                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  {cpcpExportLoading ? (
-                    <Loader className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  <span className="hidden sm:inline">Export</span>
-                  <ChevronDown className="w-4 h-4 shrink-0 opacity-70" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                sideOffset={6}
-                className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
-              >
-                <DropdownMenuItem
-                  disabled={cpcpExportLoading}
-                  onSelect={() => void handleCpcpExportHeader("csv")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={cpcpExportLoading}
-                  onSelect={() => void handleCpcpExportHeader("xlsx")}
-                  className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100"
-                >
-                  Export XLSX
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                void Swal.fire({
-                  icon: "info",
-                  title: "Export",
-                  text: "CSV and XLSX export for LDND, AD, TCC, or CPCP is on those tabs, beside Print.",
-                  confirmButtonColor: "#2563eb",
-                });
-              }}
-              className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
-            >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
+          {canImportMaintenance && (
+            <input
+              type="file"
+              ref={importFileInputRef}
+              onChange={(e) => void handleMaintenanceImportFileChange(e)}
+              accept=".xlsx,.xls"
+              className="hidden"
+              aria-label="Import maintenance data from Excel"
+            />
+          )}
+          {activeCategory === "LDND" && (
+            <MaintenanceExportImportActions
+              exportLoading={ldndExportLoading}
+              importLoading={maintenanceImportLoading}
+              showImport={canImportMaintenance}
+              onImportClick={() =>
+                triggerMaintenanceImport(CATEGORY_TO_IMPORT_KIND.LDND)
+              }
+              onExportCsv={() => void handleLdndExport("csv")}
+              onExportXlsx={() => void handleLdndExport("xlsx")}
+            />
+          )}
+          {activeCategory === "AD" && (
+            <MaintenanceExportImportActions
+              exportLoading={adExportLoading}
+              importLoading={maintenanceImportLoading}
+              showImport={canImportMaintenance}
+              onImportClick={() =>
+                triggerMaintenanceImport(CATEGORY_TO_IMPORT_KIND.AD)
+              }
+              onExportCsv={() => void handleAdExport("csv")}
+              onExportXlsx={() => void handleAdExport("xlsx")}
+            />
+          )}
+          {activeCategory === "TCC" && (
+            <MaintenanceExportImportActions
+              exportLoading={tccExportLoading}
+              importLoading={maintenanceImportLoading}
+              showImport={canImportMaintenance}
+              onImportClick={() =>
+                triggerMaintenanceImport(CATEGORY_TO_IMPORT_KIND.TCC)
+              }
+              onExportCsv={() => void handleTccExportHeader("csv")}
+              onExportXlsx={() => void handleTccExportHeader("xlsx")}
+            />
+          )}
+          {activeCategory === "CPCP" && (
+            <MaintenanceExportImportActions
+              exportLoading={cpcpExportLoading}
+              importLoading={maintenanceImportLoading}
+              showImport={canImportMaintenance}
+              onImportClick={() =>
+                triggerMaintenanceImport(CATEGORY_TO_IMPORT_KIND.CPCP)
+              }
+              onExportCsv={() => void handleCpcpExportHeader("csv")}
+              onExportXlsx={() => void handleCpcpExportHeader("xlsx")}
+            />
           )}
         </div>
       </div>
@@ -1894,6 +1995,7 @@ export function Maintenance() {
         {activeCategory === "TCC" && (
           <div className="p-5">
             <TCCDetailContent
+              key={embeddedDataKey}
               ref={tccExportRef}
               aircraftId={id ?? ""}
               showAddButton={true}
@@ -1905,6 +2007,7 @@ export function Maintenance() {
         {activeCategory === "CPCP" && (
           <div className="p-5">
             <CPCPMonitoring
+              key={embeddedDataKey}
               ref={cpcpExportRef}
               msn=""
               registration={registration ?? "—"}

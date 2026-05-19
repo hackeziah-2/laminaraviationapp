@@ -355,17 +355,11 @@ export function extractApiValidationLines(
 
   if (typeof detail === "string") {
     pushValidationLine(lines, detail);
-    return lines;
-  }
-
-  if (Array.isArray(detail)) {
+  } else if (Array.isArray(detail)) {
     for (const item of detail) {
       pushValidationLine(lines, formatValidationItem(item));
     }
-    return lines;
-  }
-
-  if (detail && typeof detail === "object") {
+  } else if (detail && typeof detail === "object") {
     const d = detail as Record<string, unknown>;
     if (typeof d.message === "string") pushValidationLine(lines, d.message);
     const nested = d.errors ?? d.validation_errors ?? d.validationErrors;
@@ -434,11 +428,20 @@ export function formatApiErrorForSwal(
     return formatValidationErrorForSwal(fallbackMessage, validationTitle);
   }
 
-  if (validationLines.length > 0) {
+  const hasStructuredValidation =
+    Array.isArray(detail) ||
+    Array.isArray(data?.errors) ||
+    Array.isArray(data?.validation_errors);
+
+  if (validationLines.length > 0 && (status === 422 || hasStructuredValidation)) {
     return formatValidationErrorForSwal(
       validationLines.join("\n"),
       validationTitle
     );
+  }
+
+  if (validationLines.length === 1) {
+    return { icon: "error", title: defaultTitle, text: validationLines[0] };
   }
 
   if (typeof detail === "string" && detail.trim()) {
@@ -451,4 +454,137 @@ export function formatApiErrorForSwal(
     fallbackMessage;
 
   return { icon: "error", title: defaultTitle, text: message };
+}
+
+const NOT_VALID_DATA_INPUT_RE = /not valid data input/i;
+
+export function isNotValidDataInputMessage(message: string): boolean {
+  return NOT_VALID_DATA_INPUT_RE.test(message.trim());
+}
+
+function maintenanceImportStatus(data: Record<string, unknown>): string {
+  return String(data.status ?? "").trim().toLowerCase();
+}
+
+/** errorMessage from import API when status is "failed". */
+export function getMaintenanceImportErrorMessage(
+  data: unknown
+): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const d = data as Record<string, unknown>;
+  if (maintenanceImportStatus(d) !== "failed") return undefined;
+  const msg = d.errorMessage ?? d.error_message;
+  if (typeof msg === "string" && msg.trim()) return msg.trim();
+  return undefined;
+}
+
+function maintenanceImportFailureMessages(data: Record<string, unknown>): string[] {
+  const candidates: unknown[] = [
+    getMaintenanceImportErrorMessage(data),
+    data.message,
+    data.detail,
+    data.error,
+  ];
+  if (data.detail && typeof data.detail === "object") {
+    const nested = data.detail as Record<string, unknown>;
+    candidates.push(nested.message, nested.error);
+  }
+  return candidates.filter((m): m is string => typeof m === "string" && m.trim().length > 0);
+}
+
+/** True when a 2xx maintenance import body still reports validation failure. */
+export function maintenanceImportResponseIndicatesFailure(
+  data: unknown
+): boolean {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  if (maintenanceImportStatus(d) === "failed") return true;
+  if (d.success === false || d.valid === false || d.ok === false) return true;
+  return maintenanceImportFailureMessages(d).some(isNotValidDataInputMessage);
+}
+
+/** Throw an axios-shaped error so import handlers can show Swal consistently. */
+export function throwIfMaintenanceImportResponseFailed(data: unknown): void {
+  if (!maintenanceImportResponseIndicatesFailure(data)) return;
+  const err = new Error("Maintenance import failed") as Error & {
+    response?: { data?: unknown };
+  };
+  err.response = { data };
+  throw err;
+}
+
+/** SweetAlert content for maintenance Excel import errors (incl. "Not valid data input"). */
+export function formatMaintenanceImportErrorForSwal(
+  err: unknown,
+  options?: { fallbackMessage?: string; defaultTitle?: string }
+): ApiErrorSwalContent {
+  const e = err as {
+    response?: { status?: number; data?: Record<string, unknown> };
+    message?: string;
+  };
+  const data = e?.response?.data;
+  const failedErrorMessage = data ? getMaintenanceImportErrorMessage(data) : undefined;
+  const detail = data?.detail ?? data?.message ?? failedErrorMessage;
+  const summaryMessages = data ? maintenanceImportFailureMessages(data) : [];
+  const isNotValidInput =
+    (failedErrorMessage != null && isNotValidDataInputMessage(failedErrorMessage)) ||
+    summaryMessages.some(isNotValidDataInputMessage) ||
+    (typeof detail === "string" && isNotValidDataInputMessage(detail));
+
+  const validationLines = extractApiValidationLines(detail, data).filter(
+    (line) =>
+      !isNotValidDataInputMessage(line) &&
+      line !== failedErrorMessage
+  );
+
+  if (failedErrorMessage) {
+    const title = isNotValidInput
+      ? "Not valid data input"
+      : (options?.defaultTitle ?? "Import failed");
+    if (validationLines.length > 1) {
+      return {
+        icon: "error",
+        title,
+        html: `<p>${escapeHtmlForSwal(failedErrorMessage)}</p><ul style="text-align:left;margin:0.75em 0 0;padding-left:1.25em">${validationLines
+          .map((line) => `<li>${escapeHtmlForSwal(line)}</li>`)
+          .join("")}</ul>`,
+      };
+    }
+    if (validationLines.length === 1) {
+      return {
+        icon: "error",
+        title,
+        text: `${failedErrorMessage}\n${validationLines[0]}`,
+      };
+    }
+    return { icon: "error", title, text: failedErrorMessage };
+  }
+
+  if (isNotValidInput) {
+    const title = "Not valid data input";
+    if (validationLines.length > 1) {
+      return {
+        icon: "error",
+        title,
+        html: `<p>Please correct the following rows and try again.</p><ul style="text-align:left;margin:0.75em 0 0;padding-left:1.25em">${validationLines
+          .map((line) => `<li>${escapeHtmlForSwal(line)}</li>`)
+          .join("")}</ul>`,
+      };
+    }
+    if (validationLines.length === 1) {
+      return { icon: "error", title, text: validationLines[0] };
+    }
+    return {
+      icon: "error",
+      title,
+      text: "The Excel file contains invalid data. Please review the workbook and try again.",
+    };
+  }
+
+  return formatApiErrorForSwal(err, {
+    defaultTitle: "Import failed",
+    validationTitle: "Validation error",
+    fallbackMessage:
+      options?.fallbackMessage ?? "Import failed. Please try again.",
+  });
 }

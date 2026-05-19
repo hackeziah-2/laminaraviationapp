@@ -1313,3 +1313,12 @@ export async function updateAtlBatch(
   const raw = res.data?.data ?? res.data;
   return parseAtlBatchPayload(raw);
 }
+
+/**
+ * Delete an ATL batch — DELETE /api/v1/atl-batch/{id}/
+ */
+export async function deleteAtlBatch(id: number): Promise<void> {
+  await apiClient.delete(`atl-batch/${id}/`, {
+    headers: { Accept: "application/json" },
+  });
+}
