@@ -14,6 +14,31 @@ const AIRCRAFT_FORM_IMPORT_KINDS = new Set<MaintenanceImportKind>([
 ]);
 
 /**
+ * Import AD work orders from Excel.
+ * POST api/v1/excel-data/maintenance-ad-work-orders/import
+ * multipart: ad_monitoring_id, file
+ */
+export async function importAdWorkOrdersExcel(
+  adMonitoringId: number,
+  file: File
+): Promise<unknown> {
+  if (!Number.isFinite(adMonitoringId) || adMonitoringId <= 0) {
+    throw new Error("ad_monitoring_id is required for AD work order import.");
+  }
+  const formData = new FormData();
+  formData.append("ad_monitoring_id", String(adMonitoringId));
+  formData.append("file", file);
+  const response = await apiClient.post(
+    "excel-data/maintenance-ad-work-orders/import",
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+  const data = response.data ?? response;
+  throwIfMaintenanceImportResponseFailed(data);
+  return data;
+}
+
+/**
  * Import maintenance forecasting data from Excel.
  *
  * LDND / AD: POST api/v1/excel-data/{kind}/import?dry_run=…

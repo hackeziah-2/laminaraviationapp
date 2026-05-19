@@ -19,6 +19,16 @@ const AD_IMPORT_HEADERS = [
   "DATE OF EFFECTIVITY",
 ] as const;
 
+const AD_WORK_ORDERS_IMPORT_HEADERS = [
+  "WO NUMBER",
+  "LAST DONE ACTT",
+  "LAST DONE TACH",
+  "LAST DONE DATE",
+  "NEXT DONE ACTT",
+  "TACH",
+  "ATL REF",
+] as const;
+
 const TCC_IMPORT_HEADERS = [
   "SEQUENCE NO",
   "CATEGORY",
@@ -64,6 +74,7 @@ const REQUIRED_HEADERS_BY_KIND: Record<
 > = {
   "maintenance-ldnd": LDND_IMPORT_HEADERS,
   "maintenance-ad": AD_IMPORT_HEADERS,
+  "maintenance-ad-work-orders": AD_WORK_ORDERS_IMPORT_HEADERS,
   "maintenance-tcc": TCC_IMPORT_HEADERS,
   "maintenance-cpcp": CPCP_IMPORT_HEADERS,
 };

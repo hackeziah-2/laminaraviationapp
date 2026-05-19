@@ -111,9 +111,7 @@ export function Login({ onLogin }: LoginProps) {
           <h1 className="mb-3 text-2xl font-bold tracking-tight text-white drop-shadow-sm sm:text-3xl">
             Laminar Aviation
           </h1>
-          <p className="text-blue-950 text-base sm:text-lg font-medium drop-shadow-sm">
-            Sign in to access your dashboard
-          </p>
+          <p className="text-blue-950 text-base sm:text-lg font-medium drop-shadow-sm"></p>
         </div>
 
         {/* Login Form */}
@@ -172,9 +170,7 @@ export function Login({ onLogin }: LoginProps) {
 
           {/* Additional Info */}
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <p className="text-center text-gray-600 text-sm">
-              Contact your administrator for credentials
-            </p>
+            <p className="text-center text-gray-600 text-sm"></p>
           </div>
         </div>
 

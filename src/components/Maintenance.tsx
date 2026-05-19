@@ -478,10 +478,10 @@ export function Maintenance() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [ldndSearchQuery]);
+  }, [ldndSearchQuery, itemsPerPage]);
   useEffect(() => {
     setAdCurrentPage(1);
-  }, [adSearchQuery]);
+  }, [adSearchQuery, adItemsPerPage]);
 
   useEffect(() => {
     if (!Number.isFinite(aircraftId) || aircraftId <= 0) {
@@ -1582,7 +1582,7 @@ export function Maintenance() {
               <div className="text-gray-900 text-sm">Inspection History</div>
               <div className="text-gray-500 text-xs">
                 Showing {ldndTotal > 0 ? startIndex + 1 : 0} to {endIndex} of{" "}
-                {ldndTotal} records | Items per page: {itemsPerPage}
+                {ldndTotal} records
               </div>
             </div>
 
@@ -1754,15 +1754,19 @@ export function Maintenance() {
             </div>
 
             {/* Pagination Controls */}
-            {ldndTotal > 0 && !ldndLoading && (
+            {(ldndTotal > 0 || ldndLoading) && (
               <DataTablePagination
                 currentPage={currentPage}
-                totalPages={totalPages || 1}
+                totalPages={Math.max(totalPages, 1)}
                 onPageChange={setCurrentPage}
+                totalItems={ldndTotal}
+                totalLabel="records"
                 itemsPerPage={itemsPerPage}
                 onItemsPerPageChange={setItemsPerPage}
+                pageSizeOptions={[10, 25, 50]}
                 showRangeText={false}
                 disabled={ldndLoading}
+                className="px-5"
               />
             )}
           </>
@@ -1977,15 +1981,19 @@ export function Maintenance() {
             </div>
 
             {/* Pagination Controls */}
-            {adTotal > 0 && !adLoading && (
+            {(adTotal > 0 || adLoading) && (
               <DataTablePagination
                 currentPage={adCurrentPage}
-                totalPages={adTotalPages || 1}
+                totalPages={Math.max(adTotalPages, 1)}
                 onPageChange={setAdCurrentPage}
+                totalItems={adTotal}
+                totalLabel="records"
                 itemsPerPage={adItemsPerPage}
                 onItemsPerPageChange={setAdItemsPerPage}
+                pageSizeOptions={[10, 25, 50]}
                 showRangeText={false}
                 disabled={adLoading}
+                className="px-5"
               />
             )}
           </>

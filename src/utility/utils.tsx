@@ -466,13 +466,12 @@ function maintenanceImportStatus(data: Record<string, unknown>): string {
   return String(data.status ?? "").trim().toLowerCase();
 }
 
-/** errorMessage from import API when status is "failed". */
+/** errorMessage from import API (e.g. when status is "failed"). */
 export function getMaintenanceImportErrorMessage(
   data: unknown
 ): string | undefined {
   if (!data || typeof data !== "object") return undefined;
   const d = data as Record<string, unknown>;
-  if (maintenanceImportStatus(d) !== "failed") return undefined;
   const msg = d.errorMessage ?? d.error_message;
   if (typeof msg === "string" && msg.trim()) return msg.trim();
   return undefined;
