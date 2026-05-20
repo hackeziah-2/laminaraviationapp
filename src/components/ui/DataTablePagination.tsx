@@ -3,10 +3,7 @@ import { cn } from "./utils";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
 
-const SELECT_CHEVRON_STYLE = {
-  backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E")`,
-  backgroundRepeat: "no-repeat" as const,
-};
+const PAGE_SIZE_SELECT_CHEVRON = `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E")`;
 
 /** Page indices with ellipsis for gaps (e.g. 1 … 5 6 7 … 20). */
 export function getPaginationItems(
@@ -42,6 +39,58 @@ export function getPaginationItems(
   return out;
 }
 
+export type PageSizeSelectProps = {
+  id?: string;
+  value: number;
+  options: number[];
+  onChange: (size: number) => void;
+  disabled?: boolean;
+  label?: string;
+  className?: string;
+};
+
+const pageSizeSelectClass =
+  "min-w-[3.75rem] cursor-pointer appearance-none rounded border border-gray-300 bg-white bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat py-1.5 pl-2.5 pr-8 text-left text-sm font-normal leading-normal text-gray-900 focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-40";
+
+/** Matches reference: “Items per page:” label + compact bordered dropdown. */
+export function PageSizeSelect({
+  id,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  label = "Items per page",
+  className,
+}: PageSizeSelectProps) {
+  const labelBase = label.replace(/:\s*$/, "").trim();
+
+  return (
+    <div className={cn("inline-flex items-center gap-2", className)}>
+      <label
+        htmlFor={id}
+        className="whitespace-nowrap text-sm font-normal text-gray-900"
+      >
+        {labelBase}:
+      </label>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        disabled={disabled}
+        className={pageSizeSelectClass}
+        style={{ backgroundImage: PAGE_SIZE_SELECT_CHEVRON }}
+        aria-label={`${labelBase}, current value ${value}`}
+      >
+        {options.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export type DataTablePaginationProps = {
   currentPage: number;
   totalPages: number;
@@ -65,9 +114,6 @@ const prevNextBtn =
 const pageBtnBase =
   "min-w-[2rem] px-3 py-1.5 rounded transition-colors text-sm";
 
-const pageSizeSelectClass =
-  "bg-no-repeat px-2 py-1 pr-6 text-sm text-gray-900 bg-white border border-gray-300 rounded appearance-none bg-[length:12px] bg-[right_0.25rem_center] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:opacity-40 disabled:cursor-not-allowed";
-
 export function DataTablePagination({
   currentPage,
   totalPages,
@@ -88,8 +134,6 @@ export function DataTablePagination({
     itemsPerPageProp != null && onItemsPerPageChange != null;
   const itemsPerPage = itemsPerPageProp ?? 10;
 
-  const labelBase = rowsPerPageLabel.replace(/:\s*$/, "").trim();
-
   const startItem =
     totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
   const endItem = Math.min(currentPage * itemsPerPage, totalItems);
@@ -102,111 +146,113 @@ export function DataTablePagination({
   const canPrev = !disabled && totalPages > 1 && currentPage > 1;
   const canNext = !disabled && totalPages > 1 && currentPage < totalPages;
 
+  const showRange = showRangeText && totalItems >= 0;
+
   return (
     <div
       className={cn(
-        "flex w-full flex-wrap items-center gap-x-4 gap-y-3 border-t border-gray-200 bg-white py-4",
+        "flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-3 border-t border-gray-200 bg-white px-5 py-4",
         className
       )}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-x-4 gap-y-2">
-        {showRangeText && totalItems >= 0 ? (
+      <div className="flex max-w-full flex-wrap items-center justify-end gap-3 sm:gap-4">
+        {showRange ? (
           <p className="text-sm text-gray-700">
-            <span className="text-gray-700">Showing </span>
+            <span>Showing </span>
             <span className="tabular-nums font-medium text-gray-900">
               {startItem}–{endItem}
             </span>
-            <span className="text-gray-700"> of </span>
+            <span> of </span>
             <span className="tabular-nums font-medium text-gray-900">
               {totalItems}
             </span>
-            <span className="text-gray-700"> {totalLabel}</span>
+            <span> {totalLabel}</span>
           </p>
         ) : null}
 
+        {showRange && (hasItemsPerPage || totalPages > 0) ? (
+          <span
+            className="hidden h-5 w-px shrink-0 bg-gray-200 sm:block"
+            aria-hidden
+          />
+        ) : null}
+
         {hasItemsPerPage ? (
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor={pageSizeId}
-              className="whitespace-nowrap text-sm text-gray-700"
-            >
-              {labelBase}:
-            </label>
-            <select
+          <PageSizeSelect
               id={pageSizeId}
               value={itemsPerPage}
-              onChange={(e) => {
-                onItemsPerPageChange(Number(e.target.value));
+              options={pageSizeOptions}
+              onChange={(size) => {
+                onItemsPerPageChange!(size);
                 onPageChange(1);
               }}
               disabled={disabled}
-              className={pageSizeSelectClass}
-              style={SELECT_CHEVRON_STYLE}
-              aria-label={`${labelBase}, current value ${itemsPerPage}`}
+              label={rowsPerPageLabel}
+            />
+        ) : null}
+
+        {hasItemsPerPage && totalPages > 0 ? (
+          <span
+            className="hidden h-5 w-px shrink-0 bg-gray-200 sm:block"
+            aria-hidden
+          />
+        ) : null}
+
+        {totalPages > 0 ? (
+          <nav
+              className="flex max-w-full items-center gap-1 overflow-x-auto"
+              aria-label="Pagination"
             >
-              {pageSizeOptions.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
+              <button
+                type="button"
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                disabled={!canPrev}
+                className={prevNextBtn}
+              >
+                Previous
+              </button>
+
+              {pageItems.map((item, idx) =>
+                item === "ellipsis" ? (
+                  <span
+                    key={`e-${idx}`}
+                    className="min-w-[2rem] px-1 text-center text-sm text-gray-400 select-none"
+                    aria-hidden
+                  >
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => onPageChange(item)}
+                    disabled={disabled}
+                    aria-current={currentPage === item ? "page" : undefined}
+                    className={cn(
+                      pageBtnBase,
+                      currentPage === item
+                        ? "bg-blue-600 text-white"
+                        : "text-gray-700 hover:bg-gray-100"
+                    )}
+                  >
+                    {item}
+                  </button>
+                )
+              )}
+
+              <button
+                type="button"
+                onClick={() =>
+                  onPageChange(Math.min(totalPages, currentPage + 1))
+                }
+                disabled={!canNext}
+                className={prevNextBtn}
+              >
+                Next
+              </button>
+            </nav>
         ) : null}
       </div>
-
-      {totalPages > 0 ? (
-        <div className="ms-auto flex shrink-0 items-center justify-end">
-          <nav className="flex items-center gap-1" aria-label="Pagination">
-            <button
-              type="button"
-              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              disabled={!canPrev}
-              className={prevNextBtn}
-            >
-              Previous
-            </button>
-
-            {pageItems.map((item, idx) =>
-              item === "ellipsis" ? (
-                <span
-                  key={`e-${idx}`}
-                  className="min-w-[2rem] px-1 text-center text-sm text-gray-400 select-none"
-                  aria-hidden
-                >
-                  …
-                </span>
-              ) : (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => onPageChange(item)}
-                  disabled={disabled}
-                  aria-current={currentPage === item ? "page" : undefined}
-                  className={cn(
-                    pageBtnBase,
-                    currentPage === item
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700 hover:bg-gray-100"
-                  )}
-                >
-                  {item}
-                </button>
-              )
-            )}
-
-            <button
-              type="button"
-              onClick={() =>
-                onPageChange(Math.min(totalPages, currentPage + 1))
-              }
-              disabled={!canNext}
-              className={cn(prevNextBtn, "flex items-center gap-1")}
-            >
-              <span>Next</span>
-            </button>
-          </nav>
-        </div>
-      ) : null}
     </div>
   );
 }

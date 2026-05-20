@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   Printer,
   Download,
+  Upload,
   Plus,
   X,
   Pencil,
@@ -26,7 +27,6 @@ import {
   deleteWorkOrderAdMonitoring,
   type WorkOrderAdMonitoring,
 } from "../api/workOrderAdMonitoringApi";
-import { getAircraftAdMonitoringById } from "../api/adMonitoringApi";
 import * as XLSX from "xlsx";
 import {
   DropdownMenu,
@@ -41,6 +41,67 @@ import { cn } from "./ui/utils";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  importAdWorkOrdersExcel,
+  pollMaintenanceImportUntilDone,
+  getMaintenanceImportProgressPercent,
+  formatMaintenanceImportProgressLabel,
+  type MaintenanceImportProgress,
+} from "../api/maintenanceImportApi";
+import { MAINTENANCE_IMPORT_KIND_LABELS } from "../constants/maintenanceImportKinds";
+import {
+  readMaintenanceImportHeaderRow,
+  validateMaintenanceImportHeaderRow,
+} from "../utility/maintenanceImportExcelHeaders";
+import { formatMaintenanceImportErrorForSwal } from "../utility/utils";
+
+const WO_IMPORT_KIND = "maintenance-ad-work-orders" as const;
+
+function escapeForSwalHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function importProgressSwalHtml(percent: number, subtitle: string): string {
+  const pct = Math.min(100, Math.max(0, Math.round(percent)));
+  const sub = escapeForSwalHtml(subtitle.trim() || "Processing…");
+  return `<div class="text-center py-1">
+    <p class="text-3xl font-bold text-slate-800 tracking-tight">${pct}%</p>
+    <p class="text-sm text-slate-500 mt-2">${sub}</p>
+    <div class="mt-4 h-2.5 w-full max-w-xs mx-auto rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out" style="width:${pct}%"></div>
+    </div>
+  </div>`;
+}
+
+function readImportJobId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const rec = payload as Record<string, unknown>;
+  const raw = rec.job_id ?? rec.jobId;
+  const jobId = raw != null ? String(raw).trim() : "";
+  return jobId || null;
+}
+
+async function runImportWithProgress(
+  start: () => Promise<unknown>,
+  onProgress: (percent: number, subtitle: string) => void
+): Promise<MaintenanceImportProgress | null> {
+  const startPayload = await start();
+  const jobId = readImportJobId(startPayload);
+  if (!jobId) return null;
+  return pollMaintenanceImportUntilDone(jobId, {
+    intervalMs: 400,
+    onUpdate: (data) => {
+      onProgress(
+        getMaintenanceImportProgressPercent(data),
+        formatMaintenanceImportProgressLabel(data)
+      );
+    },
+  });
+}
 
 function toDateInputValue(s: string | null | undefined): string {
   if (s == null || String(s).trim() === "") return "";
@@ -63,23 +124,17 @@ function formatDateDisplay(s: string | null | undefined): string {
 
 const WO_AD_EXPORT_HEADERS = [
   "WO NUMBER",
-  "SUBJECT",
   "LAST DONE ACTT",
   "LAST DONE TACH",
   "LAST DONE DATE",
-  "NEXT DUE ACTT",
-  "NEXT DUE TACH",
-  "ATL REFERENCE",
+  "NEXT DONE ACTT",
+  "TACH",
+  "ATL REF",
 ] as const;
 
-function workOrderToExportRow(
-  wo: WorkOrderAdMonitoring,
-  adSubject: string
-): string[] {
-  const subject = String(wo.subject ?? "").trim() || adSubject;
+function workOrderToExportRow(wo: WorkOrderAdMonitoring): string[] {
   return [
     String(wo.woNumber ?? "").trim(),
-    subject,
     String(wo.lastDoneActt ?? ""),
     String(wo.lastDoneTach ?? ""),
     toDateInputValue(wo.lastDoneDate) ||
@@ -123,8 +178,9 @@ export function ADWorkOrders() {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [adSubject, setAdSubject] = useState("");
   const [woExportLoading, setWoExportLoading] = useState(false);
+  const [woImportLoading, setWoImportLoading] = useState(false);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
   const [editingWorkOrder, setEditingWorkOrder] =
     useState<WorkOrderAdMonitoring | null>(null);
   const [aircraft_id, setAircraftId] = useState<string>("");
@@ -177,24 +233,6 @@ export function ADWorkOrders() {
   useEffect(() => {
     fetchWorkOrders();
   }, [fetchWorkOrders]);
-
-  useEffect(() => {
-    if (!hasValidParams) {
-      setAdSubject("");
-      return;
-    }
-    let cancelled = false;
-    getAircraftAdMonitoringById(aircraft_fk, ad_monitoring_fk)
-      .then((ad) => {
-        if (!cancelled) setAdSubject(String(ad.subject ?? "").trim());
-      })
-      .catch(() => {
-        if (!cancelled) setAdSubject("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [hasValidParams, aircraft_fk, ad_monitoring_fk]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -386,6 +424,109 @@ export function ADWorkOrders() {
     setShowAddModal(true);
   };
 
+  const handleWorkOrderImportFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (!hasValidParams) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Invalid route",
+          text: "Open work orders from an aircraft AD record to import data.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      setWoImportLoading(true);
+      try {
+        let headerRow: unknown[];
+        try {
+          headerRow = await readMaintenanceImportHeaderRow(file);
+        } catch {
+          await Swal.fire({
+            icon: "error",
+            title: "Invalid file",
+            text: "Could not read the Excel file. Use a valid .xlsx or .xls workbook.",
+            confirmButtonText: "OK",
+          });
+          return;
+        }
+        const headerCheck = validateMaintenanceImportHeaderRow(
+          WO_IMPORT_KIND,
+          headerRow
+        );
+        if (!headerCheck.ok) {
+          const label = MAINTENANCE_IMPORT_KIND_LABELS[WO_IMPORT_KIND];
+          await Swal.fire({
+            icon: "error",
+            title: "Invalid import headers",
+            html: `<p>The first row must include headers for all required ${label} columns.</p><p><strong>Missing:</strong> ${headerCheck.missing
+              .map((m) => `<br/>• ${m}`)
+              .join("")}</p>`,
+            confirmButtonText: "OK",
+          });
+          return;
+        }
+
+        void Swal.fire({
+          title: "Importing data",
+          html: importProgressSwalHtml(0, "Uploading file to server…"),
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          showConfirmButton: false,
+        });
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+
+        const finalProgress = await runImportWithProgress(
+          () => importAdWorkOrdersExcel(ad_monitoring_fk, file),
+          (pct, sub) => {
+            if (Swal.isVisible()) {
+              Swal.update({
+                title: "Importing data",
+                html: importProgressSwalHtml(pct, sub),
+              });
+            }
+          }
+        );
+        if (Swal.isVisible() && finalProgress) {
+          Swal.update({
+            title: "Importing data",
+            html: importProgressSwalHtml(
+              getMaintenanceImportProgressPercent(finalProgress),
+              formatMaintenanceImportProgressLabel(finalProgress)
+            ),
+          });
+        }
+        Swal.close();
+        await fetchWorkOrders();
+        await Swal.fire({
+          icon: "success",
+          title: "Import successful!",
+          text: `${MAINTENANCE_IMPORT_KIND_LABELS[WO_IMPORT_KIND]} data has been imported from the Excel file.`,
+          confirmButtonColor: "#1f2937",
+        });
+      } catch (err: unknown) {
+        Swal.close();
+        const swalContent = formatMaintenanceImportErrorForSwal(err, {
+          defaultTitle: "Import failed",
+          fallbackMessage: "Import failed. Please try again.",
+        });
+        await Swal.fire({
+          ...swalContent,
+          confirmButtonColor: "#2563eb",
+          confirmButtonText: "OK",
+        });
+      } finally {
+        setWoImportLoading(false);
+      }
+    },
+    [ad_monitoring_fk, fetchWorkOrders, hasValidParams]
+  );
+
   const handleWorkOrderExport = useCallback(
     async (format: "csv" | "xlsx") => {
       if (!hasValidParams) return;
@@ -409,9 +550,7 @@ export function ADWorkOrders() {
           return;
         }
         const fileReg = `aircraft_${aircraft_fk}_ad_${ad_monitoring_fk}_wo`;
-        const rows = res.items.map((wo) =>
-          workOrderToExportRow(wo, adSubject)
-        );
+        const rows = res.items.map((wo) => workOrderToExportRow(wo));
         if (format === "csv") {
           const escapeCsvValue = (value: string) =>
             `"${String(value).replace(/"/g, '""')}"`;
@@ -460,7 +599,6 @@ export function ADWorkOrders() {
       }
     },
     [
-      adSubject,
       ad_monitoring_fk,
       aircraft_fk,
       hasValidParams,
@@ -513,6 +651,32 @@ export function ADWorkOrders() {
               <Printer className="w-4 h-4" />
               Print
             </button>
+            {canCreate("maintenance") && (
+              <>
+                <input
+                  ref={importFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                  className="hidden"
+                  onChange={(e) => void handleWorkOrderImportFileChange(e)}
+                  aria-label="Import AD work orders from Excel"
+                />
+                <button
+                  type="button"
+                  onClick={() => importFileInputRef.current?.click()}
+                  disabled={
+                    !hasValidParams || woImportLoading || woExportLoading
+                  }
+                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Import from Excel"
+                >
+                  <Upload
+                    className={`w-4 h-4 ${woImportLoading ? "animate-pulse" : ""}`}
+                  />
+                  {woImportLoading ? "Importing…" : "Import"}
+                </button>
+              </>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
