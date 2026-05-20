@@ -52,7 +52,14 @@ import {
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
-import { importMaintenanceExcel } from "../api/maintenanceImportApi";
+import {
+  importMaintenanceExcel,
+  importTccMaintenanceExcel,
+  pollMaintenanceImportUntilDone,
+  getMaintenanceImportProgressPercent,
+  formatMaintenanceImportProgressLabel,
+  type MaintenanceImportProgress,
+} from "../api/maintenanceImportApi";
 import type { MaintenanceImportKind } from "../constants/maintenanceImportKinds";
 import { MAINTENANCE_IMPORT_KIND_LABELS } from "../constants/maintenanceImportKinds";
 import {
@@ -64,6 +71,52 @@ import * as XLSX from "xlsx";
 
 const exportMenuItemClass =
   "bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900 dark:bg-neutral-950 dark:focus:bg-neutral-800 dark:focus:text-neutral-100 dark:data-[highlighted]:bg-neutral-800 dark:data-[highlighted]:text-neutral-100";
+
+function escapeForSwalHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function importProgressSwalHtml(percent: number, subtitle: string): string {
+  const pct = Math.min(100, Math.max(0, Math.round(percent)));
+  const sub = escapeForSwalHtml(subtitle.trim() || "Processing…");
+  return `<div class="text-center py-1">
+    <p class="text-3xl font-bold text-slate-800 tracking-tight">${pct}%</p>
+    <p class="text-sm text-slate-500 mt-2">${sub}</p>
+    <div class="mt-4 h-2.5 w-full max-w-xs mx-auto rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out" style="width:${pct}%"></div>
+    </div>
+  </div>`;
+}
+
+function readImportJobId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const rec = payload as Record<string, unknown>;
+  const raw = rec.job_id ?? rec.jobId;
+  const jobId = raw != null ? String(raw).trim() : "";
+  return jobId || null;
+}
+
+async function runImportWithProgress(
+  start: () => Promise<unknown>,
+  onProgress: (percent: number, subtitle: string) => void
+): Promise<MaintenanceImportProgress | null> {
+  const startPayload = await start();
+  const jobId = readImportJobId(startPayload);
+  if (!jobId) return null;
+  return pollMaintenanceImportUntilDone(jobId, {
+    intervalMs: 400,
+    onUpdate: (data) => {
+      onProgress(
+        getMaintenanceImportProgressPercent(data),
+        formatMaintenanceImportProgressLabel(data)
+      );
+    },
+  });
+}
 
 function MaintenanceExportImportActions({
   exportLoading,
@@ -846,14 +899,94 @@ export function Maintenance() {
           return;
         }
 
-        if (kind === "maintenance-ldnd" || kind === "maintenance-ad") {
-          await importMaintenanceExcel(kind, aircraftId, file, { dryRun: true });
+        void Swal.fire({
+          title: "Importing data",
+          html: importProgressSwalHtml(0, "Uploading file to server…"),
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          showConfirmButton: false,
+        });
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+
+        if (kind === "maintenance-tcc") {
           importPhase = "apply";
-          await importMaintenanceExcel(kind, aircraftId, file, { dryRun: false });
+          const finalProgress = await runImportWithProgress(
+            () => importTccMaintenanceExcel(aircraftId, file),
+            (pct, sub) => {
+              if (Swal.isVisible()) {
+                Swal.update({
+                  title: "Importing data",
+                  html: importProgressSwalHtml(pct, sub),
+                });
+              }
+            }
+          );
+          if (Swal.isVisible() && finalProgress) {
+            Swal.update({
+              title: "Importing data",
+              html: importProgressSwalHtml(
+                getMaintenanceImportProgressPercent(finalProgress),
+                formatMaintenanceImportProgressLabel(finalProgress)
+              ),
+            });
+          }
+        } else if (
+          kind === "maintenance-ldnd" ||
+          kind === "maintenance-ad" ||
+          kind === "maintenance-cpcp"
+        ) {
+          await runImportWithProgress(
+            () => importMaintenanceExcel(kind, aircraftId, file, { dryRun: true }),
+            (pct, sub) => {
+              if (Swal.isVisible()) {
+                Swal.update({
+                  title: "Validating import",
+                  html: importProgressSwalHtml(Math.min(45, Math.round(pct * 0.45)), sub),
+                });
+              }
+            }
+          );
+          importPhase = "apply";
+          const finalProgress = await runImportWithProgress(
+            () => importMaintenanceExcel(kind, aircraftId, file, { dryRun: false }),
+            (pct, sub) => {
+              if (Swal.isVisible()) {
+                Swal.update({
+                  title: "Importing data",
+                  html: importProgressSwalHtml(
+                    45 + Math.round((Math.min(100, Math.max(0, pct)) * 55) / 100),
+                    sub
+                  ),
+                });
+              }
+            }
+          );
+          if (Swal.isVisible() && finalProgress) {
+            Swal.update({
+              title: "Importing data",
+              html: importProgressSwalHtml(
+                getMaintenanceImportProgressPercent(finalProgress),
+                formatMaintenanceImportProgressLabel(finalProgress)
+              ),
+            });
+          }
         } else {
           importPhase = "apply";
-          await importMaintenanceExcel(kind, aircraftId, file);
+          await runImportWithProgress(
+            () => importMaintenanceExcel(kind, aircraftId, file),
+            (pct, sub) => {
+              if (Swal.isVisible()) {
+                Swal.update({
+                  title: "Importing data",
+                  html: importProgressSwalHtml(pct, sub),
+                });
+              }
+            }
+          );
         }
+        Swal.close();
         await refreshAfterMaintenanceImport(kind);
         await Swal.fire({
           icon: "success",
@@ -862,11 +995,12 @@ export function Maintenance() {
           confirmButtonColor: "#1f2937",
         });
       } catch (err: unknown) {
-        const isAdValidationFailure =
+        Swal.close();
+        const isAdDryRunValidationFailure =
           kind === "maintenance-ad" && importPhase === "validate";
         const swalContent = formatMaintenanceImportErrorForSwal(err, {
-          defaultTitle: isAdValidationFailure ? "Validation failed" : undefined,
-          fallbackMessage: isAdValidationFailure
+          defaultTitle: isAdDryRunValidationFailure ? "Validation failed" : undefined,
+          fallbackMessage: isAdDryRunValidationFailure
             ? "Validation failed. Please review the Excel file and try again."
             : "Import failed. Please try again.",
         });

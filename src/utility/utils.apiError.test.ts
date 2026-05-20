@@ -96,6 +96,17 @@ describe("formatMaintenanceImportErrorForSwal", () => {
     expect(content.icon).toBe("error");
   });
 
+  it("shows Not valid data input when detail is a string array", () => {
+    const content = formatMaintenanceImportErrorForSwal({
+      response: {
+        status: 400,
+        data: { detail: ["Not valid data input", "Row 3: invalid category"] },
+      },
+    });
+    expect(content.title).toBe("Not valid data input");
+    expect(content.text ?? content.html ?? "").toContain("Row 3");
+  });
+
   it("lists row errors under Not valid data input title", () => {
     const content = formatMaintenanceImportErrorForSwal({
       response: {

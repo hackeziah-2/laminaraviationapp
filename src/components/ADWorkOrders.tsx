@@ -41,7 +41,13 @@ import { cn } from "./ui/utils";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
-import { importAdWorkOrdersExcel } from "../api/maintenanceImportApi";
+import {
+  importAdWorkOrdersExcel,
+  pollMaintenanceImportUntilDone,
+  getMaintenanceImportProgressPercent,
+  formatMaintenanceImportProgressLabel,
+  type MaintenanceImportProgress,
+} from "../api/maintenanceImportApi";
 import { MAINTENANCE_IMPORT_KIND_LABELS } from "../constants/maintenanceImportKinds";
 import {
   readMaintenanceImportHeaderRow,
@@ -50,6 +56,52 @@ import {
 import { formatMaintenanceImportErrorForSwal } from "../utility/utils";
 
 const WO_IMPORT_KIND = "maintenance-ad-work-orders" as const;
+
+function escapeForSwalHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function importProgressSwalHtml(percent: number, subtitle: string): string {
+  const pct = Math.min(100, Math.max(0, Math.round(percent)));
+  const sub = escapeForSwalHtml(subtitle.trim() || "Processing…");
+  return `<div class="text-center py-1">
+    <p class="text-3xl font-bold text-slate-800 tracking-tight">${pct}%</p>
+    <p class="text-sm text-slate-500 mt-2">${sub}</p>
+    <div class="mt-4 h-2.5 w-full max-w-xs mx-auto rounded-full bg-slate-200 overflow-hidden">
+      <div class="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out" style="width:${pct}%"></div>
+    </div>
+  </div>`;
+}
+
+function readImportJobId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const rec = payload as Record<string, unknown>;
+  const raw = rec.job_id ?? rec.jobId;
+  const jobId = raw != null ? String(raw).trim() : "";
+  return jobId || null;
+}
+
+async function runImportWithProgress(
+  start: () => Promise<unknown>,
+  onProgress: (percent: number, subtitle: string) => void
+): Promise<MaintenanceImportProgress | null> {
+  const startPayload = await start();
+  const jobId = readImportJobId(startPayload);
+  if (!jobId) return null;
+  return pollMaintenanceImportUntilDone(jobId, {
+    intervalMs: 400,
+    onUpdate: (data) => {
+      onProgress(
+        getMaintenanceImportProgressPercent(data),
+        formatMaintenanceImportProgressLabel(data)
+      );
+    },
+  });
+}
 
 function toDateInputValue(s: string | null | undefined): string {
   if (s == null || String(s).trim() === "") return "";
@@ -418,7 +470,38 @@ export function ADWorkOrders() {
           return;
         }
 
-        await importAdWorkOrdersExcel(ad_monitoring_fk, file);
+        void Swal.fire({
+          title: "Importing data",
+          html: importProgressSwalHtml(0, "Uploading file to server…"),
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          showConfirmButton: false,
+        });
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        });
+
+        const finalProgress = await runImportWithProgress(
+          () => importAdWorkOrdersExcel(ad_monitoring_fk, file),
+          (pct, sub) => {
+            if (Swal.isVisible()) {
+              Swal.update({
+                title: "Importing data",
+                html: importProgressSwalHtml(pct, sub),
+              });
+            }
+          }
+        );
+        if (Swal.isVisible() && finalProgress) {
+          Swal.update({
+            title: "Importing data",
+            html: importProgressSwalHtml(
+              getMaintenanceImportProgressPercent(finalProgress),
+              formatMaintenanceImportProgressLabel(finalProgress)
+            ),
+          });
+        }
+        Swal.close();
         await fetchWorkOrders();
         await Swal.fire({
           icon: "success",
@@ -427,6 +510,7 @@ export function ADWorkOrders() {
           confirmButtonColor: "#1f2937",
         });
       } catch (err: unknown) {
+        Swal.close();
         const swalContent = formatMaintenanceImportErrorForSwal(err, {
           defaultTitle: "Import failed",
           fallbackMessage: "Import failed. Please try again.",

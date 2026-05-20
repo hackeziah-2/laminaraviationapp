@@ -34,24 +34,18 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import * as XLSX from "xlsx";
 
 const TCC_EXPORT_HEADERS = [
-  "SEQUENCE NO",
   "CATEGORY",
-  "REMAINING YEARS",
-  "REMAINING DAYS",
-  "REMAINING TACH",
-  "REMAINING AFTT",
-  "PART NO.",
-  "SERIAL NO.",
+  "PART NUMBER",
+  "SERIAL NUMBER",
   "DESCRIPTION",
-  "COMPONENT LIMIT YEARS",
-  "COMPONENT LIMIT HOURS",
-  "METHOD OF COMPLIANCE",
+  "COMPONENT METHOD OF COMPLIANCE",
   "LAST DONE DATE",
   "LAST DONE TACH",
   "LAST DONE AFTT",
-  "NEXT DUE DATE",
-  "NEXT DUE TACH",
-  "NEXT DUE AFTT",
+  "LAST DONE METHOD OF COMPLIANCE",
+  "COMPONENT LIMIT YEARS",
+  "COMPONENT LIMIT HOURS",
+  "SEQUENCE NO.",
 ] as const;
 
 export interface ComponentItem {
@@ -319,44 +313,20 @@ function formatTccCategoryDisplay(cat: string | undefined): string {
   return map[key] ?? cat.trim();
 }
 
-function tccComputedRowToExportCells(
-  row: TCCComputedRow,
-  item: ComponentItem
-): string[] {
-  const remYears =
-    row.remainingYears != null && Number.isFinite(row.remainingYears)
-      ? row.remainingYears.toFixed(2)
-      : String(item.remaining ?? "").trim();
-  const remDays =
-    row.remainingDays != null && Number.isFinite(row.remainingDays)
-      ? String(row.remainingDays)
-      : String(item.date ?? "").trim();
-  const nextDueDateStr = row.nextDueDate
-    ? formatDate(row.nextDueDate)
-    : String(item.nextDueDate ?? "").trim();
-  const nextDueTachStr =
-    formatNum(row.nextDueTach) || String(item.nextDueYear ?? "").trim();
-  const nextDueAfttStr =
-    formatNum(row.nextDueAftt) || String(item.nextDueAftt ?? "").trim();
+function tccItemToExportCells(item: ComponentItem): string[] {
   return [
-    String(item.reference ?? "").trim(),
     String(item.category ?? "").trim(),
-    remYears,
-    remDays,
-    formatNum(row.remainingTach) || String(item.when ?? "").trim(),
-    formatNum(row.remainingAftt) || String(item.aftt ?? "").trim(),
     String(item.partNo ?? "").trim(),
     String(item.serialNo ?? "").trim(),
     String(item.description ?? "").trim(),
-    formatNum(parseNum(item.limitYears)),
-    formatNum(parseNum(item.limitHours)),
     String(item.methodOfCompliance ?? "").trim(),
     String(item.lastDoneDate ?? "").trim(),
     String(item.lastDoneTach ?? item.lastDoneYear ?? "").trim(),
     String(item.lastDoneAftt ?? "").trim(),
-    nextDueDateStr,
-    nextDueTachStr,
-    nextDueAfttStr,
+    String(item.lastDoneMethodOfCompliance ?? "").trim(),
+    formatNum(parseNum(item.limitYears)),
+    formatNum(parseNum(item.limitHours)),
+    String(item.reference ?? "").trim(),
   ];
 }
 
@@ -669,12 +639,7 @@ export const TCCDetailContent = forwardRef<
         }
         const fileReg =
           aircraftDetails?.registration?.trim() || `aircraft_${aircraftIdNum}`;
-        const rowStrings = items.map((item) =>
-          tccComputedRowToExportCells(
-            computeTCCRow(item, currentDate, currentTach, currentAftt),
-            item
-          )
-        );
+        const rowStrings = items.map((item) => tccItemToExportCells(item));
         if (format === "csv") {
           const escapeCsvValue = (value: string) =>
             `"${String(value).replace(/"/g, '""')}"`;
@@ -724,9 +689,6 @@ export const TCCDetailContent = forwardRef<
       aircraftIdNum,
       activeTab,
       aircraftDetails?.registration,
-      currentDate,
-      currentTach,
-      currentAftt,
       searchDebounced,
       tccItems.length,
       tccTotal,

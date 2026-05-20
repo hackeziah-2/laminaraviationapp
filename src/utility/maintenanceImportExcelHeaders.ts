@@ -29,43 +29,38 @@ const AD_WORK_ORDERS_IMPORT_HEADERS = [
   "ATL REF",
 ] as const;
 
-const TCC_IMPORT_HEADERS = [
-  "SEQUENCE NO",
+const TCC_IMPORT_REQUIRED_HEADERS = [
   "CATEGORY",
-  "REMAINING YEARS",
-  "REMAINING DAYS",
-  "REMAINING TACH",
-  "REMAINING AFTT",
-  "PART NO.",
-  "SERIAL NO.",
+  "PART NUMBER",
+  "SERIAL NUMBER",
   "DESCRIPTION",
+  "COMPONENT METHOD OF COMPLIANCE",
+  "LAST DONE DATE",
+  "LAST DONE TACH",
+  "LAST DONE AFTT",
+  "LAST DONE METHOD OF COMPLIANCE",
   "COMPONENT LIMIT YEARS",
   "COMPONENT LIMIT HOURS",
-  "METHOD OF COMPLIANCE",
-  "LAST DONE DATE",
-  "LAST DONE TACH",
-  "LAST DONE AFTT",
-  "NEXT DUE DATE",
-  "NEXT DUE TACH",
-  "NEXT DUE AFTT",
 ] as const;
 
+/**
+ * First-row header: user supplies ATL sequence number under either column name.
+ * Server import should map that value → ATL row → `atl_ref` / `atl_fk` on TCC.
+ */
+const TCC_SEQUENCE_HEADER_GROUP = {
+  label: "Sequence No. or ATL Ref",
+  aliases: ["sequence no.", "sequence no", "atl ref"],
+} as const;
+
 const CPCP_IMPORT_HEADERS = [
-  "SEQUENCE NO",
-  "REMAINING YEARS",
-  "REMAINING DAYS",
-  "REMAINING TACH",
-  "REMAINING",
   "INSPECTION OPERATION",
   "DESCRIPTION",
-  "INTERNAL HOURS",
-  "INTERNAL MONTHS",
-  "LAST DONE DATE",
+  "INTERVAL HOURS",
+  "INTERVAL MONTHS",
   "LAST DONE TACH",
   "LAST DONE AFTT",
-  "NEXT DUE DATE",
-  "NEXT DUE TACH",
-  "NEXT DUE AFTT",
+  "LAST DONE DATE",
+  "SEQUENCE NO.",
 ] as const;
 
 const REQUIRED_HEADERS_BY_KIND: Record<
@@ -75,9 +70,21 @@ const REQUIRED_HEADERS_BY_KIND: Record<
   "maintenance-ldnd": LDND_IMPORT_HEADERS,
   "maintenance-ad": AD_IMPORT_HEADERS,
   "maintenance-ad-work-orders": AD_WORK_ORDERS_IMPORT_HEADERS,
-  "maintenance-tcc": TCC_IMPORT_HEADERS,
+  "maintenance-tcc": [...TCC_IMPORT_REQUIRED_HEADERS],
   "maintenance-cpcp": CPCP_IMPORT_HEADERS,
 };
+
+function validateRequiredHeaders(
+  normalized: Set<string>,
+  headers: readonly string[],
+  missing: string[]
+): void {
+  for (const header of headers) {
+    if (!normalized.has(normalizeFleetImportHeaderCell(header))) {
+      missing.push(header);
+    }
+  }
+}
 
 export function validateMaintenanceImportHeaderRow(
   kind: MaintenanceImportKind,
@@ -89,11 +96,17 @@ export function validateMaintenanceImportHeaderRow(
       .filter((s) => s.length > 0)
   );
   const missing: string[] = [];
-  for (const header of REQUIRED_HEADERS_BY_KIND[kind]) {
-    if (!normalized.has(normalizeFleetImportHeaderCell(header))) {
-      missing.push(header);
+  validateRequiredHeaders(normalized, REQUIRED_HEADERS_BY_KIND[kind], missing);
+
+  if (kind === "maintenance-tcc") {
+    const hasSequenceOrAtl = TCC_SEQUENCE_HEADER_GROUP.aliases.some((alias) =>
+      normalized.has(alias)
+    );
+    if (!hasSequenceOrAtl) {
+      missing.push(TCC_SEQUENCE_HEADER_GROUP.label);
     }
   }
+
   return missing.length === 0 ? { ok: true } : { ok: false, missing };
 }
 

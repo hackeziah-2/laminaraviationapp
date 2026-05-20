@@ -415,6 +415,32 @@ export function formatApiErrorForSwal(
   const detail = data?.detail ?? data?.message;
   const validationLines = extractApiValidationLines(detail, data);
 
+  if (
+    validationLines.some(isNotValidDataInputMessage) ||
+    (typeof detail === "string" && isNotValidDataInputMessage(detail)) ||
+    (typeof data?.message === "string" && isNotValidDataInputMessage(data.message))
+  ) {
+    const title = "Not valid data input";
+    const rowLines = validationLines.filter((line) => !isNotValidDataInputMessage(line));
+    if (rowLines.length > 1) {
+      return {
+        icon: "error",
+        title,
+        html: `<p>Please correct the following rows and try again.</p><ul style="text-align:left;margin:0.75em 0 0;padding-left:1.25em">${rowLines
+          .map((line) => `<li>${escapeHtmlForSwal(line)}</li>`)
+          .join("")}</ul>`,
+      };
+    }
+    if (rowLines.length === 1) {
+      return { icon: "error", title, text: rowLines[0] };
+    }
+    const text =
+      (typeof detail === "string" && detail.trim()) ||
+      (typeof data?.message === "string" && data.message.trim()) ||
+      "The Excel file contains invalid data. Please review the workbook and try again.";
+    return { icon: "error", title, text };
+  }
+
   if (status === 422) {
     if (validationLines.length > 0) {
       return formatValidationErrorForSwal(
@@ -525,12 +551,14 @@ export function formatMaintenanceImportErrorForSwal(
   const failedErrorMessage = data ? getMaintenanceImportErrorMessage(data) : undefined;
   const detail = data?.detail ?? data?.message ?? failedErrorMessage;
   const summaryMessages = data ? maintenanceImportFailureMessages(data) : [];
+  const validationLinesAll = extractApiValidationLines(detail, data);
   const isNotValidInput =
     (failedErrorMessage != null && isNotValidDataInputMessage(failedErrorMessage)) ||
     summaryMessages.some(isNotValidDataInputMessage) ||
-    (typeof detail === "string" && isNotValidDataInputMessage(detail));
+    (typeof detail === "string" && isNotValidDataInputMessage(detail)) ||
+    validationLinesAll.some(isNotValidDataInputMessage);
 
-  const validationLines = extractApiValidationLines(detail, data).filter(
+  const validationLines = validationLinesAll.filter(
     (line) =>
       !isNotValidDataInputMessage(line) &&
       line !== failedErrorMessage
@@ -581,7 +609,7 @@ export function formatMaintenanceImportErrorForSwal(
   }
 
   return formatApiErrorForSwal(err, {
-    defaultTitle: "Import failed",
+    defaultTitle: options?.defaultTitle ?? "Import failed",
     validationTitle: "Validation error",
     fallbackMessage:
       options?.fallbackMessage ?? "Import failed. Please try again.",
