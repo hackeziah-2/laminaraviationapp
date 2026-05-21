@@ -240,18 +240,18 @@ export const setUserStatus = async (
   return normalizeUser({ ...raw, id });
 };
 
+export interface ResetPasswordPayload {
+  new_password: string;
+}
+
 /** Reset password: POST /api/v1/auth/users/:id/reset-password/ */
 export const resetUserPassword = async (
   id: number,
-  newPassword: string,
-  forceChange = true
+  newPassword: string
 ): Promise<void> => {
   await apiClient.post(
     `auth/users/${id}/reset-password/`,
-    {
-      password: newPassword,
-      force_change: forceChange,
-    },
+    { new_password: newPassword } satisfies ResetPasswordPayload,
     { headers: { "Content-Type": "application/json" } }
   );
 };

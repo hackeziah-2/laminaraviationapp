@@ -118,7 +118,7 @@ interface ResetPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
-  onReset: (newPassword: string, forceChange: boolean) => void | Promise<void>;
+  onReset: (newPassword: string) => void | Promise<void>;
 }
 
 interface EditRoleModalProps {
@@ -1254,23 +1254,36 @@ function ResetPasswordModal({
   user,
   onReset,
 }: ResetPasswordModalProps) {
-  const [forceChange, setForceChange] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [passwordError, setPasswordError] = useState("");
 
+  const accountLogin = user?.username?.trim() || user?.email?.trim() || "";
+
+  useEffect(() => {
+    if (!isOpen) {
+      setNewPassword("");
+      setShowPassword(false);
+      setPasswordError("");
+    }
+  }, [isOpen]);
+
   if (!isOpen || !user) return null;
 
   const handleReset = async () => {
     setPasswordError("");
-    if (newPassword.length < 8) {
-      setPasswordError("Password must be at least 8 characters");
+    if (newPassword.length < 6) {
+      setPasswordError("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword.length > 72) {
+      setPasswordError("Password must be at most 72 characters");
       return;
     }
     setSubmitting(true);
     try {
-      await Promise.resolve(onReset(newPassword, forceChange));
+      await Promise.resolve(onReset(newPassword));
       onClose();
     } catch {
       // Stay open on error
@@ -1304,7 +1317,19 @@ function ResetPasswordModal({
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              New Password
+              Username or email
+            </label>
+            <input
+              type="text"
+              value={accountLogin}
+              readOnly
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              New password
             </label>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -1316,7 +1341,7 @@ function ResetPasswordModal({
                     setPasswordError("");
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter new password"
+                  placeholder="Enter new password (6–72 characters)"
                 />
                 <button
                   type="button"
@@ -1343,23 +1368,10 @@ function ResetPasswordModal({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="forceChange"
-              checked={forceChange}
-              onChange={(e) => setForceChange(e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-            />
-            <label htmlFor="forceChange" className="text-sm text-gray-700">
-              Force password change on next login
-            </label>
-          </div>
-
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <p className="text-xs text-yellow-700">
-              The user will receive an email with their new password. Make sure
-              to securely communicate this password if email is not available.
+              This sets a new password for the user. The new password must be
+              6–72 characters.
             </p>
           </div>
 
@@ -1374,7 +1386,11 @@ function ResetPasswordModal({
             <button
               onClick={handleReset}
               disabled={
-                !newPassword.trim() || newPassword.length < 8 || submitting
+                !accountLogin ||
+                !newPassword.trim() ||
+                newPassword.length < 6 ||
+                newPassword.length > 72 ||
+                submitting
               }
               type="button"
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -3228,30 +3244,20 @@ export function Settings() {
           setSelectedUser(null);
         }}
         user={selectedUser}
-        onReset={async (newPassword, forceChange) => {
+        onReset={async (newPassword) => {
           if (!selectedUser) return;
           try {
-            await authApi.resetUserPassword(
-              selectedUser.id,
-              newPassword,
-              forceChange
-            );
+            await authApi.resetUserPassword(selectedUser.id, newPassword);
             setShowResetPasswordModal(false);
             setSelectedUser(null);
             await Swal.fire({
               title: "Success!",
-              text: `Password reset email sent to ${
-                selectedUser.name
-              }. Force change on next login: ${forceChange ? "Yes" : "No"}`,
+              text: `Password updated for ${selectedUser.name}.`,
               icon: "success",
               confirmButtonColor: "#1f2937",
             });
           } catch (err: unknown) {
-            const msg =
-              (err as { response?: { data?: { message?: string } } })?.response
-                ?.data?.message ||
-              (err as Error)?.message ||
-              "Failed to reset password";
+            const msg = formatBulkRegisterError(err);
             await Swal.fire({ icon: "error", title: "Error", text: msg });
             throw err;
           }
