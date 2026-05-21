@@ -107,6 +107,14 @@ export function AddAtlBatchModal({
             name: trimmed,
             description: description.trim() || undefined,
           });
+      if (isEdit) {
+        await Swal.fire({
+          title: "Updated!",
+          text: `ATL batch "${batch.name}" has been updated.`,
+          icon: "success",
+          confirmButtonColor: "#1f2937",
+        });
+      }
       onSaved(batch);
       onClose();
     } catch (err: unknown) {

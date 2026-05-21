@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { formatTimeZulu } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { PageSizeSelect } from "./ui/DataTablePagination";
 
 interface ReliabilityRecord {
   atlSeqNo: string;
@@ -406,23 +407,11 @@ export function ReliabilityMonitoring() {
                 </select>
               </div>
 
-              {/* Right: Items per page */}
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <span>Items per page:</span>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                  className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                    backgroundPosition: "right 8px center",
-                  }}
-                >
-                  <option>10</option>
-                  <option>25</option>
-                  <option>50</option>
-                </select>
-              </div>
+              <PageSizeSelect
+                value={itemsPerPage}
+                options={[10, 25, 50]}
+                onChange={setItemsPerPage}
+              />
             </div>
           </div>
 

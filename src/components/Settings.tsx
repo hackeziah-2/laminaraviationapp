@@ -20,7 +20,13 @@ import {
   EyeOff,
   Loader2,
   Braces,
+  SlidersHorizontal,
 } from "lucide-react";
+import {
+  MODULE_SETTING_OPTIONS,
+  type ModuleSettingKey,
+} from "../constants/moduleSettingsOptions";
+import { SettingsModuleSettings } from "./settings/SettingsModuleSettings";
 import * as authApi from "../api/authApi";
 import * as rolesApi from "../api/rolesApi";
 import type { Permission } from "../api/rolesApi";
@@ -52,7 +58,9 @@ interface User {
 type Role = rolesApi.Role;
 
 /** Build permission list from modules (all false). Uses API modules when provided, else static list. */
-function getDefaultModulePermissions(apiModules?: modulesApi.Module[]): Permission[] {
+function getDefaultModulePermissions(
+  apiModules?: modulesApi.Module[]
+): Permission[] {
   if (apiModules?.length) {
     return apiModules.map((m) => ({
       module: m.name || m.code || String(m.id),
@@ -110,7 +118,7 @@ interface ResetPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: User | null;
-  onReset: (newPassword: string, forceChange: boolean) => void | Promise<void>;
+  onReset: (newPassword: string) => void | Promise<void>;
 }
 
 interface EditRoleModalProps {
@@ -154,10 +162,13 @@ const BULK_JSON_PLACEHOLDER = `[
 const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Map one JSON object to POST /auth/register/ body (same shape as registerUser). */
-function bulkJsonRowToAuthCreate(o: Record<string, unknown>): authApi.AuthUserCreate {
+function bulkJsonRowToAuthCreate(
+  o: Record<string, unknown>
+): authApi.AuthUserCreate {
   const email = String(o.email ?? "").trim();
-  const localPart =
-    email.includes("@") ? email.slice(0, Math.max(0, email.indexOf("@"))) : email;
+  const localPart = email.includes("@")
+    ? email.slice(0, Math.max(0, email.indexOf("@")))
+    : email;
   const roleRaw = o.role_id;
   let role_id = 0;
   if (typeof roleRaw === "number" && !Number.isNaN(roleRaw)) role_id = roleRaw;
@@ -167,7 +178,11 @@ function bulkJsonRowToAuthCreate(o: Record<string, unknown>): authApi.AuthUserCr
   }
   const statusRaw = o.status;
   const status =
-    typeof statusRaw === "boolean" ? statusRaw : statusRaw == null ? true : Boolean(statusRaw);
+    typeof statusRaw === "boolean"
+      ? statusRaw
+      : statusRaw == null
+      ? true
+      : Boolean(statusRaw);
   const auth_initial_doi = String(o.auth_initial_doi ?? "").trim();
   const auth_stamp = String(o.auth_stamp ?? "").trim();
   return {
@@ -225,7 +240,11 @@ interface AddUsersByJsonModalProps {
   onComplete: () => void | Promise<void>;
 }
 
-function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModalProps) {
+function AddUsersByJsonModal({
+  isOpen,
+  onClose,
+  onComplete,
+}: AddUsersByJsonModalProps) {
   const [jsonText, setJsonText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -291,12 +310,10 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
         validationErrors.push(`Row ${row}: invalid email format.`);
       if (!password) validationErrors.push(`Row ${row}: password is required.`);
       else if (password.length < 8)
-        validationErrors.push(`Row ${row}: password must be at least 8 characters.`);
-      if (
-        email &&
-        password.length >= 8 &&
-        EMAIL_FORMAT_RE.test(email)
-      ) {
+        validationErrors.push(
+          `Row ${row}: password must be at least 8 characters.`
+        );
+      if (email && password.length >= 8 && EMAIL_FORMAT_RE.test(email)) {
         rows.push(bulkJsonRowToAuthCreate(o));
       }
     });
@@ -305,7 +322,9 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
       await Swal.fire({
         icon: "error",
         title: "Validation error",
-        html: `<ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:240px;overflow:auto;font-size:14px">${validationErrors.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>`,
+        html: `<ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:240px;overflow:auto;font-size:14px">${validationErrors
+          .map((m) => `<li>${escapeHtml(m)}</li>`)
+          .join("")}</ul>`,
         confirmButtonColor: "#1f2937",
       });
       return;
@@ -323,7 +342,10 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
         await authApi.registerUser(row);
         successCount += 1;
       } catch (err) {
-        failures.push({ email: row.email, message: formatBulkRegisterError(err) });
+        failures.push({
+          email: row.email,
+          message: formatBulkRegisterError(err),
+        });
       }
     }
 
@@ -345,7 +367,9 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
     }
 
     if (successCount === 0) {
-      const allNetwork = failures.every((f) => f.message === "Failed to connect to server.");
+      const allNetwork = failures.every(
+        (f) => f.message === "Failed to connect to server."
+      );
       if (allNetwork) {
         await Swal.fire({
           icon: "error",
@@ -357,7 +381,14 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
         await Swal.fire({
           icon: "error",
           title: "Could not create users",
-          html: `<p style="margin-bottom:8px">Some users failed to create.</p><ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:220px;overflow:auto;font-size:13px">${failures.map((f) => `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(f.message)}</li>`).join("")}</ul>`,
+          html: `<p style="margin-bottom:8px">Some users failed to create.</p><ul style="text-align:left;margin:0;padding-left:1.25rem;max-height:220px;overflow:auto;font-size:13px">${failures
+            .map(
+              (f) =>
+                `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(
+                  f.message
+                )}</li>`
+            )
+            .join("")}</ul>`,
           confirmButtonColor: "#1f2937",
         });
       }
@@ -367,7 +398,16 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
     await Swal.fire({
       icon: "warning",
       title: "Partial success",
-      html: `<p>Some users failed to create.</p><p style="margin-top:8px;font-size:14px">${successCount} created, ${failures.length} failed.</p><ul style="text-align:left;margin:12px 0 0;padding-left:1.25rem;max-height:200px;overflow:auto;font-size:13px">${failures.map((f) => `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(f.message)}</li>`).join("")}</ul>`,
+      html: `<p>Some users failed to create.</p><p style="margin-top:8px;font-size:14px">${successCount} created, ${
+        failures.length
+      } failed.</p><ul style="text-align:left;margin:12px 0 0;padding-left:1.25rem;max-height:200px;overflow:auto;font-size:13px">${failures
+        .map(
+          (f) =>
+            `<li><strong>${escapeHtml(f.email)}</strong> — ${escapeHtml(
+              f.message
+            )}</li>`
+        )
+        .join("")}</ul>`,
       confirmButtonColor: "#1f2937",
     });
     setJsonText("");
@@ -384,8 +424,8 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
           <p className="text-sm text-gray-600 mt-3 leading-relaxed">
             Paste a JSON array of user objects. Each entry must include{" "}
             <span className="font-semibold text-gray-900">email</span> and{" "}
-            <span className="font-semibold text-gray-900">password</span>; email format is
-            validated before requests run.
+            <span className="font-semibold text-gray-900">password</span>; email
+            format is validated before requests run.
           </p>
         </div>
 
@@ -424,7 +464,9 @@ function AddUsersByJsonModal({ isOpen, onClose, onComplete }: AddUsersByJsonModa
               disabled={submitting}
               className="flex-[11] px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
             >
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
+              {submitting ? (
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              ) : null}
               Submit
             </button>
           </div>
@@ -1212,23 +1254,36 @@ function ResetPasswordModal({
   user,
   onReset,
 }: ResetPasswordModalProps) {
-  const [forceChange, setForceChange] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [passwordError, setPasswordError] = useState("");
 
+  const accountLogin = user?.username?.trim() || user?.email?.trim() || "";
+
+  useEffect(() => {
+    if (!isOpen) {
+      setNewPassword("");
+      setShowPassword(false);
+      setPasswordError("");
+    }
+  }, [isOpen]);
+
   if (!isOpen || !user) return null;
 
   const handleReset = async () => {
     setPasswordError("");
-    if (newPassword.length < 8) {
-      setPasswordError("Password must be at least 8 characters");
+    if (newPassword.length < 6) {
+      setPasswordError("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword.length > 72) {
+      setPasswordError("Password must be at most 72 characters");
       return;
     }
     setSubmitting(true);
     try {
-      await Promise.resolve(onReset(newPassword, forceChange));
+      await Promise.resolve(onReset(newPassword));
       onClose();
     } catch {
       // Stay open on error
@@ -1262,7 +1317,19 @@ function ResetPasswordModal({
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              New Password
+              Username or email
+            </label>
+            <input
+              type="text"
+              value={accountLogin}
+              readOnly
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              New password
             </label>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -1274,7 +1341,7 @@ function ResetPasswordModal({
                     setPasswordError("");
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter new password"
+                  placeholder="Enter new password (6–72 characters)"
                 />
                 <button
                   type="button"
@@ -1301,23 +1368,10 @@ function ResetPasswordModal({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="forceChange"
-              checked={forceChange}
-              onChange={(e) => setForceChange(e.target.checked)}
-              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-            />
-            <label htmlFor="forceChange" className="text-sm text-gray-700">
-              Force password change on next login
-            </label>
-          </div>
-
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <p className="text-xs text-yellow-700">
-              The user will receive an email with their new password. Make sure
-              to securely communicate this password if email is not available.
+              This sets a new password for the user. The new password must be
+              6–72 characters.
             </p>
           </div>
 
@@ -1332,7 +1386,11 @@ function ResetPasswordModal({
             <button
               onClick={handleReset}
               disabled={
-                !newPassword.trim() || newPassword.length < 8 || submitting
+                !accountLogin ||
+                !newPassword.trim() ||
+                newPassword.length < 6 ||
+                newPassword.length > 72 ||
+                submitting
               }
               type="button"
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1399,7 +1457,9 @@ function EditRoleModal({
         name: role.name,
         description: role.description,
       });
-      setRolePermissions(mergePermissionsWithModuleList(moduleList, permissions));
+      setRolePermissions(
+        mergePermissionsWithModuleList(moduleList, permissions)
+      );
     }
   }, [role, permissions, moduleList]);
 
@@ -1577,7 +1637,12 @@ function EditRoleModal({
 }
 
 // Create Role Modal
-function CreateRoleModal({ isOpen, onClose, moduleList, onCreate }: CreateRoleModalProps) {
+function CreateRoleModal({
+  isOpen,
+  onClose,
+  moduleList,
+  onCreate,
+}: CreateRoleModalProps) {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -1797,6 +1862,8 @@ export function Settings() {
   const [activeSection, setActiveSection] = useState<
     "users" | "roles" | "matrix"
   >("users");
+  const [moduleSettingKey, setModuleSettingKey] =
+    useState<ModuleSettingKey>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2054,44 +2121,236 @@ export function Settings() {
       delete: true,
     })),
     Planner: [
-      { module: "Dashboard", read: true, create: false, update: false, delete: false },
-      { module: "General Information", read: true, create: true, update: true, delete: true },
-      { module: "Operation", read: true, create: true, update: true, delete: true },
-      { module: "Maintenance", read: true, create: true, update: true, delete: true },
-      { module: "Logbook", read: true, create: true, update: true, delete: true },
-      { module: "Certificate Monitoring", read: true, create: true, update: true, delete: true },
-      { module: "Daily Update", read: true, create: true, update: true, delete: true },
-      { module: "System Settings", read: false, create: false, update: false, delete: false },
+      {
+        module: "Dashboard",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "General Information",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "Operation",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "Maintenance",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "Logbook",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "Certificate Monitoring",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "Daily Update",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "System Settings",
+        read: false,
+        create: false,
+        update: false,
+        delete: false,
+      },
     ],
     Mechanic: [
-      { module: "Dashboard", read: true, create: false, update: false, delete: false },
-      { module: "General Information", read: true, create: false, update: false, delete: false },
-      { module: "Operation", read: true, create: false, update: false, delete: false },
-      { module: "Maintenance", read: true, create: false, update: false, delete: false },
-      { module: "Logbook", read: true, create: true, update: true, delete: true },
-      { module: "Certificate Monitoring", read: true, create: false, update: false, delete: false },
-      { module: "Daily Update", read: true, create: false, update: false, delete: false },
-      { module: "System Settings", read: false, create: false, update: false, delete: false },
+      {
+        module: "Dashboard",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "General Information",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Operation",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Maintenance",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Logbook",
+        read: true,
+        create: true,
+        update: true,
+        delete: true,
+      },
+      {
+        module: "Certificate Monitoring",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Daily Update",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "System Settings",
+        read: false,
+        create: false,
+        update: false,
+        delete: false,
+      },
     ],
     Viewer: [
-      { module: "Dashboard", read: true, create: false, update: false, delete: false },
-      { module: "General Information", read: true, create: false, update: false, delete: false },
-      { module: "Operation", read: true, create: false, update: false, delete: false },
-      { module: "Maintenance", read: true, create: false, update: false, delete: false },
-      { module: "Logbook", read: true, create: false, update: false, delete: false },
-      { module: "Certificate Monitoring", read: true, create: false, update: false, delete: false },
-      { module: "Daily Update", read: true, create: false, update: false, delete: false },
-      { module: "System Settings", read: false, create: false, update: false, delete: false },
+      {
+        module: "Dashboard",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "General Information",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Operation",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Maintenance",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Logbook",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Certificate Monitoring",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Daily Update",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "System Settings",
+        read: false,
+        create: false,
+        update: false,
+        delete: false,
+      },
     ],
     Auditor: [
-      { module: "Dashboard", read: true, create: false, update: false, delete: false },
-      { module: "General Information", read: true, create: false, update: true, delete: false },
-      { module: "Operation", read: true, create: false, update: false, delete: false },
-      { module: "Maintenance", read: true, create: false, update: false, delete: false },
-      { module: "Logbook", read: true, create: false, update: true, delete: false },
-      { module: "Certificate Monitoring", read: true, create: false, update: true, delete: false },
-      { module: "Daily Update", read: true, create: false, update: false, delete: false },
-      { module: "System Settings", read: false, create: false, update: false, delete: false },
+      {
+        module: "Dashboard",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "General Information",
+        read: true,
+        create: false,
+        update: true,
+        delete: false,
+      },
+      {
+        module: "Operation",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Maintenance",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "Logbook",
+        read: true,
+        create: false,
+        update: true,
+        delete: false,
+      },
+      {
+        module: "Certificate Monitoring",
+        read: true,
+        create: false,
+        update: true,
+        delete: false,
+      },
+      {
+        module: "Daily Update",
+        read: true,
+        create: false,
+        update: false,
+        delete: false,
+      },
+      {
+        module: "System Settings",
+        read: false,
+        create: false,
+        update: false,
+        delete: false,
+      },
     ],
   };
 
@@ -2100,9 +2359,7 @@ export function Settings() {
 
   const filteredUsers = users;
   const activeRoleLabel =
-    selectedUserRoleFilter === "all"
-      ? "All roles"
-      : selectedUserRoleFilter;
+    selectedUserRoleFilter === "all" ? "All roles" : selectedUserRoleFilter;
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
@@ -2168,12 +2425,15 @@ export function Settings() {
 
       <div className="p-6">
         {/* Section Navigation */}
-        <div className="bg-white rounded-lg border border-gray-200 p-2 mb-6 flex gap-2">
+        <div className="bg-white rounded-lg border border-gray-200 p-2 mb-6 flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setActiveSection("users")}
+            onClick={() => {
+              setModuleSettingKey("");
+              setActiveSection("users");
+            }}
             type="button"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              activeSection === "users"
+              !moduleSettingKey && activeSection === "users"
                 ? "bg-blue-600 text-white"
                 : "text-gray-700 hover:bg-gray-100"
             }`}
@@ -2182,10 +2442,13 @@ export function Settings() {
             User Accounts
           </button>
           <button
-            onClick={() => setActiveSection("roles")}
+            onClick={() => {
+              setModuleSettingKey("");
+              setActiveSection("roles");
+            }}
             type="button"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              activeSection === "roles"
+              !moduleSettingKey && activeSection === "roles"
                 ? "bg-blue-600 text-white"
                 : "text-gray-700 hover:bg-gray-100"
             }`}
@@ -2194,10 +2457,13 @@ export function Settings() {
             Roles & Permissions
           </button>
           <button
-            onClick={() => setActiveSection("matrix")}
+            onClick={() => {
+              setModuleSettingKey("");
+              setActiveSection("matrix");
+            }}
             type="button"
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              activeSection === "matrix"
+              !moduleSettingKey && activeSection === "matrix"
                 ? "bg-blue-600 text-white"
                 : "text-gray-700 hover:bg-gray-100"
             }`}
@@ -2205,570 +2471,639 @@ export function Settings() {
             <Grid3x3 className="w-4 h-4" />
             Access Matrix
           </button>
+
+          <div className="ml-auto flex min-w-[220px] items-center gap-2 pl-2">
+            <SlidersHorizontal className="h-4 w-4 shrink-0 text-gray-500" />
+            <label htmlFor="settings-module-select" className="sr-only">
+              {/* Module Settings */}
+            </label>
+            <select
+              id="settings-module-select"
+              value={moduleSettingKey}
+              onChange={(e) =>
+                setModuleSettingKey(e.target.value as ModuleSettingKey)
+              }
+              className={`${SELECT_BASE_CLASS} h-10 min-w-[200px] rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100`}
+              aria-label="Module Settings"
+            >
+              <option value="">Module Settings</option>
+              {MODULE_SETTING_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* User Accounts Section */}
-        {activeSection === "users" && (
-          <div>
-            {/* Search and Actions */}
-            <div className="mb-6 rounded-[16px] border border-gray-200 bg-white px-6 py-5 shadow-sm sm:px-7">
-              {/* Title row */}
-              <div className="mb-4">
-                <h2 className="text-[1.35rem] font-semibold leading-snug text-slate-900">
-                  User Directory
-                </h2>
-                <p className="mt-0.5 text-sm text-slate-500">
-                  Search accounts and narrow results by assigned role.
-                </p>
-              </div>
+        {moduleSettingKey ? (
+          <SettingsModuleSettings
+            moduleKey={moduleSettingKey as Exclude<ModuleSettingKey, "">}
+          />
+        ) : (
+          <>
+            {/* User Accounts Section */}
+            {activeSection === "users" && (
+              <div>
+                {/* Search and Actions */}
+                <div className="mb-6 rounded-[16px] border border-gray-200 bg-white px-6 py-5 shadow-sm sm:px-7">
+                  {/* Title row */}
+                  <div className="mb-4">
+                    <h2 className="text-[1.35rem] font-semibold leading-snug text-slate-900">
+                      User Directory
+                    </h2>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      Search accounts and narrow results by assigned role.
+                    </p>
+                  </div>
 
-              {/* Stat + quick filter row */}
-              <div className="mb-4 flex flex-wrap items-center gap-3">
-                <span className="text-sm font-semibold text-blue-600">
-                  {totalUsers} total users
-                </span>
-                <div className="relative">
-                  <select
-                    value={selectedUserRoleFilter}
-                    onChange={(e) => setSelectedUserRoleFilter(e.target.value)}
-                    className={`${SELECT_BASE_CLASS} h-9 rounded-lg border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500`}
-                    aria-label="Quick role summary"
-                  >
-                    <option value="all">All roles</option>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.name}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
+                  {/* Stat + quick filter row */}
+                  <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <span className="text-sm font-semibold text-blue-600">
+                      {totalUsers} total users
+                    </span>
+                    <div className="relative">
+                      <select
+                        value={selectedUserRoleFilter}
+                        onChange={(e) =>
+                          setSelectedUserRoleFilter(e.target.value)
+                        }
+                        className={`${SELECT_BASE_CLASS} h-9 rounded-lg border-gray-300 bg-white px-3 pr-8 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500`}
+                        aria-label="Quick role summary"
+                      >
+                        <option value="all">All roles</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.name}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Search + filter + buttons row */}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-nowrap">
+                    {/* Search input */}
+                    <div className="relative flex-1 min-w-0">
+                      <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search users by name, email, or role..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    {/* Role filter */}
+                    <div className="sm:w-48 flex-none">
+                      <select
+                        value={selectedUserRoleFilter}
+                        onChange={(e) =>
+                          setSelectedUserRoleFilter(e.target.value)
+                        }
+                        className={`${SELECT_BASE_CLASS} h-10 rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100 w-full`}
+                        aria-label="Filter users by role"
+                      >
+                        <option value="all">All roles</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.name}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Action buttons */}
+                    {canCreate("settings") && (
+                      <div className="flex gap-2 flex-none">
+                        <button
+                          onClick={() => setShowAddUserModal(true)}
+                          type="button"
+                          className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add User
+                        </button>
+                        <button
+                          onClick={() => setShowAddUsersByJsonModal(true)}
+                          type="button"
+                          className="flex h-10 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                        >
+                          <Braces className="h-4 w-4" />
+                          Add User by JSON
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Search + filter + buttons row */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-nowrap">
-                {/* Search input */}
-                <div className="relative flex-1 min-w-0">
-                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search users by name, email, or role..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="h-10 w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-
-                {/* Role filter */}
-                <div className="sm:w-48 flex-none">
-                  <select
-                    value={selectedUserRoleFilter}
-                    onChange={(e) => setSelectedUserRoleFilter(e.target.value)}
-                    className={`${SELECT_BASE_CLASS} h-10 rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100 w-full`}
-                    aria-label="Filter users by role"
-                  >
-                    <option value="all">All roles</option>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.name}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Action buttons */}
-                {canCreate("settings") && (
-                  <div className="flex gap-2 flex-none">
-                    <button
-                      onClick={() => setShowAddUserModal(true)}
-                      type="button"
-                      className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Add User
-                    </button>
-                    <button
-                      onClick={() => setShowAddUsersByJsonModal(true)}
-                      type="button"
-                      className="flex h-10 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
-                    >
-                      <Braces className="h-4 w-4" />
-                      Add User by JSON
-                    </button>
+                {usersError && (
+                  <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                    {usersError}
                   </div>
                 )}
-              </div>
-            </div>
 
-            {usersError && (
-              <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                {usersError}
-              </div>
-            )}
-
-            {/* Users Table */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              {usersLoading ? (
-                <div className="flex items-center justify-center py-16">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                </div>
-              ) : (
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        User
-                      </th>
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        Designation
-                      </th>
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        Role
-                      </th>
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        Last Done
-                      </th>
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        Created
-                      </th>
-                      <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {filteredUsers.length > 0 ? (
-                      filteredUsers.map((user) => (
-                        <React.Fragment key={user.id}>
-                          <tr className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4">
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">
-                                  {user.name}
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  {user.email}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="text-sm text-gray-700">
-                                {user.designation || "-"}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span
-                                className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
-                                  user.role
-                                )}`}
-                              >
-                                {user.role}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span
-                                className={`px-2.5 py-1 rounded text-xs font-medium ${
-                                  user.status === "active"
-                                    ? "bg-green-100 text-green-700"
-                                    : "bg-red-100 text-red-700"
-                                }`}
-                              >
-                                {user.status === "active" ? "Active" : "Inactive"}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-sm text-gray-600">
-                              {user.lastDone}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-gray-600">
-                              {user.createdDate}
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() =>
-                                    setExpandedUser(
-                                      expandedUser === user.id ? null : user.id
-                                    )
-                                  }
-                                  type="button"
-                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                  title="More actions"
-                                >
-                                  {expandedUser === user.id ? (
-                                    <ChevronUp className="w-4 h-4 text-gray-600" />
-                                  ) : (
-                                    <ChevronDown className="w-4 h-4 text-gray-600" />
-                                  )}
-                                </button>
-                                {canUpdate("settings") && (
-                                  <button
-                                    onClick={() => {
-                                      setSelectedUser(user);
-                                      setShowEditUserModal(true);
-                                    }}
-                                    type="button"
-                                    className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                    title="Edit user"
+                {/* Users Table */}
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  {usersLoading ? (
+                    <div className="flex items-center justify-center py-16">
+                      <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            User
+                          </th>
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            Designation
+                          </th>
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            Role
+                          </th>
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            Status
+                          </th>
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            Last Done
+                          </th>
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            Created
+                          </th>
+                          <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {filteredUsers.length > 0 ? (
+                          filteredUsers.map((user) => (
+                            <React.Fragment key={user.id}>
+                              <tr className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-4">
+                                  <div>
+                                    <div className="text-sm font-medium text-gray-900">
+                                      {user.name}
+                                    </div>
+                                    <div className="text-sm text-gray-500">
+                                      {user.email}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className="text-sm text-gray-700">
+                                    {user.designation || "-"}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
+                                      user.role
+                                    )}`}
                                   >
-                                    <Edit2 className="w-4 h-4 text-gray-600" />
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    setSelectedUser(user);
-                                    setShowResetPasswordModal(true);
-                                  }}
-                                  type="button"
-                                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                                  title="Reset password"
-                                >
-                                  <Lock className="w-4 h-4 text-gray-600" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedUser(user);
-                                    setShowDeactivateModal(true);
-                                  }}
-                                  type="button"
-                                  className={`p-1.5 rounded-lg transition-colors ${
-                                    user.status === "active"
-                                      ? "hover:bg-red-50 text-red-600"
-                                      : "hover:bg-green-50 text-green-600"
-                                  }`}
-                                  title={
-                                    user.status === "active"
-                                      ? "Deactivate user"
-                                      : "Activate user"
-                                  }
-                                >
-                                  {user.status === "active" ? (
-                                    <UserX className="w-4 h-4" />
-                                  ) : (
-                                    <UserPlus className="w-4 h-4" />
-                                  )}
-                                </button>
+                                    {user.role}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span
+                                    className={`px-2.5 py-1 rounded text-xs font-medium ${
+                                      user.status === "active"
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-red-100 text-red-700"
+                                    }`}
+                                  >
+                                    {user.status === "active"
+                                      ? "Active"
+                                      : "Inactive"}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">
+                                  {user.lastDone}
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600">
+                                  {user.createdDate}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() =>
+                                        setExpandedUser(
+                                          expandedUser === user.id
+                                            ? null
+                                            : user.id
+                                        )
+                                      }
+                                      type="button"
+                                      className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                      title="More actions"
+                                    >
+                                      {expandedUser === user.id ? (
+                                        <ChevronUp className="w-4 h-4 text-gray-600" />
+                                      ) : (
+                                        <ChevronDown className="w-4 h-4 text-gray-600" />
+                                      )}
+                                    </button>
+                                    {canUpdate("settings") && (
+                                      <button
+                                        onClick={() => {
+                                          setSelectedUser(user);
+                                          setShowEditUserModal(true);
+                                        }}
+                                        type="button"
+                                        className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                        title="Edit user"
+                                      >
+                                        <Edit2 className="w-4 h-4 text-gray-600" />
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => {
+                                        setSelectedUser(user);
+                                        setShowResetPasswordModal(true);
+                                      }}
+                                      type="button"
+                                      className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                                      title="Reset password"
+                                    >
+                                      <Lock className="w-4 h-4 text-gray-600" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedUser(user);
+                                        setShowDeactivateModal(true);
+                                      }}
+                                      type="button"
+                                      className={`p-1.5 rounded-lg transition-colors ${
+                                        user.status === "active"
+                                          ? "hover:bg-red-50 text-red-600"
+                                          : "hover:bg-green-50 text-green-600"
+                                      }`}
+                                      title={
+                                        user.status === "active"
+                                          ? "Deactivate user"
+                                          : "Activate user"
+                                      }
+                                    >
+                                      {user.status === "active" ? (
+                                        <UserX className="w-4 h-4" />
+                                      ) : (
+                                        <UserPlus className="w-4 h-4" />
+                                      )}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                              {expandedUser === user.id && (
+                                <tr>
+                                  <td
+                                    colSpan={7}
+                                    className="px-6 py-4 bg-gray-50"
+                                  >
+                                    <div className="space-y-3">
+                                      <div className="flex gap-3">
+                                        <button
+                                          type="button"
+                                          className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                                        >
+                                          View Audit Trail
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-12 text-center">
+                              <div className="text-sm font-medium text-gray-700">
+                                No users found
+                              </div>
+                              <div className="mt-1 text-sm text-gray-500">
+                                Try adjusting the search term or selected role.
                               </div>
                             </td>
                           </tr>
-                          {expandedUser === user.id && (
-                            <tr>
-                              <td colSpan={7} className="px-6 py-4 bg-gray-50">
-                                <div className="space-y-3">
-                                  <div className="flex gap-3">
-                                    <button
-                                      type="button"
-                                      className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                                    >
-                                      View Audit Trail
-                                    </button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={7} className="px-6 py-12 text-center">
-                          <div className="text-sm font-medium text-gray-700">
-                            No users found
-                          </div>
-                          <div className="mt-1 text-sm text-gray-500">
-                            Try adjusting the search term or selected role.
-                          </div>
-                        </td>
-                      </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  )}
+                  {!usersLoading &&
+                    (filteredUsers.length > 0 || totalUsers > 0) && (
+                      <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                        totalItems={totalUsers}
+                        totalLabel="items"
+                        itemsPerPage={itemsPerPage}
+                        onItemsPerPageChange={setItemsPerPage}
+                        pageSizeOptions={[10, 20, 50]}
+                      />
                     )}
-                  </tbody>
-                </table>
-              )}
-              {!usersLoading &&
-                (filteredUsers.length > 0 || totalUsers > 0) && (
-                  <DataTablePagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={setCurrentPage}
-                    totalItems={totalUsers}
-                    totalLabel="items"
-                    itemsPerPage={itemsPerPage}
-                    onItemsPerPageChange={setItemsPerPage}
-                    pageSizeOptions={[10, 20, 50]}
-                  />
-                )}
-            </div>
-          </div>
-        )}
-
-        {/* Roles & Permissions Section */}
-        {activeSection === "roles" && (
-          <div>
-            {rolesError && (
-              <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                {rolesError}
-              </div>
-            )}
-
-            {rolesLoading ? (
-              <div className="flex items-center justify-center py-16 bg-white rounded-lg border border-gray-200">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                {roles.map((role) => (
-                  <div
-                    key={role.id}
-                    className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="font-semibold text-gray-900 mb-1">
-                          {role.name}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          {role.description}
-                        </p>
-                      </div>
-                      <span
-                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
-                          role.name
-                        )}`}
-                      >
-                        {role.userCount} users
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      {canUpdate("settings") && (
-                        <button
-                          onClick={async () => {
-                            try {
-                              const roleWithPerms = await rolesApi.getRole(role.id);
-                              const perms =
-                                roleWithPerms.permissions?.length > 0
-                                  ? roleWithPerms.permissions
-                                  : getDefaultModulePermissions(modulesList);
-                              setCustomPermissions((prev) => ({
-                                ...prev,
-                                [role.name]: perms,
-                              }));
-                              setSelectedRoleForEdit(role);
-                              setShowEditRoleModal(true);
-                            } catch {
-                              setCustomPermissions((prev) => ({
-                                ...prev,
-                                [role.name]: getDefaultModulePermissions(modulesList),
-                              }));
-                              setSelectedRoleForEdit(role);
-                              setShowEditRoleModal(true);
-                            }
-                          }}
-                          type="button"
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          Edit Permissions
-                        </button>
-                      )}
-                      {canDelete("settings") && (
-                        <button
-                          onClick={async () => {
-                            const hasUsers = (role.userCount ?? 0) > 0;
-                            const result = await Swal.fire({
-                              title: "Delete role?",
-                              html: hasUsers
-                                ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
-                                : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
-                              icon: "warning",
-                              showCancelButton: true,
-                              confirmButtonColor: "#dc2626",
-                              cancelButtonColor: "#6b7280",
-                              confirmButtonText: "Yes, delete",
-                              cancelButtonText: "Cancel",
-                            });
-                            if (!result.isConfirmed) return;
-                            try {
-                              await rolesApi.deleteRole(role.id);
-                              setCustomPermissions((prev) => {
-                                const next = { ...prev };
-                                delete next[role.name];
-                                return next;
-                              });
-                              fetchRoles();
-                              await Swal.fire({
-                                title: "Deleted",
-                                text: `Role ${role.name} has been removed.`,
-                                icon: "success",
-                                confirmButtonColor: "#1f2937",
-                              });
-                            } catch (err: unknown) {
-                              const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
-                              const msg =
-                                (typeof data?.message === "string" ? data.message : null) ||
-                                (typeof data?.detail === "string" ? data.detail : null) ||
-                                (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
-                                (err as Error)?.message ||
-                                "Failed to delete role";
-                              await Swal.fire({ icon: "error", title: "Error", text: msg });
-                            }
-                          }}
-                          type="button"
-                          className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
-                          title="Delete role"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add New Role */}
-            {canCreate("settings") && (
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => setShowCreateRoleModal(true)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && setShowCreateRoleModal(true)
-                }
-                className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
-              >
-                <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <h3 className="text-gray-700 font-medium mb-1">
-                  Create New Role
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Define custom roles with specific permissions
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Access Matrix Section */}
-        {activeSection === "matrix" && (
-          <div>
-            {/* Role Selector */}
-            <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
-              <label className="text-sm font-medium text-gray-700 mb-2 block">
-                Select Role to View Permissions
-              </label>
-              <select
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-                className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-9 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat"
-              >
-                {roles.map((role) => (
-                  <option key={role.id} value={role.name}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Permissions Matrix */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Module
-                    </th>
-                    <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Read
-                    </th>
-                    <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Create
-                    </th>
-                    <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Update
-                    </th>
-                    <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
-                      Delete
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {matrixPermissions.map((permission, index) => (
-                    <tr
-                      key={index}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {permission.module}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        {permission.read ? (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
-                            <Check className="w-4 h-4 text-green-600" />
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
-                            <X className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        {permission.create ? (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
-                            <Check className="w-4 h-4 text-green-600" />
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
-                            <X className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        {permission.update ? (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
-                            <Check className="w-4 h-4 text-green-600" />
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
-                            <X className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        {permission.delete ? (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
-                            <Check className="w-4 h-4 text-green-600" />
-                          </div>
-                        ) : (
-                          <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
-                            <X className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Override Section */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
-              <div className="flex items-start gap-3">
-                <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-semibold text-blue-900 mb-1">
-                    Permission Overrides
-                  </h4>
-                  <p className="text-sm text-blue-700">
-                    Individual users can have permission overrides that differ
-                    from their role. All overrides are logged in the audit
-                    trail.
-                  </p>
                 </div>
               </div>
-            </div>
-          </div>
+            )}
+
+            {/* Roles & Permissions Section */}
+            {activeSection === "roles" && (
+              <div>
+                {rolesError && (
+                  <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                    {rolesError}
+                  </div>
+                )}
+
+                {rolesLoading ? (
+                  <div className="flex items-center justify-center py-16 bg-white rounded-lg border border-gray-200">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                    {roles.map((role) => (
+                      <div
+                        key={role.id}
+                        className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="font-semibold text-gray-900 mb-1">
+                              {role.name}
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              {role.description}
+                            </p>
+                          </div>
+                          <span
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleBadgeColor(
+                              role.name
+                            )}`}
+                          >
+                            {role.userCount} users
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          {canUpdate("settings") && (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const roleWithPerms = await rolesApi.getRole(
+                                    role.id
+                                  );
+                                  const perms =
+                                    roleWithPerms.permissions?.length > 0
+                                      ? roleWithPerms.permissions
+                                      : getDefaultModulePermissions(
+                                          modulesList
+                                        );
+                                  setCustomPermissions((prev) => ({
+                                    ...prev,
+                                    [role.name]: perms,
+                                  }));
+                                  setSelectedRoleForEdit(role);
+                                  setShowEditRoleModal(true);
+                                } catch {
+                                  setCustomPermissions((prev) => ({
+                                    ...prev,
+                                    [role.name]:
+                                      getDefaultModulePermissions(modulesList),
+                                  }));
+                                  setSelectedRoleForEdit(role);
+                                  setShowEditRoleModal(true);
+                                }
+                              }}
+                              type="button"
+                              className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                              Edit Permissions
+                            </button>
+                          )}
+                          {canDelete("settings") && (
+                            <button
+                              onClick={async () => {
+                                const hasUsers = (role.userCount ?? 0) > 0;
+                                const result = await Swal.fire({
+                                  title: "Delete role?",
+                                  html: hasUsers
+                                    ? `<p class="text-left">Role <strong>${role.name}</strong> has ${role.userCount} user(s). Deleting may affect their access.</p><p class="text-left mt-2">Are you sure you want to delete this role?</p>`
+                                    : `Remove role <strong>${role.name}</strong>? This cannot be undone.`,
+                                  icon: "warning",
+                                  showCancelButton: true,
+                                  confirmButtonColor: "#dc2626",
+                                  cancelButtonColor: "#6b7280",
+                                  confirmButtonText: "Yes, delete",
+                                  cancelButtonText: "Cancel",
+                                });
+                                if (!result.isConfirmed) return;
+                                try {
+                                  await rolesApi.deleteRole(role.id);
+                                  setCustomPermissions((prev) => {
+                                    const next = { ...prev };
+                                    delete next[role.name];
+                                    return next;
+                                  });
+                                  fetchRoles();
+                                  await Swal.fire({
+                                    title: "Deleted",
+                                    text: `Role ${role.name} has been removed.`,
+                                    icon: "success",
+                                    confirmButtonColor: "#1f2937",
+                                  });
+                                } catch (err: unknown) {
+                                  const data = (
+                                    err as {
+                                      response?: {
+                                        data?: {
+                                          message?: string;
+                                          detail?: string | unknown;
+                                        };
+                                      };
+                                    }
+                                  )?.response?.data;
+                                  const msg =
+                                    (typeof data?.message === "string"
+                                      ? data.message
+                                      : null) ||
+                                    (typeof data?.detail === "string"
+                                      ? data.detail
+                                      : null) ||
+                                    (Array.isArray(data?.detail)
+                                      ? (data.detail as { msg?: string }[])
+                                          .map((d) => d.msg ?? "")
+                                          .filter(Boolean)
+                                          .join(", ") || null
+                                      : null) ||
+                                    (err as Error)?.message ||
+                                    "Failed to delete role";
+                                  await Swal.fire({
+                                    icon: "error",
+                                    title: "Error",
+                                    text: msg,
+                                  });
+                                }
+                              }}
+                              type="button"
+                              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                              title="Delete role"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add New Role */}
+                {canCreate("settings") && (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setShowCreateRoleModal(true)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && setShowCreateRoleModal(true)
+                    }
+                    className="bg-white rounded-lg border-2 border-dashed border-gray-300 p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition-all cursor-pointer"
+                  >
+                    <Plus className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <h3 className="text-gray-700 font-medium mb-1">
+                      Create New Role
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      Define custom roles with specific permissions
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Access Matrix Section */}
+            {activeSection === "matrix" && (
+              <div>
+                {/* Role Selector */}
+                <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Select Role to View Permissions
+                  </label>
+                  <select
+                    value={selectedRole}
+                    onChange={(e) => setSelectedRole(e.target.value)}
+                    className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none pr-9 bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%236B7280%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.75rem_center] bg-no-repeat"
+                  >
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.name}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Permissions Matrix */}
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                          Module
+                        </th>
+                        <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                          Read
+                        </th>
+                        <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                          Create
+                        </th>
+                        <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                          Update
+                        </th>
+                        <th className="px-6 py-3 text-center text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                          Delete
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {matrixPermissions.map((permission, index) => (
+                        <tr
+                          key={index}
+                          className="hover:bg-gray-50 transition-colors"
+                        >
+                          <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                            {permission.module}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {permission.read ? (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
+                                <Check className="w-4 h-4 text-green-600" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
+                                <X className="w-4 h-4 text-red-600" />
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {permission.create ? (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
+                                <Check className="w-4 h-4 text-green-600" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
+                                <X className="w-4 h-4 text-red-600" />
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {permission.update ? (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
+                                <Check className="w-4 h-4 text-green-600" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
+                                <X className="w-4 h-4 text-red-600" />
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {permission.delete ? (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-green-100">
+                                <Check className="w-4 h-4 text-green-600" />
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center justify-center w-6 h-6 rounded bg-red-100">
+                                <X className="w-4 h-4 text-red-600" />
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Override Section */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
+                  <div className="flex items-start gap-3">
+                    <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-blue-900 mb-1">
+                        Permission Overrides
+                      </h4>
+                      <p className="text-sm text-blue-700">
+                        Individual users can have permission overrides that
+                        differ from their role. All overrides are logged in the
+                        audit trail.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -2909,30 +3244,20 @@ export function Settings() {
           setSelectedUser(null);
         }}
         user={selectedUser}
-        onReset={async (newPassword, forceChange) => {
+        onReset={async (newPassword) => {
           if (!selectedUser) return;
           try {
-            await authApi.resetUserPassword(
-              selectedUser.id,
-              newPassword,
-              forceChange
-            );
+            await authApi.resetUserPassword(selectedUser.id, newPassword);
             setShowResetPasswordModal(false);
             setSelectedUser(null);
             await Swal.fire({
               title: "Success!",
-              text: `Password reset email sent to ${
-                selectedUser.name
-              }. Force change on next login: ${forceChange ? "Yes" : "No"}`,
+              text: `Password updated for ${selectedUser.name}.`,
               icon: "success",
               confirmButtonColor: "#1f2937",
             });
           } catch (err: unknown) {
-            const msg =
-              (err as { response?: { data?: { message?: string } } })?.response
-                ?.data?.message ||
-              (err as Error)?.message ||
-              "Failed to reset password";
+            const msg = formatBulkRegisterError(err);
             await Swal.fire({ icon: "error", title: "Error", text: msg });
             throw err;
           }
@@ -2946,7 +3271,14 @@ export function Settings() {
           setSelectedRoleForEdit(null);
         }}
         role={selectedRoleForEdit}
-        moduleList={modulesList.length > 0 ? modulesList : MODULE_PERMISSIONS_LIST.map((m) => ({ name: m.label, code: m.code }))}
+        moduleList={
+          modulesList.length > 0
+            ? modulesList
+            : MODULE_PERMISSIONS_LIST.map((m) => ({
+                name: m.label,
+                code: m.code,
+              }))
+        }
         permissions={
           selectedRoleForEdit
             ? customPermissions[selectedRoleForEdit.name] ??
@@ -2969,7 +3301,9 @@ export function Settings() {
               const next = { ...prev };
               const oldName = selectedRoleForEdit?.name;
               if (oldName && oldName !== updatedRole.name) delete next[oldName];
-              next[updatedRole.name] = result.permissions?.length ? result.permissions : updatedPermissions;
+              next[updatedRole.name] = result.permissions?.length
+                ? result.permissions
+                : updatedPermissions;
               return next;
             });
             setShowEditRoleModal(false);
@@ -2981,11 +3315,22 @@ export function Settings() {
               confirmButtonColor: "#1f2937",
             });
           } catch (err: unknown) {
-            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
+            const data = (
+              err as {
+                response?: {
+                  data?: { message?: string; detail?: string | unknown };
+                };
+              }
+            )?.response?.data;
             const msg =
               (typeof data?.message === "string" ? data.message : null) ||
               (typeof data?.detail === "string" ? data.detail : null) ||
-              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
+              (Array.isArray(data?.detail)
+                ? (data.detail as { msg?: string }[])
+                    .map((d) => d.msg ?? "")
+                    .filter(Boolean)
+                    .join(", ") || null
+                : null) ||
               (err as Error)?.message ||
               "Failed to update role";
             await Swal.fire({ icon: "error", title: "Error", text: msg });
@@ -2997,7 +3342,14 @@ export function Settings() {
       <CreateRoleModal
         isOpen={showCreateRoleModal}
         onClose={() => setShowCreateRoleModal(false)}
-        moduleList={modulesList.length > 0 ? modulesList : MODULE_PERMISSIONS_LIST.map((m) => ({ name: m.label, code: m.code }))}
+        moduleList={
+          modulesList.length > 0
+            ? modulesList
+            : MODULE_PERMISSIONS_LIST.map((m) => ({
+                name: m.label,
+                code: m.code,
+              }))
+        }
         onCreate={async (newRole, permissions) => {
           try {
             const created = await rolesApi.createRole(
@@ -3008,7 +3360,9 @@ export function Settings() {
             fetchRoles();
             setCustomPermissions((prev) => ({
               ...prev,
-              [created.name]: created.permissions?.length ? created.permissions : permissions,
+              [created.name]: created.permissions?.length
+                ? created.permissions
+                : permissions,
             }));
             setShowCreateRoleModal(false);
             await Swal.fire({
@@ -3018,11 +3372,22 @@ export function Settings() {
               confirmButtonColor: "#1f2937",
             });
           } catch (err: unknown) {
-            const data = (err as { response?: { data?: { message?: string; detail?: string | unknown } } })?.response?.data;
+            const data = (
+              err as {
+                response?: {
+                  data?: { message?: string; detail?: string | unknown };
+                };
+              }
+            )?.response?.data;
             const msg =
               (typeof data?.message === "string" ? data.message : null) ||
               (typeof data?.detail === "string" ? data.detail : null) ||
-              (Array.isArray(data?.detail) ? (data.detail as { msg?: string }[]).map((d) => d.msg ?? "").filter(Boolean).join(", ") || null : null) ||
+              (Array.isArray(data?.detail)
+                ? (data.detail as { msg?: string }[])
+                    .map((d) => d.msg ?? "")
+                    .filter(Boolean)
+                    .join(", ") || null
+                : null) ||
               (err as Error)?.message ||
               "Failed to create role";
             await Swal.fire({ icon: "error", title: "Error", text: msg });

@@ -353,6 +353,10 @@ export const CPCPMonitoring = forwardRef<
     };
   }, [searchQuery]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [itemsPerPage]);
+
   const handleView = useCallback(async (entry: CPCPEntry) => {
     setViewEntry(null);
     setViewLoading(true);
@@ -632,14 +636,21 @@ export const CPCPMonitoring = forwardRef<
 
           {/* CPCP table: REMAINING | INSPECTION OPERATION | DESCRIPTION | INTERVAL | LAST DONE | NEXT DUE | REFERENCE | ACTIONS */}
           <div className="bg-white rounded-xl border border-gray-200/80 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between">
+              <div className="text-gray-900 text-sm">Inspection History</div>
+              <div className="text-gray-500 text-xs">
+                Showing {totalItems > 0 ? startIndex : 0} to {endIndex} of{" "}
+                {totalItems} records
+              </div>
+            </div>
+
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner />
               </div>
             ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
                         <th
@@ -868,19 +879,21 @@ export const CPCPMonitoring = forwardRef<
                     </tbody>
                   </table>
                 </div>
+            )}
 
-                {/* Pagination */}
-                <DataTablePagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={setCurrentPage}
-                  itemsPerPage={itemsPerPage}
-                  onItemsPerPageChange={setItemsPerPage}
-                  showRangeText={false}
-                  disabled={loading}
-                  pageSizeOptions={[10, 25, 50]}
-                />
-              </>
+            {(totalItems > 0 || loading) && (
+              <DataTablePagination
+                currentPage={currentPage}
+                totalPages={Math.max(totalPages, 1)}
+                onPageChange={setCurrentPage}
+                totalItems={totalItems}
+                totalLabel="records"
+                itemsPerPage={itemsPerPage}
+                onItemsPerPageChange={setItemsPerPage}
+                showRangeText={false}
+                disabled={loading}
+                pageSizeOptions={[10, 25, 50]}
+              />
             )}
           </div>
         </div>

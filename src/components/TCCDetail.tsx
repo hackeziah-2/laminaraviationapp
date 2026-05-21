@@ -34,24 +34,18 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import * as XLSX from "xlsx";
 
 const TCC_EXPORT_HEADERS = [
-  "SEQUENCE NO",
   "CATEGORY",
-  "REMAINING YEARS",
-  "REMAINING DAYS",
-  "REMAINING TACH",
-  "REMAINING AFTT",
-  "PART NO.",
-  "SERIAL NO.",
+  "PART NUMBER",
+  "SERIAL NUMBER",
   "DESCRIPTION",
-  "COMPONENT LIMIT YEARS",
-  "COMPONENT LIMIT HOURS",
-  "METHOD OF COMPLIANCE",
+  "COMPONENT METHOD OF COMPLIANCE",
   "LAST DONE DATE",
   "LAST DONE TACH",
   "LAST DONE AFTT",
-  "NEXT DUE DATE",
-  "NEXT DUE TACH",
-  "NEXT DUE AFTT",
+  "LAST DONE METHOD OF COMPLIANCE",
+  "COMPONENT LIMIT YEARS",
+  "COMPONENT LIMIT HOURS",
+  "SEQUENCE NO.",
 ] as const;
 
 export interface ComponentItem {
@@ -305,44 +299,34 @@ function formatNum(n: number | null): string {
   return parseFloat(n.toFixed(2)).toString();
 }
 
-function tccComputedRowToExportCells(
-  row: TCCComputedRow,
-  item: ComponentItem
-): string[] {
-  const remYears =
-    row.remainingYears != null && Number.isFinite(row.remainingYears)
-      ? row.remainingYears.toFixed(2)
-      : String(item.remaining ?? "").trim();
-  const remDays =
-    row.remainingDays != null && Number.isFinite(row.remainingDays)
-      ? String(row.remainingDays)
-      : String(item.date ?? "").trim();
-  const nextDueDateStr = row.nextDueDate
-    ? formatDate(row.nextDueDate)
-    : String(item.nextDueDate ?? "").trim();
-  const nextDueTachStr =
-    formatNum(row.nextDueTach) || String(item.nextDueYear ?? "").trim();
-  const nextDueAfttStr =
-    formatNum(row.nextDueAftt) || String(item.nextDueAftt ?? "").trim();
+/** Display label for API category value (e.g. Powerplant, Inspection Servicing) */
+function formatTccCategoryDisplay(cat: string | undefined): string {
+  if (!cat?.trim()) return "—";
+  const key = cat.trim().toLowerCase().replace(/\s+/g, " ");
+  const map: Record<string, string> = {
+    powerplant: "Powerplant",
+    airframe: "Airframe",
+    propeller: "Propeller",
+    "inspection servicing": "Inspection Servicing",
+    inspection_servicing: "Inspection Servicing",
+  };
+  return map[key] ?? cat.trim();
+}
+
+function tccItemToExportCells(item: ComponentItem): string[] {
   return [
-    String(item.reference ?? "").trim(),
     String(item.category ?? "").trim(),
-    remYears,
-    remDays,
-    formatNum(row.remainingTach) || String(item.when ?? "").trim(),
-    formatNum(row.remainingAftt) || String(item.aftt ?? "").trim(),
     String(item.partNo ?? "").trim(),
     String(item.serialNo ?? "").trim(),
     String(item.description ?? "").trim(),
-    formatNum(parseNum(item.limitYears)),
-    formatNum(parseNum(item.limitHours)),
     String(item.methodOfCompliance ?? "").trim(),
     String(item.lastDoneDate ?? "").trim(),
     String(item.lastDoneTach ?? item.lastDoneYear ?? "").trim(),
     String(item.lastDoneAftt ?? "").trim(),
-    nextDueDateStr,
-    nextDueTachStr,
-    nextDueAfttStr,
+    String(item.lastDoneMethodOfCompliance ?? "").trim(),
+    formatNum(parseNum(item.limitYears)),
+    formatNum(parseNum(item.limitHours)),
+    String(item.reference ?? "").trim(),
   ];
 }
 
@@ -655,12 +639,7 @@ export const TCCDetailContent = forwardRef<
         }
         const fileReg =
           aircraftDetails?.registration?.trim() || `aircraft_${aircraftIdNum}`;
-        const rowStrings = items.map((item) =>
-          tccComputedRowToExportCells(
-            computeTCCRow(item, currentDate, currentTach, currentAftt),
-            item
-          )
-        );
+        const rowStrings = items.map((item) => tccItemToExportCells(item));
         if (format === "csv") {
           const escapeCsvValue = (value: string) =>
             `"${String(value).replace(/"/g, '""')}"`;
@@ -710,9 +689,6 @@ export const TCCDetailContent = forwardRef<
       aircraftIdNum,
       activeTab,
       aircraftDetails?.registration,
-      currentDate,
-      currentTach,
-      currentAftt,
       searchDebounced,
       tccItems.length,
       tccTotal,
@@ -751,6 +727,8 @@ export const TCCDetailContent = forwardRef<
     { value: "AIRFRAME", label: "Airframe" },
     { value: "INSPECTION_SERVICING", label: "Inspection Servicing" },
   ];
+
+  const showCategoryColumn = activeTab === "";
 
   return (
     <>
@@ -996,6 +974,14 @@ export const TCCDetailContent = forwardRef<
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
+                  {showCategoryColumn && (
+                    <th
+                      rowSpan={2}
+                      className="px-3 py-2 text-xs font-bold text-gray-700 border-r border-gray-200 align-middle whitespace-nowrap"
+                    >
+                      CATEGORY
+                    </th>
+                  )}
                   <th colSpan={4} className="px-3 py-2 text-xs font-bold text-gray-700">
                     REMAINING
                   </th>
@@ -1101,6 +1087,11 @@ export const TCCDetailContent = forwardRef<
                       key={item.id}
                       className="hover:bg-gray-50 transition-colors"
                     >
+                      {showCategoryColumn && (
+                        <td className="px-3 py-3 text-gray-900 text-xs border-r border-gray-200 whitespace-nowrap">
+                          {formatTccCategoryDisplay(item.category)}
+                        </td>
+                      )}
                       {/* REMAINING: Years — color by % remaining: Red=Due, Orange=<10%, Yellow=<20%, Green=<40% */}
                       {(() => {
                         const pctYears =
