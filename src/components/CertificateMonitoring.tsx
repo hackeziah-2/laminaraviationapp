@@ -529,7 +529,7 @@ export function CertificateMonitoring() {
         payload.file_path = existingFilePath;
       }
 
-      // Always use FormData so backend receives consistent multipart; upload_file is optional (append only when user selected a file)
+      // FormData carries json_data; API uploads file via document_on_board/upload then sends file_path in JSON
       const formDataObj = new FormData();
       formDataObj.append("json_data", JSON.stringify(payload));
       if (uploadFile) {

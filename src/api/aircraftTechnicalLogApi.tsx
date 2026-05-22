@@ -1,5 +1,9 @@
 import apiClient from "./index";
 import { toCamelDeep } from "../utility/utils";
+import {
+  FILE_UPLOAD_MODULES,
+  resolveUploadedFilePath,
+} from "./fileUploadApi";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -762,46 +766,46 @@ export const searchAircraftTechnicalLogBySequence = async (
   }
 };
 
-/** Optional file uploads for WHITE ATL and DFP (multipart) */
+/** Optional file uploads for WHITE ATL and DFP — uploaded via module upload API first */
 export interface AircraftTechnicalLogFiles {
   whiteAtl?: File | null;
   dfp?: File | null;
 }
 
+async function mergeAtlFilePathsIntoPayload(
+  data: Record<string, unknown>,
+  files?: AircraftTechnicalLogFiles
+): Promise<Record<string, unknown>> {
+  const payload = { ...data };
+  if (files?.whiteAtl instanceof File) {
+    payload.white_atl = await resolveUploadedFilePath(
+      FILE_UPLOAD_MODULES.whiteAtl,
+      files.whiteAtl
+    );
+  }
+  if (files?.dfp instanceof File) {
+    payload.dfp = await resolveUploadedFilePath(
+      FILE_UPLOAD_MODULES.dfp,
+      files.dfp
+    );
+  }
+  return payload;
+}
+
 /**
  * Create a new Aircraft Technical Log entry.
- * Persists to database via POST /api/v1/aircraft-technical-log/
- * When files are provided, sends multipart/form-data with json_data + white_atl and dfp file fields.
- * ATL table fields (airframe_run_time, airframe_aftt, engine_*, propeller_*, life_time_limit_engine, life_time_limit_propeller) are stored when sent in the payload.
+ * File attachments are uploaded to white_atl/dfp module folders; paths are sent in JSON body.
  */
 export const createAircraftTechnicalLog = async (
   data: AircraftTechnicalLogCreate | Record<string, unknown>,
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const hasFiles =
-      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
-    if (hasFiles) {
-      const formData = new FormData();
-      formData.append("json_data", JSON.stringify(data));
-      if (files.whiteAtl instanceof File) {
-        formData.append("white_atl", files.whiteAtl);
-      }
-      if (files.dfp instanceof File) {
-        formData.append("dfp", files.dfp);
-      }
-      const response = await apiClient.post(
-        "aircraft-technical-log/",
-        formData,
-        {
-          headers: { Accept: "application/json" },
-          // Do not set Content-Type — browser sets multipart/form-data with boundary
-        }
-      );
-      const raw = response.data?.data ?? response.data;
-      return toCamelDeep(raw) as AircraftTechnicalLog;
-    }
-    const response = await apiClient.post("aircraft-technical-log/", data);
+    const payload = await mergeAtlFilePathsIntoPayload(
+      data as Record<string, unknown>,
+      files
+    );
+    const response = await apiClient.post("aircraft-technical-log/", payload);
     const raw = response.data?.data ?? response.data;
     return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
@@ -811,9 +815,7 @@ export const createAircraftTechnicalLog = async (
 
 /**
  * Update an Aircraft Technical Log entry.
- * Persists to database via PUT /api/v1/aircraft-technical-log/{id}
- * When files are provided, sends multipart/form-data with json_data + white_atl and dfp file fields.
- * ATL table fields are updated when sent in the payload.
+ * File attachments are uploaded to white_atl/dfp module folders; paths are sent in JSON body.
  */
 export const updateAircraftTechnicalLog = async (
   logId: number,
@@ -821,31 +823,13 @@ export const updateAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const hasFiles =
-      files && (files.whiteAtl instanceof File || files.dfp instanceof File);
-    if (hasFiles) {
-      const formData = new FormData();
-      formData.append("json_data", JSON.stringify(data));
-      if (files.whiteAtl instanceof File) {
-        formData.append("white_atl", files.whiteAtl);
-      }
-      if (files.dfp instanceof File) {
-        formData.append("dfp", files.dfp);
-      }
-      const response = await apiClient.put(
-        `aircraft-technical-log/${logId}`,
-        formData,
-        {
-          headers: { Accept: "application/json" },
-        }
-      );
-      const raw = response.data?.data ?? response.data;
-      return toCamelDeep(raw) as AircraftTechnicalLog;
-    }
-
+    const payload = await mergeAtlFilePathsIntoPayload(
+      data as Record<string, unknown>,
+      files
+    );
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
-      data
+      payload
     );
     const raw = response.data?.data ?? response.data;
     return toCamelDeep(raw) as AircraftTechnicalLog;

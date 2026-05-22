@@ -2476,21 +2476,14 @@ export function AddTechnicalLogbookEntryModal({
     displayName?: string
   ) => {
     if (!filePath?.trim()) return;
-    let path = filePath
-      .trim()
-      .replace(/^\/+/, "")
-      .replace(/^api\/v1\//, "");
-    const endpoint = `${folder}/download/${path}`;
     try {
-      const response = await apiClient.get(endpoint, {
-        responseType: "blob",
-        headers: { Accept: "application/octet-stream" },
-      });
-      const blob = new Blob([response.data]);
+      const { downloadModuleFile } = await import("../api/fileUploadApi");
+      const blob = await downloadModuleFile(folder, filePath);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = displayName || path.split("/").pop() || "download";
+      link.download =
+        displayName || filePath.trim().split("/").pop() || "download";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2535,23 +2528,17 @@ export function AddTechnicalLogbookEntryModal({
     setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
-    let path = filePath
-      .trim()
-      .replace(/^\/+/, "")
-      .replace(/^api\/v1\//, "");
-    const endpoint = `${folder}/download/${path}`;
     try {
-      const response = await apiClient.get(endpoint, {
-        responseType: "blob",
-        headers: { Accept: "application/octet-stream" },
-      });
-      const blob = response.data as Blob;
+      const { downloadModuleFile } = await import("../api/fileUploadApi");
+      const blob = await downloadModuleFile(folder, filePath);
       const url = window.URL.createObjectURL(blob);
       const serverType =
-        blob.type || (response as any).headers?.["content-type"] || null;
+        blob.type || (blob as Blob & { type?: string }).type || null;
       const isOctetStream =
         !serverType || serverType === "application/octet-stream";
-      const mimeType = isOctetStream ? getMimeFromFilename(path) : serverType;
+      const mimeType = isOctetStream
+        ? getMimeFromFilename(filePath)
+        : serverType;
       setFileViewBlobUrl(url);
       setFileViewMimeType(mimeType ?? null);
       setFileViewError(null);
