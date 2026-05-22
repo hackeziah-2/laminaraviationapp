@@ -1,5 +1,13 @@
 import axios from "axios";
 
+declare module "axios" {
+  interface AxiosRequestConfig {
+    /** When true, 401 responses do not clear tokens or redirect to /login. */
+    skipAuthRedirect?: boolean;
+    skipGlobalErrorLog?: boolean;
+  }
+}
+
 const baseURL = (import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1/").replace(/\/?$/, "/");
 const api = axios.create({
   baseURL, // e.g. http://localhost:8000/api/v1/
@@ -24,7 +32,10 @@ api.interceptors.response.use(
     if (!skip) {
       console.error("API Error:", error.response?.data || error.message);
     }
-    if (error?.response?.status === 401) {
+    const skipAuthRedirect =
+      (error.config as { skipAuthRedirect?: boolean } | undefined)
+        ?.skipAuthRedirect === true;
+    if (error?.response?.status === 401 && !skipAuthRedirect) {
       localStorage.removeItem("access_token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("auth_username");

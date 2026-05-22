@@ -21,6 +21,7 @@ import { OrganizationalApprovals } from './components/OrganizationalApprovals';
 import { OEMTechnicalPublication } from './components/OEMTechnicalPublication';
 import { PersonnelAuthorization } from './components/PersonnelAuthorization';
 import { Settings } from './components/Settings';
+import { MyProfile } from './components/MyProfile';
 import { AircraftDetail } from './components/AircraftDetail';
 import { AircraftHistory } from './components/AircraftHistory';
 import { MaintenanceLogbook } from './components/MaintenanceLogbook';
@@ -213,6 +214,7 @@ function AuthenticatedShell({
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/login" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<ProtectedRoute moduleCode="dashboard"><Dashboard /></ProtectedRoute>} />
+          <Route path="/my-profile" element={<MyProfile />} />
           <Route path="/profile" element={<ProtectedRoute moduleCode="profile"><AircraftFleetProfile /></ProtectedRoute>} />
           <Route path="/profile/:id" element={<ProtectedRoute moduleCode="profile"><AircraftDetail /></ProtectedRoute>} />
           <Route path="/profile/:id/history" element={<ProtectedRoute moduleCode="profile"><AircraftHistory /></ProtectedRoute>} />

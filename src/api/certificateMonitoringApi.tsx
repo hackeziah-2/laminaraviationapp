@@ -1,4 +1,9 @@
 import apiClient from "./index";
+import {
+  downloadModuleFile,
+  FILE_UPLOAD_MODULES,
+  resolveUploadedFilePath,
+} from "./fileUploadApi";
 
 /** Deep transform snake_case keys to camelCase */
 function deepToCamel(obj: any): any {
@@ -195,11 +200,53 @@ function getRawFromResponse(response: { data?: any }): any {
   return d;
 }
 
+async function buildCertificateJsonBody(
+  data:
+    | CertificateMonitoringCreate
+    | CertificateMonitoringUpdate
+    | FormData
+    | Record<string, unknown>,
+  existingFilePath?: string | null
+): Promise<Record<string, unknown>> {
+  if (data instanceof FormData) {
+    const jsonRaw = data.get("json_data");
+    const parsed =
+      typeof jsonRaw === "string"
+        ? (JSON.parse(jsonRaw) as Record<string, unknown>)
+        : {};
+    const fileField = data.get("upload_file");
+    const uploadFile = fileField instanceof File ? fileField : null;
+    const filePath = await resolveUploadedFilePath(
+      FILE_UPLOAD_MODULES.documentOnBoard,
+      uploadFile,
+      (parsed.file_path as string) ?? existingFilePath
+    );
+    if (filePath) parsed.file_path = filePath;
+    return parsed;
+  }
+
+  const record = data as CertificateMonitoringCreate & {
+    uploadFile?: File | null;
+    filePath?: string | null;
+  };
+  const body: Record<string, unknown> = { ...(record as Record<string, unknown>) };
+  delete body.uploadFile;
+  const filePath = await resolveUploadedFilePath(
+    FILE_UPLOAD_MODULES.documentOnBoard,
+    record.uploadFile,
+    record.filePath ?? existingFilePath
+  );
+  if (filePath) body.file_path = filePath;
+  return body;
+}
+
 export const createCertificateMonitoring = async (
   data: CertificateMonitoringCreate | FormData | Record<string, unknown>
 ): Promise<CertificateMonitoring> => {
-  const config = data instanceof FormData ? {} : undefined;
-  const response = await apiClient.post(`${BASE_PATH}/`, data, config);
+  const body = await buildCertificateJsonBody(data);
+  const response = await apiClient.post(`${BASE_PATH}/`, body, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
   const raw = getRawFromResponse(response);
   if (raw == null) throw new Error("Certificate data is missing");
   return normalizeCertificateItem(raw);
@@ -209,8 +256,10 @@ export const updateCertificateMonitoring = async (
   id: number,
   data: CertificateMonitoringUpdate | FormData | Record<string, unknown>
 ): Promise<CertificateMonitoring> => {
-  const config = data instanceof FormData ? {} : undefined;
-  const response = await apiClient.put(`${BASE_PATH}/${id}`, data, config);
+  const body = await buildCertificateJsonBody(data);
+  const response = await apiClient.put(`${BASE_PATH}/${id}`, body, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
   const raw = getRawFromResponse(response);
   if (raw == null) throw new Error("Certificate data is missing");
   return normalizeCertificateItem(raw);
@@ -220,27 +269,9 @@ export const deleteCertificateMonitoring = async (id: number): Promise<void> => 
   await apiClient.delete(`${BASE_PATH}/${id}`);
 };
 
-/**
- * Download certificate file - uses same document_on_board download as documents.
- * GET api/v1/document_on_board/download/{filePath}
- */
+/** Download certificate file — GET api/v1/document_on_board/download/{filename} */
 export const downloadCertificateFile = async (filePath: string): Promise<Blob> => {
-  let pathForEndpoint = filePath;
-  if (filePath.startsWith("http")) {
-    try {
-      const url = new URL(filePath);
-      pathForEndpoint = url.pathname;
-    } catch {
-      pathForEndpoint = filePath;
-    }
-  }
-  pathForEndpoint = pathForEndpoint.replace(/^\/+/, "").replace(/^api\/v1\//, "").replace(/^uploads\//, "");
-  const endpoint = `document_on_board/download/${pathForEndpoint}`;
-  const response = await apiClient.get(endpoint, {
-    responseType: "blob",
-    headers: { Accept: "application/octet-stream" },
-  });
-  return response.data;
+  return downloadModuleFile(FILE_UPLOAD_MODULES.documentOnBoard, filePath);
 };
 
 export const CERTIFICATE_STATUS_ENUM: CertificateStatus[] = [

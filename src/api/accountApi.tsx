@@ -186,22 +186,22 @@ export const createAccount = async (payload: {
   return normalizeAccount(raw);
 };
 
-/** Update: PUT /api/v1/account-information/{account_id} */
-export const updateAccount = async (
-  accountId: number,
-  payload: Partial<{
-    firstName: string;
-    lastName: string;
-    middleName: string;
-    username: string;
-    email: string;
-    licenseNo: string;
-    designation: string;
-    roleId: number;
-    status: boolean;
-    auth_initial_doi: string;
-  }>
-): Promise<Account> => {
+export type AccountUpdatePayload = Partial<{
+  firstName: string;
+  lastName: string;
+  middleName: string;
+  username: string;
+  email: string;
+  licenseNo: string;
+  designation: string;
+  roleId: number;
+  status: boolean;
+  auth_initial_doi: string;
+}>;
+
+function buildAccountUpdateBody(
+  payload: AccountUpdatePayload
+): Record<string, string | number | boolean> {
   const body: Record<string, string | number | boolean> = {};
   if (payload.firstName != null) body.first_name = payload.firstName;
   if (payload.lastName != null) body.last_name = payload.lastName;
@@ -214,6 +214,41 @@ export const updateAccount = async (
   if (payload.status != null) body.status = payload.status;
   if (payload.auth_initial_doi != null)
     body.auth_initial_doi = payload.auth_initial_doi.trim();
+  return body;
+}
+
+/**
+ * Partial update (Profile Settings).
+ * PATCH /api/v1/account-information/{account_id}
+ * Falls back to PUT when PATCH is not registered on the API.
+ */
+export const patchAccount = async (
+  accountId: number,
+  payload: AccountUpdatePayload
+): Promise<Account> => {
+  const body = buildAccountUpdateBody(payload);
+  try {
+    const response = await apiClient.patch(`${BASE}/${accountId}`, body);
+    const raw = response.data ?? {};
+    return normalizeAccount({ ...raw, id: accountId });
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status !== 405 && status !== 404) throw err;
+    const response = await apiClient.put(`${BASE}/${accountId}`, body);
+    const raw = response.data ?? {};
+    return normalizeAccount({ ...raw, id: accountId });
+  }
+};
+
+/**
+ * Update account (admin user edit in Settings).
+ * PUT /api/v1/account-information/{account_id}
+ */
+export const updateAccount = async (
+  accountId: number,
+  payload: AccountUpdatePayload
+): Promise<Account> => {
+  const body = buildAccountUpdateBody(payload);
   const response = await apiClient.put(`${BASE}/${accountId}`, body);
   const raw = response.data ?? {};
   return normalizeAccount({ ...raw, id: accountId });
