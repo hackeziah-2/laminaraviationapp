@@ -3,6 +3,7 @@ import apiClient from "./index";
 export interface AuthUser {
   id: number;
   name: string;
+  username?: string;
   email: string;
   role: string;
   /** Role ID for loading permissions; may come from backend or resolved by role name */
@@ -57,18 +58,48 @@ function pickRoleString(raw: Record<string, unknown>): string {
   );
 }
 
+/** Account id from JWT `sub` (login token uses account_information.id). */
+export function getAccountIdFromAccessToken(): number | null {
+  const token = localStorage.getItem("access_token");
+  if (!token) return null;
+  try {
+    const segment = token.split(".")[1];
+    if (!segment) return null;
+    const padded = segment.replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(padded)) as { sub?: string };
+    const id = Number(payload.sub);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function withAccountIdFromToken(user: AuthUser): AuthUser {
+  const tokenId = getAccountIdFromAccessToken();
+  if (!tokenId) return user;
+  return {
+    ...user,
+    id: user.id > 0 ? user.id : tokenId,
+    accountInformationId: user.accountInformationId ?? tokenId,
+  };
+}
+
 function normalizeUser(raw: Record<string, unknown>): AuthUser {
   const getStr = (k: string, fallback = "") =>
     String(raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback);
-  const id = Number(raw.id ?? raw.user_id ?? 0);
-  const accountInfoId = Number(raw.account_information_id ?? raw.accountInformationId ?? 0);
+  const id = Number(raw.id ?? raw.user_id ?? raw.account_id ?? 0);
+  const accountInfoId = Number(
+    raw.account_information_id ?? raw.accountInformationId ?? raw.account_id ?? 0
+  );
   const roleId = Number(raw.role_id ?? raw.roleId ?? 0);
   const composedName = `${getStr("first_name")} ${getStr("middle_name")} ${getStr("last_name")}`
     .replace(/\s+/g, " ")
     .trim();
+  const username = getStr("username") || undefined;
   return {
     id: isNaN(id) ? 0 : id,
-    name: getStr("name") || getStr("full_name") || composedName || getStr("username", ""),
+    name: getStr("name") || getStr("full_name") || composedName || username || "",
+    username,
     email: getStr("email"),
     role: pickRoleString(raw),
     roleId: isNaN(roleId) ? undefined : roleId,
@@ -188,7 +219,7 @@ export const getMe = async (): Promise<AuthUser> => {
     (data?.user && typeof data.user === "object"
       ? (data.user as Record<string, unknown>)
       : data) ?? {};
-  return normalizeUser(raw);
+  return withAccountIdFromToken(normalizeUser(raw));
 };
 
 /** Register: POST /api/v1/auth/register/ (trailing slash matches auth/login/ and Django-style routes) */
@@ -254,4 +285,86 @@ export const resetUserPassword = async (
     { new_password: newPassword } satisfies ResetPasswordPayload,
     { headers: { "Content-Type": "application/json" } }
   );
+};
+
+const VERIFY_PASSWORD_OPTS = {
+  skipGlobalErrorLog: true,
+  skipAuthRedirect: true,
+} as const;
+
+/** Verify credentials without affecting session (no 401 redirect). */
+async function verifyCurrentPassword(
+  username: string,
+  password: string
+): Promise<void> {
+  const trimmedUser = username.trim();
+  const creds = { username: trimmedUser, password };
+
+  try {
+    await apiClient.post("auth/login/", creds, {
+      headers: { "Content-Type": "application/json" },
+      ...VERIFY_PASSWORD_OPTS,
+    });
+    return;
+  } catch (firstErr) {
+    const status = (firstErr as { response?: { status?: number } })?.response
+      ?.status;
+    if (status !== 400 && status !== 415 && status !== 422) {
+      throw firstErr;
+    }
+  }
+
+  const form = new URLSearchParams();
+  form.set("username", creds.username);
+  form.set("password", creds.password);
+  try {
+    await apiClient.post("auth/login/", form, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      ...VERIFY_PASSWORD_OPTS,
+    });
+    return;
+  } catch {
+    // OAuth2 token endpoint fallback (same as sign-in)
+  }
+
+  try {
+    await apiClient.post("auth/token", form, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      ...VERIFY_PASSWORD_OPTS,
+    });
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    const incorrect =
+      status === 401 ||
+      status === 400 ||
+      (err as { response?: { data?: { detail?: string } } })?.response?.data
+        ?.detail === "Incorrect username/email or password";
+    if (incorrect) {
+      const authErr = new Error("Current password is incorrect") as Error & {
+        response?: { status?: number };
+      };
+      authErr.response = { status: 401 };
+      throw authErr;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Change own password (Profile Settings).
+ * Verifies current password, then POST /auth/users/{account_id}/reset-password/.
+ */
+export const changeMyPassword = async (
+  accountId: number,
+  username: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> => {
+  const resolvedId = getAccountIdFromAccessToken() ?? accountId;
+  if (!resolvedId || resolvedId <= 0) {
+    throw new Error("Account information is not available. Please sign in again.");
+  }
+
+  await verifyCurrentPassword(username, currentPassword);
+  await resetUserPassword(resolvedId, newPassword);
 };

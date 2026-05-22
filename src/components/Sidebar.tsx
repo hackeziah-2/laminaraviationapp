@@ -18,7 +18,7 @@ import {
   BookOpen,
   UserCheck,
 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import type { LucideIcon } from "lucide-react";
 
@@ -132,14 +132,12 @@ export function Sidebar({
   onMobileMenuClose,
 }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { canAccess, user: meUser, loading: meLoading } = useUserPermissions();
 
   const headerDisplayName =
-    meUser?.name?.trim() ||
-    meUser?.email?.trim() ||
-    (meLoading ? "…" : "User");
-  const headerRole =
-    meUser?.role?.trim() || (meLoading ? "…" : "—");
+    meUser?.name?.trim() || meUser?.email?.trim() || (meLoading ? "…" : "User");
+  const headerRole = meUser?.role?.trim() || (meLoading ? "…" : "—");
   const [regulatoryExpanded, setRegulatoryExpanded] = useState(false);
   const regulatoryCloseTimeoutRef = useRef<ReturnType<
     typeof setTimeout
@@ -153,6 +151,11 @@ export function Sidebar({
   }, []);
 
   const menuItems = MENU_ITEMS.filter((item) => canAccess(item.moduleCode));
+
+  const goToMyProfile = () => {
+    navigate("/my-profile");
+    onMobileMenuClose?.();
+  };
 
   const isActive = (path: string) => {
     if (path === "/profile") {
@@ -186,9 +189,15 @@ export function Sidebar({
             isCollapsed ? "justify-center" : "gap-3"
           }`}
         >
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
+          <button
+            type="button"
+            onClick={goToMyProfile}
+            className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0 hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-label="Open profile settings"
+            title="Profile settings"
+          >
             <Plane className="w-5 h-5 text-white" />
-          </div>
+          </button>
           {!isCollapsed && (
             <div className="flex-1 min-w-0">
               <h1
@@ -197,12 +206,14 @@ export function Sidebar({
               >
                 {headerDisplayName}
               </h1>
-              <p
-                className="text-xs text-gray-500 mt-0.5 truncate"
-                title={headerRole}
+              <button
+                type="button"
+                onClick={goToMyProfile}
+                className="mt-0.5 w-full truncate text-left text-xs font-medium text-blue-600 underline underline-offset-2 decoration-blue-600/80 transition-colors hover:text-blue-800 hover:decoration-blue-800 focus:outline-none focus:text-blue-800 focus:decoration-blue-800"
+                title={`My Profile - ${headerRole}`}
               >
-                {headerRole}
-              </p>
+                My Profile - {headerRole}
+              </button>
             </div>
           )}
           {/* Mobile Close Button */}
@@ -293,10 +304,14 @@ export function Sidebar({
                           {item.label}
                         </span>
                         <ChevronDown
-                          className={`w-4 h-4 flex-shrink-0 ${active ? "text-blue-600" : "text-gray-500"}`}
+                          className={`w-4 h-4 flex-shrink-0 ${
+                            active ? "text-blue-600" : "text-gray-500"
+                          }`}
                           style={{
                             transition: "transform 0.2s ease",
-                            transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+                            transform: isExpanded
+                              ? "rotate(0deg)"
+                              : "rotate(-90deg)",
                           }}
                           aria-hidden
                         />
@@ -304,7 +319,8 @@ export function Sidebar({
                       <div
                         style={{
                           overflow: "hidden",
-                          transition: "max-height 0.3s ease-in-out, opacity 0.3s ease-in-out",
+                          transition:
+                            "max-height 0.3s ease-in-out, opacity 0.3s ease-in-out",
                           maxHeight: isExpanded ? "500px" : "0px",
                           opacity: isExpanded ? 1 : 0,
                           marginTop: isExpanded ? "4px" : "0px",
