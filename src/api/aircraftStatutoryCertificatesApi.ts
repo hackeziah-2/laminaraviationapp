@@ -1,4 +1,9 @@
 import apiClient from "./index";
+import {
+  downloadModuleFile,
+  FILE_UPLOAD_MODULES,
+  normalizeStoredFilePath,
+} from "./fileUploadApi";
 
 const BASE = "aircraft-statutory-certificates";
 
@@ -285,23 +290,8 @@ export const getAircraftStatutoryCertificateHistoryPaged = async (
   }
 };
 
-/** Normalize file path for download URL (strip prefixes, handle full URLs). Returns path suitable for URL path segment. */
 function normalizeDownloadPath(filePath: string): string {
-  let path = filePath.trim();
-  if (path.startsWith("http://") || path.startsWith("https://")) {
-    try {
-      const url = new URL(path);
-      path = url.pathname;
-    } catch {
-      path = filePath;
-    }
-  }
-  path = path
-    .replace(/^\/+/, "")
-    .replace(/^api\/v1\//, "")
-    .replace(/^app\/uploads\/?/i, "")
-    .replace(/^uploads\//, "");
-  return path;
+  return normalizeStoredFilePath(filePath);
 }
 
 async function getBlobFromResponse(response: { status: number; data: Blob }): Promise<Blob> {
@@ -346,18 +336,24 @@ export const downloadStatutoryCertificateFile = async (
   }
 
   if (pathForEndpoint) {
-    // Encode path segments so slashes in path don't break the URL
-    const encodedPath = pathForEndpoint
-      .split("/")
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
     try {
-      return await tryGet(`document_on_board/download/${encodedPath}`);
-    } catch (firstErr) {
+      return await downloadModuleFile(
+        FILE_UPLOAD_MODULES.aircraftStatutoryCertificates,
+        pathForEndpoint
+      );
+    } catch (moduleErr) {
+      const encodedPath = pathForEndpoint
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
       try {
-        return await tryGet(`${BASE}/download/${encodedPath}`);
-      } catch {
-        throw firstErr;
+        return await tryGet(`document_on_board/download/${encodedPath}`);
+      } catch (firstErr) {
+        try {
+          return await tryGet(`${BASE}/download/${encodedPath}`);
+        } catch {
+          throw moduleErr;
+        }
       }
     }
   }

@@ -763,19 +763,13 @@ export function MaintenanceLogbook() {
       filePathForEndpoint = filePathForEndpoint.replace(/^api\/v1\//, "");
       filePathForEndpoint = filePathForEndpoint.replace(/^uploads\//, "");
 
-      // Construct download endpoint: /api/v1/logbooks/download/{filename:path}
-      const downloadEndpoint = `logbooks/download/${filePathForEndpoint}`;
-
-      // Use apiClient to download the file (handles authentication automatically)
-      const response = await apiClient.get(downloadEndpoint, {
-        responseType: "blob",
-        headers: {
-          Accept: "application/octet-stream",
-        },
-      });
-
-      // Create a blob URL and trigger download
-      const blob = new Blob([response.data]);
+      const { downloadModuleFile, FILE_UPLOAD_MODULES } = await import(
+        "../api/fileUploadApi"
+      );
+      const blob = await downloadModuleFile(
+        FILE_UPLOAD_MODULES.logbooks,
+        filePathForEndpoint
+      );
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
@@ -1196,12 +1190,20 @@ export function MaintenanceLogbook() {
         });
       }
 
-      // Backend expects FormData with json_data only (component_parts inside json_data)
+      if (uploadFile) {
+        const { uploadModuleFile, storedPathForApi, FILE_UPLOAD_MODULES } =
+          await import("../api/fileUploadApi");
+        const uploaded = await uploadModuleFile(
+          FILE_UPLOAD_MODULES.logbooks,
+          uploadFile,
+          uploadFile.name
+        );
+        apiDataSnake.upload_file = storedPathForApi(uploaded);
+      }
+
+      // Backend expects FormData with json_data (upload_file path inside json_data when present)
       const formDataObj = new FormData();
       formDataObj.append("json_data", JSON.stringify(apiDataSnake));
-      if (uploadFile) {
-        formDataObj.append("upload_file", uploadFile);
-      }
 
       if (editingEntry) {
         switch (activeCategory) {

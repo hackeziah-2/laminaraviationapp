@@ -333,18 +333,14 @@ export function AircraftDetail() {
     displayName?: string
   ) => {
     if (!filename || !filename.trim()) return;
-    const filePath = normalizeArcPath(filename);
-    const endpoint = `${folder}/download/${filePath}`;
     try {
-      const response = await apiClient.get(endpoint, {
-        responseType: "blob",
-        headers: { Accept: "application/octet-stream" },
-      });
-      const blob = new Blob([response.data]);
+      const { downloadModuleFile } = await import("../api/fileUploadApi");
+      const blob = await downloadModuleFile(folder, filename);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = displayName || filePath.split("/").pop() || folder;
+      link.download =
+        displayName || normalizeArcPath(filename).split("/").pop() || folder;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -396,21 +392,16 @@ export function AircraftDetail() {
     setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
-    const filePath = normalizeArcPath(filename);
-    const endpoint = `${folder}/download/${filePath}`;
     try {
-      const response = await apiClient.get(endpoint, {
-        responseType: "blob",
-        headers: { Accept: "application/octet-stream" },
-      });
-      const blob = response.data as Blob;
+      const { downloadModuleFile } = await import("../api/fileUploadApi");
+      const blob = await downloadModuleFile(folder, filename);
       const url = window.URL.createObjectURL(blob);
       const serverType =
-        blob.type || (response as any).headers?.["content-type"] || null;
+        blob.type || (blob as Blob & { type?: string }).type || null;
       const isOctetStream =
         !serverType || serverType === "application/octet-stream";
       const mimeType = isOctetStream
-        ? getMimeFromFilename(filePath)
+        ? getMimeFromFilename(normalizeArcPath(filename))
         : serverType;
       setFileViewBlobUrl(url);
       setFileViewMimeType(mimeType ?? null);
