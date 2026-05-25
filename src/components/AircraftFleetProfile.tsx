@@ -14,7 +14,20 @@ import {
   ChevronDown,
   Upload,
   Loader,
+  MoreVertical,
+  BarChart3,
+  Wrench,
+  ClipboardList,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -22,6 +35,7 @@ import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { isMechanicRole } from "../utility/atlEditRbac";
 import { AircraftForm } from "../types/Aircraft";
 import {
   createAircraft,
@@ -30,7 +44,11 @@ import {
   importAircraftExcel,
   deleteAircraft,
 } from "../api/aircraftApi";
-import { dateToday, formatApiErrorForSwal, snakeAllKeys } from "../utility/utils";
+import {
+  dateToday,
+  formatApiErrorForSwal,
+  snakeAllKeys,
+} from "../utility/utils";
 import {
   readExcelFirstRowCells,
   validateAircraftFleetImportHeaderRow,
@@ -39,9 +57,10 @@ import {
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const aircraftFromQuery =
-    searchParams.get("aircraft")?.trim() ?? "";
-  const { canAccess, canCreate, canDelete } = useUserPermissions();
+  const aircraftFromQuery = searchParams.get("aircraft")?.trim() ?? "";
+  const { canAccess, canCreate, canDelete, user } = useUserPermissions();
+  /** Mechanic role cannot export the Aircraft Fleet Profile to Excel. */
+  const canExportFleetProfileExcel = !isMechanicRole(user?.role);
   const [searchTerm, setSearchTerm] = useState(aircraftFromQuery);
   const [searchDebounced, setSearchDebounced] = useState(aircraftFromQuery);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,7 +196,9 @@ export function AircraftFleetProfile() {
           title: "Invalid import headers",
           html: `<p>The first row must include headers for all required columns.</p><p><strong>Missing:</strong> ${headerCheck.missing
             .map((m) => `<br/>• ${m}`)
-            .join("")}</p><p style="margin-top:0.75em;font-size:0.9em;color:#4b5563">Expected at minimum: Registration, Model, MSN, and Base (or Base location).</p>`,
+            .join(
+              ""
+            )}</p><p style="margin-top:0.75em;font-size:0.9em;color:#4b5563">Expected at minimum: Registration, Model, MSN, and Base (or Base location).</p>`,
           confirmButtonText: "OK",
         });
         return;
@@ -504,6 +525,7 @@ export function AircraftFleetProfile() {
   };
 
   const handleGenerateExcel = async () => {
+    if (!canExportFleetProfileExcel) return;
     // setLoading(true);
     try {
       // Call backend to generate report
@@ -561,20 +583,24 @@ export function AircraftFleetProfile() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
+          {/* <button
             onClick={handleDownloadPDF}
             className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
           >
             <Printer className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Print PDF</span>
-          </button>
-          <button
-            onClick={handleGenerateExcel}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-          >
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export EXCEL</span>
-          </button>
+          </button> */}
+          {canExportFleetProfileExcel && (
+            <button
+              onClick={handleGenerateExcel}
+              className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+            >
+              <Download className="w-4 h-4 text-gray-600" />
+              <span className="text-gray-700 hidden sm:inline">
+                Export EXCEL
+              </span>
+            </button>
+          )}
           <input
             ref={importFileInputRef}
             type="file"
@@ -627,7 +653,7 @@ export function AircraftFleetProfile() {
             </label>
             <input
               type="text"
-              placeholder="Search by registration, model, or location"
+              placeholder="Search by registration, msn, model, or location"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
@@ -720,44 +746,122 @@ export function AircraftFleetProfile() {
                           </span>
                         </td>
                         <td className="px-6 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <select
-                              onChange={(e) => {
-                                if (e.target.value && ac?.id != null) {
-                                  handleViewAircraft(ac.id, e.target.value);
-                                  e.target.value = ""; // Reset selection
-                                }
-                              }}
-                              className="px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-700 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-                            >
-                              <option value="">View</option>
-                              {canAccess("profile") && (
-                                <option value="detail">
-                                  General Information
-                                </option>
-                              )}
-                              {canAccess("operation") && (
-                                <option value="operation">
-                                  Fleet Time Monitoring
-                                </option>
-                              )}
-                              {canAccess("maintenance") && (
-                                <option value="maintenance">
-                                  Maintenance
-                                </option>
-                              )}
-                              {canAccess("logbook") && (
-                                <option value="logbook">
-                                  Maintenance Logbook
-                                </option>
-                              )}
-                            </select>
+                          <div className="flex items-center gap-1.5">
+                            {canAccess("profile") && (
+                              <button
+                                onClick={() => {
+                                  if (ac?.id != null)
+                                    handleViewAircraft(ac.id, "detail");
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors text-sm"
+                                title="Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                                <span className="hidden sm:inline">
+                                  Details
+                                </span>
+                              </button>
+                            )}
+
+                            {(canAccess("operation") ||
+                              canAccess("maintenance") ||
+                              canAccess("logbook")) && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors text-sm"
+                                    title="Options"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                    <span className="hidden sm:inline">
+                                      Options
+                                    </span>
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="end"
+                                  sideOffset={6}
+                                  className="min-w-[14rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+                                >
+                                  {canAccess("operation") && (
+                                    <DropdownMenuGroup>
+                                      <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                                        Monitoring
+                                      </DropdownMenuLabel>
+                                      <DropdownMenuItem
+                                        onSelect={() => {
+                                          if (ac?.id != null)
+                                            handleViewAircraft(
+                                              ac.id,
+                                              "operation"
+                                            );
+                                        }}
+                                        className="gap-2 text-sm text-gray-700"
+                                      >
+                                        <BarChart3 className="w-4 h-4 text-blue-600" />
+                                        Fleet Time Monitoring
+                                      </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                  )}
+                                  {canAccess("operation") &&
+                                    (canAccess("maintenance") ||
+                                      canAccess("logbook")) && (
+                                      <DropdownMenuSeparator />
+                                    )}
+                                  {canAccess("maintenance") && (
+                                    <DropdownMenuGroup>
+                                      <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                                        Tools
+                                      </DropdownMenuLabel>
+                                      <DropdownMenuItem
+                                        onSelect={() => {
+                                          if (ac?.id != null)
+                                            handleViewAircraft(
+                                              ac.id,
+                                              "maintenance"
+                                            );
+                                        }}
+                                        className="gap-2 text-sm text-gray-700"
+                                      >
+                                        <Wrench className="w-4 h-4 text-orange-500" />
+                                        Maintenance
+                                      </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                  )}
+                                  {canAccess("maintenance") &&
+                                    canAccess("logbook") && (
+                                      <DropdownMenuSeparator />
+                                    )}
+                                  {canAccess("logbook") && (
+                                    <DropdownMenuGroup>
+                                      <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                                        Records
+                                      </DropdownMenuLabel>
+                                      <DropdownMenuItem
+                                        onSelect={() => {
+                                          if (ac?.id != null)
+                                            handleViewAircraft(
+                                              ac.id,
+                                              "logbook"
+                                            );
+                                        }}
+                                        className="gap-2 text-sm text-gray-700"
+                                      >
+                                        <ClipboardList className="w-4 h-4 text-emerald-600" />
+                                        Maintenance Logbook
+                                      </DropdownMenuItem>
+                                    </DropdownMenuGroup>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
                             {canDelete("profile") && (
                               <button
                                 onClick={() => {
                                   if (ac?.id != null) handleDeleteAircraft(ac);
                                 }}
-                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
                                 title="Delete"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -827,7 +931,8 @@ export function AircraftFleetProfile() {
                   <div className="grid grid-cols-2 gap-5">
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Registration Number (Required)
+                        Registration Number{" "}
+                        <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -849,7 +954,7 @@ export function AircraftFleetProfile() {
                     </div>
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Model (Required)
+                        Model <span className="text-red-500">*</span>
                       </label>
                       <input
                         maxLength={15}
@@ -871,7 +976,7 @@ export function AircraftFleetProfile() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        MSN (Required)
+                        MSN <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
@@ -913,7 +1018,7 @@ export function AircraftFleetProfile() {
                   <div className="grid grid-cols-2 gap-5">
                     <div>
                       <label className="block text-gray-600 text-sm mb-2">
-                        Base Location (Required)
+                        Base Location <span className="text-red-500">*</span>
                       </label>
                       <input
                         maxLength={24}

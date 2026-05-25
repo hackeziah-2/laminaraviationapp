@@ -91,10 +91,50 @@ export function canUploadWhiteAtlAndDfpFiles(
 }
 
 /**
- * Fleet / logbook "Filter by ATL batch" and Operation branch (batch) create–update UI.
- * Allowed: Admin, Maintenance Planner, Maintenance Manager (and common name variants).
+ * Mechanic role variants. Used to restrict actions that read-only / shop-floor
+ * mechanics must not perform (e.g. exporting Fleet Time data, opening the
+ * Aircraft Details history page).
+ */
+export function isMechanicRole(userRole: string | undefined): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return (
+    n === "mechanic" ||
+    n === "aircraft mechanic" ||
+    n === "a&p mechanic" ||
+    n === "ap mechanic" ||
+    n.endsWith(" mechanic")
+  );
+}
+
+/**
+ * Fleet / logbook "Filter by ATL batch" picker visibility.
+ *
+ * Per product spec, the ATL batch filter is now available to every authenticated
+ * role (Admin, Maintenance Planner, Maintenance Manager, Mechanic, and all
+ * "Other Roles"). Branch create/edit gating is enforced separately by
+ * `isAtlBatchBranchEditRole`.
+ *
+ * Kept as a function (rather than a constant `true`) so the existing call sites
+ * across `Operation.tsx`, `AircraftTechnicalLogbook.tsx`, and
+ * `AddTechnicalLogbookEntryModal.tsx` keep their explicit visibility flag,
+ * and so future role-based gating (if reintroduced) only changes here.
  */
 export function isAtlBatchFilterAndBranchManagementRole(
+  _userRole: string | undefined
+): boolean {
+  return true;
+}
+
+/**
+ * Roles allowed to create or edit ATL batch (branch) records:
+ * Admin, Maintenance Planner, Maintenance Manager (and common name variants).
+ *
+ * All other roles — including Mechanic — can use the ATL batch filter but
+ * must not see the "+ Create branch…" / "Edit branch…" options and must not
+ * open the add/edit batch modal.
+ */
+export function isAtlBatchBranchEditRole(
   userRole: string | undefined
 ): boolean {
   const n = normalizeRoleNameForMatch(userRole);

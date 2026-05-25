@@ -70,8 +70,10 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import {
   ATL_WORK_STATUS_KEYS,
+  isAtlBatchBranchEditRole,
   isAtlBatchFilterAndBranchManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isMechanicRole,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
@@ -232,6 +234,20 @@ export function Operation() {
 
   const canManageAtlBatchFilterAndBranches = useMemo(
     () => isAtlBatchFilterAndBranchManagementRole(operationAtlRole),
+    [operationAtlRole]
+  );
+
+  /** Mechanic is blocked from exporting Fleet Time data and from the Aircraft Details
+   * history page; ATL batch filter visibility is universal and handled separately. */
+  const isMechanicViewer = useMemo(
+    () => isMechanicRole(operationAtlRole),
+    [operationAtlRole]
+  );
+  const canExportOperationAtl = !isMechanicViewer;
+  /** Create/Edit ATL batch (branch) is restricted to Admin, Maintenance Planner, and
+   * Maintenance Manager. All other roles (incl. Mechanic) see the filter only. */
+  const canEditAtlBatchBranches = useMemo(
+    () => isAtlBatchBranchEditRole(operationAtlRole),
     [operationAtlRole]
   );
 
@@ -1000,12 +1016,14 @@ export function Operation() {
       {
         key: "remarkPerson",
         label: "Remark Person",
-        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) =>
+          formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "maintenanceNameLicense",
         label: "Name and License",
-        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) =>
+          formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "actionsTaken",
@@ -1015,7 +1033,8 @@ export function Operation() {
       {
         key: "actionTakenPerson",
         label: "Action Taken Person",
-        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) =>
+          formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "componentRemovedPn",
@@ -1323,6 +1342,10 @@ export function Operation() {
 
   const handleExport = async (format: "csv" | "xlsx") => {
     if (!effectiveAircraftId) return;
+    if (!canExportOperationAtl) {
+      setShowExportModal(false);
+      return;
+    }
     if (selectedExportColumns.length === 0) {
       await Swal.fire({
         icon: "warning",
@@ -1559,8 +1582,7 @@ export function Operation() {
           {
             defaultTitle: "Import failed",
             validationTitle: "Validation Error",
-            fallbackMessage:
-              finalProgress.message?.trim() || "Import failed.",
+            fallbackMessage: finalProgress.message?.trim() || "Import failed.",
           }
         );
         await Swal.fire({
@@ -1764,23 +1786,25 @@ export function Operation() {
                 />
                 <span className="hidden sm:inline">Refresh</span>
               </button>
-              <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
+              {/* <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
                 <Printer className="w-4 h-4" />
                 <span className="hidden sm:inline">Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedExportColumns(
-                    activeExportColumnDefinitions.map((column) => column.key)
-                  );
-                  setShowExportModal(true);
-                }}
-                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
-              >
-                <Download className="w-4 h-4" />
-                <span className="hidden sm:inline">Export</span>
-              </button>
+              </button> */}
+              {canExportOperationAtl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedExportColumns(
+                      activeExportColumnDefinitions.map((column) => column.key)
+                    );
+                    setShowExportModal(true);
+                  }}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+              )}
               {canCreateOperationAtl && (
                 <>
                   <input
@@ -1917,11 +1941,13 @@ export function Operation() {
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v === ATL_BRANCH_CREATE_VALUE) {
+                        if (!canEditAtlBatchBranches) return;
                         setAtlBatchModalEditId(null);
                         setAtlBatchModalOpen(true);
                         return;
                       }
                       if (v === ATL_BRANCH_EDIT_VALUE) {
+                        if (!canEditAtlBatchBranches) return;
                         const n =
                           selectedAtlBatchId.trim() !== ""
                             ? Number(selectedAtlBatchId)
@@ -1950,10 +1976,16 @@ export function Operation() {
                         {b.name}
                       </option>
                     ))}
-                    <option value={ATL_BRANCH_CREATE_VALUE}>
-                      + Create branch…
-                    </option>
-                    <option value={ATL_BRANCH_EDIT_VALUE}>Edit branch…</option>
+                    {canEditAtlBatchBranches && (
+                      <>
+                        <option value={ATL_BRANCH_CREATE_VALUE}>
+                          + Create branch…
+                        </option>
+                        <option value={ATL_BRANCH_EDIT_VALUE}>
+                          Edit branch…
+                        </option>
+                      </>
+                    )}
                   </select>
                 </div>
               )}
@@ -3677,7 +3709,7 @@ export function Operation() {
       </div>
 
       <AddAtlBatchModal
-        isOpen={atlBatchModalOpen && canManageAtlBatchFilterAndBranches}
+        isOpen={atlBatchModalOpen && canEditAtlBatchBranches}
         editBatchId={atlBatchModalEditId}
         onClose={() => {
           setAtlBatchModalOpen(false);
@@ -3762,7 +3794,7 @@ export function Operation() {
         />
       )}
 
-      {showExportModal && (
+      {showExportModal && canExportOperationAtl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
@@ -3775,10 +3807,10 @@ export function Operation() {
                   {groupBy === "allColumns"
                     ? "All Columns"
                     : groupBy === "fuelAndOilData"
-                      ? "Fuel and Oil Data"
-                      : groupBy === "maintenancePlanning"
-                        ? "Maintenance Planning"
-                        : "Reliability Monitoring"}
+                    ? "Fuel and Oil Data"
+                    : groupBy === "maintenancePlanning"
+                    ? "Maintenance Planning"
+                    : "Reliability Monitoring"}
                   ). White ATL and DFP are excluded.
                 </p>
               </div>

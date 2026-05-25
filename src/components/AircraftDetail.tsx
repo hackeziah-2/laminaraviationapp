@@ -19,6 +19,7 @@ import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import { snakeAllKeys } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { isMechanicRole } from "../utility/atlEditRbac";
 
 /** Aircraft Details: treat null/empty/invalid as 0 for engine/prop hour fields. */
 function numOrZero(v: unknown): number {
@@ -54,7 +55,9 @@ function numberInputValue(v: unknown): number | string {
 export function AircraftDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { canAccess, canUpdate } = useUserPermissions();
+  const { canAccess, canUpdate, user } = useUserPermissions();
+  /** Mechanic role cannot navigate to Aircraft Details history (same RBAC as Operation export gate). */
+  const canViewAircraftHistory = !isMechanicRole(user?.role);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editAircraft, setEditedAircraft] = useState<Aircraft | null>(null);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
@@ -486,7 +489,7 @@ export function AircraftDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {!isEditMode ? (
               <>
-                {canAccess("profile") && (
+                {canAccess("profile") && canViewAircraftHistory && (
                   <button
                     onClick={handleHistoryClick}
                     className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
@@ -835,7 +838,9 @@ export function AircraftDetail() {
                       type="number"
                       step="0.01"
                       min="0"
-                      value={numberInputValue(editAircraft?.engineLifeTimeLimit)}
+                      value={numberInputValue(
+                        editAircraft?.engineLifeTimeLimit
+                      )}
                       onChange={(e) =>
                         handleInputChange("engineLifeTimeLimit", e.target.value)
                       }

@@ -51,7 +51,7 @@ interface User {
   status: "active" | "inactive";
   lastDone: string;
   createdDate: string;
-  auth_initial_doi?: string;
+  auth_initial_doi?: string | null;
 }
 
 /** Role (including user_count from GET /v1/roles/roles-list) */
@@ -490,7 +490,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
     status: true,
     password: "",
     confirmPassword: "",
-    auth_initial_doi: "",
+    auth_initial_doi: null,
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -542,7 +542,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
         status: true,
         password: "",
         confirmPassword: "",
-        auth_initial_doi: "",
+        auth_initial_doi: null,
       });
       setErrors({});
       onClose();
@@ -705,7 +705,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
             </label>
             <input
               type="date"
-              value={formData.auth_initial_doi}
+              value={formData.auth_initial_doi || null}
               onChange={(e) =>
                 setFormData({ ...formData, auth_initial_doi: e.target.value })
               }
@@ -920,7 +920,7 @@ function EditUserModal({
           roleId: formData.role_id,
           role: resolvedRole,
           status: formData.status as "active" | "inactive",
-          auth_initial_doi: formData.auth_initial_doi || undefined,
+          auth_initial_doi: formData.auth_initial_doi || null,
         })
       );
       onClose();
@@ -3176,7 +3176,7 @@ export function Settings() {
               licenseNo: updatedUser.licenseNo || "",
               roleId: updatedUser.roleId,
               status: updatedUser.status === "active",
-              auth_initial_doi: updatedUser.auth_initial_doi ?? "",
+              auth_initial_doi: updatedUser.auth_initial_doi || null,
             });
             setShowEditUserModal(false);
             setSelectedUser(null);
