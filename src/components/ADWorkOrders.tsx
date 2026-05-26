@@ -173,7 +173,7 @@ export function ADWorkOrders() {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -888,6 +888,11 @@ export function ADWorkOrders() {
               totalItems={total}
               totalLabel="work orders"
               itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(size) => {
+                setItemsPerPage(size);
+                setCurrentPage(1);
+              }}
+              pageSizeOptions={[10, 20, 50, 100]}
               showRangeText
               disabled={loading}
               className="px-5"
@@ -1154,7 +1159,7 @@ export function ADWorkOrders() {
                                   role="option"
                                   aria-selected={isSelected}
                                   className={cn(
-                                    "flex w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left transition-colors",
+                                    "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors",
                                     isSelected
                                       ? "bg-blue-50 text-blue-900"
                                       : "text-gray-900 hover:bg-gray-50 active:bg-gray-100"
@@ -1169,26 +1174,13 @@ export function ADWorkOrders() {
                                     setAtlOpen(false);
                                   }}
                                 >
-                                  <span className="text-sm font-semibold tabular-nums text-gray-900">
-                                    Sequence No. {seq}
+                                  <span className="font-semibold tabular-nums text-gray-900">
+                                    {seq}
                                   </span>
-                                  <span className="text-xs leading-snug text-gray-600">
-                                    <span className="text-gray-500">
-                                      Nature of Flight
-                                    </span>{" "}
-                                    <span className="font-medium text-gray-800">
-                                      {nof}
-                                    </span>
-                                    <span className="mx-1.5 text-gray-300">
-                                      ·
-                                    </span>
-                                    <span className="text-gray-500">
-                                      A/C Registration
-                                    </span>{" "}
-                                    <span className="font-medium text-gray-800">
-                                      {acReg}
-                                    </span>
-                                  </span>
+                                  <span className="text-gray-300">·</span>
+                                  <span className="text-gray-700">{nof}</span>
+                                  <span className="text-gray-300">·</span>
+                                  <span className="text-gray-700">{acReg}</span>
                                 </button>
                               </li>
                             );

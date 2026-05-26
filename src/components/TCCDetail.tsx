@@ -832,23 +832,23 @@ export const TCCDetailContent = forwardRef<
             </div>
           )}
         </div>
-        <div className="px-5 py-3 bg-gray-50/80 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-gray-600">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-3 rounded-sm bg-emerald-100 border border-emerald-200/80" />
-            <span>&lt; 40% remaining</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-3 rounded-sm bg-amber-100 border border-amber-200/80" />
-            <span>&lt; 20% remaining</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-3 rounded-sm bg-orange-100 border border-orange-200/80" />
-            <span>&lt; 10% remaining</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-3 rounded-sm bg-red-100 border border-red-200/80" />
-            <span>Due</span>
-          </div>
+        <div className="px-5 py-3 bg-gray-50/80 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            &lt; 40% remaining
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            &lt; 20% remaining
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-100 text-orange-800 border border-orange-300 font-semibold">
+            <span className="w-2 h-2 rounded-full bg-orange-500" />
+            &lt; 10% remaining
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-800 border border-red-300 font-semibold">
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            Due
+          </span>
         </div>
       </div>
 

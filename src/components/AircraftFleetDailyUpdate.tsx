@@ -278,14 +278,14 @@ export function AircraftFleetDailyUpdate() {
             )}
             <span className="hidden sm:inline">Refresh</span>
           </button>
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
+          {/* <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print</span>
-          </button>
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
+          </button> */}
+          {/* <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Export</span>
-          </button>
+          </button> */}
         </div>
       </div>
 
