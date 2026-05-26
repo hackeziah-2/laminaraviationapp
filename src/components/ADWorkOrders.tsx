@@ -137,8 +137,7 @@ function workOrderToExportRow(wo: WorkOrderAdMonitoring): string[] {
     String(wo.woNumber ?? "").trim(),
     String(wo.lastDoneActt ?? ""),
     String(wo.lastDoneTach ?? ""),
-    toDateInputValue(wo.lastDoneDate) ||
-      String(wo.lastDoneDate ?? "").trim(),
+    toDateInputValue(wo.lastDoneDate) || String(wo.lastDoneDate ?? "").trim(),
     String(wo.nextDoneActt ?? ""),
     String(wo.nextDueTach ?? ""),
     String(wo.atlRef ?? "").trim(),
@@ -559,9 +558,7 @@ export function ADWorkOrders() {
             .join(",");
           const csvLines = [
             headerLine,
-            ...rows.map((cells) =>
-              cells.map(escapeCsvValue).join(",")
-            ),
+            ...rows.map((cells) => cells.map(escapeCsvValue).join(",")),
           ];
           const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
             type: "text/csv;charset=utf-8;",
@@ -575,10 +572,7 @@ export function ADWorkOrders() {
           document.body.removeChild(link);
           window.URL.revokeObjectURL(url);
         } else {
-          const aoa: string[][] = [
-            [...WO_AD_EXPORT_HEADERS],
-            ...rows,
-          ];
+          const aoa: string[][] = [[...WO_AD_EXPORT_HEADERS], ...rows];
           const ws = XLSX.utils.aoa_to_sheet(aoa);
           const wb = XLSX.utils.book_new();
           XLSX.utils.book_append_sheet(wb, ws, "Work orders");
@@ -644,13 +638,13 @@ export function ADWorkOrders() {
                 Add Work Order
               </button>
             )}
-            <button
+            {/* <button
               type="button"
               className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
             >
               <Printer className="w-4 h-4" />
               Print
-            </button>
+            </button> */}
             {canCreate("maintenance") && (
               <>
                 <input
@@ -671,7 +665,9 @@ export function ADWorkOrders() {
                   title="Import from Excel"
                 >
                   <Upload
-                    className={`w-4 h-4 ${woImportLoading ? "animate-pulse" : ""}`}
+                    className={`w-4 h-4 ${
+                      woImportLoading ? "animate-pulse" : ""
+                    }`}
                   />
                   {woImportLoading ? "Importing…" : "Import"}
                 </button>
@@ -717,9 +713,7 @@ export function ADWorkOrders() {
           </div>
         </div>
         <div>
-          <h2 className="text-gray-900">
-            Work Orders — AD Monitoring #{params.ad_monitoring_id ?? "—"}
-          </h2>
+          <h2 className="text-gray-900">Work Orders — AD Monitoring</h2>
         </div>
       </div>
 

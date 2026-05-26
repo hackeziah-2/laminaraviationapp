@@ -17,6 +17,7 @@ import {
   Trash2,
   Loader,
   ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
@@ -277,13 +278,15 @@ const PATH_TO_CATEGORY: Record<string, MaintenanceCategory> = {
   "maintenance-cpcp": "CPCP",
 };
 
-const CATEGORY_TO_IMPORT_KIND: Record<MaintenanceCategory, MaintenanceImportKind> =
-  {
-    LDND: "maintenance-ldnd",
-    AD: "maintenance-ad",
-    TCC: "maintenance-tcc",
-    CPCP: "maintenance-cpcp",
-  };
+const CATEGORY_TO_IMPORT_KIND: Record<
+  MaintenanceCategory,
+  MaintenanceImportKind
+> = {
+  LDND: "maintenance-ldnd",
+  AD: "maintenance-ad",
+  TCC: "maintenance-tcc",
+  CPCP: "maintenance-cpcp",
+};
 
 export function Maintenance() {
   const { id } = useParams<{ id: string }>();
@@ -374,6 +377,37 @@ export function Maintenance() {
   // Pagination state for AD
   const [adCurrentPage, setAdCurrentPage] = useState(1);
   const [adItemsPerPage, setAdItemsPerPage] = useState(10);
+
+  // Sort state for LDND (sorts within the current page)
+  type LdndSortField = "performedDateEnd";
+  type AdSortField = "adNumber" | "compliDate";
+  type SortDirection = "asc" | "desc";
+  const [ldndSort, setLdndSort] = useState<{
+    field: LdndSortField | null;
+    direction: SortDirection;
+  }>({ field: null, direction: "asc" });
+
+  // Sort state for AD (sorts within the current page)
+  const [adSort, setAdSort] = useState<{
+    field: AdSortField | null;
+    direction: SortDirection;
+  }>({ field: null, direction: "asc" });
+
+  const handleLdndSort = (field: LdndSortField) => {
+    setLdndSort((prev) =>
+      prev.field === field
+        ? { field, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { field, direction: "asc" }
+    );
+  };
+
+  const handleAdSort = (field: AdSortField) => {
+    setAdSort((prev) =>
+      prev.field === field
+        ? { field, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { field, direction: "asc" }
+    );
+  };
 
   // Add Entry form state for LDND (matches backend: inspection_type, unit, last_done_tach_due, last_done_tach_done, next_due_tach_hours, performed_date_start)
   const [newEntry, setNewEntry] = useState({
@@ -938,25 +972,31 @@ export function Maintenance() {
           kind === "maintenance-cpcp"
         ) {
           await runImportWithProgress(
-            () => importMaintenanceExcel(kind, aircraftId, file, { dryRun: true }),
+            () =>
+              importMaintenanceExcel(kind, aircraftId, file, { dryRun: true }),
             (pct, sub) => {
               if (Swal.isVisible()) {
                 Swal.update({
                   title: "Validating import",
-                  html: importProgressSwalHtml(Math.min(45, Math.round(pct * 0.45)), sub),
+                  html: importProgressSwalHtml(
+                    Math.min(45, Math.round(pct * 0.45)),
+                    sub
+                  ),
                 });
               }
             }
           );
           importPhase = "apply";
           const finalProgress = await runImportWithProgress(
-            () => importMaintenanceExcel(kind, aircraftId, file, { dryRun: false }),
+            () =>
+              importMaintenanceExcel(kind, aircraftId, file, { dryRun: false }),
             (pct, sub) => {
               if (Swal.isVisible()) {
                 Swal.update({
                   title: "Importing data",
                   html: importProgressSwalHtml(
-                    45 + Math.round((Math.min(100, Math.max(0, pct)) * 55) / 100),
+                    45 +
+                      Math.round((Math.min(100, Math.max(0, pct)) * 55) / 100),
                     sub
                   ),
                 });
@@ -999,7 +1039,9 @@ export function Maintenance() {
         const isAdDryRunValidationFailure =
           kind === "maintenance-ad" && importPhase === "validate";
         const swalContent = formatMaintenanceImportErrorForSwal(err, {
-          defaultTitle: isAdDryRunValidationFailure ? "Validation failed" : undefined,
+          defaultTitle: isAdDryRunValidationFailure
+            ? "Validation failed"
+            : undefined,
           fallbackMessage: isAdDryRunValidationFailure
             ? "Validation failed. Please review the Excel file and try again."
             : "Import failed. Please try again.",
@@ -1268,12 +1310,56 @@ export function Maintenance() {
   const totalPages = ldndPages;
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = Math.min(startIndex + itemsPerPage, ldndTotal);
-  const paginatedLDNDItems = ldndItems;
+
+  // Empty / null values are always pushed to the bottom regardless of direction
+  const compareNullableString = (
+    a: string | null | undefined,
+    b: string | null | undefined,
+    direction: SortDirection
+  ): number => {
+    const aVal = (a ?? "").toString().trim();
+    const bVal = (b ?? "").toString().trim();
+    if (!aVal && !bVal) return 0;
+    if (!aVal) return 1;
+    if (!bVal) return -1;
+    return direction === "asc"
+      ? aVal.localeCompare(bVal, undefined, { numeric: true })
+      : bVal.localeCompare(aVal, undefined, { numeric: true });
+  };
+
+  const paginatedLDNDItems = useMemo(() => {
+    if (!ldndSort.field) return ldndItems;
+    const sorted = [...ldndItems];
+    if (ldndSort.field === "performedDateEnd") {
+      sorted.sort((a, b) =>
+        compareNullableString(
+          a.performedDateEnd,
+          b.performedDateEnd,
+          ldndSort.direction
+        )
+      );
+    }
+    return sorted;
+  }, [ldndItems, ldndSort]);
 
   const adTotalPages = adPages;
   const adStartIndex = (adCurrentPage - 1) * adItemsPerPage;
   const adEndIndex = Math.min(adStartIndex + adItemsPerPage, adTotal);
-  const paginatedADItems = adItems;
+
+  const paginatedADItems = useMemo(() => {
+    if (!adSort.field) return adItems;
+    const sorted = [...adItems];
+    if (adSort.field === "adNumber") {
+      sorted.sort((a, b) =>
+        compareNullableString(a.adNumber, b.adNumber, adSort.direction)
+      );
+    } else if (adSort.field === "compliDate") {
+      sorted.sort((a, b) =>
+        compareNullableString(a.compliDate, b.compliDate, adSort.direction)
+      );
+    }
+    return sorted;
+  }, [adItems, adSort]);
 
   // TCC Forecasting Data
   const tccItems: TCCItem[] = [
@@ -1532,10 +1618,10 @@ export function Maintenance() {
           </div>
         </div>
         <div className="relative z-20 flex items-center gap-2">
-          <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
+          {/* <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print</span>
-          </button>
+          </button> */}
           {canImportMaintenance && (
             <input
               type="file"
@@ -1796,7 +1882,26 @@ export function Maintenance() {
                         PERFORMED DATE START
                       </th>
                       <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
-                        PERFORMED DATE END
+                        <button
+                          type="button"
+                          onClick={() => handleLdndSort("performedDateEnd")}
+                          className="inline-flex items-center gap-1 text-left font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+                          title="Sort by Performed Date End"
+                        >
+                          PERFORMED DATE END
+                          {ldndSort.field === "performedDateEnd" &&
+                          ldndSort.direction === "asc" ? (
+                            <ChevronUp
+                              className="w-3.5 h-3.5 shrink-0"
+                              aria-hidden
+                            />
+                          ) : (
+                            <ChevronDown
+                              className="w-3.5 h-3.5 shrink-0"
+                              aria-hidden
+                            />
+                          )}
+                        </button>
                       </th>
                       <th className="px-3 py-2 text-left text-gray-900 text-xs border-l border-gray-300">
                         NEXT DUE TACH HOURS
@@ -1916,7 +2021,7 @@ export function Maintenance() {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search by AD number, subject, status..."
+                    placeholder="Search by AD Number, Subject, Date of Effectivity"
                     value={adSearchQuery}
                     onChange={(e) => {
                       setAdSearchQuery(e.target.value);
@@ -1984,7 +2089,26 @@ export function Maintenance() {
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                        AD Number
+                        <button
+                          type="button"
+                          onClick={() => handleAdSort("adNumber")}
+                          className="inline-flex items-center gap-1 text-left font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded uppercase tracking-wider"
+                          title="Sort by AD Number"
+                        >
+                          AD Number
+                          {adSort.field === "adNumber" &&
+                          adSort.direction === "asc" ? (
+                            <ChevronUp
+                              className="w-3.5 h-3.5 shrink-0"
+                              aria-hidden
+                            />
+                          ) : (
+                            <ChevronDown
+                              className="w-3.5 h-3.5 shrink-0"
+                              aria-hidden
+                            />
+                          )}
+                        </button>
                       </th>
                       <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
                         Subject
@@ -1993,7 +2117,26 @@ export function Maintenance() {
                         Inspection Interval
                       </th>
                       <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                        DATE OF EFFECTIVITY
+                        <button
+                          type="button"
+                          onClick={() => handleAdSort("compliDate")}
+                          className="inline-flex items-center gap-1 text-left font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded uppercase tracking-wider"
+                          title="Sort by Date of Effectivity"
+                        >
+                          DATE OF EFFECTIVITY
+                          {adSort.field === "compliDate" &&
+                          adSort.direction === "asc" ? (
+                            <ChevronUp
+                              className="w-3.5 h-3.5 shrink-0"
+                              aria-hidden
+                            />
+                          ) : (
+                            <ChevronDown
+                              className="w-3.5 h-3.5 shrink-0"
+                              aria-hidden
+                            />
+                          )}
+                        </button>
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
                         Work Orders
