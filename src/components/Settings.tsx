@@ -1526,7 +1526,7 @@ function EditRoleModal({
     if (role) {
       setFormData({
         name: role.name,
-        description: role.description,
+        description: role.description ?? "",
       });
       setRolePermissions(
         mergePermissionsWithModuleList(moduleList, permissions)
@@ -1548,10 +1548,14 @@ function EditRoleModal({
 
   const handleUpdate = async () => {
     if (!validate()) return;
+    const normalized = {
+      name: formData.name.trim(),
+      description: formData.description.trim(),
+    };
     setSubmitting(true);
     try {
       await Promise.resolve(
-        onUpdate({ ...role, ...formData }, rolePermissions)
+        onUpdate({ ...role, ...normalized }, rolePermissions)
       );
       onClose();
     } catch {

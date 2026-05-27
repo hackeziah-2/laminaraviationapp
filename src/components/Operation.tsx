@@ -72,10 +72,12 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import {
   ATL_WORK_STATUS_KEYS,
+  isAtlBatchBranchCreateRole,
   isAtlBatchBranchEditRole,
   isAtlBatchFilterAndBranchManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
+  isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
@@ -551,15 +553,16 @@ export function Operation() {
     [operationAtlRole]
   );
   const canExportOperationAtl = !isMechanicViewer;
-  /** Create/Edit ATL batch (branch) is restricted to Admin, Maintenance Planner, and
-   * Maintenance Manager. All other roles (incl. Mechanic) see the filter only. */
+  /** Create ATL batch (branch) is restricted to Admin and Maintenance Planner. */
+  const canCreateAtlBatchBranches = useMemo(
+    () => isAtlBatchBranchCreateRole(operationAtlRole),
+    [operationAtlRole]
+  );
+  /** Edit ATL batch (branch) is restricted to Admin and Maintenance Manager. */
   const canEditAtlBatchBranches = useMemo(
     () => isAtlBatchBranchEditRole(operationAtlRole),
     [operationAtlRole]
   );
-
-  const operationTechPubUploadOnly =
-    isTechnicalPublicationRole(operationAtlRole);
 
   const canCreateOperationAtl = canCreate("operation") || canCreate("logbook");
   const canUpdateOperationAtl = canUpdate("operation") || canUpdate("logbook");
@@ -570,6 +573,10 @@ export function Operation() {
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
+
+  const operationTechPubCanEditAtl = (record: AircraftTechnicalLog) =>
+    isTechnicalPublicationRole(operationAtlRole) &&
+    allowAtlEditForRecord(record);
 
   const handleBack = () => {
     navigate("/profile");
@@ -2319,7 +2326,7 @@ export function Operation() {
                       onChange={(e) => {
                         const v = e.target.value;
                         if (v === ATL_BRANCH_CREATE_VALUE) {
-                          if (!canEditAtlBatchBranches) return;
+                          if (!canCreateAtlBatchBranches) return;
                           setAtlBatchModalEditId(null);
                           setAtlBatchModalOpen(true);
                           return;
@@ -2359,11 +2366,13 @@ export function Operation() {
                           {b.name}
                         </option>
                       ))}
+                      {canCreateAtlBatchBranches && (
+                        <option value={ATL_BRANCH_CREATE_VALUE}>
+                          + Create branch…
+                        </option>
+                      )}
                       {canEditAtlBatchBranches && (
                         <>
-                          <option value={ATL_BRANCH_CREATE_VALUE}>
-                            + Create branch…
-                          </option>
                           <option value={ATL_BRANCH_EDIT_VALUE}>
                             Edit branch…
                           </option>
@@ -2840,7 +2849,7 @@ export function Operation() {
                                         View
                                       </button>
                                       {(canUpdateOperationAtl ||
-                                        operationTechPubUploadOnly) && (
+                                        operationTechPubCanEditAtl(record)) && (
                                         <>
                                           <span className="text-gray-400">
                                             |
@@ -3512,7 +3521,7 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubUploadOnly) && (
+                                      operationTechPubCanEditAtl(record)) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -3728,7 +3737,7 @@ export function Operation() {
                                         View
                                       </button>
                                       {(canUpdateOperationAtl ||
-                                        operationTechPubUploadOnly) && (
+                                        operationTechPubCanEditAtl(record)) && (
                                         <>
                                           <span className="text-gray-400">
                                             |
@@ -3938,7 +3947,7 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubUploadOnly) && (
+                                      operationTechPubCanEditAtl(record)) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -4213,7 +4222,10 @@ export function Operation() {
           aircraftId={effectiveAircraftId}
           permissionModuleCode={operationAtlPermissionModuleCode}
           viewerRole={operationAtlRole}
-          editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
+          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+            operationAtlRole,
+            selectedEntry.workStatus
+          )}
           listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);

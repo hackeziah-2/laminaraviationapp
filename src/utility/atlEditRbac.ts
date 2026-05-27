@@ -63,13 +63,30 @@ function normalizeRoleNameForMatch(raw: string | undefined): string {
     .trim();
 }
 
+/**
+ * Operation Management: Technical Publication at AWAITING_ATTACHMENT may update only
+ * White ATL / DFP uploads and work status (typically → PENDING); other fields stay read-only.
+ */
+export function isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+  userRole: string | undefined,
+  workStatus: string | undefined
+): boolean {
+  return (
+    isTechnicalPublicationRole(userRole) &&
+    normalizeAtlWorkStatus(workStatus) === "AWAITING_ATTACHMENT"
+  );
+}
+
 /** Technical Publication role variants (incl. OEM) — used for ATL work-status RBAC and upload-only Operation edit. */
 export function isTechnicalPublicationRole(
   userRole: string | undefined
 ): boolean {
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
+  const hasTechnicalPublicationPhrase =
+    n.includes("technical publication") || n.includes("tech publication");
   return (
+    hasTechnicalPublicationPhrase ||
     n === "technical publication" ||
     n === "tech publication" ||
     n === "oem technical publication" ||
@@ -127,30 +144,41 @@ export function isAtlBatchFilterAndBranchManagementRole(
 }
 
 /**
- * Roles allowed to create or edit ATL batch (branch) records:
- * Admin, Maintenance Planner, Maintenance Manager (and common name variants).
- *
- * All other roles — including Mechanic — can use the ATL batch filter but
- * must not see the "+ Create branch…" / "Edit branch…" options and must not
- * open the add/edit batch modal.
+ * Roles allowed to create ATL batch (branch) records:
+ * Admin and Maintenance Planner.
+ */
+export function isAtlBatchBranchCreateRole(
+  userRole: string | undefined
+): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return (
+    n === "admin" ||
+    n.endsWith(" admin") ||
+    n === "maintenance planner" ||
+    n === "maint planner" ||
+    n === "maintenance planning" ||
+    n.endsWith(" maintenance planner")
+  );
+}
+
+/**
+ * Roles allowed to edit ATL batch (branch) records from the operation ATL
+ * batch dropdown:
+ * Admin and Maintenance Manager.
  */
 export function isAtlBatchBranchEditRole(
   userRole: string | undefined
 ): boolean {
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
-  if (n === "admin" || n.endsWith(" admin")) return true;
-  const isPlanner =
-    n === "maintenance planner" ||
-    n === "maint planner" ||
-    n === "maintenance planning" ||
-    n.endsWith(" maintenance planner");
-  if (isPlanner) return true;
-  const isMaintManager =
+  return (
+    n === "admin" ||
+    n.endsWith(" admin") ||
     n === "maintenance manager" ||
     n === "maint manager" ||
-    n.endsWith(" maintenance manager");
-  return isMaintManager;
+    n.endsWith(" maintenance manager")
+  );
 }
 
 function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {

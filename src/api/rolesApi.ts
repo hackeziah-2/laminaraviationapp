@@ -30,12 +30,28 @@ export interface CreateRolePayload {
 
 function normalizeRole(raw: Record<string, unknown>): Role {
   const getStr = (k: string, fallback = "") =>
-    String(raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback);
+    String(
+      raw[k] ?? raw[k?.replace(/([A-Z])/g, "_$1").toLowerCase()] ?? fallback
+    );
+  const getFirstStr = (keys: string[], fallback = "") => {
+    for (const key of keys) {
+      const val = raw[key] ?? raw[key.replace(/([A-Z])/g, "_$1").toLowerCase()];
+      if (val !== undefined && val !== null && String(val).trim() !== "") {
+        return String(val);
+      }
+    }
+    return fallback;
+  };
   const id = Number(raw.id ?? 0);
   return {
     id: isNaN(id) ? 0 : id,
     name: getStr("name"),
-    description: getStr("description"),
+    description: getFirstStr([
+      "description",
+      "role_description",
+      "roleDescription",
+      "desc",
+    ]),
     userCount: Number(raw.user_count ?? raw.userCount ?? 0),
   };
 }
@@ -177,10 +193,13 @@ export const createRole = async (
 /** Update role: PUT /api/v1/roles/:id/ — optionally include permissions in body. */
 export const updateRole = async (
   id: number,
-  payload: { name?: string; description?: string },
+  payload: { name: string; description: string },
   permissions?: Permission[]
 ): Promise<RoleWithPermissions> => {
-  const body: Record<string, unknown> = { ...payload };
+  const body: Record<string, unknown> = {
+    name: payload.name,
+    description: payload.description,
+  };
   if (Array.isArray(permissions) && permissions.length) {
     body.permissions = permissions;
   }

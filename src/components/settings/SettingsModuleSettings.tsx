@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Swal from "sweetalert2";
 import { Edit2, Loader2, Plus, Trash2 } from "lucide-react";
 import {
@@ -13,6 +13,11 @@ import {
 } from "../../api/organizationalApprovalApi";
 import type { ModuleSettingKey } from "../../constants/moduleSettingsOptions";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
+import { getMe } from "../../api/authApi";
+import {
+  isAtlBatchBranchCreateRole,
+  isAtlBatchBranchEditRole,
+} from "../../utility/atlEditRbac";
 import { AddAtlBatchModal } from "../AddAtlBatchModal";
 import { AddCertificateCategoryTypeModal } from "../AddCertificateCategoryTypeModal";
 import { DataTablePagination } from "../ui/DataTablePagination";
@@ -75,7 +80,23 @@ function FleetTimeMonitoringSettings() {
 
 function AtlBatchSettingsPanel() {
   const { canCreate, canUpdate, canDelete } = useUserPermissions();
-  const canManageBatches = canCreate("settings") || canUpdate("settings");
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+  const atlBatchRole = sessionRoleName?.trim();
+  const hasSettingsManagePermission =
+    canCreate("settings") || canUpdate("settings");
+  const canCreateBatches = useMemo(
+    () =>
+      hasSettingsManagePermission && isAtlBatchBranchCreateRole(atlBatchRole),
+    [hasSettingsManagePermission, atlBatchRole]
+  );
+  const canEditBatches = useMemo(
+    () =>
+      hasSettingsManagePermission && isAtlBatchBranchEditRole(atlBatchRole),
+    [hasSettingsManagePermission, atlBatchRole]
+  );
+  const canManageBatches = canCreateBatches || canEditBatches;
   const canRemoveBatches = canDelete("settings");
 
   const [batches, setBatches] = useState<AtlBatch[]>([]);
@@ -114,12 +135,28 @@ function AtlBatchSettingsPanel() {
     void loadBatches();
   }, [loadBatches]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const openCreate = () => {
+    if (!canCreateBatches) return;
     setEditBatchId(null);
     setModalOpen(true);
   };
 
   const openEdit = (id: number) => {
+    if (!canEditBatches) return;
     setEditBatchId(id);
     setModalOpen(true);
   };
@@ -182,7 +219,7 @@ function AtlBatchSettingsPanel() {
               ? "Loading…"
               : `${totalBatches} batch${totalBatches === 1 ? "" : "es"}`}
           </span>
-          {canManageBatches && (
+          {canCreateBatches && (
             <button
               type="button"
               onClick={openCreate}
@@ -213,7 +250,7 @@ function AtlBatchSettingsPanel() {
               <p className="mt-1 text-sm text-gray-500">
                 Create a batch to use in fleet time filters and logbook entries.
               </p>
-              {canManageBatches && (
+              {canCreateBatches && (
                 <button
                   type="button"
                   onClick={openCreate}
@@ -258,7 +295,7 @@ function AtlBatchSettingsPanel() {
                     {(canManageBatches || canRemoveBatches) && (
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap items-center gap-2">
-                          {canManageBatches && (
+                          {canEditBatches && (
                             <button
                               type="button"
                               onClick={() => openEdit(batch.id)}
