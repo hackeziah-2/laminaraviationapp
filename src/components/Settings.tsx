@@ -51,7 +51,7 @@ interface User {
   status: "active" | "inactive";
   lastDone: string;
   createdDate: string;
-  auth_initial_doi?: string;
+  auth_initial_doi?: string | null;
 }
 
 /** Role (including user_count from GET /v1/roles/roles-list) */
@@ -490,7 +490,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
     status: true,
     password: "",
     confirmPassword: "",
-    auth_initial_doi: "",
+    auth_initial_doi: null,
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -542,7 +542,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
         status: true,
         password: "",
         confirmPassword: "",
-        auth_initial_doi: "",
+        auth_initial_doi: null,
       });
       setErrors({});
       onClose();
@@ -705,7 +705,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
             </label>
             <input
               type="date"
-              value={formData.auth_initial_doi}
+              value={formData.auth_initial_doi || null}
               onChange={(e) =>
                 setFormData({ ...formData, auth_initial_doi: e.target.value })
               }
@@ -863,6 +863,7 @@ function EditUserModal({
     status: user?.status || "active",
     auth_initial_doi: user?.auth_initial_doi || "",
   });
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
@@ -898,8 +899,29 @@ function EditUserModal({
   }, [isOpen, user?.id]);
 
   if (!isOpen || !user) return null;
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.first_name.trim())
+      newErrors.first_name = "First name is required";
+    if (!formData.last_name.trim())
+      newErrors.last_name = "Last name is required";
+    if (!formData.username.trim()) newErrors.username = "Username is required";
+    if (!formData.email.trim()) newErrors.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
+      newErrors.email = "Invalid email format";
+    if (!formData.designation.trim())
+      newErrors.designation = "Designation is required";
+    if (!formData.license_no.trim())
+      newErrors.license_no = "License number is required";
+    if (!formData.role_id) newErrors.role_id = "Role is required";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validate()) return;
     setSubmitting(true);
     try {
       const resolvedRole =
@@ -920,7 +942,7 @@ function EditUserModal({
           roleId: formData.role_id,
           role: resolvedRole,
           status: formData.status as "active" | "inactive",
-          auth_initial_doi: formData.auth_initial_doi || undefined,
+          auth_initial_doi: formData.auth_initial_doi || null,
         })
       );
       onClose();
@@ -949,11 +971,18 @@ function EditUserModal({
             <input
               type="text"
               value={formData.first_name}
-              onChange={(e) =>
-                setFormData({ ...formData, first_name: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => {
+                setFormData({ ...formData, first_name: e.target.value });
+                if (errors.first_name)
+                  setErrors((prev) => ({ ...prev, first_name: "" }));
+              }}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.first_name ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.first_name && (
+              <p className="text-xs text-red-600 mt-1">{errors.first_name}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -962,11 +991,18 @@ function EditUserModal({
             <input
               type="text"
               value={formData.last_name}
-              onChange={(e) =>
-                setFormData({ ...formData, last_name: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => {
+                setFormData({ ...formData, last_name: e.target.value });
+                if (errors.last_name)
+                  setErrors((prev) => ({ ...prev, last_name: "" }));
+              }}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.last_name ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.last_name && (
+              <p className="text-xs text-red-600 mt-1">{errors.last_name}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -988,11 +1024,18 @@ function EditUserModal({
             <input
               type="text"
               value={formData.username}
-              onChange={(e) =>
-                setFormData({ ...formData, username: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => {
+                setFormData({ ...formData, username: e.target.value });
+                if (errors.username)
+                  setErrors((prev) => ({ ...prev, username: "" }));
+              }}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.username ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.username && (
+              <p className="text-xs text-red-600 mt-1">{errors.username}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1001,11 +1044,17 @@ function EditUserModal({
             <input
               type="email"
               value={formData.email}
-              onChange={(e) =>
-                setFormData({ ...formData, email: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => {
+                setFormData({ ...formData, email: e.target.value });
+                if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+              }}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.email ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.email && (
+              <p className="text-xs text-red-600 mt-1">{errors.email}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1014,11 +1063,18 @@ function EditUserModal({
             <input
               type="text"
               value={formData.designation}
-              onChange={(e) =>
-                setFormData({ ...formData, designation: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => {
+                setFormData({ ...formData, designation: e.target.value });
+                if (errors.designation)
+                  setErrors((prev) => ({ ...prev, designation: "" }));
+              }}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.designation ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.designation && (
+              <p className="text-xs text-red-600 mt-1">{errors.designation}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1027,11 +1083,18 @@ function EditUserModal({
             <input
               type="text"
               value={formData.license_no}
-              onChange={(e) =>
-                setFormData({ ...formData, license_no: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => {
+                setFormData({ ...formData, license_no: e.target.value });
+                if (errors.license_no)
+                  setErrors((prev) => ({ ...prev, license_no: "" }));
+              }}
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.license_no ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.license_no && (
+              <p className="text-xs text-red-600 mt-1">{errors.license_no}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1052,10 +1115,14 @@ function EditUserModal({
             </label>
             <select
               value={formData.role_id}
-              onChange={(e) =>
-                setFormData({ ...formData, role_id: Number(e.target.value) })
-              }
-              className={SELECT_BASE_CLASS}
+              onChange={(e) => {
+                setFormData({ ...formData, role_id: Number(e.target.value) });
+                if (errors.role_id)
+                  setErrors((prev) => ({ ...prev, role_id: "" }));
+              }}
+              className={`${SELECT_BASE_CLASS} ${
+                errors.role_id ? "border-red-500" : ""
+              }`}
             >
               <option value={0}>Select role</option>
               {roles.map((role) => (
@@ -1064,6 +1131,9 @@ function EditUserModal({
                 </option>
               ))}
             </select>
+            {errors.role_id && (
+              <p className="text-xs text-red-600 mt-1">{errors.role_id}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1449,27 +1519,43 @@ function EditRoleModal({
     [moduleList, permissions]
   );
   const [rolePermissions, setRolePermissions] = useState<Permission[]>(merged);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
     if (role) {
       setFormData({
         name: role.name,
-        description: role.description,
+        description: role.description ?? "",
       });
       setRolePermissions(
         mergePermissionsWithModuleList(moduleList, permissions)
       );
+      setErrors({});
     }
   }, [role, permissions, moduleList]);
 
   if (!isOpen || !role) return null;
 
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.name.trim()) newErrors.name = "Role name is required";
+    if (!formData.description.trim())
+      newErrors.description = "Description is required";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleUpdate = async () => {
+    if (!validate()) return;
+    const normalized = {
+      name: formData.name.trim(),
+      description: formData.description.trim(),
+    };
     setSubmitting(true);
     try {
       await Promise.resolve(
-        onUpdate({ ...role, ...formData }, rolePermissions)
+        onUpdate({ ...role, ...normalized }, rolePermissions)
       );
       onClose();
     } catch {
@@ -1502,16 +1588,22 @@ function EditRoleModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Role Name
+                Role Name *
               </label>
               <input
                 type="text"
                 value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  if (errors.name) setErrors((prev) => ({ ...prev, name: "" }));
+                }}
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  errors.name ? "border-red-500" : "border-gray-300"
+                }`}
               />
+              {errors.name && (
+                <p className="text-xs text-red-600 mt-1">{errors.name}</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1528,16 +1620,23 @@ function EditRoleModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
+              Description *
             </label>
             <textarea
               value={formData.description}
-              onChange={(e) =>
-                setFormData({ ...formData, description: e.target.value })
-              }
+              onChange={(e) => {
+                setFormData({ ...formData, description: e.target.value });
+                if (errors.description)
+                  setErrors((prev) => ({ ...prev, description: "" }));
+              }}
               rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.description ? "border-red-500" : "border-gray-300"
+              }`}
             />
+            {errors.description && (
+              <p className="text-xs text-red-600 mt-1">{errors.description}</p>
+            )}
           </div>
 
           <div>
@@ -1674,6 +1773,7 @@ function CreateRoleModal({
     setPermissions(defaultPerms);
   }, [defaultPerms]);
 
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   if (!isOpen) return null;
@@ -1687,8 +1787,18 @@ function CreateRoleModal({
     setPermissions(updated);
   };
 
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    if (!formData.name.trim()) newErrors.name = "Role name is required";
+    if (!formData.description.trim())
+      newErrors.description = "Description is required";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validate()) return;
     setSubmitting(true);
     try {
       await Promise.resolve(
@@ -1703,6 +1813,7 @@ function CreateRoleModal({
         )
       );
       setFormData({ name: "", description: "" });
+      setErrors({});
       setPermissions(defaultPerms);
       onClose();
     } catch {
@@ -1733,13 +1844,18 @@ function CreateRoleModal({
               <input
                 type="text"
                 value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => {
+                  setFormData({ ...formData, name: e.target.value });
+                  if (errors.name) setErrors((prev) => ({ ...prev, name: "" }));
+                }}
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  errors.name ? "border-red-500" : "border-gray-300"
+                }`}
                 placeholder="e.g., Senior Mechanic"
-                required
               />
+              {errors.name && (
+                <p className="text-xs text-red-600 mt-1">{errors.name}</p>
+              )}
             </div>
 
             <div>
@@ -1748,14 +1864,22 @@ function CreateRoleModal({
               </label>
               <textarea
                 value={formData.description}
-                onChange={(e) =>
-                  setFormData({ ...formData, description: e.target.value })
-                }
+                onChange={(e) => {
+                  setFormData({ ...formData, description: e.target.value });
+                  if (errors.description)
+                    setErrors((prev) => ({ ...prev, description: "" }));
+                }}
                 rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  errors.description ? "border-red-500" : "border-gray-300"
+                }`}
                 placeholder="Describe the role's responsibilities and access level"
-                required
               />
+              {errors.description && (
+                <p className="text-xs text-red-600 mt-1">
+                  {errors.description}
+                </p>
+              )}
             </div>
           </div>
 
@@ -3176,7 +3300,7 @@ export function Settings() {
               licenseNo: updatedUser.licenseNo || "",
               roleId: updatedUser.roleId,
               status: updatedUser.status === "active",
-              auth_initial_doi: updatedUser.auth_initial_doi ?? "",
+              auth_initial_doi: updatedUser.auth_initial_doi || null,
             });
             setShowEditUserModal(false);
             setSelectedUser(null);

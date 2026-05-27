@@ -1223,6 +1223,49 @@ export function pickLatestAtlBatchId(batches: AtlBatch[]): number | null {
   return Math.max(...batches.map((b) => b.id));
 }
 
+export interface PaginatedAtlBatchesResponse {
+  items: AtlBatch[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+/**
+ * Paged list for ATL Batch Settings.
+ * GET /api/v1/atl-batch/paged?page=&limit=
+ */
+export async function getAtlBatchesPaged(
+  page = 1,
+  limit = 10
+): Promise<PaginatedAtlBatchesResponse> {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  const res = await apiClient.get(`atl-batch/paged?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data ?? {};
+  const data = raw.results ?? raw.items ?? raw.data ?? [];
+  const list = Array.isArray(data) ? data : [];
+  const items = list
+    .map((row: Record<string, unknown>) => {
+      try {
+        return parseAtlBatchPayload(row);
+      } catch {
+        return null;
+      }
+    })
+    .filter((b): b is AtlBatch => b != null);
+  const total = raw.total ?? raw.count ?? items.length;
+  const pages = raw.pages ?? Math.max(1, Math.ceil(Number(total) / limit));
+  return {
+    items,
+    total: Number(total),
+    page: Number(raw.page ?? page),
+    pages: Number(pages),
+  };
+}
+
 /**
  * Options for ATL batch `<select>` (filter form, entry modal).
  * GET /api/v1/atl-batch/list

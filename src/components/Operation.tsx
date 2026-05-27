@@ -5,6 +5,7 @@ import {
   useRef,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   useParams,
   useNavigate,
@@ -26,6 +27,7 @@ import {
   Eye,
   RefreshCw,
   Filter,
+  CheckCircle2,
 } from "lucide-react";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { AddAtlBatchModal } from "./AddAtlBatchModal";
@@ -50,7 +52,7 @@ import {
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import Swal from "sweetalert2";
-import { Spinner } from "./ui/spinner";
+import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
@@ -70,8 +72,12 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import {
   ATL_WORK_STATUS_KEYS,
+  isAtlBatchBranchCreateRole,
+  isAtlBatchBranchEditRole,
   isAtlBatchFilterAndBranchManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isMechanicRole,
+  isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
@@ -131,6 +137,311 @@ type ExportColumnDefinition = {
   label: string;
   getValue: (record: AircraftTechnicalLog) => string;
 };
+
+/** Visual grouping for the Export Columns picker. Order = display order. */
+type ExportColumnSubGroup = {
+  id: string;
+  label: string;
+  keys: string[];
+  /** Sub-groups marked advanced collapse by default to keep critical fields visible first. */
+  defaultCollapsed?: boolean;
+};
+
+type ExportColumnCategory = {
+  id: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+  accent: string;
+  accentText: string;
+  subGroups?: ExportColumnSubGroup[];
+  /** Flat union of all keys (equals concat of subGroups[].keys when present). */
+  keys: string[];
+};
+
+const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
+  {
+    id: "general",
+    label: "General Information",
+    shortLabel: "General",
+    description: "Sequence, status, and flight identification.",
+    accent: "bg-blue-500",
+    accentText: "text-blue-600",
+    keys: [
+      "sequenceNo",
+      "workStatus",
+      "natureOfFlight",
+      "nextInspectionDue",
+      "tachTimeDue",
+    ],
+  },
+  {
+    id: "blockTimes",
+    label: "Flight & Landing",
+    shortLabel: "Flight",
+    description: "Off / on blocks times, totals, and landings.",
+    accent: "bg-indigo-500",
+    accentText: "text-indigo-600",
+    subGroups: [
+      {
+        id: "offBlocks",
+        label: "Off Blocks",
+        keys: ["originDate", "originTime", "offBlocks"],
+      },
+      {
+        id: "onBlocks",
+        label: "On Blocks",
+        keys: ["destinationDate", "destinationTime", "onBlocks"],
+      },
+      {
+        id: "totals",
+        label: "Totals",
+        keys: ["totalFlightHours", "numberOfLandings"],
+      },
+    ],
+    keys: [
+      "originDate",
+      "originTime",
+      "offBlocks",
+      "destinationDate",
+      "destinationTime",
+      "onBlocks",
+      "totalFlightHours",
+      "numberOfLandings",
+    ],
+  },
+  {
+    id: "hobbsTach",
+    label: "Hobbs & Tachometer",
+    shortLabel: "Hobbs / Tach",
+    description: "Hobbs meter and tachometer readings.",
+    accent: "bg-cyan-500",
+    accentText: "text-cyan-600",
+    subGroups: [
+      {
+        id: "hobbs",
+        label: "Hobbs",
+        keys: ["hobbsMeterStart", "hobbsMeterEnd", "hobbsMeterTotal"],
+      },
+      {
+        id: "tachometer",
+        label: "Tachometer",
+        keys: ["tachometerStart", "tachometerEnd"],
+      },
+    ],
+    keys: [
+      "hobbsMeterStart",
+      "hobbsMeterEnd",
+      "hobbsMeterTotal",
+      "tachometerStart",
+      "tachometerEnd",
+    ],
+  },
+  {
+    id: "airframeEngineProp",
+    label: "Airframe / Engine / Propeller",
+    shortLabel: "A / E / P",
+    description: "Run times, TSN, TSO, TBO, and AFTT metrics.",
+    accent: "bg-emerald-500",
+    accentText: "text-emerald-600",
+    subGroups: [
+      {
+        id: "airframe",
+        label: "Airframe",
+        keys: ["airframeRun", "airframeAftt"],
+      },
+      {
+        id: "engine",
+        label: "Engine",
+        keys: ["engineRun", "engineTsn", "engineTso", "engineTbo"],
+      },
+      {
+        id: "propeller",
+        label: "Propeller",
+        keys: [
+          "propellerRun",
+          "propellerTsn",
+          "propellerTso",
+          "propellerTbo",
+        ],
+        defaultCollapsed: true,
+      },
+    ],
+    keys: [
+      "airframeRun",
+      "airframeAftt",
+      "engineRun",
+      "engineTsn",
+      "engineTso",
+      "engineTbo",
+      "propellerRun",
+      "propellerTsn",
+      "propellerTso",
+      "propellerTbo",
+    ],
+  },
+  {
+    id: "fuelOil",
+    label: "Fuel & Oil",
+    shortLabel: "Fuel / Oil",
+    description: "Uplift, prior departure, and after on-blocks quantities.",
+    accent: "bg-amber-500",
+    accentText: "text-amber-600",
+    subGroups: [
+      {
+        id: "fuel",
+        label: "Fuel",
+        keys: [
+          "fuelQtyLeftUpliftQty",
+          "fuelQtyRightUpliftQty",
+          "fuelQtyLeftPriorDeparture",
+          "fuelQtyRightPriorDeparture",
+          "fuelQtyLeftAfterOnBlks",
+          "fuelQtyRightAfterOnBlks",
+        ],
+      },
+      {
+        id: "oil",
+        label: "Oil",
+        keys: [
+          "oilQtyUpliftQty",
+          "oilQtyPriorDeparture",
+          "oilQtyAfterOnBlks",
+        ],
+      },
+    ],
+    keys: [
+      "fuelQtyLeftUpliftQty",
+      "fuelQtyRightUpliftQty",
+      "fuelQtyLeftPriorDeparture",
+      "fuelQtyRightPriorDeparture",
+      "fuelQtyLeftAfterOnBlks",
+      "fuelQtyRightAfterOnBlks",
+      "oilQtyUpliftQty",
+      "oilQtyPriorDeparture",
+      "oilQtyAfterOnBlks",
+    ],
+  },
+  {
+    id: "maintenance",
+    label: "Remarks & Actions",
+    shortLabel: "Remarks",
+    description: "Remarks, actions taken, and responsible mechanics.",
+    accent: "bg-rose-500",
+    accentText: "text-rose-600",
+    subGroups: [
+      {
+        id: "remarks",
+        label: "Remarks",
+        keys: ["remarks", "remarkPerson", "maintenanceNameLicense"],
+      },
+      {
+        id: "actions",
+        label: "Actions Taken",
+        keys: ["actionsTaken", "actionTakenPerson"],
+      },
+    ],
+    keys: [
+      "remarks",
+      "remarkPerson",
+      "maintenanceNameLicense",
+      "actionsTaken",
+      "actionTakenPerson",
+    ],
+  },
+  {
+    id: "components",
+    label: "Component Parts",
+    shortLabel: "Parts",
+    description: "Removed / installed parts and component metadata.",
+    accent: "bg-purple-500",
+    accentText: "text-purple-600",
+    subGroups: [
+      {
+        id: "removed",
+        label: "Removed Parts",
+        keys: [
+          "componentRemovedPn",
+          "componentRemovedSn",
+          "componentRemovedRemTime",
+        ],
+      },
+      {
+        id: "installed",
+        label: "Installed Parts",
+        keys: [
+          "componentInstalledPn",
+          "componentInstalledSn",
+          "componentInstalledRemTime",
+        ],
+      },
+      {
+        id: "metadata",
+        label: "Metadata",
+        keys: [
+          "componentNomenclature",
+          "componentAtaChapter",
+          "componentPartRemarks",
+        ],
+        defaultCollapsed: true,
+      },
+    ],
+    keys: [
+      "componentRemovedPn",
+      "componentRemovedSn",
+      "componentRemovedRemTime",
+      "componentInstalledPn",
+      "componentInstalledSn",
+      "componentInstalledRemTime",
+      "componentNomenclature",
+      "componentAtaChapter",
+      "componentPartRemarks",
+    ],
+  },
+  {
+    id: "reporting",
+    label: "Reporting",
+    shortLabel: "Reporting",
+    description: "Defect reported and released timestamps.",
+    accent: "bg-sky-500",
+    accentText: "text-sky-600",
+    keys: ["dateTimeReported", "dateTimeReleased"],
+  },
+  {
+    id: "release",
+    label: "Release & Acceptance",
+    shortLabel: "Release",
+    description: "Return-to-service and pilot acceptance sign-off.",
+    accent: "bg-teal-500",
+    accentText: "text-teal-600",
+    subGroups: [
+      {
+        id: "rts",
+        label: "Return to Service",
+        keys: ["rtsSignedBy", "rtsDate", "rtsTime"],
+      },
+      {
+        id: "pilotAcceptance",
+        label: "Pilot Acceptance",
+        keys: ["pilotAcceptedBy", "pilotAcceptDate", "pilotAcceptTime"],
+        defaultCollapsed: true,
+      },
+    ],
+    keys: [
+      "rtsSignedBy",
+      "rtsDate",
+      "rtsTime",
+      "pilotAcceptedBy",
+      "pilotAcceptDate",
+      "pilotAcceptTime",
+    ],
+  },
+];
+
+/** Composite id "<categoryId>:<subGroupId>" for tracking accordion open/closed overrides. */
+function subGroupKey(categoryId: string, subGroupId: string): string {
+  return `${categoryId}:${subGroupId}`;
+}
 
 function toNullableMetricNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
@@ -235,8 +546,23 @@ export function Operation() {
     [operationAtlRole]
   );
 
-  const operationTechPubUploadOnly =
-    isTechnicalPublicationRole(operationAtlRole);
+  /** Mechanic is blocked from exporting Fleet Time data and from the Aircraft Details
+   * history page; ATL batch filter visibility is universal and handled separately. */
+  const isMechanicViewer = useMemo(
+    () => isMechanicRole(operationAtlRole),
+    [operationAtlRole]
+  );
+  const canExportOperationAtl = !isMechanicViewer;
+  /** Create ATL batch (branch) is restricted to Admin and Maintenance Planner. */
+  const canCreateAtlBatchBranches = useMemo(
+    () => isAtlBatchBranchCreateRole(operationAtlRole),
+    [operationAtlRole]
+  );
+  /** Edit ATL batch (branch) is restricted to Admin and Maintenance Manager. */
+  const canEditAtlBatchBranches = useMemo(
+    () => isAtlBatchBranchEditRole(operationAtlRole),
+    [operationAtlRole]
+  );
 
   const canCreateOperationAtl = canCreate("operation") || canCreate("logbook");
   const canUpdateOperationAtl = canUpdate("operation") || canUpdate("logbook");
@@ -247,6 +573,10 @@ export function Operation() {
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
+
+  const operationTechPubCanEditAtl = (record: AircraftTechnicalLog) =>
+    isTechnicalPublicationRole(operationAtlRole) &&
+    allowAtlEditForRecord(record);
 
   const handleBack = () => {
     navigate("/profile");
@@ -377,6 +707,7 @@ export function Operation() {
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
   const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
+  const [atlBatchFilterError, setAtlBatchFilterError] = useState("");
   const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
     { id: number; name: string }[]
   >([]);
@@ -403,6 +734,14 @@ export function Operation() {
   const [selectedExportColumns, setSelectedExportColumns] = useState<string[]>(
     []
   );
+  const [exportColumnSearch, setExportColumnSearch] = useState("");
+  const [activeExportCategoryId, setActiveExportCategoryId] = useState<string>(
+    EXPORT_COLUMN_CATEGORIES[0]?.id ?? ""
+  );
+  /** Per-subgroup override of expand/collapse state. Missing entry → defaultCollapsed from def. */
+  const [exportSubGroupOverrides, setExportSubGroupOverrides] = useState<
+    Record<string, boolean>
+  >({});
   const importFileInputRef = useRef<HTMLInputElement>(null);
   /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
   const atlBatchFilterTouchedRef = useRef(false);
@@ -1000,12 +1339,14 @@ export function Operation() {
       {
         key: "remarkPerson",
         label: "Remark Person",
-        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) =>
+          formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "maintenanceNameLicense",
         label: "Name and License",
-        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) =>
+          formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "actionsTaken",
@@ -1015,7 +1356,8 @@ export function Operation() {
       {
         key: "actionTakenPerson",
         label: "Action Taken Person",
-        getValue: (record) => formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) =>
+          formatMaintenanceLicenseDisplay(record.maintenanceFk),
       },
       {
         key: "componentRemovedPn",
@@ -1138,7 +1480,13 @@ export function Operation() {
         "totalFlightHours",
         "fuelQtyLeftUpliftQty",
         "fuelQtyRightUpliftQty",
+        "fuelQtyLeftPriorDeparture",
+        "fuelQtyRightPriorDeparture",
+        "fuelQtyLeftAfterOnBlks",
+        "fuelQtyRightAfterOnBlks",
         "oilQtyUpliftQty",
+        "oilQtyPriorDeparture",
+        "oilQtyAfterOnBlks",
         "remarks",
         "maintenanceNameLicense",
       ],
@@ -1194,6 +1542,66 @@ export function Operation() {
       return current.filter((key) => availableKeys.includes(key));
     });
   }, [activeExportColumnDefinitions]);
+
+  /** Reset Export Columns modal local UI state whenever the modal closes. */
+  useEffect(() => {
+    if (!showExportModal) {
+      setExportColumnSearch("");
+      setExportSubGroupOverrides({});
+      setActiveExportCategoryId(EXPORT_COLUMN_CATEGORIES[0]?.id ?? "");
+    }
+  }, [showExportModal]);
+
+  /** Lock body scroll while the Export Columns modal is open (portaled overlay). */
+  useEffect(() => {
+    if (!showExportModal) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showExportModal]);
+
+  /**
+   * Categories that contain at least one column matching the current Group By view
+   * and the current search filter. Drives sidebar tabs and progress indicator.
+   */
+  const activeExportCategoryView = useMemo(() => {
+    const availableKeys = new Set(
+      activeExportColumnDefinitions.map((c) => c.key)
+    );
+    const search = exportColumnSearch.trim().toLowerCase();
+    const columnLabelByKey = new Map(
+      activeExportColumnDefinitions.map((c) => [c.key, c.label])
+    );
+    const matchesSearch = (key: string): boolean => {
+      if (!search) return true;
+      const label = columnLabelByKey.get(key) ?? "";
+      return label.toLowerCase().includes(search);
+    };
+    return EXPORT_COLUMN_CATEGORIES.map((category) => {
+      const keys = category.keys.filter(
+        (k) => availableKeys.has(k) && matchesSearch(k)
+      );
+      const subGroups = (category.subGroups ?? []).map((sg) => ({
+        ...sg,
+        keys: sg.keys.filter((k) => availableKeys.has(k) && matchesSearch(k)),
+      }));
+      return { ...category, keys, subGroups };
+    }).filter((c) => c.keys.length > 0);
+  }, [activeExportColumnDefinitions, exportColumnSearch]);
+
+  /** Keep the active tab valid as Group By or search changes. */
+  useEffect(() => {
+    if (!showExportModal) return;
+    if (activeExportCategoryView.length === 0) return;
+    const exists = activeExportCategoryView.some(
+      (c) => c.id === activeExportCategoryId
+    );
+    if (!exists) {
+      setActiveExportCategoryId(activeExportCategoryView[0].id);
+    }
+  }, [activeExportCategoryView, activeExportCategoryId, showExportModal]);
 
   const handleAddToReliability = (record: AircraftTechnicalLog) => {
     // This would typically send data to backend to create reliability record
@@ -1255,21 +1663,19 @@ export function Operation() {
   };
 
   /** When batch filter UI is shown, import requires a concrete batch (not "All batches"). */
-  const ensureAtlBatchSelectedForImport = async (): Promise<boolean> => {
+  const ensureAtlBatchSelectedForImport = (): boolean => {
     if (!canManageAtlBatchFilterAndBranches) return true;
     if (
       selectedAtlBatchFk != null &&
       Number.isFinite(selectedAtlBatchFk) &&
       selectedAtlBatchFk > 0
     ) {
+      setAtlBatchFilterError("");
       return true;
     }
-    await Swal.fire({
-      title: "Batch Required",
-      text: "Please create or select a batch first before importing ATL records.",
-      icon: "warning",
-      confirmButtonText: "OK",
-    });
+    setAtlBatchFilterError(
+      "Please select an ATL batch before importing records."
+    );
     return false;
   };
 
@@ -1306,7 +1712,7 @@ export function Operation() {
     };
 
   const handleImportClick = async () => {
-    const batchOk = await ensureAtlBatchSelectedForImport();
+    const batchOk = ensureAtlBatchSelectedForImport();
     if (!batchOk) return;
     const canProceed = await validateAircraftPrerequisitesForAtlImport();
     if (!canProceed) return;
@@ -1323,6 +1729,10 @@ export function Operation() {
 
   const handleExport = async (format: "csv" | "xlsx") => {
     if (!effectiveAircraftId) return;
+    if (!canExportOperationAtl) {
+      setShowExportModal(false);
+      return;
+    }
     if (selectedExportColumns.length === 0) {
       await Swal.fire({
         icon: "warning",
@@ -1436,7 +1846,7 @@ export function Operation() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !effectiveAircraftId) return;
-    const batchOk = await ensureAtlBatchSelectedForImport();
+    const batchOk = ensureAtlBatchSelectedForImport();
     if (!batchOk) return;
     const canProceed = await validateAircraftPrerequisitesForAtlImport();
     if (!canProceed) return;
@@ -1446,12 +1856,9 @@ export function Operation() {
       const list = await getAtlBatchesForSelect();
       const latest = pickLatestAtlBatchId(list);
       if (latest == null) {
-        await Swal.fire({
-          icon: "warning",
-          title: "Batch required",
-          text: "No ATL batch is available. Create a batch or select one before importing.",
-          confirmButtonColor: "#2563eb",
-        });
+        setAtlBatchFilterError(
+          "No ATL batch is available. Create a batch before importing."
+        );
         return;
       }
       batchIdForImport = latest;
@@ -1559,8 +1966,7 @@ export function Operation() {
           {
             defaultTitle: "Import failed",
             validationTitle: "Validation Error",
-            fallbackMessage:
-              finalProgress.message?.trim() || "Import failed.",
+            fallbackMessage: finalProgress.message?.trim() || "Import failed.",
           }
         );
         await Swal.fire({
@@ -1764,23 +2170,25 @@ export function Operation() {
                 />
                 <span className="hidden sm:inline">Refresh</span>
               </button>
-              <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
+              {/* <button className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm">
                 <Printer className="w-4 h-4" />
                 <span className="hidden sm:inline">Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedExportColumns(
-                    activeExportColumnDefinitions.map((column) => column.key)
-                  );
-                  setShowExportModal(true);
-                }}
-                className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
-              >
-                <Download className="w-4 h-4" />
-                <span className="hidden sm:inline">Export</span>
-              </button>
+              </button> */}
+              {canExportOperationAtl && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedExportColumns(
+                      activeExportColumnDefinitions.map((column) => column.key)
+                    );
+                    setShowExportModal(true);
+                  }}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+              )}
               {canCreateOperationAtl && (
                 <>
                   <input
@@ -1903,58 +2311,78 @@ export function Operation() {
                 )}
               </div>
               {canManageAtlBatchFilterAndBranches && (
-                <div className="flex flex-wrap items-center gap-2 min-w-[200px]">
-                  <label
-                    htmlFor="operation-atl-branch"
-                    className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
-                  >
-                    <Filter className="w-4 h-4 text-gray-500 shrink-0" />
-                    ATL batch
-                  </label>
-                  <select
-                    id="operation-atl-branch"
-                    value={selectedAtlBatchId}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === ATL_BRANCH_CREATE_VALUE) {
-                        setAtlBatchModalEditId(null);
-                        setAtlBatchModalOpen(true);
-                        return;
-                      }
-                      if (v === ATL_BRANCH_EDIT_VALUE) {
-                        const n =
-                          selectedAtlBatchId.trim() !== ""
-                            ? Number(selectedAtlBatchId)
-                            : NaN;
-                        if (!Number.isFinite(n) || n <= 0) {
-                          void Swal.fire({
-                            icon: "info",
-                            title: "Select a branch",
-                            text: "Choose a branch in the dropdown before editing.",
-                            confirmButtonColor: "#2563eb",
-                          });
+                <div className="flex flex-col gap-1 min-w-[200px]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      htmlFor="operation-atl-branch"
+                      className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
+                    >
+                      <Filter className="w-4 h-4 text-gray-500 shrink-0" />
+                      ATL batch
+                    </label>
+                    <select
+                      id="operation-atl-branch"
+                      value={selectedAtlBatchId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === ATL_BRANCH_CREATE_VALUE) {
+                          if (!canCreateAtlBatchBranches) return;
+                          setAtlBatchModalEditId(null);
+                          setAtlBatchModalOpen(true);
                           return;
                         }
-                        setAtlBatchModalEditId(n);
-                        setAtlBatchModalOpen(true);
-                        return;
-                      }
-                      atlBatchFilterTouchedRef.current = true;
-                      setSelectedAtlBatchId(v);
-                    }}
-                    className="min-w-[200px] px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900"
-                  >
-                    <option value="">All</option>
-                    {atlBatchFilterOptions.map((b) => (
-                      <option key={b.id} value={String(b.id)}>
-                        {b.name}
-                      </option>
-                    ))}
-                    <option value={ATL_BRANCH_CREATE_VALUE}>
-                      + Create branch…
-                    </option>
-                    <option value={ATL_BRANCH_EDIT_VALUE}>Edit branch…</option>
-                  </select>
+                        if (v === ATL_BRANCH_EDIT_VALUE) {
+                          if (!canEditAtlBatchBranches) return;
+                          const n =
+                            selectedAtlBatchId.trim() !== ""
+                              ? Number(selectedAtlBatchId)
+                              : NaN;
+                          if (!Number.isFinite(n) || n <= 0) {
+                            void Swal.fire({
+                              icon: "info",
+                              title: "Select a branch",
+                              text: "Choose a branch in the dropdown before editing.",
+                              confirmButtonColor: "#2563eb",
+                            });
+                            return;
+                          }
+                          setAtlBatchModalEditId(n);
+                          setAtlBatchModalOpen(true);
+                          return;
+                        }
+                        atlBatchFilterTouchedRef.current = true;
+                        setSelectedAtlBatchId(v);
+                        if (v.trim() !== "") setAtlBatchFilterError("");
+                      }}
+                      className={`min-w-[200px] px-3 py-2.5 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white text-sm text-gray-900 ${
+                        atlBatchFilterError
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-300"
+                          : "border-gray-300 focus:border-blue-500"
+                      }`}
+                    >
+                      <option value="">All</option>
+                      {atlBatchFilterOptions.map((b) => (
+                        <option key={b.id} value={String(b.id)}>
+                          {b.name}
+                        </option>
+                      ))}
+                      {canCreateAtlBatchBranches && (
+                        <option value={ATL_BRANCH_CREATE_VALUE}>
+                          + Create branch…
+                        </option>
+                      )}
+                      {canEditAtlBatchBranches && (
+                        <>
+                          <option value={ATL_BRANCH_EDIT_VALUE}>
+                            Edit branch…
+                          </option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  {atlBatchFilterError && (
+                    <p className="text-xs text-red-600">{atlBatchFilterError}</p>
+                  )}
                 </div>
               )}
               <div className="flex items-center gap-2">
@@ -2421,7 +2849,7 @@ export function Operation() {
                                         View
                                       </button>
                                       {(canUpdateOperationAtl ||
-                                        operationTechPubUploadOnly) && (
+                                        operationTechPubCanEditAtl(record)) && (
                                         <>
                                           <span className="text-gray-400">
                                             |
@@ -2976,33 +3404,88 @@ export function Operation() {
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
-                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            rowSpan={2}
+                            className={`${STICKY_SEQ_CLASS} align-middle`}
+                          >
+                            ATL SEQ
+                          </th>
+                          <th
+                            rowSpan={2}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                          >
                             NATURE OF FLIGHT
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            rowSpan={2}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                          >
                             OFF BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            rowSpan={2}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                          >
                             ON BLOCKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            rowSpan={2}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                          >
                             TOTAL FLIGHT TIME
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            FUEL UPLIFT QTY (L)
+                          <th
+                            colSpan={6}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                          >
+                            FUEL
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            FUEL UPLIFT QTY (R)
+                          <th
+                            colSpan={3}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                          >
+                            OIL
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            OIL UPLIFT QTY
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            rowSpan={2}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                          >
                             REMARKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            rowSpan={2}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 bg-gray-200 whitespace-nowrap align-middle"
+                          >
                             NAME AND LICENSE
+                          </th>
+                        </tr>
+                        <tr className="bg-gray-100">
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            UPLIFT QTY LEFT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            UPLIFT QTY RIGHT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PRIOR DEP. LEFT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PRIOR DEP. RIGHT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AFTER ON-BLKS LEFT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AFTER ON-BLKS RIGHT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            UPLIFT QTY
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PRIOR DEP.
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AFTER ON-BLKS
                           </th>
                         </tr>
                       </thead>
@@ -3010,7 +3493,7 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={10}
+                              colSpan={16}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
@@ -3038,7 +3521,7 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubUploadOnly) && (
+                                      operationTechPubCanEditAtl(record)) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -3127,7 +3610,25 @@ export function Operation() {
                                 {record.fuelQtyRightUpliftQty ?? "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.fuelQtyLeftPriorDeparture ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.fuelQtyRightPriorDeparture ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.fuelQtyLeftAfterOnBlks ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.fuelQtyRightAfterOnBlks ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.oilQtyUpliftQty ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.oilQtyPriorDeparture ?? "-"}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {record.oilQtyAfterOnBlks ?? "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.remarks || "-"}
@@ -3236,7 +3737,7 @@ export function Operation() {
                                         View
                                       </button>
                                       {(canUpdateOperationAtl ||
-                                        operationTechPubUploadOnly) && (
+                                        operationTechPubCanEditAtl(record)) && (
                                         <>
                                           <span className="text-gray-400">
                                             |
@@ -3446,7 +3947,7 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubUploadOnly) && (
+                                      operationTechPubCanEditAtl(record)) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
@@ -3677,7 +4178,7 @@ export function Operation() {
       </div>
 
       <AddAtlBatchModal
-        isOpen={atlBatchModalOpen && canManageAtlBatchFilterAndBranches}
+        isOpen={atlBatchModalOpen && canEditAtlBatchBranches}
         editBatchId={atlBatchModalEditId}
         onClose={() => {
           setAtlBatchModalOpen(false);
@@ -3721,7 +4222,10 @@ export function Operation() {
           aircraftId={effectiveAircraftId}
           permissionModuleCode={operationAtlPermissionModuleCode}
           viewerRole={operationAtlRole}
-          editRestrictedToWhiteAtlDfpOnly={operationTechPubUploadOnly}
+          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+            operationAtlRole,
+            selectedEntry.workStatus
+          )}
           listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);
@@ -3762,114 +4266,698 @@ export function Operation() {
         />
       )}
 
-      {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-4xl rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Export Columns
-                </h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Columns match your current Group by view (
-                  {groupBy === "allColumns"
-                    ? "All Columns"
-                    : groupBy === "fuelAndOilData"
-                      ? "Fuel and Oil Data"
-                      : groupBy === "maintenancePlanning"
-                        ? "Maintenance Planning"
-                        : "Reliability Monitoring"}
-                  ). White ATL and DFP are excluded.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => !exportLoading && setShowExportModal(false)}
-                className="rounded p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                aria-label="Close export dialog"
+      {showExportModal && canExportOperationAtl && (() => {
+        const totalAvailable = activeExportColumnDefinitions.length;
+        const totalSelected = selectedExportColumns.length;
+        const progressPct =
+          totalAvailable === 0
+            ? 0
+            : Math.round((totalSelected / totalAvailable) * 100);
+
+        const sections = activeExportCategoryView;
+        const sectionsCount = sections.length;
+        const activeIdx = sections.findIndex(
+          (s) => s.id === activeExportCategoryId
+        );
+        const activeSection = activeIdx >= 0 ? sections[activeIdx] : null;
+        const columnByKey = new Map(
+          activeExportColumnDefinitions.map((c) => [c.key, c])
+        );
+
+        // Portaled to document.body so the fixed overlay isn't trapped by any
+        // ancestor with `transform` / `filter` / `contain` that would otherwise
+        // create a new containing block and break `position: fixed`.
+
+        const countSelected = (keys: string[]) =>
+          keys.filter((k) => selectedExportColumns.includes(k)).length;
+
+        const setSelectionForKeys = (keys: string[], select: boolean) => {
+          if (keys.length === 0) return;
+          setSelectedExportColumns((current) => {
+            const set = new Set(current);
+            for (const k of keys) {
+              if (select) set.add(k);
+              else set.delete(k);
+            }
+            return Array.from(set);
+          });
+        };
+
+        const isSubGroupExpanded = (
+          categoryId: string,
+          sg: ExportColumnSubGroup
+        ): boolean => {
+          const key = subGroupKey(categoryId, sg.id);
+          if (key in exportSubGroupOverrides) {
+            return exportSubGroupOverrides[key];
+          }
+          return !sg.defaultCollapsed;
+        };
+
+        const toggleSubGroup = (
+          categoryId: string,
+          sg: ExportColumnSubGroup
+        ) => {
+          const key = subGroupKey(categoryId, sg.id);
+          setExportSubGroupOverrides((current) => ({
+            ...current,
+            [key]: !isSubGroupExpanded(categoryId, sg),
+          }));
+        };
+
+        const renderColumnTile = (column: ExportColumnDefinition) => {
+          const isSelected = selectedExportColumns.includes(column.key);
+          return (
+            <label
+              key={column.key}
+              className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 transition-all ${
+                isSelected
+                  ? "border-blue-400 bg-blue-50/70"
+                  : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
+              }`}
+            >
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={() => toggleExportColumn(column.key)}
+                className="border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
+              />
+              <span
+                className={`flex-1 truncate text-sm leading-tight ${
+                  isSelected
+                    ? "font-medium text-gray-900"
+                    : "text-gray-700 group-hover:text-gray-900"
+                }`}
+                title={column.label}
               >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+                {column.label}
+              </span>
+            </label>
+          );
+        };
 
-            <div className="border-b border-gray-200 px-6 py-4">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelectedExportColumns(
-                      activeExportColumnDefinitions.map((column) => column.key)
-                    )
-                  }
-                  className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
-                >
-                  Select All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedExportColumns([])}
-                  className="rounded border border-gray-300 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
-                >
-                  Clear All
-                </button>
-                <span className="self-center text-sm text-gray-500">
-                  {selectedExportColumns.length} of{" "}
-                  {activeExportColumnDefinitions.length} selected
-                </span>
-              </div>
-            </div>
-
-            <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {activeExportColumnDefinitions.map((column) => (
-                  <label
-                    key={column.key}
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 px-3 py-3 transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+        return createPortal(
+          <div
+            className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 py-0 sm:items-center sm:px-4 sm:py-6"
+            onClick={() => !exportLoading && setShowExportModal(false)}
+            role="presentation"
+            style={{ position: "fixed", inset: 0 }}
+          >
+            <div
+              className="flex max-h-[100vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-columns-title"
+            >
+              {/* Header — inline-styled so the gradient/colors render even when
+                  the bundled Tailwind CSS strips opacity/gradient utilities. */}
+              <div
+                className="relative flex-shrink-0"
+                style={{
+                  background:
+                    "linear-gradient(90deg, #2563eb 0%, #2563eb 50%, #4f46e5 100%)",
+                  color: "#ffffff",
+                  borderBottom: "1px solid rgba(29, 78, 216, 0.4)",
+                }}
+              >
+                <div className="flex items-start gap-3 px-5 py-4">
+                  {/* Leading icon badge */}
+                  <div
+                    className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.2)",
+                      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)",
+                    }}
+                    aria-hidden
                   >
-                    <Checkbox
-                      checked={selectedExportColumns.includes(column.key)}
-                      onCheckedChange={() => toggleExportColumn(column.key)}
-                      className="mt-0.5 border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
+                    <Download
+                      className="h-5 w-5"
+                      style={{ color: "#ffffff" }}
                     />
-                    <span className="text-sm text-gray-800">
-                      {column.label}
+                  </div>
+                  {/* Title + view chip + subtitle */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                      <h3
+                        id="export-columns-title"
+                        className="text-xl font-bold leading-tight"
+                        style={{ color: "#ffffff" }}
+                      >
+                        Export Columns
+                      </h3>
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                        style={{
+                          backgroundColor: "rgba(255,255,255,0.22)",
+                          color: "#ffffff",
+                          boxShadow:
+                            "inset 0 0 0 1px rgba(255,255,255,0.4), 0 1px 2px 0 rgba(0,0,0,0.06)",
+                        }}
+                      >
+                        <span
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: "#ffffff" }}
+                        />
+                        {groupBy === "allColumns"
+                          ? "All Columns"
+                          : groupBy === "fuelAndOilData"
+                          ? "Fuel and Oil"
+                          : groupBy === "maintenancePlanning"
+                          ? "Maintenance Planning"
+                          : "Reliability Monitoring"}
+                      </span>
+                    </div>
+                    <p
+                      className="mt-1.5 text-sm font-medium"
+                      style={{ color: "#dbeafe" }}
+                    >
+                      Fleet Time Monitoring{" "}
+                      <span style={{ color: "#93c5fd" }}>·</span> Pick columns
+                      to include in the export
+                    </p>
+                  </div>
+                  {/* Selected counter — always visible */}
+                  <div
+                    className="hidden flex-shrink-0 flex-col items-end leading-tight sm:flex"
+                    aria-live="polite"
+                  >
+                    <span
+                      className="text-lg font-bold"
+                      style={{ color: "#ffffff" }}
+                    >
+                      {totalSelected}
+                      <span style={{ color: "#bfdbfe" }}>
+                        /{totalAvailable}
+                      </span>
                     </span>
-                  </label>
-                ))}
+                    <span
+                      className="text-[10px] font-semibold uppercase tracking-wider"
+                      style={{ color: "#dbeafe" }}
+                    >
+                      Columns
+                    </span>
+                  </div>
+                  {/* Close */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      !exportLoading && setShowExportModal(false)
+                    }
+                    disabled={exportLoading}
+                    className="flex-shrink-0 rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ color: "#eff6ff" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor =
+                        "rgba(255,255,255,0.18)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                    aria-label="Close export dialog"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                {/* Progress bar — flush to bottom edge */}
+                <div
+                  className="h-1 w-full overflow-hidden"
+                  style={{ backgroundColor: "rgba(255,255,255,0.18)" }}
+                  role="progressbar"
+                  aria-valuenow={progressPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label="Columns selected"
+                >
+                  <div
+                    className="h-full transition-[width] duration-300 ease-out"
+                    style={{
+                      width: `${progressPct}%`,
+                      backgroundColor: "#ffffff",
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Toolbar — refined search + global actions */}
+              <div className="flex flex-shrink-0 flex-col gap-2.5 border-b border-gray-200 bg-white px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3 sm:px-5">
+                {/* Search input */}
+                <div className="relative flex-1">
+                  <Search
+                    className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${
+                      exportColumnSearch ? "text-blue-500" : "text-gray-400"
+                    }`}
+                    aria-hidden
+                  />
+                  <input
+                    type="text"
+                    value={exportColumnSearch}
+                    onChange={(e) => setExportColumnSearch(e.target.value)}
+                    placeholder="Search across all sections…"
+                    aria-label="Search columns"
+                    className={`peer w-full rounded-lg border bg-gray-50 py-2 pl-9 pr-9 text-sm text-gray-800 placeholder:text-gray-400 transition-shadow focus:bg-white focus:outline-none ${
+                      exportColumnSearch
+                        ? "border-blue-400 ring-2 ring-blue-500/20"
+                        : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    }`}
+                  />
+                  {exportColumnSearch ? (
+                    <button
+                      type="button"
+                      onClick={() => setExportColumnSearch("")}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <kbd
+                      className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 select-none rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400 sm:inline-block"
+                      aria-hidden
+                    >
+                      Search
+                    </kbd>
+                  )}
+                </div>
+                {/* Match counter + bulk actions */}
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                  {exportColumnSearch && (
+                    <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
+                      <Filter className="h-3 w-3" />
+                      {sections.reduce(
+                        (sum, s) => sum + s.keys.length,
+                        0
+                      )}{" "}
+                      match
+                      {sections.reduce(
+                        (sum, s) => sum + s.keys.length,
+                        0
+                      ) === 1
+                        ? ""
+                        : "es"}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedExportColumns(
+                        activeExportColumnDefinitions.map(
+                          (column) => column.key
+                        )
+                      )
+                    }
+                    disabled={totalSelected === totalAvailable}
+                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedExportColumns([])}
+                    disabled={totalSelected === 0}
+                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              {/* Body — sidebar tabs + content */}
+              {sectionsCount === 0 ? (
+                <div className="flex-1 overflow-y-auto px-6 py-16">
+                  <div className="flex flex-col items-center justify-center gap-2 text-center">
+                    <Search className="h-10 w-10 text-gray-300" />
+                    <p className="text-sm font-medium text-gray-700">
+                      No columns match "{exportColumnSearch}"
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setExportColumnSearch("")}
+                      className="text-sm font-medium text-blue-600 hover:underline"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  {/* Stepper tab strip — horizontal pills, scrollable */}
+                  <nav
+                    aria-label="Export sections"
+                    className="flex-shrink-0 overflow-x-auto border-b border-gray-200 bg-white px-3 py-2"
+                  >
+                    <ul className="flex w-max items-center gap-1.5">
+                      {sections.map((section, idx) => {
+                        const selected = countSelected(section.keys);
+                        const total = section.keys.length;
+                        const isActive = section.id === activeExportCategoryId;
+                        const isComplete = selected === total && total > 0;
+                        const isPartial = selected > 0 && selected < total;
+                        return (
+                          <li key={section.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActiveExportCategoryId(section.id)
+                              }
+                              className={`group relative flex items-center gap-2 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
+                                isActive
+                                  ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm"
+                                  : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                              }`}
+                              aria-current={isActive ? "page" : undefined}
+                            >
+                              <span
+                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
+                                  isComplete
+                                    ? "bg-emerald-500 text-white"
+                                    : isActive
+                                    ? `${section.accent} text-white`
+                                    : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
+                                }`}
+                                aria-hidden
+                              >
+                                {isComplete ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                ) : (
+                                  idx + 1
+                                )}
+                              </span>
+                              <span>{section.shortLabel}</span>
+                              {isPartial && (
+                                <span
+                                  className="rounded-full bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700"
+                                  title={`${selected} of ${total} selected`}
+                                >
+                                  {selected}/{total}
+                                </span>
+                              )}
+                              {isActive && (
+                                <span
+                                  className={`absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full ${section.accent}`}
+                                  aria-hidden
+                                />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </nav>
+
+                  {/* Active section content (scrollable) */}
+                  <div className="flex-1 overflow-y-auto bg-gray-50/40 px-4 py-4 sm:px-5 sm:py-4">
+                    {activeSection && (() => {
+                      const sectionSelected = countSelected(activeSection.keys);
+                      const sectionTotal = activeSection.keys.length;
+                      const sectionComplete =
+                        sectionSelected === sectionTotal && sectionTotal > 0;
+                      return (
+                      <div className="space-y-3">
+                        {/* Section header card — compact, no redundant count */}
+                        <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <span
+                                className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${activeSection.accent}`}
+                                aria-hidden
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="truncate text-sm font-semibold text-gray-900">
+                                    {activeSection.label}
+                                  </h4>
+                                  {sectionComplete ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                      <CheckCircle2 className="h-2.5 w-2.5" />
+                                      Complete
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`text-[11px] font-semibold ${activeSection.accentText}`}
+                                    >
+                                      {sectionSelected}/{sectionTotal}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="truncate text-[11px] text-gray-500">
+                                  {activeSection.description}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectionForKeys(activeSection.keys, true)
+                                }
+                                disabled={sectionComplete}
+                                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Select all
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectionForKeys(activeSection.keys, false)
+                                }
+                                disabled={sectionSelected === 0}
+                                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Section body: subGroups accordion OR flat grid */}
+                        {activeSection.subGroups &&
+                        activeSection.subGroups.length > 0 ? (
+                          <div className="space-y-3">
+                            {activeSection.subGroups
+                              .filter((sg) => sg.keys.length > 0)
+                              .map((sg) => {
+                                const expanded = isSubGroupExpanded(
+                                  activeSection.id,
+                                  sg
+                                );
+                                const sgSelected = countSelected(sg.keys);
+                                const sgTotal = sg.keys.length;
+                                const sgAll = sgSelected === sgTotal;
+                                return (
+                                  <section
+                                    key={sg.id}
+                                    className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                                  >
+                                    <div
+                                      className={`flex items-center justify-between gap-2 border-gray-100 px-3 py-2 transition-colors ${
+                                        expanded
+                                          ? "border-b bg-gray-50/70"
+                                          : "bg-white hover:bg-gray-50/70"
+                                      }`}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          toggleSubGroup(activeSection.id, sg)
+                                        }
+                                        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left"
+                                        aria-expanded={expanded}
+                                        aria-controls={`subgroup-${activeSection.id}-${sg.id}`}
+                                      >
+                                        <span
+                                          className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md ${
+                                            expanded
+                                              ? "bg-gray-200/70 text-gray-700"
+                                              : "text-gray-500"
+                                          }`}
+                                          aria-hidden
+                                        >
+                                          <ChevronDown
+                                            className={`h-3.5 w-3.5 transition-transform ${
+                                              expanded ? "" : "-rotate-90"
+                                            }`}
+                                          />
+                                        </span>
+                                        <h5 className="truncate text-sm font-semibold text-gray-800">
+                                          {sg.label}
+                                        </h5>
+                                        <span
+                                          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                            sgSelected === 0
+                                              ? "bg-gray-100 text-gray-500"
+                                              : sgAll
+                                              ? "bg-emerald-100 text-emerald-700"
+                                              : "bg-blue-100 text-blue-700"
+                                          }`}
+                                        >
+                                          {sgAll && (
+                                            <CheckCircle2 className="h-2.5 w-2.5" />
+                                          )}
+                                          {sgSelected}/{sgTotal}
+                                        </span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setSelectionForKeys(sg.keys, !sgAll)
+                                        }
+                                        className="flex-shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                                      >
+                                        {sgAll ? "Deselect" : "Select"}
+                                      </button>
+                                    </div>
+                                    {expanded && (
+                                      <div
+                                        id={`subgroup-${activeSection.id}-${sg.id}`}
+                                        className="grid grid-cols-1 gap-1.5 p-2.5 sm:grid-cols-2"
+                                      >
+                                        {sg.keys
+                                          .map((k) => columnByKey.get(k))
+                                          .filter(
+                                            (
+                                              col
+                                            ): col is ExportColumnDefinition =>
+                                              col != null
+                                          )
+                                          .map(renderColumnTile)}
+                                      </div>
+                                    )}
+                                  </section>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-2.5 shadow-sm">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              {activeSection.keys
+                                .map((k) => columnByKey.get(k))
+                                .filter(
+                                  (col): col is ExportColumnDefinition =>
+                                    col != null
+                                )
+                                .map(renderColumnTile)}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Sticky footer — stepper nav + status + actions */}
+              <div className="flex flex-shrink-0 flex-col gap-2 border-t border-gray-200 bg-white px-4 py-2.5 sm:px-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {/* Stepper navigation (Previous / Section X of Y / Next) */}
+                  {sectionsCount > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prev = sections[activeIdx - 1];
+                          if (prev) setActiveExportCategoryId(prev.id);
+                        }}
+                        disabled={activeIdx <= 0}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Previous section"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5 -rotate-90" />
+                      </button>
+                      <span className="whitespace-nowrap text-[11px] font-medium text-gray-600">
+                        Section{" "}
+                        <span className="font-semibold text-gray-900">
+                          {activeIdx + 1}
+                        </span>{" "}
+                        of{" "}
+                        <span className="font-semibold text-gray-900">
+                          {sectionsCount}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = sections[activeIdx + 1];
+                          if (next) setActiveExportCategoryId(next.id);
+                        }}
+                        disabled={activeIdx >= sectionsCount - 1}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Next section"
+                      >
+                        <ChevronUp className="h-3.5 w-3.5 rotate-90" />
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-gray-600">
+                    {totalSelected === 0 ? (
+                      <span className="text-gray-500">
+                        Select at least one column to export
+                      </span>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-gray-900">
+                          {totalSelected}
+                        </span>{" "}
+                        column{totalSelected === 1 ? "" : "s"} ready
+                      </>
+                    )}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowExportModal(false)}
+                    disabled={exportLoading}
+                    className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExport("csv")}
+                    disabled={
+                      exportLoading || selectedExportColumns.length === 0
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-white px-3.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {exportLoading ? (
+                      <SpinnerIcon
+                        size="sm"
+                        className="h-3.5 w-3.5 text-blue-600"
+                        aria-hidden
+                      />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5" />
+                    )}
+                    Export CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleExport("xlsx")}
+                    disabled={
+                      exportLoading || selectedExportColumns.length === 0
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {exportLoading ? (
+                      <SpinnerIcon
+                        size="sm"
+                        className="h-3.5 w-3.5 text-white"
+                        aria-hidden
+                      />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    Export XLSX
+                  </button>
+                </div>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
-              <button
-                type="button"
-                onClick={() => setShowExportModal(false)}
-                disabled={exportLoading}
-                className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleExport("csv")}
-                disabled={exportLoading}
-                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Download className="h-4 w-4" />
-                Export CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleExport("xlsx")}
-                disabled={exportLoading}
-                className="inline-flex items-center gap-2 rounded bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Download className="h-4 w-4" />
-                Export XLSX
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        );
+      })()}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}
       {showFileViewModal && (

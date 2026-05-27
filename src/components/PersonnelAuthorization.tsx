@@ -278,6 +278,9 @@ export function PersonnelAuthorization() {
   const [addingScope, setAddingScope] = useState(false);
 
   // Create form state (no web_link). accountInformationId from by-auth-stamp selection. Scope fields are IDs (0 = none).
+  const [createFormErrors, setCreateFormErrors] = useState<
+    Record<string, string>
+  >({});
   const [createForm, setCreateForm] = useState({
     accountInformationId: 0 as number,
     authorizationNumber: "",
@@ -478,39 +481,22 @@ export function PersonnelAuthorization() {
   const closeCreateModal = () => {
     setShowCreateModal(false);
     setEditingPersonnel(null);
+    setCreateFormErrors({});
   };
 
-  const handleCreateSubmit = async () => {
-    if (
-      !createForm.authorizationNumber.trim() ||
-      !createForm.name.trim() ||
-      !createForm.position.trim()
-    ) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Required fields",
-        text: "Authorization Number, Name, and Position are required.",
-      });
-      return;
-    }
-    if (!createForm.itemType) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Required fields",
-        text: "Item Type is required.",
-      });
-      return;
-    }
+  const validateCreateForm = () => {
+    const newErrors: Record<string, string> = {};
+    if (!createForm.authorizationNumber.trim())
+      newErrors.authorizationNumber = "Authorization number is required";
+    if (!createForm.name.trim()) newErrors.name = "Name is required";
+    if (!createForm.position.trim()) newErrors.position = "Position is required";
+    if (!createForm.itemType) newErrors.itemType = "Item type is required";
     if (
       !createForm.accountInformationId ||
       createForm.accountInformationId <= 0
     ) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Required fields",
-        text: "Select an Authorization Number from the list so the account is linked.",
-      });
-      return;
+      newErrors.accountInformationId =
+        "Select an authorization number from the list";
     }
     const it = createForm.itemType;
     let expiryMissing = false;
@@ -527,14 +513,14 @@ export function PersonnelAuthorization() {
     } else if (it === "HF_TRAINING") {
       expiryMissing = !createForm.hfTrainingExpiry.trim();
     }
-    if (expiryMissing) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Required fields",
-        text: "Expiry date is required for the selected item type.",
-      });
-      return;
-    }
+    if (expiryMissing)
+      newErrors.expiryDate = "Expiry date is required for the selected item type";
+    setCreateFormErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleCreateSubmit = async () => {
+    if (!validateCreateForm()) return;
     setSaving(true);
     try {
       const expiryDate = complianceExpiryDateForItemType(
@@ -1701,7 +1687,12 @@ export function PersonnelAuthorization() {
                             createForm.authorizationNumber
                           );
                         }}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                        className={`w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm ${
+                          createFormErrors.accountInformationId ||
+                          createFormErrors.authorizationNumber
+                            ? "border-red-500"
+                            : "border-gray-300"
+                        }`}
                         placeholder="Search or select Authorization Number..."
                         aria-label="Authorization Number - search or select (case-insensitive)"
                         aria-expanded={isAuthDropdownOpen}
@@ -1777,6 +1768,13 @@ export function PersonnelAuthorization() {
                                   }));
                                   setAuthStampSearchTerm("");
                                   setIsAuthDropdownOpen(false);
+                                  setCreateFormErrors((prev) => ({
+                                    ...prev,
+                                    accountInformationId: "",
+                                    authorizationNumber: "",
+                                    name: "",
+                                    position: "",
+                                  }));
                                   if (
                                     !initialDoiFromOption &&
                                     opt.account_information_id > 0
@@ -1816,6 +1814,11 @@ export function PersonnelAuthorization() {
                       </div>
                     )}
                   </div>
+                  {createFormErrors.accountInformationId && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {createFormErrors.accountInformationId}
+                    </p>
+                  )}
                 </div>
 
                 {/* Name, Position, and License are based on the Authorization Number selected above */}
@@ -1930,15 +1933,25 @@ export function PersonnelAuthorization() {
                     id="personnel-item-type-after-doi"
                     required
                     value={createForm.itemType}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setCreateForm((prev) => ({
                         ...prev,
                         itemType: e.target.value as
                           | ""
                           | PersonnelComplianceItemType,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                      }));
+                      if (createFormErrors.itemType)
+                        setCreateFormErrors((prev) => ({
+                          ...prev,
+                          itemType: "",
+                          expiryDate: "",
+                        }));
+                    }}
+                    className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 ${
+                      createFormErrors.itemType
+                        ? "border-red-500"
+                        : "border-gray-300"
+                    }`}
                     aria-label="Item Type"
                   >
                     <option value="">Select Item Type</option>
@@ -1948,7 +1961,18 @@ export function PersonnelAuthorization() {
                       </option>
                     ))}
                   </select>
+                  {createFormErrors.itemType && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {createFormErrors.itemType}
+                    </p>
+                  )}
                 </div>
+
+                {createFormErrors.expiryDate && (
+                  <p className="text-xs text-red-600 -mt-2">
+                    {createFormErrors.expiryDate}
+                  </p>
+                )}
 
                 {createForm.itemType === "AUTH_EXPIRY" && (
                   <div>
@@ -1961,13 +1985,22 @@ export function PersonnelAuthorization() {
                       required
                       type="date"
                       value={createForm.authExpiryDate}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setCreateForm((prev) => ({
                           ...prev,
                           authExpiryDate: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        }));
+                        if (createFormErrors.expiryDate)
+                          setCreateFormErrors((prev) => ({
+                            ...prev,
+                            expiryDate: "",
+                          }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
+                        createFormErrors.expiryDate
+                          ? "border-red-500"
+                          : "border-gray-300"
+                      }`}
                     />
                   </div>
                 )}

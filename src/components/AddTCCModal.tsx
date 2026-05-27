@@ -4,8 +4,6 @@ import type { ComponentItem } from "./TCCDetail";
 import { searchAtlOptionsForTcc, type AtlItem } from "../api/atlApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { useUserPermissions } from "../hooks/useUserPermissions";
-import Swal from "sweetalert2";
-
 interface AddTCCModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -94,6 +92,7 @@ export function AddTCCModal({
 }: AddTCCModalProps) {
   const { canUpdate, canCreate } = useUserPermissions();
   const [formData, setFormData] = useState(defaultFormData);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
   const [atlSearchDebounced, setAtlSearchDebounced] = useState("");
@@ -139,6 +138,7 @@ export function AddTCCModal({
       setAtlSearch("");
       setAtlSearchDebounced("");
     }
+    if (isOpen) setErrors({});
   }, [isOpen, editingItem, activeCategory]);
 
   // Debounce ATL search by sequence_number (400ms)
@@ -184,13 +184,10 @@ export function AddTCCModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.category?.trim()) {
-      void Swal.fire({
-        icon: "warning",
-        title: "Category required",
-        text: "Please select a category.",
-      });
+      setErrors({ category: "Category is required" });
       return;
     }
+    setErrors({});
     const payload: any = {
       category: formData.category,
       partNo: formData.partNumber,
@@ -227,15 +224,18 @@ export function AddTCCModal({
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     >
   ) => {
+    const { name, value } = e.target;
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value,
+      [name]: value,
     });
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
   const handleClose = () => {
     onClose();
     setFormData(defaultFormData);
+    setErrors({});
     setAtlOpen(false);
     setAtlSearch("");
     setAtlSearchDebounced("");
@@ -275,12 +275,16 @@ export function AddTCCModal({
         <form onSubmit={handleSubmit} className="p-6">
           {/* Category */}
           <div className="mb-4">
-            <label className="block text-gray-900 text-sm mb-2">Category</label>
+            <label className="block text-gray-900 text-sm mb-2">
+              Category <span className="text-red-500">*</span>
+            </label>
             <select
               name="category"
               value={formData.category}
               onChange={handleChange}
-              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer pr-9"
+              className={`w-full px-3 py-2 bg-gray-50 border rounded-lg text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer pr-9 ${
+                errors.category ? "border-red-500" : "border-gray-200"
+              }`}
               style={{
                 backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23666' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
                 backgroundRepeat: "no-repeat",
@@ -292,6 +296,9 @@ export function AddTCCModal({
               <option value="AIRFRAME">AIRFRAME</option>
               <option value="INSPECTION_SERVICING">INSPECTION_SERVICING</option>
             </select>
+            {errors.category && (
+              <p className="mt-1 text-xs text-red-600">{errors.category}</p>
+            )}
           </div>
 
           {/* Part Number, Serial Number */}

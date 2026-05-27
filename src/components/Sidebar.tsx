@@ -212,8 +212,9 @@ export function Sidebar({
                 className="mt-0.5 w-full truncate text-left text-xs font-medium text-blue-600 underline underline-offset-2 decoration-blue-600/80 transition-colors hover:text-blue-800 hover:decoration-blue-800 focus:outline-none focus:text-blue-800 focus:decoration-blue-800"
                 title={`My Profile - ${headerRole}`}
               >
-                My Profile - {headerRole}
+                My Profile
               </button>
+              {headerRole}
             </div>
           )}
           {/* Mobile Close Button */}
