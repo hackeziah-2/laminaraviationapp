@@ -410,6 +410,9 @@ export function Maintenance() {
   };
 
   // Add Entry form state for LDND (matches backend: inspection_type, unit, last_done_tach_due, last_done_tach_done, next_due_tach_hours, performed_date_start)
+  const [ldndFormErrors, setLdndFormErrors] = useState<Record<string, string>>(
+    {}
+  );
   const [newEntry, setNewEntry] = useState({
     type: "",
     unit: "HRS" as "HRS" | "CYCLES",
@@ -594,13 +597,10 @@ export function Maintenance() {
   const handleLdndCreateOrUpdate = async () => {
     const type = String(newEntry.type).replace(/\r\n?/g, "\n").trim();
     if (!type) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Required",
-        text: "Inspection Type is required.",
-      });
+      setLdndFormErrors({ type: "Inspection type is required" });
       return;
     }
+    setLdndFormErrors({});
     setLdndSaving(true);
     try {
       const payload = {
@@ -1072,6 +1072,7 @@ export function Maintenance() {
       performedDateStart: item.performedDateStart ?? "",
       performedDateEnd: item.performedDateEnd ?? "",
     });
+    setLdndFormErrors({});
     setShowAddModal(true);
   };
 
@@ -1786,6 +1787,7 @@ export function Maintenance() {
                         performedDateStart: "",
                         performedDateEnd: "",
                       });
+                      setLdndFormErrors({});
                       setShowAddModal(true);
                     }}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
@@ -2341,17 +2343,28 @@ export function Maintenance() {
                   </div>
                   <div>
                     <label className="block text-gray-600 text-xs mb-1.5">
-                      Type
+                      Type <span className="text-red-500">*</span>
                     </label>
                     <textarea
                       value={newEntry.type}
-                      onChange={(e) =>
-                        setNewEntry({ ...newEntry, type: e.target.value })
-                      }
+                      onChange={(e) => {
+                        setNewEntry({ ...newEntry, type: e.target.value });
+                        if (ldndFormErrors.type)
+                          setLdndFormErrors((prev) => ({ ...prev, type: "" }));
+                      }}
                       rows={5}
                       spellCheck={false}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[120px]"
+                      className={`w-full px-3 py-2 border rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y min-h-[120px] ${
+                        ldndFormErrors.type
+                          ? "border-red-500"
+                          : "border-gray-300"
+                      }`}
                     />
+                    {ldndFormErrors.type && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {ldndFormErrors.type}
+                      </p>
+                    )}
                     <div className="mt-2 space-y-1 text-xs text-gray-500">
                       <p>
                         Enter one value per line. Press Enter to create a new

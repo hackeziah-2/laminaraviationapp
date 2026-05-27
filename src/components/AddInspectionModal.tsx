@@ -23,15 +23,35 @@ interface AddInspectionModalProps {
   isEdit?: boolean;
 }
 
+const REQUIRED_FIELDS: { key: keyof typeof defaultFormData; label: string }[] = [
+  { key: 'inspectionType', label: 'Inspection type' },
+  { key: 'zoneArea', label: 'Zone/area' },
+  { key: 'inspectionDate', label: 'Inspection date' },
+  { key: 'inspector', label: 'Inspector' },
+  { key: 'nextDueDate', label: 'Next due date' },
+  { key: 'status', label: 'Status' },
+];
+
 export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: AddInspectionModalProps) {
   const { canUpdate, canCreate } = useUserPermissions();
   const [formData, setFormData] = useState(() => ({
     ...defaultFormData,
     ...(initialData && typeof initialData === 'object' ? initialData : {}),
   }));
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const newErrors: Record<string, string> = {};
+    for (const { key, label } of REQUIRED_FIELDS) {
+      const value = String(formData[key] ?? '').trim();
+      if (!value) newErrors[key] = `${label} is required`;
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    setErrors({});
     onSubmit(formData);
     onClose();
   };
@@ -42,7 +62,13 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
       ...prev,
       [name]: value
     }));
+    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
   };
+
+  const fieldClass = (name: string) =>
+    `w-full px-3 py-2 bg-gray-50 border rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors ${
+      errors[name] ? 'border-red-500' : 'border-gray-200'
+    }`;
 
   return (
     <div 
@@ -74,8 +100,7 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="inspectionType"
                     value={formData.inspectionType}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent cursor-pointer hover:border-gray-300 transition-colors"
+                    className={`${fieldClass('inspectionType')} cursor-pointer`}
                   >
                     <option value="">Select type</option>
                     <option value="IO 1">IO 1 - Records Inspection</option>
@@ -89,6 +114,9 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     <option value="IO 9">IO 9 - Fuselage Inspection</option>
                     <option value="IO 10">IO 10 - Landing Gear Inspection</option>
                   </select>
+                  {errors.inspectionType && (
+                    <p className="mt-1 text-xs text-red-600">{errors.inspectionType}</p>
+                  )}
                 </div>
 
                 {/* Zone/Area */}
@@ -101,10 +129,12 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="zoneArea"
                     value={formData.zoneArea}
                     onChange={handleChange}
-                    required
                     placeholder="e.g., Zone 100, Fuselage Forward"
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors"
+                    className={fieldClass('zoneArea')}
                   />
+                  {errors.zoneArea && (
+                    <p className="mt-1 text-xs text-red-600">{errors.zoneArea}</p>
+                  )}
                 </div>
 
                 {/* Inspection Date */}
@@ -117,10 +147,12 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="inspectionDate"
                     value={formData.inspectionDate}
                     onChange={handleChange}
-                    required
                     placeholder="11/15/2025"
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors"
+                    className={fieldClass('inspectionDate')}
                   />
+                  {errors.inspectionDate && (
+                    <p className="mt-1 text-xs text-red-600">{errors.inspectionDate}</p>
+                  )}
                 </div>
 
                 {/* Inspector */}
@@ -133,10 +165,12 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="inspector"
                     value={formData.inspector}
                     onChange={handleChange}
-                    required
                     placeholder="e.g., John Smith"
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors"
+                    className={fieldClass('inspector')}
                   />
+                  {errors.inspector && (
+                    <p className="mt-1 text-xs text-red-600">{errors.inspector}</p>
+                  )}
                 </div>
 
                 {/* Next Due Date */}
@@ -149,10 +183,12 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="nextDueDate"
                     value={formData.nextDueDate}
                     onChange={handleChange}
-                    required
                     placeholder="11/15/2025"
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors"
+                    className={fieldClass('nextDueDate')}
                   />
+                  {errors.nextDueDate && (
+                    <p className="mt-1 text-xs text-red-600">{errors.nextDueDate}</p>
+                  )}
                 </div>
 
                 {/* Status */}
@@ -164,14 +200,16 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="status"
                     value={formData.status}
                     onChange={handleChange}
-                    required
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent cursor-pointer hover:border-gray-300 transition-colors"
+                    className={`${fieldClass('status')} cursor-pointer`}
                   >
                     <option value="Current">Current</option>
                     <option value="Due">Due</option>
                     <option value="Overdue">Overdue</option>
                     <option value="Completed">Completed</option>
                   </select>
+                  {errors.status && (
+                    <p className="mt-1 text-xs text-red-600">{errors.status}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -190,9 +228,9 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="findings"
                     value={formData.findings}
                     onChange={handleChange}
-                    rows={4}
-                    placeholder="Describe any findings, corrosion, or anomalies discovered..."
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent resize-none hover:border-gray-300 transition-colors"
+                    rows={3}
+                    placeholder="Describe any findings from the inspection..."
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors resize-none"
                   />
                 </div>
 
@@ -205,23 +243,23 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
                     name="correctiveAction"
                     value={formData.correctiveAction}
                     onChange={handleChange}
-                    rows={4}
+                    rows={3}
                     placeholder="Describe corrective actions taken or required..."
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent resize-none hover:border-gray-300 transition-colors"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors resize-none"
                   />
                 </div>
 
-                {/* Reference/Document No */}
+                {/* Reference Document No */}
                 <div>
                   <label className="block text-sm text-gray-900 mb-1.5">
-                    Reference/Document No.
+                    Reference Document No.
                   </label>
                   <input
                     type="text"
                     name="referenceDocNo"
                     value={formData.referenceDocNo}
                     onChange={handleChange}
-                    placeholder="e.g., CPCP-2025-001"
+                    placeholder="e.g., DOC-2025-001"
                     className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent hover:border-gray-300 transition-colors"
                   />
                 </div>
@@ -230,21 +268,20 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancel
             </button>
-            {((isEdit && canUpdate('maintenance')) ||
-              (!isEdit && canCreate('maintenance'))) && (
+            {(isEdit ? canUpdate('cpcp') : canCreate('cpcp')) && (
               <button
                 type="submit"
-                className="px-4 py-2 text-sm bg-gray-900 text-white hover:bg-gray-800 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors"
               >
-                {isEdit ? "Update Entry" : "Add Inspection"}
+                {isEdit ? 'Update Inspection' : 'Add Inspection'}
               </button>
             )}
           </div>

@@ -700,6 +700,7 @@ export function Operation() {
   /** Empty = no filter; API query param work_status (e.g. REJECTED_MAINTENANCE) */
   const [workStatusFilter, setWorkStatusFilter] = useState("");
   const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
+  const [atlBatchFilterError, setAtlBatchFilterError] = useState("");
   const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
     { id: number; name: string }[]
   >([]);
@@ -1655,21 +1656,19 @@ export function Operation() {
   };
 
   /** When batch filter UI is shown, import requires a concrete batch (not "All batches"). */
-  const ensureAtlBatchSelectedForImport = async (): Promise<boolean> => {
+  const ensureAtlBatchSelectedForImport = (): boolean => {
     if (!canManageAtlBatchFilterAndBranches) return true;
     if (
       selectedAtlBatchFk != null &&
       Number.isFinite(selectedAtlBatchFk) &&
       selectedAtlBatchFk > 0
     ) {
+      setAtlBatchFilterError("");
       return true;
     }
-    await Swal.fire({
-      title: "Batch Required",
-      text: "Please create or select a batch first before importing ATL records.",
-      icon: "warning",
-      confirmButtonText: "OK",
-    });
+    setAtlBatchFilterError(
+      "Please select an ATL batch before importing records."
+    );
     return false;
   };
 
@@ -1706,7 +1705,7 @@ export function Operation() {
     };
 
   const handleImportClick = async () => {
-    const batchOk = await ensureAtlBatchSelectedForImport();
+    const batchOk = ensureAtlBatchSelectedForImport();
     if (!batchOk) return;
     const canProceed = await validateAircraftPrerequisitesForAtlImport();
     if (!canProceed) return;
@@ -1840,7 +1839,7 @@ export function Operation() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !effectiveAircraftId) return;
-    const batchOk = await ensureAtlBatchSelectedForImport();
+    const batchOk = ensureAtlBatchSelectedForImport();
     if (!batchOk) return;
     const canProceed = await validateAircraftPrerequisitesForAtlImport();
     if (!canProceed) return;
@@ -1850,12 +1849,9 @@ export function Operation() {
       const list = await getAtlBatchesForSelect();
       const latest = pickLatestAtlBatchId(list);
       if (latest == null) {
-        await Swal.fire({
-          icon: "warning",
-          title: "Batch required",
-          text: "No ATL batch is available. Create a batch or select one before importing.",
-          confirmButtonColor: "#2563eb",
-        });
+        setAtlBatchFilterError(
+          "No ATL batch is available. Create a batch before importing."
+        );
         return;
       }
       batchIdForImport = latest;
@@ -2308,66 +2304,76 @@ export function Operation() {
                 )}
               </div>
               {canManageAtlBatchFilterAndBranches && (
-                <div className="flex flex-wrap items-center gap-2 min-w-[200px]">
-                  <label
-                    htmlFor="operation-atl-branch"
-                    className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
-                  >
-                    <Filter className="w-4 h-4 text-gray-500 shrink-0" />
-                    ATL batch
-                  </label>
-                  <select
-                    id="operation-atl-branch"
-                    value={selectedAtlBatchId}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === ATL_BRANCH_CREATE_VALUE) {
-                        if (!canEditAtlBatchBranches) return;
-                        setAtlBatchModalEditId(null);
-                        setAtlBatchModalOpen(true);
-                        return;
-                      }
-                      if (v === ATL_BRANCH_EDIT_VALUE) {
-                        if (!canEditAtlBatchBranches) return;
-                        const n =
-                          selectedAtlBatchId.trim() !== ""
-                            ? Number(selectedAtlBatchId)
-                            : NaN;
-                        if (!Number.isFinite(n) || n <= 0) {
-                          void Swal.fire({
-                            icon: "info",
-                            title: "Select a branch",
-                            text: "Choose a branch in the dropdown before editing.",
-                            confirmButtonColor: "#2563eb",
-                          });
+                <div className="flex flex-col gap-1 min-w-[200px]">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      htmlFor="operation-atl-branch"
+                      className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
+                    >
+                      <Filter className="w-4 h-4 text-gray-500 shrink-0" />
+                      ATL batch
+                    </label>
+                    <select
+                      id="operation-atl-branch"
+                      value={selectedAtlBatchId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === ATL_BRANCH_CREATE_VALUE) {
+                          if (!canEditAtlBatchBranches) return;
+                          setAtlBatchModalEditId(null);
+                          setAtlBatchModalOpen(true);
                           return;
                         }
-                        setAtlBatchModalEditId(n);
-                        setAtlBatchModalOpen(true);
-                        return;
-                      }
-                      atlBatchFilterTouchedRef.current = true;
-                      setSelectedAtlBatchId(v);
-                    }}
-                    className="min-w-[200px] px-3 py-2.5 border-2 border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 bg-white text-sm text-gray-900"
-                  >
-                    <option value="">All</option>
-                    {atlBatchFilterOptions.map((b) => (
-                      <option key={b.id} value={String(b.id)}>
-                        {b.name}
-                      </option>
-                    ))}
-                    {canEditAtlBatchBranches && (
-                      <>
-                        <option value={ATL_BRANCH_CREATE_VALUE}>
-                          + Create branch…
+                        if (v === ATL_BRANCH_EDIT_VALUE) {
+                          if (!canEditAtlBatchBranches) return;
+                          const n =
+                            selectedAtlBatchId.trim() !== ""
+                              ? Number(selectedAtlBatchId)
+                              : NaN;
+                          if (!Number.isFinite(n) || n <= 0) {
+                            void Swal.fire({
+                              icon: "info",
+                              title: "Select a branch",
+                              text: "Choose a branch in the dropdown before editing.",
+                              confirmButtonColor: "#2563eb",
+                            });
+                            return;
+                          }
+                          setAtlBatchModalEditId(n);
+                          setAtlBatchModalOpen(true);
+                          return;
+                        }
+                        atlBatchFilterTouchedRef.current = true;
+                        setSelectedAtlBatchId(v);
+                        if (v.trim() !== "") setAtlBatchFilterError("");
+                      }}
+                      className={`min-w-[200px] px-3 py-2.5 border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white text-sm text-gray-900 ${
+                        atlBatchFilterError
+                          ? "border-red-500 focus:border-red-500 focus:ring-red-300"
+                          : "border-gray-300 focus:border-blue-500"
+                      }`}
+                    >
+                      <option value="">All</option>
+                      {atlBatchFilterOptions.map((b) => (
+                        <option key={b.id} value={String(b.id)}>
+                          {b.name}
                         </option>
-                        <option value={ATL_BRANCH_EDIT_VALUE}>
-                          Edit branch…
-                        </option>
-                      </>
-                    )}
-                  </select>
+                      ))}
+                      {canEditAtlBatchBranches && (
+                        <>
+                          <option value={ATL_BRANCH_CREATE_VALUE}>
+                            + Create branch…
+                          </option>
+                          <option value={ATL_BRANCH_EDIT_VALUE}>
+                            Edit branch…
+                          </option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                  {atlBatchFilterError && (
+                    <p className="text-xs text-red-600">{atlBatchFilterError}</p>
+                  )}
                 </div>
               )}
               <div className="flex items-center gap-2">

@@ -455,14 +455,7 @@ export const TCCDetailContent = forwardRef<
       return;
     }
     const category = String(payload.category || activeTab || "").trim();
-    if (!category) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Category required",
-        text: "Select a category or filter the list by category before adding.",
-      });
-      return;
-    }
+    if (!category) return;
     setTccSaving(true);
     try {
       await createAircraftTccMonitoring(aircraftIdNum, {
@@ -500,14 +493,7 @@ export const TCCDetailContent = forwardRef<
   const handleUpdateTCC = async (id: number, payload: any) => {
     if (!aircraftIdNum || aircraftIdNum <= 0) return;
     const category = String(payload.category || "").trim();
-    if (!category) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Category required",
-        text: "Please select a category for this entry.",
-      });
-      return;
-    }
+    if (!category) return;
     setTccSaving(true);
     try {
       await updateAircraftTccMonitoring(aircraftIdNum, id, {

@@ -93,6 +93,7 @@ export function RegulatoryAdvisory() {
     web_link: string;
   } | null>(null);
   const [renewSubmitting, setRenewSubmitting] = useState(false);
+  const [renewErrors, setRenewErrors] = useState<Record<string, string>>({});
   /** GET advisory/{id}/ to load current web_link (and fields) for renew form. */
   const [renewDetailLoading, setRenewDetailLoading] = useState(false);
   /** Ignore late responses when Renew is opened for another row before fetch finishes. */
@@ -238,10 +239,16 @@ export function RegulatoryAdvisory() {
     setRenewAdvisoryRow(null);
     setRenewUpdate(null);
     setRenewDetailLoading(false);
+    setRenewErrors({});
   };
 
   const handleRenewSubmit = async () => {
-    if (!renewUpdate || !renewUpdate.expiry.trim()) return;
+    if (!renewUpdate) return;
+    if (!renewUpdate.expiry.trim()) {
+      setRenewErrors({ expiry: "Expiration date is required" });
+      return;
+    }
+    setRenewErrors({});
     setRenewSubmitting(true);
     try {
       await renewAdvisory(renewUpdate.id, renewUpdate.expiry, {
@@ -758,7 +765,7 @@ export function RegulatoryAdvisory() {
             <div className="space-y-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
-                  Expiration date
+                  Expiration date <span className="text-red-500">*</span>
                   {renewDetailLoading && (
                     <Loader2
                       className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0"
@@ -769,15 +776,24 @@ export function RegulatoryAdvisory() {
                 <input
                   type="date"
                   value={renewUpdate.expiry}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setRenewUpdate((prev) =>
                       prev ? { ...prev, expiry: e.target.value } : null
-                    )
-                  }
+                    );
+                    if (renewErrors.expiry)
+                      setRenewErrors((prev) => ({ ...prev, expiry: "" }));
+                  }}
                   disabled={renewDetailLoading}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 disabled:opacity-60"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 bg-white text-gray-900 disabled:opacity-60 ${
+                    renewErrors.expiry
+                      ? "border-red-500 focus:ring-red-300 focus:border-red-500"
+                      : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                  }`}
                   placeholder="e.g. 27 FEB 26"
                 />
+                {renewErrors.expiry && (
+                  <p className="mt-1 text-xs text-red-600">{renewErrors.expiry}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
@@ -819,11 +835,7 @@ export function RegulatoryAdvisory() {
                 <button
                   type="button"
                   onClick={handleRenewSubmit}
-                  disabled={
-                    renewSubmitting ||
-                    renewDetailLoading ||
-                    !renewUpdate.expiry.trim()
-                  }
+                  disabled={renewSubmitting || renewDetailLoading}
                   className="flex items-center gap-1.5 px-4 py-2 text-sm text-white rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
                   style={{ backgroundColor: "#2563EB" }}
                 >

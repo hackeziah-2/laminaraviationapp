@@ -541,6 +541,9 @@ export function MaintenanceLogbook() {
     licenseNumber: "",
     signature: "",
   });
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
 
   // Mechanic accounts dropdown state
   const [mechanicAccounts, setMechanicAccounts] = useState<Account[]>([]);
@@ -938,6 +941,7 @@ export function MaintenanceLogbook() {
       }
     } else {
       // Reset when modal closes
+      setValidationErrors({});
       setMechanicAccounts([]);
       setComponentRecords([]);
       setMechanicSearchTerm("");
@@ -948,8 +952,34 @@ export function MaintenanceLogbook() {
     }
   }, [showAddEntryModal, showEditEntryModal, editingEntry]);
 
+  const validateMaintenanceLogbookForm = (): Record<string, string> => {
+    const errors: Record<string, string> = {};
+
+    if (!editingEntry && !formData.sequenceNo?.trim()) {
+      errors.sequenceNo = "Sequence Number is required";
+    }
+
+    return errors;
+  };
+
   // Handle save entry
   const handleSaveEntry = async () => {
+    const formErrors = validateMaintenanceLogbookForm();
+    if (Object.keys(formErrors).length > 0) {
+      setValidationErrors(formErrors);
+      await Swal.fire({
+        icon: "warning",
+        title: "Validation Error",
+        html: `<ul style="text-align:left;margin:0;padding-left:1.25em">${Object.values(
+          formErrors
+        )
+          .map((msg) => `<li>${msg}</li>`)
+          .join("")}</ul>`,
+      });
+      return;
+    }
+
+    setValidationErrors({});
     setIsSaving(true);
     try {
       // Validate file if uploaded
@@ -1005,7 +1035,7 @@ export function MaintenanceLogbook() {
 
       // aircraft_fk is required for create and must be sent for update (backend expects it)
       const baseData: any = {
-        sequenceNo: formData.sequenceNo || undefined,
+        sequenceNo: formData.sequenceNo?.trim() || undefined,
         description: formData.description || undefined,
         mechanicFk: formData.mechanicFk
           ? parseInt(formData.mechanicFk)
@@ -2701,11 +2731,27 @@ export function MaintenanceLogbook() {
                     <input
                       type="text"
                       value={formData.sequenceNo}
-                      onChange={(e) =>
-                        setFormData({ ...formData, sequenceNo: e.target.value })
-                      }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-red-700 focus:ring-gray-400 focus:border-gray-400"
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setFormData({ ...formData, sequenceNo: value });
+                        if (validationErrors.sequenceNo) {
+                          setValidationErrors({
+                            ...validationErrors,
+                            sequenceNo: "",
+                          });
+                        }
+                      }}
+                      className={`w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-1 bg-white focus:ring-gray-400 focus:border-gray-400 ${
+                        validationErrors.sequenceNo
+                          ? "border-red-500 text-red-700"
+                          : "border-gray-300 text-red-700"
+                      }`}
                     />
+                    {validationErrors.sequenceNo && (
+                      <p className="text-red-500 text-xs mt-1">
+                        {validationErrors.sequenceNo}
+                      </p>
+                    )}
                   </div>
                 </div>
 

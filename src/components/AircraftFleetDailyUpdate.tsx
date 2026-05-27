@@ -314,7 +314,7 @@ export function AircraftFleetDailyUpdate() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search by ident, status, inspection, or remarks..."
+                placeholder="Search by Aircraft Registration"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -337,9 +337,7 @@ export function AircraftFleetDailyUpdate() {
               >
                 <option value="all">All Aircraft</option>
                 <option value="Operational">Operational</option>
-                <option value="Ongoing Maintenance">
-                  Ongoing Maintenance
-                </option>
+                <option value="Ongoing Maintenance">Ongoing Maintenance</option>
                 <option value="AOG">AOG</option>
               </select>
             </div>
@@ -466,7 +464,9 @@ export function AircraftFleetDailyUpdate() {
                         if (!trimmed) return "-";
                         return (
                           <Link
-                            to={`/profile?aircraft=${encodeURIComponent(trimmed)}`}
+                            to={`/profile?aircraft=${encodeURIComponent(
+                              trimmed
+                            )}`}
                             className="text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
                           >
                             {trimmed}

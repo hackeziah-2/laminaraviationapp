@@ -94,6 +94,7 @@ export function CPCPEntryModal({
 }: CPCPEntryModalProps) {
   const { canUpdate, canCreate } = useUserPermissions();
   const [formData, setFormData] = useState(defaultFormData);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
   const [atlSearchDebounced, setAtlSearchDebounced] = useState("");
@@ -205,6 +206,16 @@ export function CPCPEntryModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const newErrors: Record<string, string> = {};
+    if (!formData.inspection_operation.trim())
+      newErrors.inspection_operation = "Inspection operation is required";
+    if (!formData.description.trim())
+      newErrors.description = "Description is required";
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    setErrors({});
     const payload: Record<string, any> = {
       inspection_operation: formData.inspection_operation.trim() || undefined,
       description: formData.description.trim() || undefined,
@@ -228,12 +239,15 @@ export function CPCPEntryModal({
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
     >
   ) => {
-    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
   const handleClose = () => {
     onClose();
     setFormData(defaultFormData);
+    setErrors({});
     setAtlOpen(false);
     setAtlSearch("");
     setAtlSearchDebounced("");
@@ -281,10 +295,18 @@ export function CPCPEntryModal({
                 name="inspection_operation"
                 value={formData.inspection_operation}
                 onChange={handleChange}
-                required
                 placeholder="e.g. IO 1, IO 2"
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full px-3 py-2 bg-gray-50 border rounded-lg text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  errors.inspection_operation
+                    ? "border-red-500"
+                    : "border-gray-200"
+                }`}
               />
+              {errors.inspection_operation && (
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.inspection_operation}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-gray-900 text-sm mb-2">
@@ -294,11 +316,15 @@ export function CPCPEntryModal({
                 name="description"
                 value={formData.description}
                 onChange={handleChange}
-                required
                 placeholder="Inspection description"
                 rows={3}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                className={`w-full px-3 py-2 bg-gray-50 border rounded-lg text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${
+                  errors.description ? "border-red-500" : "border-gray-200"
+                }`}
               />
+              {errors.description && (
+                <p className="mt-1 text-xs text-red-600">{errors.description}</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

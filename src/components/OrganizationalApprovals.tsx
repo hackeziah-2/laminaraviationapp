@@ -89,6 +89,7 @@ export function OrganizationalApprovals() {
     expiryDate: "",
     webLink: "",
   });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [certificateTypesFromApi, setCertificateTypesFromApi] = useState<
     CertificateTypeOption[]
   >([]);
@@ -406,50 +407,31 @@ export function OrganizationalApprovals() {
     setShowModal(false);
     setEditingApproval(null);
     setFormData({ certificateFk: 0, number: "", expiryDate: "", webLink: "" });
+    setFormErrors({});
   };
 
   const handleSaveDocument = async () => {
     const fk = formData.certificateFk;
+    const newErrors: Record<string, string> = {};
 
-    if (!fk) {
-      Swal.fire({
-        icon: "warning",
-        title: "Required",
-        text: "Please select an Approval Type.",
-      });
-      return;
-    }
-
-    if (!formData.number?.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Required",
-        text: "Please enter the Approval Number.",
-      });
-      return;
-    }
-
-    if (!formData.expiryDate?.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Required",
-        text: "Please enter an Expiry Date.",
-      });
-      return;
-    }
-
-    setSaving(true);
+    if (!fk) newErrors.certificateFk = "Approval type is required";
+    if (!formData.number?.trim())
+      newErrors.number = "Approval number is required";
+    if (!formData.expiryDate?.trim())
+      newErrors.expiryDate = "Expiry date is required";
 
     const webLink = formData.webLink?.trim();
     const dateOfExpiration = toApiDate(formData.expiryDate);
-    if (!dateOfExpiration) {
-      Swal.fire({
-        icon: "warning",
-        title: "Invalid date",
-        text: "Please enter a valid Expiry Date.",
-      });
+    if (formData.expiryDate?.trim() && !dateOfExpiration)
+      newErrors.expiryDate = "Please enter a valid expiry date";
+
+    if (Object.keys(newErrors).length > 0) {
+      setFormErrors(newErrors);
       return;
     }
+    setFormErrors({});
+
+    setSaving(true);
     const payload = {
       certificate_fk: fk,
       number: formData.number.trim(),
@@ -1086,8 +1068,14 @@ export function OrganizationalApprovals() {
                       ...formData,
                       certificateFk: val ? Number(val) : 0,
                     });
+                    if (formErrors.certificateFk)
+                      setFormErrors((prev) => ({ ...prev, certificateFk: "" }));
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    formErrors.certificateFk
+                      ? "border-red-500"
+                      : "border-gray-300"
+                  }`}
                 >
                   <option value="">Select Type</option>
                   {certificateOptions.map((opt, idx) => (
@@ -1100,6 +1088,11 @@ export function OrganizationalApprovals() {
                   ))}
                   <option value="__create_new__">— Create New —</option>
                 </select>
+                {formErrors.certificateFk && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {formErrors.certificateFk}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
@@ -1108,12 +1101,19 @@ export function OrganizationalApprovals() {
                 <input
                   type="text"
                   value={formData.number}
-                  onChange={(e) =>
-                    setFormData({ ...formData, number: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, number: e.target.value });
+                    if (formErrors.number)
+                      setFormErrors((prev) => ({ ...prev, number: "" }));
+                  }}
                   placeholder="Enter Number"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    formErrors.number ? "border-red-500" : "border-gray-300"
+                  }`}
                 />
+                {formErrors.number && (
+                  <p className="mt-1 text-xs text-red-600">{formErrors.number}</p>
+                )}
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
@@ -1122,11 +1122,20 @@ export function OrganizationalApprovals() {
                 <input
                   type="date"
                   value={formData.expiryDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, expiryDate: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) => {
+                    setFormData({ ...formData, expiryDate: e.target.value });
+                    if (formErrors.expiryDate)
+                      setFormErrors((prev) => ({ ...prev, expiryDate: "" }));
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    formErrors.expiryDate ? "border-red-500" : "border-gray-300"
+                  }`}
                 />
+                {formErrors.expiryDate && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {formErrors.expiryDate}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
