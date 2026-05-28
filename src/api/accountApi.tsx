@@ -196,13 +196,13 @@ export type AccountUpdatePayload = Partial<{
   designation: string;
   roleId: number;
   status: boolean;
-  auth_initial_doi: string;
+  auth_initial_doi: string | null;
 }>;
 
 function buildAccountUpdateBody(
   payload: AccountUpdatePayload
-): Record<string, string | number | boolean> {
-  const body: Record<string, string | number | boolean> = {};
+): Record<string, string | number | boolean | null> {
+  const body: Record<string, string | number | boolean | null> = {};
   if (payload.firstName != null) body.first_name = payload.firstName;
   if (payload.lastName != null) body.last_name = payload.lastName;
   if (payload.middleName != null) body.middle_name = payload.middleName;
@@ -212,8 +212,13 @@ function buildAccountUpdateBody(
   if (payload.designation != null) body.designation = payload.designation;
   if (payload.roleId != null) body.role_id = payload.roleId;
   if (payload.status != null) body.status = payload.status;
-  if (payload.auth_initial_doi != null)
-    body.auth_initial_doi = payload.auth_initial_doi.trim();
+  if (payload.auth_initial_doi !== undefined) {
+    const doi =
+      typeof payload.auth_initial_doi === "string"
+        ? payload.auth_initial_doi.trim()
+        : "";
+    body.auth_initial_doi = doi ? doi : null;
+  }
   return body;
 }
 

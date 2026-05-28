@@ -19,6 +19,7 @@ import { Spinner } from "./ui/spinner";
 import { Aircraft } from "../types/Aircraft";
 import { snakeAllKeys } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { isMechanicRole } from "../utility/atlEditRbac";
 
 /** Aircraft Details: treat null/empty/invalid as 0 for engine/prop hour fields. */
 function numOrZero(v: unknown): number {
@@ -54,7 +55,9 @@ function numberInputValue(v: unknown): number | string {
 export function AircraftDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { canAccess, canUpdate } = useUserPermissions();
+  const { canAccess, canUpdate, user } = useUserPermissions();
+  /** Mechanic role cannot navigate to Aircraft Details history (same RBAC as Operation export gate). */
+  const canViewAircraftHistory = !isMechanicRole(user?.role);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editAircraft, setEditedAircraft] = useState<Aircraft | null>(null);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
@@ -65,6 +68,7 @@ export function AircraftDetail() {
 
   const [engineARCFileName, setEngineARCFileName] = useState<string>("");
   const [propellerARCFileName, setPropellerARCFileName] = useState<string>("");
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
   const handleEngineARCFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -179,14 +183,12 @@ export function AircraftDetail() {
       editAircraft?.propellerLifeTimeLimit
     );
     if (propellerLimit == null) {
-      Swal.fire({
-        icon: "warning",
-        title: "Required field",
-        text: "Propeller Life Time Limit (life_time_limit_propeller) is required. Please set it before saving.",
-        confirmButtonColor: "#2563eb",
+      setEditErrors({
+        propellerLifeTimeLimit: "Propeller life time limit is required",
       });
       return;
     }
+    setEditErrors({});
 
     const updatedData = {
       registration: editAircraft?.registration,
@@ -289,6 +291,7 @@ export function AircraftDetail() {
   };
 
   const handleInputChange = (key: string, value: string) => {
+    if (editErrors[key]) setEditErrors((prev) => ({ ...prev, [key]: "" }));
     setEditedAircraft((prev) => {
       if (!prev) return prev; // still null, do nothing
       return {
@@ -486,7 +489,7 @@ export function AircraftDetail() {
           <div className="flex flex-wrap items-center gap-2">
             {!isEditMode ? (
               <>
-                {canAccess("profile") && (
+                {canAccess("profile") && canViewAircraftHistory && (
                   <button
                     onClick={handleHistoryClick}
                     className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
@@ -835,7 +838,9 @@ export function AircraftDetail() {
                       type="number"
                       step="0.01"
                       min="0"
-                      value={numberInputValue(editAircraft?.engineLifeTimeLimit)}
+                      value={numberInputValue(
+                        editAircraft?.engineLifeTimeLimit
+                      )}
                       onChange={(e) =>
                         handleInputChange("engineLifeTimeLimit", e.target.value)
                       }
@@ -1020,22 +1025,34 @@ export function AircraftDetail() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">
-                    Propeller Life Time Limit
+                    Propeller Life Time Limit{" "}
+                    <span className="text-red-500">*</span>
                   </p>
                   {isEditMode ? (
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={editAircraft?.propellerLifeTimeLimit ?? 0}
-                      onChange={(e) =>
-                        handleInputChange(
-                          "propellerLifeTimeLimit",
-                          e.target.value
-                        )
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editAircraft?.propellerLifeTimeLimit ?? 0}
+                        onChange={(e) =>
+                          handleInputChange(
+                            "propellerLifeTimeLimit",
+                            e.target.value
+                          )
+                        }
+                        className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          editErrors.propellerLifeTimeLimit
+                            ? "border-red-500"
+                            : "border-gray-300"
+                        }`}
+                      />
+                      {editErrors.propellerLifeTimeLimit && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {editErrors.propellerLifeTimeLimit}
+                        </p>
+                      )}
+                    </>
                   ) : (
                     <p className="text-gray-900">
                       {aircraft.propellerLifeTimeLimit ||

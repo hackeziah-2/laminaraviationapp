@@ -396,6 +396,65 @@ function getApiErrorMessage(err: unknown, fallback: string): string {
 
 const CERTIFICATE_CATEGORY_BASE = "certificate-category-types";
 
+function parseCertificateCategoryType(raw: unknown): CertificateTypeOption {
+  const r =
+    raw && typeof raw === "object"
+      ? (raw as Record<string, unknown>)
+      : {};
+  const id = Number(r.id ?? r.pk ?? r.certificate_fk ?? 0);
+  const name = String(
+    r.name ?? r.certificate_name ?? r.category_name ?? ""
+  ).trim();
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("Invalid certificate category type response from server.");
+  }
+  return { id, name: name || `Type ${id}` };
+}
+
+export interface PaginatedCertificateCategoryTypesResponse {
+  items: CertificateTypeOption[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+/**
+ * Paged list for OA Approval Type Settings.
+ * GET api/v1/certificate-category-types/paged?page=&limit=
+ */
+export async function getCertificateCategoryTypesPaged(
+  page = 1,
+  limit = 10
+): Promise<PaginatedCertificateCategoryTypesResponse> {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  const res = await apiClient.get(
+    `${CERTIFICATE_CATEGORY_BASE}/paged?${params.toString()}`,
+    { headers: { Accept: "application/json" } }
+  );
+  const raw = res.data?.data ?? res.data ?? {};
+  const data = raw.results ?? raw.items ?? raw.data ?? [];
+  const list = Array.isArray(data) ? data : [];
+  const items = list
+    .map((row: Record<string, unknown>) => {
+      try {
+        return parseCertificateCategoryType(row);
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is CertificateTypeOption => x != null);
+  const total = raw.total ?? raw.count ?? items.length;
+  const pages = raw.pages ?? Math.max(1, Math.ceil(Number(total) / limit));
+  return {
+    items,
+    total: Number(total),
+    page: Number(raw.page ?? page),
+    pages: Number(pages),
+  };
+}
+
 /**
  * Fetch certificate category type options for Approval Type dropdown.
  * GET api/v1/certificate-category-types/list
@@ -410,19 +469,30 @@ export async function getCertificateCategoryTypesList(): Promise<
     const data = res.data?.results ?? res.data?.data ?? res.data;
     const list = Array.isArray(data) ? data : [];
     return list
-      .map((item: Record<string, unknown>) => ({
-        id: Number(item.id ?? (item as any).certificate_fk ?? 0),
-        name: String(
-          item.name ??
-            (item as any).certificate_name ??
-            (item as any).category_name ??
-            ""
-        ),
-      }))
-      .filter((x) => x.id && x.name);
+      .map((item: Record<string, unknown>) => {
+        try {
+          return parseCertificateCategoryType(item);
+        } catch {
+          return null;
+        }
+      })
+      .filter((x): x is CertificateTypeOption => x != null);
   } catch {
     return [];
   }
+}
+
+/**
+ * GET api/v1/certificate-category-types/{id}/
+ */
+export async function getCertificateCategoryTypeById(
+  id: number
+): Promise<CertificateTypeOption> {
+  const res = await apiClient.get(`${CERTIFICATE_CATEGORY_BASE}/${id}/`, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseCertificateCategoryType(raw);
 }
 
 /**
@@ -434,9 +504,7 @@ export async function createCertificateCategoryType(payload: {
 }): Promise<CertificateTypeOption> {
   const res = await apiClient.post(
     `${CERTIFICATE_CATEGORY_BASE}/`,
-    typeof payload === "object" && payload !== null
-      ? payload
-      : { name: String(payload) },
+    { name: payload.name.trim() },
     {
       headers: {
         "Content-Type": "application/json",
@@ -445,16 +513,39 @@ export async function createCertificateCategoryType(payload: {
     }
   );
   const raw = res.data?.data ?? res.data;
-  if (raw != null && typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    return {
-      id: Number(obj.id ?? 0),
-      name: String(
-        obj.name ?? (obj as any).category_name ?? payload.name ?? ""
-      ),
-    };
-  }
-  return { id: 0, name: payload.name };
+  return parseCertificateCategoryType(raw);
+}
+
+/**
+ * Update a certificate category type.
+ * PATCH api/v1/certificate-category-types/{id}/
+ */
+export async function updateCertificateCategoryType(
+  id: number,
+  payload: { name: string }
+): Promise<CertificateTypeOption> {
+  const res = await apiClient.patch(
+    `${CERTIFICATE_CATEGORY_BASE}/${id}/`,
+    { name: payload.name.trim() },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    }
+  );
+  const raw = res.data?.data ?? res.data;
+  return parseCertificateCategoryType(raw);
+}
+
+/**
+ * Delete a certificate category type.
+ * DELETE api/v1/certificate-category-types/{id}/
+ */
+export async function deleteCertificateCategoryType(id: number): Promise<void> {
+  await apiClient.delete(`${CERTIFICATE_CATEGORY_BASE}/${id}/`, {
+    headers: { Accept: "application/json" },
+  });
 }
 
 /**

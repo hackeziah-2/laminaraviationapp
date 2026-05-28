@@ -173,6 +173,9 @@ export function AircraftStatutoryCertificates() {
     webLink: "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [saveFormErrors, setSaveFormErrors] = useState<Record<string, string>>(
+    {}
+  );
   const [exportLoading, setExportLoading] = useState(false);
 
   // Aircraft Registry searchable dropdown
@@ -290,6 +293,7 @@ export function AircraftStatutoryCertificates() {
       );
       setAircraftSearchTerm("");
       setIsAircraftDropdownOpen(false);
+      setSaveFormErrors((prev) => ({ ...prev, aircraftId: "" }));
     },
     []
   );
@@ -685,46 +689,30 @@ export function AircraftStatutoryCertificates() {
     setEditingCertificate(null);
     setShowAddModal(false);
     setShowEditModal(false);
+    setSaveFormErrors({});
   };
 
   const handleSave = async () => {
+    const newErrors: Record<string, string> = {};
     const certType = formData.certificateType?.trim();
-    if (!certType) {
-      Swal.fire({
-        icon: "error",
-        title: "Validation Error",
-        text: "Please select Certificate Type.",
-      });
-      return;
-    }
+    if (!certType) newErrors.certificateType = "Certificate type is required";
     const aircraftId = formData.aircraftId
       ? Number(formData.aircraftId)
       : undefined;
-    if (!aircraftId && !editingCertificate) {
-      Swal.fire({
-        icon: "error",
-        title: "Validation Error",
-        text: "Please select an Aircraft.",
-      });
-      return;
-    }
-    if (!isValidWebLink(formData.webLink)) {
-      Swal.fire({
-        icon: "error",
-        title: "Validation Error",
-        text: "Web Link must be a valid URL (e.g. https://example.com). Paste a link only.",
-      });
-      return;
-    }
+    if (!aircraftId && !editingCertificate)
+      newErrors.aircraftId = "Aircraft is required";
+    if (!isValidWebLink(formData.webLink))
+      newErrors.webLink =
+        "Web link must be a valid URL (e.g. https://example.com)";
     const expiryValue = toDateInputValue(formData.expiryDate);
-    if (!expiryValue || !expiryValue.trim()) {
-      Swal.fire({
-        icon: "error",
-        title: "Validation Error",
-        text: "Date of Expiration is required.",
-      });
+    if (!expiryValue || !expiryValue.trim())
+      newErrors.expiryDate = "Date of expiration is required";
+
+    if (Object.keys(newErrors).length > 0) {
+      setSaveFormErrors(newErrors);
       return;
     }
+    setSaveFormErrors({});
 
     setIsSaving(true);
     try {
@@ -1335,7 +1323,11 @@ export function AircraftStatutoryCertificates() {
                       }}
                       placeholder="Search by registration..."
                       disabled={loadingAircrafts}
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-70"
+                      className={`w-full px-3 py-2 pr-10 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-70 ${
+                        saveFormErrors.aircraftId
+                          ? "border-red-500"
+                          : "border-gray-300"
+                      }`}
                     />
                     <button
                       type="button"
@@ -1402,6 +1394,11 @@ export function AircraftStatutoryCertificates() {
                     </div>
                   )}
                 </div>
+                {saveFormErrors.aircraftId && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {saveFormErrors.aircraftId}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
@@ -1409,13 +1406,22 @@ export function AircraftStatutoryCertificates() {
                 </label>
                 <select
                   value={formData.certificateType}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setFormData({
                       ...formData,
                       certificateType: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    });
+                    if (saveFormErrors.certificateType)
+                      setSaveFormErrors((prev) => ({
+                        ...prev,
+                        certificateType: "",
+                      }));
+                  }}
+                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    saveFormErrors.certificateType
+                      ? "border-red-500"
+                      : "border-gray-300"
+                  }`}
                 >
                   <option value="">Select Type</option>
                   {CERTIFICATE_TYPE_OPTIONS.map(({ value, label }) => (
@@ -1424,6 +1430,11 @@ export function AircraftStatutoryCertificates() {
                     </option>
                   ))}
                 </select>
+                {saveFormErrors.certificateType && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {saveFormErrors.certificateType}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
@@ -1431,14 +1442,24 @@ export function AircraftStatutoryCertificates() {
                 </label>
                 <input
                   type="date"
-                  required
                   value={formData.expiryDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, expiryDate: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, expiryDate: e.target.value });
+                    if (saveFormErrors.expiryDate)
+                      setSaveFormErrors((prev) => ({ ...prev, expiryDate: "" }));
+                  }}
                   placeholder="mm/dd/yyyy"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    saveFormErrors.expiryDate
+                      ? "border-red-500"
+                      : "border-gray-300"
+                  }`}
                 />
+                {saveFormErrors.expiryDate && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {saveFormErrors.expiryDate}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
@@ -1448,22 +1469,28 @@ export function AircraftStatutoryCertificates() {
                 <input
                   type="url"
                   value={formData.webLink}
-                  onChange={(e) =>
-                    setFormData({ ...formData, webLink: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setFormData({ ...formData, webLink: e.target.value });
+                    if (saveFormErrors.webLink)
+                      setSaveFormErrors((prev) => ({ ...prev, webLink: "" }));
+                  }}
                   placeholder="https://example.com"
                   className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    formData.webLink.trim() && !isValidWebLink(formData.webLink)
+                    saveFormErrors.webLink ||
+                    (formData.webLink.trim() &&
+                      !isValidWebLink(formData.webLink))
                       ? "border-red-500 focus:ring-red-500/30"
                       : "border-gray-300"
                   }`}
                 />
-                {formData.webLink.trim() &&
-                  !isValidWebLink(formData.webLink) && (
-                    <p className="mt-1 text-xs text-red-600">
-                      Enter a valid link only (e.g. https://example.com)
-                    </p>
-                  )}
+                {(saveFormErrors.webLink ||
+                  (formData.webLink.trim() &&
+                    !isValidWebLink(formData.webLink))) && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {saveFormErrors.webLink ||
+                      "Enter a valid link only (e.g. https://example.com)"}
+                  </p>
+                )}
               </div>
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-3">

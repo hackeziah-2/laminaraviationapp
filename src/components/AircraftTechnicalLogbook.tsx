@@ -34,6 +34,8 @@ import {
 import { getAircraftList } from "../api/aircraftApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
+  ATL_WORK_STATUS_KEYS,
+  formatAtlWorkStatusLabel,
   isAtlBatchFilterAndBranchManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
   normalizeAtlWorkStatus,
@@ -86,6 +88,7 @@ export function AircraftTechnicalLogbook() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
+  const [selectedWorkStatus, setSelectedWorkStatus] = useState("");
   const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
     { id: number; name: string }[]
   >([]);
@@ -115,6 +118,10 @@ export function AircraftTechnicalLogbook() {
       selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
     return Number.isFinite(n) && n > 0 ? n : undefined;
   }, [canManageAtlBatchFilter, selectedAtlBatchId]);
+  const selectedWorkStatusFilter = useMemo(() => {
+    const normalized = normalizeAtlWorkStatus(selectedWorkStatus);
+    return normalized || undefined;
+  }, [selectedWorkStatus]);
   const showSeqWithBatchName = selectedAtlBatchFk == null;
   const normalizedUserRole = (user?.role || "")
     .trim()
@@ -212,7 +219,7 @@ export function AircraftTechnicalLogbook() {
             debouncedSearchTerm,
             selectedAircraftFk,
             sortBy,
-            undefined,
+            selectedWorkStatusFilter,
             selectedAtlBatchFk
           )
         : await getManagedAircraftTechnicalLogs(
@@ -221,7 +228,7 @@ export function AircraftTechnicalLogbook() {
             debouncedSearchTerm,
             selectedAircraftFk,
             sortBy,
-            undefined,
+            selectedWorkStatusFilter,
             selectedAtlBatchFk
           );
 
@@ -286,6 +293,7 @@ export function AircraftTechnicalLogbook() {
     debouncedSearchTerm,
     selectedAircraftFk,
     selectedAtlBatchFk,
+    selectedWorkStatusFilter,
     sortBy,
     isMaintenancePlanner,
   ]);
@@ -302,6 +310,10 @@ export function AircraftTechnicalLogbook() {
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedAtlBatchId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedWorkStatus]);
 
   useEffect(() => {
     if (!canManageAtlBatchFilter) {
@@ -716,6 +728,27 @@ export function AircraftTechnicalLogbook() {
               </select>
             </div>
           )}
+          <div className="md:w-72">
+            <label
+              htmlFor="logbook-work-status-filter"
+              className="block text-gray-700 mb-2"
+            >
+              Work Status
+            </label>
+            <select
+              id="logbook-work-status-filter"
+              value={selectedWorkStatus}
+              onChange={(e) => setSelectedWorkStatus(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+            >
+              <option value="">All Work Status</option>
+              {ATL_WORK_STATUS_KEYS.map((statusKey) => (
+                <option key={statusKey} value={statusKey}>
+                  {formatAtlWorkStatusLabel(statusKey)}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
