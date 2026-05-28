@@ -129,32 +129,26 @@ export function isMechanicRole(userRole: string | undefined): boolean {
  *
  * Per product spec, the ATL batch filter is now available to every authenticated
  * role (Admin, Maintenance Planner, Maintenance Manager, Mechanic, and all
- * "Other Roles"). Branch create/edit gating is enforced separately by
- * `isAtlBatchBranchEditRole`.
+ * "Other Roles"). Batch create/edit gating is enforced separately by
+ * `canEditAtlBatch`.
  *
  * Kept as a function (rather than a constant `true`) so the existing call sites
  * across `Operation.tsx`, `AircraftTechnicalLogbook.tsx`, and
  * `AddTechnicalLogbookEntryModal.tsx` keep their explicit visibility flag,
  * and so future role-based gating (if reintroduced) only changes here.
  */
-export function isAtlBatchFilterAndBranchManagementRole(
+export function canManageAtlBatchFilter(
   _userRole: string | undefined
 ): boolean {
   return true;
 }
 
-/**
- * Roles allowed to create ATL batch (branch) records:
- * Admin and Maintenance Planner.
- */
-export function isAtlBatchBranchCreateRole(
-  userRole: string | undefined
-): boolean {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return false;
+function isAdminRoleName(n: string): boolean {
+  return n === "admin" || n.endsWith(" admin");
+}
+
+function isMaintenancePlannerRoleName(n: string): boolean {
   return (
-    n === "admin" ||
-    n.endsWith(" admin") ||
     n === "maintenance planner" ||
     n === "maint planner" ||
     n === "maintenance planning" ||
@@ -162,23 +156,33 @@ export function isAtlBatchBranchCreateRole(
   );
 }
 
-/**
- * Roles allowed to edit ATL batch (branch) records from the operation ATL
- * batch dropdown:
- * Admin and Maintenance Manager.
- */
-export function isAtlBatchBranchEditRole(
-  userRole: string | undefined
-): boolean {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return false;
+function isMaintenanceManagerRoleName(n: string): boolean {
   return (
-    n === "admin" ||
-    n.endsWith(" admin") ||
     n === "maintenance manager" ||
     n === "maint manager" ||
     n.endsWith(" maintenance manager")
   );
+}
+
+/**
+ * Roles allowed to create ATL batch records:
+ * Admin and Maintenance Planner.
+ */
+export function canCreateAtlBatch(userRole: string | undefined): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return isAdminRoleName(n) || isMaintenancePlannerRoleName(n);
+}
+
+/**
+ * Roles allowed to edit ATL batch records from the operation ATL
+ * batch dropdown:
+ * Admin and Maintenance Manager.
+ */
+export function canEditAtlBatch(userRole: string | undefined): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return isAdminRoleName(n) || isMaintenanceManagerRoleName(n);
 }
 
 function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
