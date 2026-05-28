@@ -129,25 +129,25 @@ export function isMechanicRole(userRole: string | undefined): boolean {
  *
  * Per product spec, the ATL batch filter is now available to every authenticated
  * role (Admin, Maintenance Planner, Maintenance Manager, Mechanic, and all
- * "Other Roles"). Branch create/edit gating is enforced separately by
- * `isAtlBatchBranchEditRole`.
+ * "Other Roles"). Batch create/edit gating is enforced separately by
+ * `isAtlBatchEditRole`.
  *
  * Kept as a function (rather than a constant `true`) so the existing call sites
  * across `Operation.tsx`, `AircraftTechnicalLogbook.tsx`, and
  * `AddTechnicalLogbookEntryModal.tsx` keep their explicit visibility flag,
  * and so future role-based gating (if reintroduced) only changes here.
  */
-export function isAtlBatchFilterAndBranchManagementRole(
+export function isAtlBatchFilterManagementRole(
   _userRole: string | undefined
 ): boolean {
   return true;
 }
 
 /**
- * Roles allowed to create ATL batch (branch) records:
+ * Roles allowed to create ATL batch records:
  * Admin and Maintenance Planner.
  */
-export function isAtlBatchBranchCreateRole(
+export function isAtlBatchCreateRole(
   userRole: string | undefined
 ): boolean {
   const n = normalizeRoleNameForMatch(userRole);
@@ -163,11 +163,11 @@ export function isAtlBatchBranchCreateRole(
 }
 
 /**
- * Roles allowed to edit ATL batch (branch) records from the operation ATL
+ * Roles allowed to edit ATL batch records from the operation ATL
  * batch dropdown:
  * Admin and Maintenance Manager.
  */
-export function isAtlBatchBranchEditRole(
+export function isAtlBatchEditRole(
   userRole: string | undefined
 ): boolean {
   const n = normalizeRoleNameForMatch(userRole);

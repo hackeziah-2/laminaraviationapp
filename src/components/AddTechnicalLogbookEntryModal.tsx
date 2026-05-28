@@ -47,7 +47,7 @@ import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   canUploadWhiteAtlAndDfpFiles,
-  isAtlBatchFilterAndBranchManagementRole,
+  isAtlBatchFilterManagementRole,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
@@ -204,7 +204,7 @@ export function AddTechnicalLogbookEntryModal({
   );
 
   const canManageAtlBatchField = useMemo(
-    () => isAtlBatchFilterAndBranchManagementRole(atlRoleForWorkStatus),
+    () => isAtlBatchFilterManagementRole(atlRoleForWorkStatus),
     [atlRoleForWorkStatus]
   );
 

@@ -21,8 +21,8 @@ import type { ModuleSettingKey } from "../../constants/moduleSettingsOptions";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
 import { getMe } from "../../api/authApi";
 import {
-  isAtlBatchBranchCreateRole,
-  isAtlBatchBranchEditRole,
+  isAtlBatchCreateRole,
+  isAtlBatchEditRole,
 } from "../../utility/atlEditRbac";
 import { AddAtlBatchModal } from "../AddAtlBatchModal";
 import { AddCertificateCategoryTypeModal } from "../AddCertificateCategoryTypeModal";
@@ -78,7 +78,7 @@ function FleetTimeMonitoringSettings() {
             <span className="font-medium text-gray-800">
               ATL Batch Settings
             </span>{" "}
-            to manage branches used when filtering fleet time records.
+            to manage ATL batches used when filtering fleet time records.
           </li>
         </ul>
       </div>
@@ -96,11 +96,11 @@ function AtlBatchSettingsPanel() {
     canCreate("settings") || canUpdate("settings");
   const canCreateBatches = useMemo(
     () =>
-      hasSettingsManagePermission && isAtlBatchBranchCreateRole(atlBatchRole),
+      hasSettingsManagePermission && isAtlBatchCreateRole(atlBatchRole),
     [hasSettingsManagePermission, atlBatchRole]
   );
   const canEditBatches = useMemo(
-    () => hasSettingsManagePermission && isAtlBatchBranchEditRole(atlBatchRole),
+    () => hasSettingsManagePermission && isAtlBatchEditRole(atlBatchRole),
     [hasSettingsManagePermission, atlBatchRole]
   );
   const canManageBatches = canCreateBatches || canEditBatches;

@@ -36,7 +36,7 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
-  isAtlBatchFilterAndBranchManagementRole,
+  isAtlBatchFilterManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
@@ -109,7 +109,7 @@ export function AircraftTechnicalLogbook() {
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
   const canManageAtlBatchFilter = useMemo(
-    () => isAtlBatchFilterAndBranchManagementRole(user?.role),
+    () => isAtlBatchFilterManagementRole(user?.role),
     [user?.role]
   );
   const selectedAtlBatchFk = useMemo(() => {

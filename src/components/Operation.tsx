@@ -72,9 +72,9 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import {
   ATL_WORK_STATUS_KEYS,
-  isAtlBatchBranchCreateRole,
-  isAtlBatchBranchEditRole,
-  isAtlBatchFilterAndBranchManagementRole,
+  isAtlBatchCreateRole,
+  isAtlBatchEditRole,
+  isAtlBatchFilterManagementRole,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
   isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
@@ -128,9 +128,9 @@ const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
 const OPERATION_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
-/** Sentinel `<option>` values — not real branch ids */
-const ATL_BRANCH_CREATE_VALUE = "__atl_branch_create__";
-const ATL_BRANCH_EDIT_VALUE = "__atl_branch_edit__";
+/** Sentinel `<option>` values — not real ATL batch ids */
+const ATL_BATCH_CREATE_VALUE = "__atl_batch_create__";
+const ATL_BATCH_EDIT_VALUE = "__atl_batch_edit__";
 
 type ExportColumnDefinition = {
   key: string;
@@ -541,8 +541,8 @@ export function Operation() {
     [sessionRoleName, user?.role]
   );
 
-  const canManageAtlBatchFilterAndBranches = useMemo(
-    () => isAtlBatchFilterAndBranchManagementRole(operationAtlRole),
+  const canManageAtlBatchFilter = useMemo(
+    () => isAtlBatchFilterManagementRole(operationAtlRole),
     [operationAtlRole]
   );
 
@@ -553,14 +553,14 @@ export function Operation() {
     [operationAtlRole]
   );
   const canExportOperationAtl = !isMechanicViewer;
-  /** Create ATL batch (branch) is restricted to Admin and Maintenance Planner. */
-  const canCreateAtlBatchBranches = useMemo(
-    () => isAtlBatchBranchCreateRole(operationAtlRole),
+  /** Create ATL batch is restricted to Admin and Maintenance Planner. */
+  const canCreateAtlBatch = useMemo(
+    () => isAtlBatchCreateRole(operationAtlRole),
     [operationAtlRole]
   );
-  /** Edit ATL batch (branch) is restricted to Admin and Maintenance Manager. */
-  const canEditAtlBatchBranches = useMemo(
-    () => isAtlBatchBranchEditRole(operationAtlRole),
+  /** Edit ATL batch is restricted to Admin and Maintenance Manager. */
+  const canEditAtlBatch = useMemo(
+    () => isAtlBatchEditRole(operationAtlRole),
     [operationAtlRole]
   );
 
@@ -751,11 +751,11 @@ export function Operation() {
       : aircraftId;
 
   const selectedAtlBatchFk = useMemo(() => {
-    if (!canManageAtlBatchFilterAndBranches) return undefined;
+    if (!canManageAtlBatchFilter) return undefined;
     const n =
       selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
     return Number.isFinite(n) && n > 0 ? n : undefined;
-  }, [canManageAtlBatchFilterAndBranches, selectedAtlBatchId]);
+  }, [canManageAtlBatchFilter, selectedAtlBatchId]);
 
   /** "All" batch filter (or no batch param) → Sequence column shows `Batch name - seq`. */
   const showSeqNoWithBatchName = selectedAtlBatchFk == null;
@@ -912,7 +912,7 @@ export function Operation() {
   }, []);
 
   useEffect(() => {
-    if (!canManageAtlBatchFilterAndBranches) {
+    if (!canManageAtlBatchFilter) {
       setAtlBatchFilterOptions([]);
       return;
     }
@@ -938,16 +938,16 @@ export function Operation() {
     return () => {
       cancelled = true;
     };
-  }, [canManageAtlBatchFilterAndBranches]);
+  }, [canManageAtlBatchFilter]);
 
   useEffect(() => {
-    if (!canManageAtlBatchFilterAndBranches) {
+    if (!canManageAtlBatchFilter) {
       setSelectedAtlBatchId("");
       atlBatchFilterTouchedRef.current = false;
       setAtlBatchModalOpen(false);
       setAtlBatchModalEditId(null);
     }
-  }, [canManageAtlBatchFilterAndBranches]);
+  }, [canManageAtlBatchFilter]);
 
   // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
@@ -1664,7 +1664,7 @@ export function Operation() {
 
   /** When batch filter UI is shown, import requires a concrete batch (not "All batches"). */
   const ensureAtlBatchSelectedForImport = (): boolean => {
-    if (!canManageAtlBatchFilterAndBranches) return true;
+    if (!canManageAtlBatchFilter) return true;
     if (
       selectedAtlBatchFk != null &&
       Number.isFinite(selectedAtlBatchFk) &&
@@ -2310,29 +2310,29 @@ export function Operation() {
                   </button>
                 )}
               </div>
-              {canManageAtlBatchFilterAndBranches && (
+              {canManageAtlBatchFilter && (
                 <div className="flex flex-col gap-1 min-w-[200px]">
                   <div className="flex flex-wrap items-center gap-2">
                     <label
-                      htmlFor="operation-atl-branch"
+                      htmlFor="operation-atl-batch"
                       className="text-gray-700 text-sm font-medium whitespace-nowrap flex items-center gap-2"
                     >
                       <Filter className="w-4 h-4 text-gray-500 shrink-0" />
                       ATL batch
                     </label>
                     <select
-                      id="operation-atl-branch"
+                      id="operation-atl-batch"
                       value={selectedAtlBatchId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        if (v === ATL_BRANCH_CREATE_VALUE) {
-                          if (!canCreateAtlBatchBranches) return;
+                        if (v === ATL_BATCH_CREATE_VALUE) {
+                          if (!canCreateAtlBatch) return;
                           setAtlBatchModalEditId(null);
                           setAtlBatchModalOpen(true);
                           return;
                         }
-                        if (v === ATL_BRANCH_EDIT_VALUE) {
-                          if (!canEditAtlBatchBranches) return;
+                        if (v === ATL_BATCH_EDIT_VALUE) {
+                          if (!canEditAtlBatch) return;
                           const n =
                             selectedAtlBatchId.trim() !== ""
                               ? Number(selectedAtlBatchId)
@@ -2340,8 +2340,8 @@ export function Operation() {
                           if (!Number.isFinite(n) || n <= 0) {
                             void Swal.fire({
                               icon: "info",
-                              title: "Select a branch",
-                              text: "Choose a branch in the dropdown before editing.",
+                              title: "Select an ATL batch",
+                              text: "Choose an ATL batch in the dropdown before editing.",
                               confirmButtonColor: "#2563eb",
                             });
                             return;
@@ -2366,15 +2366,15 @@ export function Operation() {
                           {b.name}
                         </option>
                       ))}
-                      {canCreateAtlBatchBranches && (
-                        <option value={ATL_BRANCH_CREATE_VALUE}>
-                          + Create branch…
+                      {canCreateAtlBatch && (
+                        <option value={ATL_BATCH_CREATE_VALUE}>
+                          + Create batch…
                         </option>
                       )}
-                      {canEditAtlBatchBranches && (
+                      {canEditAtlBatch && (
                         <>
-                          <option value={ATL_BRANCH_EDIT_VALUE}>
-                            Edit branch…
+                          <option value={ATL_BATCH_EDIT_VALUE}>
+                            Edit batch…
                           </option>
                         </>
                       )}
@@ -4178,7 +4178,7 @@ export function Operation() {
       </div>
 
       <AddAtlBatchModal
-        isOpen={atlBatchModalOpen && canEditAtlBatchBranches}
+        isOpen={atlBatchModalOpen && canEditAtlBatch}
         editBatchId={atlBatchModalEditId}
         onClose={() => {
           setAtlBatchModalOpen(false);
@@ -4202,7 +4202,7 @@ export function Operation() {
         aircraftId={effectiveAircraftId}
         permissionModuleCode={operationAtlPermissionModuleCode}
         defaultAtlBatchFk={
-          canManageAtlBatchFilterAndBranches ? selectedAtlBatchFk : undefined
+          canManageAtlBatchFilter ? selectedAtlBatchFk : undefined
         }
         onSuccess={() => {
           setShowAddRecordModal(false);
