@@ -36,7 +36,7 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
-  isAtlBatchFilterAndBranchManagementRole,
+  canManageAtlBatchFilter,
   isAtlEditAllowedForRoleAndWorkStatus,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
@@ -108,16 +108,13 @@ export function AircraftTechnicalLogbook() {
 
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
-  const canManageAtlBatchFilter = useMemo(
-    () => isAtlBatchFilterAndBranchManagementRole(user?.role),
-    [user?.role]
-  );
+  const showAtlBatchFilter = canManageAtlBatchFilter(user?.role);
   const selectedAtlBatchFk = useMemo(() => {
-    if (!canManageAtlBatchFilter) return undefined;
+    if (!showAtlBatchFilter) return undefined;
     const n =
       selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
     return Number.isFinite(n) && n > 0 ? n : undefined;
-  }, [canManageAtlBatchFilter, selectedAtlBatchId]);
+  }, [showAtlBatchFilter, selectedAtlBatchId]);
   const selectedWorkStatusFilter = useMemo(() => {
     const normalized = normalizeAtlWorkStatus(selectedWorkStatus);
     return normalized || undefined;
@@ -316,7 +313,7 @@ export function AircraftTechnicalLogbook() {
   }, [selectedWorkStatus]);
 
   useEffect(() => {
-    if (!canManageAtlBatchFilter) {
+    if (!showAtlBatchFilter) {
       setAtlBatchFilterOptions([]);
       atlBatchFilterTouchedRef.current = false;
       return;
@@ -343,14 +340,14 @@ export function AircraftTechnicalLogbook() {
     return () => {
       cancelled = true;
     };
-  }, [canManageAtlBatchFilter]);
+  }, [showAtlBatchFilter]);
 
   useEffect(() => {
-    if (!canManageAtlBatchFilter && selectedAtlBatchId !== "") {
+    if (!showAtlBatchFilter && selectedAtlBatchId !== "") {
       setSelectedAtlBatchId("");
       atlBatchFilterTouchedRef.current = false;
     }
-  }, [canManageAtlBatchFilter, selectedAtlBatchId]);
+  }, [showAtlBatchFilter, selectedAtlBatchId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -701,7 +698,7 @@ export function AircraftTechnicalLogbook() {
               ))}
             </select>
           </div>
-          {canManageAtlBatchFilter && (
+          {showAtlBatchFilter && (
             <div className="md:w-72">
               <label
                 htmlFor="logbook-atl-batch-filter"
@@ -1034,7 +1031,7 @@ export function AircraftTechnicalLogbook() {
         onSuccess={handleCreateSuccess}
         permissionModuleCode="logbook"
         defaultAtlBatchFk={
-          canManageAtlBatchFilter &&
+          showAtlBatchFilter &&
           selectedAtlBatchFk != null &&
           Number.isFinite(selectedAtlBatchFk) &&
           selectedAtlBatchFk > 0

@@ -47,7 +47,7 @@ import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   canUploadWhiteAtlAndDfpFiles,
-  isAtlBatchFilterAndBranchManagementRole,
+  canManageAtlBatchFilter,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
@@ -203,12 +203,9 @@ export function AddTechnicalLogbookEntryModal({
     [atlAuthRole, permUser?.role, viewerRole]
   );
 
-  const canManageAtlBatchField = useMemo(
-    () => isAtlBatchFilterAndBranchManagementRole(atlRoleForWorkStatus),
-    [atlRoleForWorkStatus]
-  );
+  const showAtlBatchFilter = canManageAtlBatchFilter(atlRoleForWorkStatus);
 
-  const showAtlBatchFormField = Boolean(editEntry || canManageAtlBatchField);
+  const showAtlBatchFormField = Boolean(editEntry || showAtlBatchFilter);
 
   const canUploadAtlAttachments = useMemo(
     () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
@@ -456,7 +453,7 @@ export function AddTechnicalLogbookEntryModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (!editEntry && !canManageAtlBatchField) {
+    if (!editEntry && !showAtlBatchFilter) {
       setAtlBatchOptions([]);
       return;
     }
@@ -471,7 +468,7 @@ export function AddTechnicalLogbookEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editEntry, canManageAtlBatchField]);
+  }, [isOpen, editEntry, showAtlBatchFilter]);
 
   // Auto-select aircraft when aircraftId prop is provided (from useParams)
   useEffect(() => {
@@ -1598,15 +1595,38 @@ export function AddTechnicalLogbookEntryModal({
   }, [formData.hobbsMeterStart, formData.hobbsMeterEnd]);
 
   // tachometerTotal = tachometerEnd - tachometerStart (accepts negative)
+  // Sync component flight times to tachometerTotal (airframe = propeller = engine)
   useEffect(() => {
     const start = parseFloat(formData.tachometerStart) || 0;
     const end = parseFloat(formData.tachometerEnd) || 0;
     const total = end - start;
+    const tachometerTotal = total.toFixed(2);
+    const syncTotalTime = (prevTime: string, flightTime: string): string => {
+      const prev = parseFloat(prevTime) || 0;
+      const flight = parseFloat(flightTime) || 0;
+      const sum = prev + flight;
+      return sum > 0 ? sum.toFixed(2) : "";
+    };
     setFormData((prev) => ({
       ...prev,
-      tachometerTotal: total.toFixed(2),
+      tachometerTotal,
+      airframeFlightTime: tachometerTotal,
+      engineFlightTime: tachometerTotal,
+      propellerFlightTime: tachometerTotal,
+      airframeTotalTime: syncTotalTime(prev.airframePrevTime, tachometerTotal),
+      engineTotalTime: syncTotalTime(prev.enginePrevTime, tachometerTotal),
+      propellerTotalTime: syncTotalTime(
+        prev.propellerPrevTime,
+        tachometerTotal
+      ),
     }));
-  }, [formData.tachometerStart, formData.tachometerEnd]);
+  }, [
+    formData.tachometerStart,
+    formData.tachometerEnd,
+    formData.airframePrevTime,
+    formData.enginePrevTime,
+    formData.propellerPrevTime,
+  ]);
 
   // ATL table auto-compute: Airframe Run, AFTT; Engine Run, TSN, TSO, TBO; Propeller Run, TSN, TSO, TBO
   // Run Time/AFTT fields stay manual; only TSN/TSO/TBO remain auto-computed from tach delta.
@@ -3775,42 +3795,30 @@ export function AddTechnicalLogbookEntryModal({
                           <input
                             type="text"
                             value={formData.airframeFlightTime}
-                            onChange={(e) =>
-                              handleTimeFieldChange(
-                                "airframeFlightTime",
-                                e.target.value,
-                                "airframe"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                            disabled
+                            readOnly
+                            title="Synced from tachometer total"
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
                           />
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
                           <input
                             type="text"
                             value={formData.engineFlightTime}
-                            onChange={(e) =>
-                              handleTimeFieldChange(
-                                "engineFlightTime",
-                                e.target.value,
-                                "engine"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                            disabled
+                            readOnly
+                            title="Synced from tachometer total"
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
                           />
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
                           <input
                             type="text"
                             value={formData.propellerFlightTime}
-                            onChange={(e) =>
-                              handleTimeFieldChange(
-                                "propellerFlightTime",
-                                e.target.value,
-                                "propeller"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                            disabled
+                            readOnly
+                            title="Synced from tachometer total"
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
                           />
                         </td>
                       </tr>
