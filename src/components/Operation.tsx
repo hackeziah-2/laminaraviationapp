@@ -72,9 +72,9 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import {
   ATL_WORK_STATUS_KEYS,
-  isAtlBatchCreateRole,
-  isAtlBatchEditRole,
-  isAtlBatchFilterManagementRole,
+  canCreateAtlBatch,
+  canEditAtlBatch,
+  canManageAtlBatchFilter,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
   isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
@@ -541,10 +541,7 @@ export function Operation() {
     [sessionRoleName, user?.role]
   );
 
-  const canManageAtlBatchFilter = useMemo(
-    () => isAtlBatchFilterManagementRole(operationAtlRole),
-    [operationAtlRole]
-  );
+  const showAtlBatchFilter = canManageAtlBatchFilter(operationAtlRole);
 
   /** Mechanic is blocked from exporting Fleet Time data and from the Aircraft Details
    * history page; ATL batch filter visibility is universal and handled separately. */
@@ -554,15 +551,9 @@ export function Operation() {
   );
   const canExportOperationAtl = !isMechanicViewer;
   /** Create ATL batch is restricted to Admin and Maintenance Planner. */
-  const canCreateAtlBatch = useMemo(
-    () => isAtlBatchCreateRole(operationAtlRole),
-    [operationAtlRole]
-  );
+  const allowAtlBatchCreate = canCreateAtlBatch(operationAtlRole);
   /** Edit ATL batch is restricted to Admin and Maintenance Manager. */
-  const canEditAtlBatch = useMemo(
-    () => isAtlBatchEditRole(operationAtlRole),
-    [operationAtlRole]
-  );
+  const allowAtlBatchEdit = canEditAtlBatch(operationAtlRole);
 
   const canCreateOperationAtl = canCreate("operation") || canCreate("logbook");
   const canUpdateOperationAtl = canUpdate("operation") || canUpdate("logbook");
@@ -751,11 +742,11 @@ export function Operation() {
       : aircraftId;
 
   const selectedAtlBatchFk = useMemo(() => {
-    if (!canManageAtlBatchFilter) return undefined;
+    if (!showAtlBatchFilter) return undefined;
     const n =
       selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
     return Number.isFinite(n) && n > 0 ? n : undefined;
-  }, [canManageAtlBatchFilter, selectedAtlBatchId]);
+  }, [showAtlBatchFilter, selectedAtlBatchId]);
 
   /** "All" batch filter (or no batch param) → Sequence column shows `Batch name - seq`. */
   const showSeqNoWithBatchName = selectedAtlBatchFk == null;
@@ -912,7 +903,7 @@ export function Operation() {
   }, []);
 
   useEffect(() => {
-    if (!canManageAtlBatchFilter) {
+    if (!showAtlBatchFilter) {
       setAtlBatchFilterOptions([]);
       return;
     }
@@ -938,16 +929,16 @@ export function Operation() {
     return () => {
       cancelled = true;
     };
-  }, [canManageAtlBatchFilter]);
+  }, [showAtlBatchFilter]);
 
   useEffect(() => {
-    if (!canManageAtlBatchFilter) {
+    if (!showAtlBatchFilter) {
       setSelectedAtlBatchId("");
       atlBatchFilterTouchedRef.current = false;
       setAtlBatchModalOpen(false);
       setAtlBatchModalEditId(null);
     }
-  }, [canManageAtlBatchFilter]);
+  }, [showAtlBatchFilter]);
 
   // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
@@ -1664,7 +1655,7 @@ export function Operation() {
 
   /** When batch filter UI is shown, import requires a concrete batch (not "All batches"). */
   const ensureAtlBatchSelectedForImport = (): boolean => {
-    if (!canManageAtlBatchFilter) return true;
+    if (!showAtlBatchFilter) return true;
     if (
       selectedAtlBatchFk != null &&
       Number.isFinite(selectedAtlBatchFk) &&
@@ -2310,7 +2301,7 @@ export function Operation() {
                   </button>
                 )}
               </div>
-              {canManageAtlBatchFilter && (
+              {showAtlBatchFilter && (
                 <div className="flex flex-col gap-1 min-w-[200px]">
                   <div className="flex flex-wrap items-center gap-2">
                     <label
@@ -2326,13 +2317,13 @@ export function Operation() {
                       onChange={(e) => {
                         const v = e.target.value;
                         if (v === ATL_BATCH_CREATE_VALUE) {
-                          if (!canCreateAtlBatch) return;
+                          if (!allowAtlBatchCreate) return;
                           setAtlBatchModalEditId(null);
                           setAtlBatchModalOpen(true);
                           return;
                         }
                         if (v === ATL_BATCH_EDIT_VALUE) {
-                          if (!canEditAtlBatch) return;
+                          if (!allowAtlBatchEdit) return;
                           const n =
                             selectedAtlBatchId.trim() !== ""
                               ? Number(selectedAtlBatchId)
@@ -2366,12 +2357,12 @@ export function Operation() {
                           {b.name}
                         </option>
                       ))}
-                      {canCreateAtlBatch && (
+                      {allowAtlBatchCreate && (
                         <option value={ATL_BATCH_CREATE_VALUE}>
                           + Create batch…
                         </option>
                       )}
-                      {canEditAtlBatch && (
+                      {allowAtlBatchEdit && (
                         <>
                           <option value={ATL_BATCH_EDIT_VALUE}>
                             Edit batch…
@@ -4178,7 +4169,12 @@ export function Operation() {
       </div>
 
       <AddAtlBatchModal
-        isOpen={atlBatchModalOpen && canEditAtlBatch}
+        isOpen={
+          atlBatchModalOpen &&
+          (atlBatchModalEditId != null && atlBatchModalEditId > 0
+            ? allowAtlBatchEdit
+            : allowAtlBatchCreate)
+        }
         editBatchId={atlBatchModalEditId}
         onClose={() => {
           setAtlBatchModalOpen(false);
@@ -4202,7 +4198,7 @@ export function Operation() {
         aircraftId={effectiveAircraftId}
         permissionModuleCode={operationAtlPermissionModuleCode}
         defaultAtlBatchFk={
-          canManageAtlBatchFilter ? selectedAtlBatchFk : undefined
+          showAtlBatchFilter ? selectedAtlBatchFk : undefined
         }
         onSuccess={() => {
           setShowAddRecordModal(false);

@@ -47,7 +47,7 @@ import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   canUploadWhiteAtlAndDfpFiles,
-  isAtlBatchFilterManagementRole,
+  canManageAtlBatchFilter,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
@@ -203,12 +203,9 @@ export function AddTechnicalLogbookEntryModal({
     [atlAuthRole, permUser?.role, viewerRole]
   );
 
-  const canManageAtlBatchField = useMemo(
-    () => isAtlBatchFilterManagementRole(atlRoleForWorkStatus),
-    [atlRoleForWorkStatus]
-  );
+  const showAtlBatchFilter = canManageAtlBatchFilter(atlRoleForWorkStatus);
 
-  const showAtlBatchFormField = Boolean(editEntry || canManageAtlBatchField);
+  const showAtlBatchFormField = Boolean(editEntry || showAtlBatchFilter);
 
   const canUploadAtlAttachments = useMemo(
     () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
@@ -456,7 +453,7 @@ export function AddTechnicalLogbookEntryModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (!editEntry && !canManageAtlBatchField) {
+    if (!editEntry && !showAtlBatchFilter) {
       setAtlBatchOptions([]);
       return;
     }
@@ -471,7 +468,7 @@ export function AddTechnicalLogbookEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editEntry, canManageAtlBatchField]);
+  }, [isOpen, editEntry, showAtlBatchFilter]);
 
   // Auto-select aircraft when aircraftId prop is provided (from useParams)
   useEffect(() => {

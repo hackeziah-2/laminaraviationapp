@@ -130,31 +130,25 @@ export function isMechanicRole(userRole: string | undefined): boolean {
  * Per product spec, the ATL batch filter is now available to every authenticated
  * role (Admin, Maintenance Planner, Maintenance Manager, Mechanic, and all
  * "Other Roles"). Batch create/edit gating is enforced separately by
- * `isAtlBatchEditRole`.
+ * `canEditAtlBatch`.
  *
  * Kept as a function (rather than a constant `true`) so the existing call sites
  * across `Operation.tsx`, `AircraftTechnicalLogbook.tsx`, and
  * `AddTechnicalLogbookEntryModal.tsx` keep their explicit visibility flag,
  * and so future role-based gating (if reintroduced) only changes here.
  */
-export function isAtlBatchFilterManagementRole(
+export function canManageAtlBatchFilter(
   _userRole: string | undefined
 ): boolean {
   return true;
 }
 
-/**
- * Roles allowed to create ATL batch records:
- * Admin and Maintenance Planner.
- */
-export function isAtlBatchCreateRole(
-  userRole: string | undefined
-): boolean {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return false;
+function isAdminRoleName(n: string): boolean {
+  return n === "admin" || n.endsWith(" admin");
+}
+
+function isMaintenancePlannerRoleName(n: string): boolean {
   return (
-    n === "admin" ||
-    n.endsWith(" admin") ||
     n === "maintenance planner" ||
     n === "maint planner" ||
     n === "maintenance planning" ||
@@ -162,23 +156,33 @@ export function isAtlBatchCreateRole(
   );
 }
 
+function isMaintenanceManagerRoleName(n: string): boolean {
+  return (
+    n === "maintenance manager" ||
+    n === "maint manager" ||
+    n.endsWith(" maintenance manager")
+  );
+}
+
+/**
+ * Roles allowed to create ATL batch records:
+ * Admin and Maintenance Planner.
+ */
+export function canCreateAtlBatch(userRole: string | undefined): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return isAdminRoleName(n) || isMaintenancePlannerRoleName(n);
+}
+
 /**
  * Roles allowed to edit ATL batch records from the operation ATL
  * batch dropdown:
  * Admin and Maintenance Manager.
  */
-export function isAtlBatchEditRole(
-  userRole: string | undefined
-): boolean {
+export function canEditAtlBatch(userRole: string | undefined): boolean {
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
-  return (
-    n === "admin" ||
-    n.endsWith(" admin") ||
-    n === "maintenance manager" ||
-    n === "maint manager" ||
-    n.endsWith(" maintenance manager")
-  );
+  return isAdminRoleName(n) || isMaintenanceManagerRoleName(n);
 }
 
 function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {

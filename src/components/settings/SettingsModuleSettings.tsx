@@ -21,8 +21,8 @@ import type { ModuleSettingKey } from "../../constants/moduleSettingsOptions";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
 import { getMe } from "../../api/authApi";
 import {
-  isAtlBatchCreateRole,
-  isAtlBatchEditRole,
+  canCreateAtlBatch,
+  canEditAtlBatch,
 } from "../../utility/atlEditRbac";
 import { AddAtlBatchModal } from "../AddAtlBatchModal";
 import { AddCertificateCategoryTypeModal } from "../AddCertificateCategoryTypeModal";
@@ -96,11 +96,11 @@ function AtlBatchSettingsPanel() {
     canCreate("settings") || canUpdate("settings");
   const canCreateBatches = useMemo(
     () =>
-      hasSettingsManagePermission && isAtlBatchCreateRole(atlBatchRole),
+      hasSettingsManagePermission && canCreateAtlBatch(atlBatchRole),
     [hasSettingsManagePermission, atlBatchRole]
   );
   const canEditBatches = useMemo(
-    () => hasSettingsManagePermission && isAtlBatchEditRole(atlBatchRole),
+    () => hasSettingsManagePermission && canEditAtlBatch(atlBatchRole),
     [hasSettingsManagePermission, atlBatchRole]
   );
   const canManageBatches = canCreateBatches || canEditBatches;
