@@ -64,7 +64,7 @@ export function AddAtlBatchModal({
         const text =
           typeof detail === "string"
             ? detail
-            : e?.message ?? "Could not load branch.";
+            : e?.message ?? "Could not load batch.";
         await Swal.fire({
           icon: "error",
           title: "Load failed",
@@ -88,7 +88,7 @@ export function AddAtlBatchModal({
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      setErrors({ name: "Branch name is required" });
+      setErrors({ name: "Batch name is required" });
       return;
     }
     setErrors({});
@@ -125,11 +125,11 @@ export function AddAtlBatchModal({
         typeof detail === "string"
           ? detail
           : Array.isArray(detail)
-            ? detail.map((d) => String(d)).join(" ")
-            : e?.message ?? `Failed to ${isEdit ? "update" : "create"} branch.`;
+          ? detail.map((d) => String(d)).join(" ")
+          : e?.message ?? `Failed to ${isEdit ? "update" : "create"} batch.`;
       await Swal.fire({
         icon: "error",
-        title: isEdit ? "Could not update branch" : "Could not create branch",
+        title: isEdit ? "Could not update batch" : "Could not create batch",
         text,
         confirmButtonColor: "#2563eb",
       });
@@ -138,7 +138,7 @@ export function AddAtlBatchModal({
     }
   };
 
-  const titleId = isEdit ? "edit-atl-branch-title" : "create-atl-branch-title";
+  const titleId = isEdit ? "edit-atl-batch-title" : "create-atl-batch-title";
 
   return (
     <div
@@ -154,11 +154,8 @@ export function AddAtlBatchModal({
       >
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-            <h3
-              id={titleId}
-              className="text-lg font-semibold text-gray-900"
-            >
-              {isEdit ? "Edit ATL branch" : "Create ATL branch"}
+            <h3 id={titleId} className="text-lg font-semibold text-gray-900">
+              {isEdit ? "Edit ATL batch" : "Create ATL batch"}
             </h3>
             <button
               type="button"
@@ -177,13 +174,13 @@ export function AddAtlBatchModal({
             )}
             <div>
               <label
-                htmlFor="atl-branch-name"
+                htmlFor="atl-batch-name"
                 className="mb-1.5 block text-sm font-medium text-gray-700"
               >
                 Name <span className="text-red-500">*</span>
               </label>
               <input
-                id="atl-branch-name"
+                id="atl-batch-name"
                 type="text"
                 value={name}
                 onChange={(ev) => {
@@ -195,7 +192,7 @@ export function AddAtlBatchModal({
                     ? "border-red-500 focus:border-red-500 focus:ring-red-300"
                     : "border-gray-300 focus:border-blue-500"
                 }`}
-                placeholder="Branch name"
+                placeholder="Batch name"
                 disabled={submitting || loadingBatch}
                 autoComplete="off"
               />
@@ -205,13 +202,13 @@ export function AddAtlBatchModal({
             </div>
             <div>
               <label
-                htmlFor="atl-branch-description"
+                htmlFor="atl-batch-description"
                 className="mb-1.5 block text-sm font-medium text-gray-700"
               >
                 Description
               </label>
               <textarea
-                id="atl-branch-description"
+                id="atl-batch-description"
                 value={description}
                 onChange={(ev) => setDescription(ev.target.value)}
                 rows={3}
@@ -238,8 +235,8 @@ export function AddAtlBatchModal({
               {submitting
                 ? "Saving…"
                 : isEdit
-                  ? "Save changes"
-                  : "Create branch"}
+                ? "Save changes"
+                : "Create batch"}
             </button>
           </div>
         </form>

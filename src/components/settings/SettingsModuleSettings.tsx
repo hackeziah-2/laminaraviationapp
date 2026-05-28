@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import Swal from "sweetalert2";
 import { Edit2, Loader2, Plus, Trash2 } from "lucide-react";
 import {
@@ -69,7 +75,9 @@ function FleetTimeMonitoringSettings() {
           </li>
           <li>
             Use{" "}
-            <span className="font-medium text-gray-800">ATL Batch Settings</span>{" "}
+            <span className="font-medium text-gray-800">
+              ATL Batch Settings
+            </span>{" "}
             to manage branches used when filtering fleet time records.
           </li>
         </ul>
@@ -92,8 +100,7 @@ function AtlBatchSettingsPanel() {
     [hasSettingsManagePermission, atlBatchRole]
   );
   const canEditBatches = useMemo(
-    () =>
-      hasSettingsManagePermission && isAtlBatchBranchEditRole(atlBatchRole),
+    () => hasSettingsManagePermission && isAtlBatchBranchEditRole(atlBatchRole),
     [hasSettingsManagePermission, atlBatchRole]
   );
   const canManageBatches = canCreateBatches || canEditBatches;
@@ -211,7 +218,7 @@ function AtlBatchSettingsPanel() {
     <>
       <SettingsPanelShell
         title="ATL Batch Settings"
-        description="Create, edit, and remove ATL branches used in Fleet Time Monitoring filters and logbook entries."
+        description="Create, edit, and remove ATL Batches used in Fleet Time Monitoring filters and logbook entries."
       >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm font-semibold text-blue-600">
@@ -389,9 +396,7 @@ function OaApprovalTypeSettingsPanel() {
         setCurrentPage((p) => Math.max(1, p - 1));
       }
     } catch (err: unknown) {
-      setError(
-        (err as Error)?.message ?? "Failed to load approval types."
-      );
+      setError((err as Error)?.message ?? "Failed to load approval types.");
       setTypes([]);
       setTotalTypes(0);
       setTotalPages(1);
