@@ -60,6 +60,68 @@ export function toCamelDeep(value: unknown): unknown {
 
 export const dateToday = new Date().toISOString().split("T")[0];
 
+/** Parse ATL API `date_time_reported` / ISO strings as UTC (Zulu). */
+function parseAtlDateTimeAsUtc(raw: string): Date | null {
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(`${s}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/i);
+  if (m) {
+    const hh = m[2].padStart(2, "0");
+    const mm = m[3].padStart(2, "0");
+    const ss = (m[4] || "00").padStart(2, "0");
+    const d = new Date(`${m[1]}T${hh}:${mm}:${ss}Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const normalized = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)
+    ? s
+    : `${s.replace(/\.\d+$/, "")}Z`;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * ATL Date Reported display, e.g. "Feb 29, 2024 12:00 AM UTC".
+ */
+export function formatAtlDateTimeUtc(raw?: string | null): string {
+  if (raw == null || String(raw).trim() === "") return "-";
+  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  if (!d) return String(raw).trim();
+  const datePart = d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  const timePart = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  });
+  return `${datePart} ${timePart} UTC`;
+}
+
+/** Format from form date/time fields or API value (TechPubView read-only display). */
+export function formatAtlDateTimeUtcFromParts(
+  formDate?: string,
+  formTime?: string,
+  apiValue?: string | null
+): string {
+  if (apiValue != null && String(apiValue).trim() !== "") {
+    return formatAtlDateTimeUtc(apiValue);
+  }
+  if (!formDate?.trim()) return "";
+  const time = formTime?.trim() || "00:00";
+  const parts = time.split(":");
+  const hh = (parts[0] || "00").padStart(2, "0");
+  const mm = (parts[1] || "00").padStart(2, "0");
+  return formatAtlDateTimeUtc(`${formDate.trim()}T${hh}:${mm}:00`);
+}
+
 /**
  * Format time from API to HH:MM format (24-hour)
  * @param timeStr - Time string in HHMM format (4 digits) or HH:MM format

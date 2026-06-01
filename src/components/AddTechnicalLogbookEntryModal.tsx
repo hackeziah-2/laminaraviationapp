@@ -34,6 +34,7 @@ import {
   snakeAllKeys,
   computeTotalBlockTimeFromUtc,
   toCamel,
+  formatAtlDateTimeUtcFromParts,
 } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
@@ -257,7 +258,7 @@ export function AddTechnicalLogbookEntryModal({
     [atlRoleForWorkStatus]
   );
 
-  /** Technical Publication only, when entry work status is PENDING or AWAITING_ATTACHMENT. */
+  /** Admin: any status. Technical Publication: PENDING / AWAITING_ATTACHMENT only. */
   const canUseTechPubView = useMemo(
     () =>
       Boolean(editEntry) &&
@@ -1997,6 +1998,23 @@ export function AddTechnicalLogbookEntryModal({
       }
     }
 
+    const isUpdate = Boolean(editEntry);
+    const confirmResult = await Swal.fire({
+      title: isUpdate ? "Confirm Update" : "Confirm Creation",
+      text: isUpdate
+        ? "Are you sure you want to update this record?"
+        : "Are you sure you want to create this record?",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Confirm",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#2563eb",
+      cancelButtonColor: "#6b7280",
+    });
+    if (!confirmResult.isConfirmed) {
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       // On create: resolve current user's account_information_id for created_by (Fleet Time Monitoring)
@@ -2343,10 +2361,8 @@ export function AddTechnicalLogbookEntryModal({
           files
         );
 
-        // Show success message
         await Swal.fire({
-          title: "Success!",
-          text: `Aircraft Technical Logbook entry (Sequence No. ${formData.seqNo}) has been successfully updated.`,
+          text: "Record updated successfully.",
           icon: "success",
           confirmButtonColor: "#1f2937",
           confirmButtonText: "OK",
@@ -2370,10 +2386,8 @@ export function AddTechnicalLogbookEntryModal({
         files
       );
 
-      // Show success message
       await Swal.fire({
-        title: "Success!",
-        text: `Aircraft Technical Logbook entry (Sequence No. ${formData.seqNo}) has been successfully created.`,
+        text: "Record created successfully.",
         icon: "success",
         confirmButtonColor: "#1f2937",
         confirmButtonText: "OK",
@@ -4768,7 +4782,7 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             </div>
 
-            {/* White ATL, DFP, Date Reported — Technical Publication (PENDING / AWAITING_ATTACHMENT) */}
+            {/* White ATL, DFP, Date Reported — Admin / Technical Publication (PENDING / AWAITING_ATTACHMENT) */}
             {canUseTechPubView && (
               <div id="TechPubView">
                 <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -5031,11 +5045,13 @@ export function AddTechnicalLogbookEntryModal({
                           preservedDateReportedRef.current ??
                             editEntry?.dateTimeReported
                         ) ? (
-                          <p className="text-gray-900 font-mono">
-                            {formData.dateTimeReportedDate}{" "}
-                            {formData.dateTimeReportedTime
-                              ? `${formData.dateTimeReportedTime} Z`
-                              : ""}
+                          <p className="text-gray-900">
+                            {formatAtlDateTimeUtcFromParts(
+                              formData.dateTimeReportedDate,
+                              formData.dateTimeReportedTime,
+                              preservedDateReportedRef.current ??
+                                editEntry?.dateTimeReported
+                            )}
                           </p>
                         ) : (
                           <p className="text-gray-500">

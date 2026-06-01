@@ -60,6 +60,7 @@ import {
   toCamelDeep,
   formatApiErrorForSwal,
   formatTimeZulu,
+  formatAtlDateTimeUtc,
   computeTotalBlockTimeFromUtc,
   computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
@@ -1008,31 +1009,9 @@ export function Operation() {
           .replace(/ /g, "-")
       : "-";
 
-  /** `date_time_reported` / `date_time_released` (ISO or date) for list cells */
-  const formatAtlDateTimeListCell = (raw?: string | null) => {
-    if (raw == null || String(raw).trim() === "") return "-";
-    const s = String(raw).trim();
-    const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2}(?::\d{2})?)/i);
-    if (m) {
-      const dateLine = formatDisplayDate(m[1]);
-      const timeLine = formatTimeZulu(m[2].slice(0, 5));
-      return timeLine && timeLine !== "-"
-        ? `${dateLine} ${timeLine}`.trim()
-        : dateLine;
-    }
-    const d = new Date(s);
-    if (!Number.isNaN(d.getTime())) {
-      const y = d.getFullYear();
-      const mo = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${formatDisplayDate(`${y}-${mo}-${day}`)} ${formatTimeZulu(
-        `${hh}:${mm}`
-      )}`.trim();
-    }
-    return s;
-  };
+  /** `date_time_reported` / `date_time_released` — e.g. Feb 29, 2024 12:00 AM UTC */
+  const formatAtlDateTimeListCell = (raw?: string | null) =>
+    formatAtlDateTimeUtc(raw);
 
   const partRemainingRemoved = (part: AtlComponentPartRow) =>
     part.partRemovedRemainingTime ?? part.part_removed_remaining_time ?? "-";

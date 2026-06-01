@@ -63,7 +63,7 @@ function normalizeRoleNameForMatch(raw: string | undefined): string {
     .trim();
 }
 
-/** Work statuses where Technical Publication may use TechPubView / attachment-only edit. */
+/** Work statuses where TechPubView (White ATL / DFP / links) is shown. */
 export function isTechnicalPublicationTechPubViewWorkStatus(
   workStatus: string | undefined
 ): boolean {
@@ -71,13 +71,28 @@ export function isTechnicalPublicationTechPubViewWorkStatus(
   return key === "PENDING" || key === "AWAITING_ATTACHMENT";
 }
 
+/** Admin role variants — full ATL edit; TechPubView on every work status. */
+export function isAdminRole(userRole: string | undefined): boolean {
+  const n = normalizeRoleNameForMatch(userRole);
+  if (!n) return false;
+  return (
+    n === "admin" ||
+    n === "administrator" ||
+    n.endsWith(" admin") ||
+    n.endsWith(" administrator")
+  );
+}
+
 /**
- * `#TechPubView` visibility: Technical Publication role only, when entry is PENDING or AWAITING_ATTACHMENT.
+ * `#TechPubView` visibility:
+ * - Admin: any work status (full ATL edit + White ATL / DFP / links section).
+ * - Technical Publication: PENDING or AWAITING_ATTACHMENT only (attachment-only edit).
  */
 export function canShowTechPubViewForRoleAndWorkStatus(
   userRole: string | undefined,
   workStatus: string | undefined
 ): boolean {
+  if (isAdminRole(userRole)) return true;
   return (
     isTechnicalPublicationRole(userRole) &&
     isTechnicalPublicationTechPubViewWorkStatus(workStatus)
@@ -87,12 +102,16 @@ export function canShowTechPubViewForRoleAndWorkStatus(
 /**
  * Technical Publication attachment-only edit: only White ATL, DFP, and web links are editable;
  * all other fields stay read-only. Applies when work status is PENDING or AWAITING_ATTACHMENT.
+ * (Admin uses TechPubView but retains full-form edit.)
  */
 export function isTechnicalPublicationRestrictedEdit(
   userRole: string | undefined,
   workStatus: string | undefined
 ): boolean {
-  return canShowTechPubViewForRoleAndWorkStatus(userRole, workStatus);
+  return (
+    isTechnicalPublicationRole(userRole) &&
+    isTechnicalPublicationTechPubViewWorkStatus(workStatus)
+  );
 }
 
 /** @deprecated Use `isTechnicalPublicationRestrictedEdit` — kept for existing imports. */
@@ -127,10 +146,7 @@ export function isTechnicalPublicationRole(
 export function canUploadWhiteAtlAndDfpFiles(
   userRole: string | undefined
 ): boolean {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return false;
-  if (n === "admin" || n.endsWith(" admin")) return true;
-  return isTechnicalPublicationRole(userRole);
+  return isAdminRole(userRole) || isTechnicalPublicationRole(userRole);
 }
 
 /**
