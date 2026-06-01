@@ -48,6 +48,9 @@ import {
   getAtlWorkStatusDropdownKeysForRole,
   canUploadWhiteAtlAndDfpFiles,
   canManageAtlBatchFilter,
+  canShowTechPubViewForRoleAndWorkStatus,
+  isTechnicalPublicationRestrictedEdit,
+  isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
@@ -132,6 +135,43 @@ function splitAtlDateTimeFromApi(raw: string | undefined | null): {
   return { date: "", time: "" };
 }
 
+/** Current UTC date/time for Zulu Date Reported automation. */
+function getZuluDateTimeParts(now = new Date()): { date: string; time: string } {
+  const y = now.getUTCFullYear();
+  const mo = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  const hh = String(now.getUTCHours()).padStart(2, "0");
+  const mm = String(now.getUTCMinutes()).padStart(2, "0");
+  return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}` };
+}
+
+function hasAtlDateReportedValue(
+  formDate: string,
+  formTime: string,
+  apiValue?: string | null
+): boolean {
+  if (apiValue != null && String(apiValue).trim() !== "") return true;
+  return Boolean(formDate?.trim() && formTime?.trim());
+}
+
+function hasTechPubAttachmentOrLinkUpdate(
+  form: {
+    whiteAtl: File | null;
+    dfp: File | null;
+    whiteAtlWebLink: string;
+    dfpWebLink: string;
+  },
+  initialLinks: { whiteAtlWebLink: string; dfpWebLink: string }
+): boolean {
+  if (form.whiteAtl instanceof File) return true;
+  if (form.dfp instanceof File) return true;
+  const whiteLink = form.whiteAtlWebLink?.trim() ?? "";
+  const dfpLink = form.dfpWebLink?.trim() ?? "";
+  if (whiteLink !== initialLinks.whiteAtlWebLink) return true;
+  if (dfpLink !== initialLinks.dfpWebLink) return true;
+  return false;
+}
+
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -212,8 +252,38 @@ export function AddTechnicalLogbookEntryModal({
     [atlRoleForWorkStatus]
   );
 
+  const isTechPubRole = useMemo(
+    () => isTechnicalPublicationRole(atlRoleForWorkStatus),
+    [atlRoleForWorkStatus]
+  );
+
+  /** Technical Publication only, when entry work status is PENDING or AWAITING_ATTACHMENT. */
+  const canUseTechPubView = useMemo(
+    () =>
+      Boolean(editEntry) &&
+      canShowTechPubViewForRoleAndWorkStatus(
+        atlRoleForWorkStatus,
+        editEntry?.workStatus
+      ),
+    [editEntry, atlRoleForWorkStatus]
+  );
+
+  /** Original `date_time_reported` from API; never overwritten once set. */
+  const preservedDateReportedRef = useRef<string | null>(null);
+
+  /** Baseline web links when edit form loads — used to detect Tech Pub updates. */
+  const initialTechPubLinksRef = useRef({
+    whiteAtlWebLink: "",
+    dfpWebLink: "",
+  });
+
   const attachmentsOnlyLocked = Boolean(
-    editRestrictedToWhiteAtlDfpOnly && editEntry
+    editEntry &&
+      (editRestrictedToWhiteAtlDfpOnly ||
+        isTechnicalPublicationRestrictedEdit(
+          atlRoleForWorkStatus,
+          editEntry.workStatus
+        ))
   );
   const canUploadAtlInCurrentMode = attachmentsOnlyLocked
     ? true
@@ -282,10 +352,10 @@ export function AddTechnicalLogbookEntryModal({
     mechanicSignature: null as File | null,
     whiteAtl: null as File | null,
     dfp: null as File | null,
+    whiteAtlWebLink: "",
+    dfpWebLink: "",
     dateTimeReportedDate: "",
     dateTimeReportedTime: "",
-    dateTimeReleasedDate: "",
-    dateTimeReleasedTime: "",
     // Airframe & Component Times
 
     airframePrevTime: "",
@@ -420,8 +490,6 @@ export function AddTechnicalLogbookEntryModal({
   // File upload states
   const [whiteAtlFileName, setWhiteAtlFileName] = useState("");
   const [dfpFileName, setDfpFileName] = useState("");
-  const [showTechPubPendingConfirmModal, setShowTechPubPendingConfirmModal] =
-    useState(false);
 
   // File view modal (View button for White ATL / DFP when editEntry has existing file)
   const [showFileViewModal, setShowFileViewModal] = useState(false);
@@ -646,7 +714,12 @@ export function AddTechnicalLogbookEntryModal({
       );
       setPreviousPropellerTso(Math.max(0, (Number(mergedPropTso) || 0) - run));
       const reported = splitAtlDateTimeFromApi(editEntry.dateTimeReported);
-      const released = splitAtlDateTimeFromApi(editEntry.dateTimeReleased);
+      preservedDateReportedRef.current =
+        editEntry.dateTimeReported?.trim() || null;
+      initialTechPubLinksRef.current = {
+        whiteAtlWebLink: editEntry.whiteAtlWebLink?.toString().trim() || "",
+        dfpWebLink: editEntry.dfpWebLink?.toString().trim() || "",
+      };
       // Populate form data from editEntry (normalize workStatus: API may return "FOR REVIEW" or "FOR_REVIEW")
       setFormData({
         seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
@@ -726,10 +799,10 @@ export function AddTechnicalLogbookEntryModal({
         mechanicSignature: null,
         whiteAtl: null,
         dfp: null,
+        whiteAtlWebLink: editEntry.whiteAtlWebLink?.toString() || "",
+        dfpWebLink: editEntry.dfpWebLink?.toString() || "",
         dateTimeReportedDate: reported.date,
         dateTimeReportedTime: reported.time,
-        dateTimeReleasedDate: released.date,
-        dateTimeReleasedTime: released.time,
         airframePrevTime: (editEntry as any).airframePrevTime?.toString() || "",
         airframeFlightTime:
           (editEntry as any).airframeFlightTime?.toString() || "",
@@ -829,6 +902,11 @@ export function AddTechnicalLogbookEntryModal({
         setComponentRecords([]);
       }
     } else if (!editEntry && isOpen) {
+      preservedDateReportedRef.current = null;
+      initialTechPubLinksRef.current = {
+        whiteAtlWebLink: "",
+        dfpWebLink: "",
+      };
       // Reset form when creating new entry
       setPreviousEngineTsn(0);
       setPreviousEngineTso(0);
@@ -891,10 +969,10 @@ export function AddTechnicalLogbookEntryModal({
         mechanicSignature: null,
         whiteAtl: null,
         dfp: null,
+        whiteAtlWebLink: "",
+        dfpWebLink: "",
         dateTimeReportedDate: "",
         dateTimeReportedTime: "",
-        dateTimeReleasedDate: "",
-        dateTimeReleasedTime: "",
         airframePrevTime: "",
         airframeFlightTime: "",
         airframeTotalTime: "",
@@ -1856,14 +1934,31 @@ export function AddTechnicalLogbookEntryModal({
     return { isValid: Object.keys(errors).length === 0, errors };
   };
 
-  const handleSubmit = async (
-    e?: React.FormEvent,
-    skipTechPubPendingConfirm = false
-  ) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
 
     if (attachmentsOnlyLocked) {
       if (!techPubCanSubmitAttachmentsOnlyEdit) {
+        return;
+      }
+      const dateReportedAlreadySet = hasAtlDateReportedValue(
+        formData.dateTimeReportedDate,
+        formData.dateTimeReportedTime,
+        preservedDateReportedRef.current ?? editEntry?.dateTimeReported
+      );
+      if (
+        !dateReportedAlreadySet &&
+        !hasTechPubAttachmentOrLinkUpdate(
+          formData,
+          initialTechPubLinksRef.current
+        )
+      ) {
+        await Swal.fire({
+          title: "Update required",
+          text: "Please provide at least one attachment or link before updating.",
+          icon: "warning",
+          confirmButtonColor: "#2563eb",
+        });
         return;
       }
       setValidationErrors({});
@@ -1900,11 +1995,6 @@ export function AddTechnicalLogbookEntryModal({
         });
         return;
       }
-    }
-
-    if (attachmentsOnlyLocked && editEntry && !skipTechPubPendingConfirm) {
-      setShowTechPubPendingConfirmModal(true);
-      return;
     }
 
     setIsSubmitting(true);
@@ -1949,6 +2039,33 @@ export function AddTechnicalLogbookEntryModal({
           confirmButtonColor: "#2563eb",
         });
         return;
+      }
+
+      let reportedDate = formData.dateTimeReportedDate;
+      let reportedTime = formData.dateTimeReportedTime;
+      const dateReportedAlreadySet = hasAtlDateReportedValue(
+        reportedDate,
+        reportedTime,
+        preservedDateReportedRef.current ?? editEntry?.dateTimeReported
+      );
+      if (
+        !dateReportedAlreadySet &&
+        isTechPubRole &&
+        editEntry &&
+        attachmentsOnlyLocked &&
+        hasTechPubAttachmentOrLinkUpdate(
+          formData,
+          initialTechPubLinksRef.current
+        )
+      ) {
+        const now = getZuluDateTimeParts();
+        reportedDate = now.date;
+        reportedTime = now.time;
+        setFormData((prev) => ({
+          ...prev,
+          dateTimeReportedDate: now.date,
+          dateTimeReportedTime: now.time,
+        }));
       }
 
       const buildDateTimeForApi = (
@@ -2133,14 +2250,7 @@ export function AddTechnicalLogbookEntryModal({
         rtsTime: formData.rtsTime
           ? convertTimeToAPIFormat(formData.rtsTime)
           : undefined,
-        dateTimeReported: buildDateTimeForApi(
-          formData.dateTimeReportedDate,
-          formData.dateTimeReportedTime
-        ),
-        dateTimeReleased: buildDateTimeForApi(
-          formData.dateTimeReleasedDate,
-          formData.dateTimeReleasedTime
-        ),
+        dateTimeReported: buildDateTimeForApi(reportedDate, reportedTime),
         // When uploading new file: omit from JSON (sent via multipart). When editing: omit whiteAtl/dfp from JSON so backend keeps existing files (sending string URL causes "value is not a valid dict").
         ...(!editEntry &&
         formData.whiteAtl !== undefined &&
@@ -2154,6 +2264,19 @@ export function AddTechnicalLogbookEntryModal({
         !(formData.dfp instanceof File)
           ? { dfp: formData.dfp }
           : {}),
+        ...(attachmentsOnlyLocked && editEntry
+          ? {
+              whiteAtlWebLink: formData.whiteAtlWebLink?.trim() || null,
+              dfpWebLink: formData.dfpWebLink?.trim() || null,
+            }
+          : {
+              ...(formData.whiteAtlWebLink?.trim()
+                ? { whiteAtlWebLink: formData.whiteAtlWebLink.trim() }
+                : {}),
+              ...(formData.dfpWebLink?.trim()
+                ? { dfpWebLink: formData.dfpWebLink.trim() }
+                : {}),
+            }),
         componentParts: componentRecords.map((record) => ({
           qty: parseFloat(record.qty) || 0,
           unit: record.unit,
@@ -2189,9 +2312,13 @@ export function AddTechnicalLogbookEntryModal({
           apiDataCamel.createdBy = createdByAccountId;
       }
 
-      // Operation Management: Technical Publication restricted edit auto-transitions
-      // AWAITING_ATTACHMENT entries to PENDING when Update Entry is clicked.
-      if (editEntry && attachmentsOnlyLocked && canUploadAtlInCurrentMode) {
+      // Technical Publication: AWAITING_ATTACHMENT → PENDING on successful update.
+      if (
+        editEntry &&
+        attachmentsOnlyLocked &&
+        canUploadAtlInCurrentMode &&
+        normalizeAtlWorkStatus(editEntry.workStatus) === "AWAITING_ATTACHMENT"
+      ) {
         apiDataCamel.workStatus = "PENDING";
       }
 
@@ -2200,9 +2327,7 @@ export function AddTechnicalLogbookEntryModal({
 
       const files =
         canUploadAtlInCurrentMode &&
-        (attachmentsOnlyLocked
-          ? formData.whiteAtl instanceof File && formData.dfp instanceof File
-          : formData.whiteAtl instanceof File || formData.dfp instanceof File)
+        (formData.whiteAtl instanceof File || formData.dfp instanceof File)
           ? {
               whiteAtl:
                 formData.whiteAtl instanceof File ? formData.whiteAtl : null,
@@ -2314,10 +2439,10 @@ export function AddTechnicalLogbookEntryModal({
         mechanicSignature: null,
         whiteAtl: null,
         dfp: null,
+        whiteAtlWebLink: "",
+        dfpWebLink: "",
         dateTimeReportedDate: "",
         dateTimeReportedTime: "",
-        dateTimeReleasedDate: "",
-        dateTimeReleasedTime: "",
         airframePrevTime: "",
         airframeFlightTime: "",
         airframeTotalTime: "",
@@ -2468,23 +2593,6 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  const handleTechPubConfirmUpload = async () => {
-    const hasWhiteAtlUpload = formData.whiteAtl instanceof File;
-    const hasDfpUpload = formData.dfp instanceof File;
-    if (!hasWhiteAtlUpload || !hasDfpUpload) {
-      await Swal.fire({
-        title: "Required files missing",
-        text: "Please upload both White ATL and DFP files before confirming.",
-        icon: "warning",
-        confirmButtonColor: "#2563eb",
-      });
-      return;
-    }
-
-    setShowTechPubPendingConfirmModal(false);
-    void handleSubmit(undefined, true);
-  };
-
   const handleFileChange = (
     field: "pilotSignature" | "mechanicSignature" | "whiteAtl" | "dfp",
     file: File | null
@@ -2494,6 +2602,7 @@ export function AddTechnicalLogbookEntryModal({
       if (
         attachmentsOnlyLocked &&
         editEntry &&
+        normalizeAtlWorkStatus(editEntry.workStatus) === "AWAITING_ATTACHMENT" &&
         (field === "whiteAtl" || field === "dfp") &&
         file instanceof File
       ) {
@@ -2601,6 +2710,11 @@ export function AddTechnicalLogbookEntryModal({
       setFileViewLoading(false);
     }
   };
+
+  const existingWhiteAtlPath =
+    editEntry?.whiteAtl?.trim() || editEntry?.whiteAtlWebLink?.trim() || "";
+  const existingDfpPath =
+    editEntry?.dfp?.trim() || editEntry?.dfpWebLink?.trim() || "";
 
   const closeFileViewModal = () => {
     if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
@@ -2771,13 +2885,7 @@ export function AddTechnicalLogbookEntryModal({
                       </p>
                     )}
                   </div>
-                  <div
-                    className={
-                      attachmentsOnlyLocked
-                        ? "pointer-events-auto relative z-[1]"
-                        : undefined
-                    }
-                  >
+                  <div>
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Work Status
                     </label>
@@ -2790,7 +2898,12 @@ export function AddTechnicalLogbookEntryModal({
                             workStatus: e.target.value,
                           })
                         }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                        disabled={attachmentsOnlyLocked}
+                        className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 ${
+                          attachmentsOnlyLocked
+                            ? "bg-gray-100 cursor-not-allowed"
+                            : "bg-white"
+                        }`}
                         aria-label="Work status"
                       >
                         <option value="">— Select —</option>
@@ -4653,89 +4766,98 @@ export function AddTechnicalLogbookEntryModal({
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* White ATL, DFP, Date Reported / Released — below Pilot's Acceptance & Return to Service */}
-              <div className="bg-white p-4 rounded-lg border border-gray-200 mt-6">
-                {attachmentsOnlyLocked && (
-                  <p className="text-sm text-gray-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-4">
-                    As Technical Publication while status is{" "}
-                    <strong>Awaiting Attachment</strong>, only{" "}
-                    <strong>White ATL</strong>, <strong>DFP</strong>, and{" "}
-                    <strong>Work Status</strong> can be updated.
-                  </p>
-                )}
-                <div
-                  className={
-                    attachmentsOnlyLocked
-                      ? "pointer-events-auto relative z-[1] mb-4"
-                      : "mb-4"
-                  }
-                >
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-gray-700 mb-2">
-                        White ATL
-                      </label>
+            {/* White ATL, DFP, Date Reported — Technical Publication (PENDING / AWAITING_ATTACHMENT) */}
+            {canUseTechPubView && (
+              <div id="TechPubView">
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  {attachmentsOnlyLocked && (
+                    <p className="text-sm text-gray-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-4">
+                      As Technical Publication, only{" "}
+                      <strong>White ATL</strong>, <strong>DFP</strong>,{" "}
+                      <strong>White ATL Link</strong>, and <strong>DFP Link</strong>{" "}
+                      can be updated while status is{" "}
+                      <strong>Pending</strong> or{" "}
+                      <strong>Awaiting Attachment</strong>. Provide at least one
+                      attachment or link before saving.{" "}
+                      <strong>Date Reported</strong> is set automatically on first
+                      successful update (UTC) when empty.
+                      {normalizeAtlWorkStatus(editEntry?.workStatus) ===
+                        "AWAITING_ATTACHMENT" && (
+                        <>
+                          {" "}
+                          Saving while status is Awaiting Attachment moves the
+                          entry to <strong>Pending</strong>.
+                        </>
+                      )}
+                    </p>
+                  )}
+                  <div className="mb-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div>
-                        <input
-                          type="file"
-                          id="white-atl-file"
-                          onChange={(e) =>
-                            handleFileChange(
-                              "whiteAtl",
-                              e.target.files?.[0] || null
-                            )
-                          }
-                          className="hidden"
-                          disabled={!canUploadAtlInCurrentMode}
-                          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                        />
-                        <label
-                          htmlFor={
-                            canUploadAtlInCurrentMode
-                              ? "white-atl-file"
-                              : undefined
-                          }
-                          className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
-                            canUploadAtlInCurrentMode
-                              ? "cursor-pointer hover:bg-gray-50 transition-colors"
-                              : "cursor-not-allowed opacity-60 pointer-events-none"
-                          }`}
-                        >
-                          <span
-                            className={
-                              whiteAtlFileName
-                                ? "text-gray-900"
-                                : "text-gray-400"
-                            }
-                          >
-                            {whiteAtlFileName ||
-                              (canUploadAtlInCurrentMode
-                                ? "Choose file or N/A"
-                                : "Upload not permitted for your role")}
-                          </span>
-                          <Upload className="w-4 h-4 text-gray-400" />
+                        <label className="block text-gray-700 mb-2">
+                          White ATL
                         </label>
-                        {canUploadAtlInCurrentMode && whiteAtlFileName && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFile("whiteAtl")}
-                            className="text-xs text-red-600 hover:text-red-700 mt-1"
+                        <div>
+                          <input
+                            type="file"
+                            id="white-atl-file"
+                            onChange={(e) =>
+                              handleFileChange(
+                                "whiteAtl",
+                                e.target.files?.[0] || null
+                              )
+                            }
+                            className="hidden"
+                            disabled={!canUploadAtlInCurrentMode}
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
+                          />
+                          <label
+                            htmlFor={
+                              canUploadAtlInCurrentMode
+                                ? "white-atl-file"
+                                : undefined
+                            }
+                            className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                              canUploadAtlInCurrentMode
+                                ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                                : "cursor-not-allowed opacity-60 pointer-events-none"
+                            }`}
                           >
-                            Remove file
-                          </button>
-                        )}
-                        {editEntry?.whiteAtl &&
-                          editEntry.whiteAtl.trim() !== "" && (
+                            <span
+                              className={
+                                whiteAtlFileName
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
+                              }
+                            >
+                              {whiteAtlFileName ||
+                                (canUploadAtlInCurrentMode
+                                  ? "Choose file or N/A"
+                                  : "Upload not permitted for your role")}
+                            </span>
+                            <Upload className="w-4 h-4 text-gray-400" />
+                          </label>
+                          {canUploadAtlInCurrentMode && whiteAtlFileName && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFile("whiteAtl")}
+                              className="text-xs text-red-600 hover:text-red-700 mt-1"
+                            >
+                              Remove file
+                            </button>
+                          )}
+                          {existingWhiteAtlPath !== "" && (
                             <div className="flex flex-col gap-1 mt-2">
-                              {isImageFilePath(editEntry.whiteAtl) && (
+                              {isImageFilePath(existingWhiteAtlPath) && (
                                 <button
                                   type="button"
                                   className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
                                   onClick={() =>
                                     handleViewAtlFile(
                                       "white_atl",
-                                      editEntry.whiteAtl!
+                                      existingWhiteAtlPath
                                     )
                                   }
                                 >
@@ -4749,8 +4871,8 @@ export function AddTechnicalLogbookEntryModal({
                                 onClick={() =>
                                   handleDownloadAtlFile(
                                     "white_atl",
-                                    editEntry.whiteAtl!,
-                                    editEntry.whiteAtl!.split("/").pop() ||
+                                    existingWhiteAtlPath,
+                                    existingWhiteAtlPath.split("/").pop() ||
                                       "white_atl"
                                   )
                                 }
@@ -4760,181 +4882,174 @@ export function AddTechnicalLogbookEntryModal({
                               </button>
                             </div>
                           )}
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 mb-2">DFP</label>
                       <div>
-                        <input
-                          type="file"
-                          id="dfp-file"
-                          onChange={(e) =>
-                            handleFileChange("dfp", e.target.files?.[0] || null)
-                          }
-                          className="hidden"
-                          disabled={!canUploadAtlInCurrentMode}
-                          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                        />
-                        <label
-                          htmlFor={
-                            canUploadAtlInCurrentMode ? "dfp-file" : undefined
-                          }
-                          className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
-                            canUploadAtlInCurrentMode
-                              ? "cursor-pointer hover:bg-gray-50 transition-colors"
-                              : "cursor-not-allowed opacity-60 pointer-events-none"
-                          }`}
-                        >
-                          <span
-                            className={
-                              dfpFileName ? "text-gray-900" : "text-gray-400"
+                        <label className="block text-gray-700 mb-2">DFP</label>
+                        <div>
+                          <input
+                            type="file"
+                            id="dfp-file"
+                            onChange={(e) =>
+                              handleFileChange(
+                                "dfp",
+                                e.target.files?.[0] || null
+                              )
                             }
+                            className="hidden"
+                            disabled={!canUploadAtlInCurrentMode}
+                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
+                          />
+                          <label
+                            htmlFor={
+                              canUploadAtlInCurrentMode ? "dfp-file" : undefined
+                            }
+                            className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
+                              canUploadAtlInCurrentMode
+                                ? "cursor-pointer hover:bg-gray-50 transition-colors"
+                                : "cursor-not-allowed opacity-60 pointer-events-none"
+                            }`}
                           >
-                            {dfpFileName ||
-                              (canUploadAtlInCurrentMode
-                                ? "Choose file or N/A"
-                                : "Upload not permitted for your role")}
-                          </span>
-                          <Upload className="w-4 h-4 text-gray-400" />
-                        </label>
-                        {canUploadAtlInCurrentMode && dfpFileName && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFile("dfp")}
-                            className="text-xs text-red-600 hover:text-red-700 mt-1"
-                          >
-                            Remove file
-                          </button>
-                        )}
-                        {editEntry?.dfp && editEntry.dfp.trim() !== "" && (
-                          <div className="flex flex-col gap-1 mt-2">
-                            {isImageFilePath(editEntry.dfp) && (
+                            <span
+                              className={
+                                dfpFileName ? "text-gray-900" : "text-gray-400"
+                              }
+                            >
+                              {dfpFileName ||
+                                (canUploadAtlInCurrentMode
+                                  ? "Choose file or N/A"
+                                  : "Upload not permitted for your role")}
+                            </span>
+                            <Upload className="w-4 h-4 text-gray-400" />
+                          </label>
+                          {canUploadAtlInCurrentMode && dfpFileName && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFile("dfp")}
+                              className="text-xs text-red-600 hover:text-red-700 mt-1"
+                            >
+                              Remove file
+                            </button>
+                          )}
+                          {existingDfpPath !== "" && (
+                            <div className="flex flex-col gap-1 mt-2">
+                              {isImageFilePath(existingDfpPath) && (
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                  onClick={() =>
+                                    handleViewAtlFile("dfp", existingDfpPath)
+                                  }
+                                >
+                                  <Eye className="w-4 h-4 flex-shrink-0" />
+                                  View
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
                                 onClick={() =>
-                                  handleViewAtlFile("dfp", editEntry.dfp!)
+                                  handleDownloadAtlFile(
+                                    "dfp",
+                                    existingDfpPath,
+                                    existingDfpPath.split("/").pop() || "dfp"
+                                  )
                                 }
                               >
-                                <Eye className="w-4 h-4 flex-shrink-0" />
-                                View
+                                <Download className="w-4 h-4 flex-shrink-0" />
+                                Download
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                              onClick={() =>
-                                handleDownloadAtlFile(
-                                  "dfp",
-                                  editEntry.dfp!,
-                                  editEntry.dfp!.split("/").pop() || "dfp"
-                                )
-                              }
-                            >
-                              <Download className="w-4 h-4 flex-shrink-0" />
-                              Download
-                            </button>
-                          </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+                    <div>
+                      <label className="block text-gray-700 mb-2">
+                        White ATL Link
+                      </label>
+                      <input
+                        type="url"
+                        value={formData.whiteAtlWebLink}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            whiteAtlWebLink: e.target.value,
+                          })
+                        }
+                        disabled={!canUploadAtlInCurrentMode}
+                        placeholder={
+                          canUploadAtlInCurrentMode
+                            ? "https://..."
+                            : "Edit not permitted for your role"
+                        }
+                        className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
+                          canUploadAtlInCurrentMode
+                            ? "bg-white text-gray-900"
+                            : "bg-gray-100 text-gray-500 cursor-not-allowed"
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 mb-2">
+                        DFP Link
+                      </label>
+                      <input
+                        type="url"
+                        value={formData.dfpWebLink}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            dfpWebLink: e.target.value,
+                          })
+                        }
+                        disabled={!canUploadAtlInCurrentMode}
+                        placeholder={
+                          canUploadAtlInCurrentMode
+                            ? "https://..."
+                            : "Edit not permitted for your role"
+                        }
+                        className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
+                          canUploadAtlInCurrentMode
+                            ? "bg-white text-gray-900"
+                            : "bg-gray-100 text-gray-500 cursor-not-allowed"
+                        }`}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <span className="block text-sm font-medium text-gray-800">
+                        Date Reported
+                      </span>
+                      <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
+                        {hasAtlDateReportedValue(
+                          formData.dateTimeReportedDate,
+                          formData.dateTimeReportedTime,
+                          preservedDateReportedRef.current ??
+                            editEntry?.dateTimeReported
+                        ) ? (
+                          <p className="text-gray-900 font-mono">
+                            {formData.dateTimeReportedDate}{" "}
+                            {formData.dateTimeReportedTime
+                              ? `${formData.dateTimeReportedTime} Z`
+                              : ""}
+                          </p>
+                        ) : (
+                          <p className="text-gray-500">
+                            {isTechPubRole
+                              ? "Set automatically on first attachment upload (UTC/Zulu)."
+                              : "Not set yet."}
+                          </p>
                         )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <span className="block text-sm font-medium text-gray-800">
-                      Date Reported
-                    </span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-gray-600 text-xs mb-0.5">
-                          Date
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.dateTimeReportedDate}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              dateTimeReportedDate: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 [color-scheme:light]"
-                          disabled={attachmentsOnlyLocked}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-gray-600 text-xs mb-0.5">
-                          Time (Zulu)
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.dateTimeReportedTime}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              dateTimeReportedTime: formatTimeInput(
-                                e.target.value
-                              ),
-                            })
-                          }
-                          placeholder="HH:MM"
-                          maxLength={5}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 font-mono"
-                          disabled={attachmentsOnlyLocked}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <span className="block text-sm font-medium text-gray-800">
-                      Date Released
-                    </span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-gray-600 text-xs mb-0.5">
-                          Date
-                        </label>
-                        <input
-                          type="date"
-                          value={formData.dateTimeReleasedDate}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              dateTimeReleasedDate: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 [color-scheme:light]"
-                          disabled={attachmentsOnlyLocked}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-gray-600 text-xs mb-0.5">
-                          Time (Zulu)
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.dateTimeReleasedTime}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              dateTimeReleasedTime: formatTimeInput(
-                                e.target.value
-                              ),
-                            })
-                          }
-                          placeholder="HH:MM"
-                          maxLength={5}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm bg-white text-gray-900 font-mono"
-                          disabled={attachmentsOnlyLocked}
-                        />
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Footer Actions */}
@@ -4962,102 +5077,6 @@ export function AddTechnicalLogbookEntryModal({
           </div>
         </form>
       </div>
-
-      {showTechPubPendingConfirmModal && (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(4px)",
-          }}
-          onClick={() => setShowTechPubPendingConfirmModal(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-md p-5"
-            onClick={(evt) => evt.stopPropagation()}
-          >
-            <h3 className="text-base font-semibold text-gray-900 mb-2">
-              Upload Required Attachments
-            </h3>
-            <p className="text-sm text-gray-700">
-              Upload the White ATL and DFP files. Once confirmed, the work
-              status will automatically change to PENDING.
-            </p>
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  White ATL
-                </label>
-                <input
-                  type="file"
-                  id="white-atl-confirm-file"
-                  onChange={(e) =>
-                    handleFileChange("whiteAtl", e.target.files?.[0] || null)
-                  }
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                />
-                <label
-                  htmlFor="white-atl-confirm-file"
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
-                >
-                  <span
-                    className={
-                      whiteAtlFileName ? "text-gray-900" : "text-gray-400"
-                    }
-                  >
-                    {whiteAtlFileName || "Choose file"}
-                  </span>
-                  <Upload className="w-4 h-4 text-gray-400" />
-                </label>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  DFP
-                </label>
-
-                <input
-                  type="file"
-                  id="dfp-confirm-file"
-                  onChange={(e) =>
-                    handleFileChange("dfp", e.target.files?.[0] || null)
-                  }
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                />
-                <label
-                  htmlFor="dfp-confirm-file"
-                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
-                >
-                  <span
-                    className={dfpFileName ? "text-gray-900" : "text-gray-400"}
-                  >
-                    {dfpFileName || "Choose file"}
-                  </span>
-                  <Upload className="w-4 h-4 text-gray-400" />
-                </label>
-              </div>
-            </div>
-            <br />
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowTechPubPendingConfirmModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleTechPubConfirmUpload()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Confirm Upload
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* File View Modal – View button for White ATL / DFP (image popup or download for other types) */}
       {showFileViewModal && (

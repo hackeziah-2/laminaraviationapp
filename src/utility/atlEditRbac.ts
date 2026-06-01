@@ -63,18 +63,44 @@ function normalizeRoleNameForMatch(raw: string | undefined): string {
     .trim();
 }
 
+/** Work statuses where Technical Publication may use TechPubView / attachment-only edit. */
+export function isTechnicalPublicationTechPubViewWorkStatus(
+  workStatus: string | undefined
+): boolean {
+  const key = normalizeAtlWorkStatus(workStatus);
+  return key === "PENDING" || key === "AWAITING_ATTACHMENT";
+}
+
 /**
- * Operation Management: Technical Publication at AWAITING_ATTACHMENT may update only
- * White ATL / DFP uploads and work status (typically → PENDING); other fields stay read-only.
+ * `#TechPubView` visibility: Technical Publication role only, when entry is PENDING or AWAITING_ATTACHMENT.
  */
-export function isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+export function canShowTechPubViewForRoleAndWorkStatus(
   userRole: string | undefined,
   workStatus: string | undefined
 ): boolean {
   return (
     isTechnicalPublicationRole(userRole) &&
-    normalizeAtlWorkStatus(workStatus) === "AWAITING_ATTACHMENT"
+    isTechnicalPublicationTechPubViewWorkStatus(workStatus)
   );
+}
+
+/**
+ * Technical Publication attachment-only edit: only White ATL, DFP, and web links are editable;
+ * all other fields stay read-only. Applies when work status is PENDING or AWAITING_ATTACHMENT.
+ */
+export function isTechnicalPublicationRestrictedEdit(
+  userRole: string | undefined,
+  workStatus: string | undefined
+): boolean {
+  return canShowTechPubViewForRoleAndWorkStatus(userRole, workStatus);
+}
+
+/** @deprecated Use `isTechnicalPublicationRestrictedEdit` — kept for existing imports. */
+export function isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+  userRole: string | undefined,
+  workStatus: string | undefined
+): boolean {
+  return isTechnicalPublicationRestrictedEdit(userRole, workStatus);
 }
 
 /** Technical Publication role variants (incl. OEM) — used for ATL work-status RBAC and upload-only Operation edit. */

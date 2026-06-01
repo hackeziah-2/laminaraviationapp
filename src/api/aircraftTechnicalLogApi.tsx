@@ -117,6 +117,8 @@ export interface AircraftTechnicalLog {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  whiteAtlWebLink?: string;
+  dfpWebLink?: string;
   dateTimeReported?: string | null;
   dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecord[];
@@ -210,6 +212,8 @@ export interface AircraftTechnicalLogCreate {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  whiteAtlWebLink?: string;
+  dfpWebLink?: string;
   dateTimeReported?: string | null;
   dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecordCreate[];
@@ -271,6 +275,8 @@ export interface AircraftTechnicalLogUpdate {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  whiteAtlWebLink?: string;
+  dfpWebLink?: string;
   dateTimeReported?: string | null;
   dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecordCreate[];

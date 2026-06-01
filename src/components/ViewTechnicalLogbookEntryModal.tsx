@@ -294,8 +294,8 @@ export function ViewTechnicalLogbookEntryModal({
         lifeTimeLimitPropeller: formatComponentTime(
           entryData.lifeTimeLimitPropeller
         ),
-        whiteAtl: entryData.whiteAtl || "N/A",
-        dfp: entryData.dfp || "N/A",
+        whiteAtl: entryData.whiteAtl || entryData.whiteAtlWebLink || "N/A",
+        dfp: entryData.dfp || entryData.dfpWebLink || "N/A",
       }
     : {
         // Fallback to mock data if fullEntry is not provided

@@ -32,12 +32,15 @@ import {
   pickLatestAtlBatchId,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftList } from "../api/aircraftApi";
+import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
   canManageAtlBatchFilter,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isTechnicalPublicationRole,
+  isTechnicalPublicationRestrictedEdit,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
 
@@ -133,6 +136,32 @@ export function AircraftTechnicalLogbook() {
   const isMaintenancePlanner =
     normalizedUserRole === "maintenance planner" ||
     normalizedUserRole.endsWith(" maintenance planner");
+
+  /** Role from GET /auth/me — aligns ATL edit RBAC with login session (same as Operation). */
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const logbookAtlRole = useMemo(
+    () => sessionRoleName || user?.role?.trim() || undefined,
+    [sessionRoleName, user?.role]
+  );
+
+  const canUpdateLogbookAtl = canUpdate("logbook");
 
   // Map backend data to frontend format
   const mapToLogbookEntry = (
@@ -458,7 +487,11 @@ export function AircraftTechnicalLogbook() {
   };
 
   const allowAtlEditForEntry = (entry: LogbookEntry) =>
-    isAtlEditAllowedForRoleAndWorkStatus(user?.role, entry.workStatus);
+    isAtlEditAllowedForRoleAndWorkStatus(logbookAtlRole, entry.workStatus);
+
+  /** Technical Publication may edit White ATL / DFP / links without logbook Update permission. */
+  const logbookTechPubCanEditAtl = (entry: LogbookEntry) =>
+    isTechnicalPublicationRole(logbookAtlRole) && allowAtlEditForEntry(entry);
 
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
@@ -837,7 +870,8 @@ export function AircraftTechnicalLogbook() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {canUpdate("logbook") && (
+                            {(canUpdateLogbookAtl ||
+                              logbookTechPubCanEditAtl(entry)) && (
                               <button
                                 type="button"
                                 disabled={!allowAtlEditForEntry(entry)}
@@ -1052,7 +1086,11 @@ export function AircraftTechnicalLogbook() {
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
           permissionModuleCode="logbook"
-          viewerRole={user?.role}
+          viewerRole={logbookAtlRole}
+          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationRestrictedEdit(
+            logbookAtlRole,
+            selectedEntry.workStatus
+          )}
         />
       )}
 

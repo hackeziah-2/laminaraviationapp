@@ -9,7 +9,7 @@ import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
 import {
   isAtlEditAllowedForRoleAndWorkStatus,
-  isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
+  isTechnicalPublicationRestrictedEdit,
 } from "../utility/atlEditRbac";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
@@ -135,7 +135,7 @@ export function EditTechnicalLogbookEntryModal({
   // Entry loaded: enforce role + work_status before showing the edit form
   if (fullEntry) {
     const applyTechPubAttachmentOnlyRestriction =
-      isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+      isTechnicalPublicationRestrictedEdit(
         effectiveViewerRole,
         fullEntry.workStatus
       ) || editRestrictedToWhiteAtlDfpOnly;

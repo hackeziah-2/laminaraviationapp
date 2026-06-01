@@ -77,7 +77,7 @@ import {
   canManageAtlBatchFilter,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
-  isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
+  isTechnicalPublicationRestrictedEdit,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
@@ -3307,8 +3307,8 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.whiteAtl &&
-                                  record.whiteAtl.trim() !== "" ? (
+                                  {(record.whiteAtl?.trim() ||
+                                    record.whiteAtlWebLink?.trim()) ? (
                                     <div className="flex flex-col gap-1">
                                       <button
                                         type="button"
@@ -3316,9 +3316,14 @@ export function Operation() {
                                         onClick={() =>
                                           handleDownloadFile(
                                             "white_atl",
-                                            record.whiteAtl!,
-                                            record.whiteAtl!.split("/").pop() ||
-                                              "white_atl"
+                                            record.whiteAtl?.trim() ||
+                                              record.whiteAtlWebLink!.trim(),
+                                            (
+                                              record.whiteAtl?.trim() ||
+                                              record.whiteAtlWebLink!.trim()
+                                            )
+                                              .split("/")
+                                              .pop() || "white_atl"
                                           )
                                         }
                                       >
@@ -3333,7 +3338,8 @@ export function Operation() {
                                         onClick={() =>
                                           handleViewFile(
                                             "white_atl",
-                                            record.whiteAtl!
+                                            record.whiteAtl?.trim() ||
+                                              record.whiteAtlWebLink!.trim()
                                           )
                                         }
                                       >
@@ -3346,7 +3352,8 @@ export function Operation() {
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-sm bg-white">
-                                  {record.dfp && record.dfp.trim() !== "" ? (
+                                  {(record.dfp?.trim() ||
+                                    record.dfpWebLink?.trim()) ? (
                                     <div className="flex flex-col gap-1">
                                       <button
                                         type="button"
@@ -3354,9 +3361,14 @@ export function Operation() {
                                         onClick={() =>
                                           handleDownloadFile(
                                             "dfp",
-                                            record.dfp!,
-                                            record.dfp!.split("/").pop() ||
-                                              "dfp"
+                                            record.dfp?.trim() ||
+                                              record.dfpWebLink!.trim(),
+                                            (
+                                              record.dfp?.trim() ||
+                                              record.dfpWebLink!.trim()
+                                            )
+                                              .split("/")
+                                              .pop() || "dfp"
                                           )
                                         }
                                       >
@@ -3369,7 +3381,11 @@ export function Operation() {
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
                                         onClick={() =>
-                                          handleViewFile("dfp", record.dfp!)
+                                          handleViewFile(
+                                            "dfp",
+                                            record.dfp?.trim() ||
+                                              record.dfpWebLink!.trim()
+                                          )
                                         }
                                       >
                                         <Eye className="w-4 h-4 flex-shrink-0" />
@@ -4218,7 +4234,7 @@ export function Operation() {
           aircraftId={effectiveAircraftId}
           permissionModuleCode={operationAtlPermissionModuleCode}
           viewerRole={operationAtlRole}
-          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationRestrictedEdit(
             operationAtlRole,
             selectedEntry.workStatus
           )}
