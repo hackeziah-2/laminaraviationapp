@@ -36,6 +36,7 @@ import {
   toCamel,
   formatAtlDateTimeUtcFromParts,
 } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 import {
   getMissingAircraftFieldsForNewAtl,
   buildAircraftDetailsRequiredForAtlHtml,
@@ -3179,13 +3180,12 @@ export function AddTechnicalLogbookEntryModal({
                         <label className="block text-gray-700 text-sm mb-1">
                           Date (UTC)
                         </label>
-                        <input
-                          type="date"
+                        <DateInput
                           value={formData.offBlocksDate}
-                          onChange={(e) => {
+                          onChange={(offBlocksDate) => {
                             setFormData({
                               ...formData,
-                              offBlocksDate: e.target.value,
+                              offBlocksDate,
                             });
                             if (validationErrors.offBlocksDate) {
                               setValidationErrors({
@@ -3194,10 +3194,11 @@ export function AddTechnicalLogbookEntryModal({
                               });
                             }
                           }}
-                          className={`w-full px-3 py-2 border rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 ${
+                          aria-invalid={!!validationErrors.offBlocksDate}
+                          inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
                             validationErrors.offBlocksDate
                               ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300 focus:ring-blue-500 focus:border-transparent"
+                              : "border-gray-300"
                           }`}
                         />
                         {validationErrors.offBlocksDate && (
@@ -3267,16 +3268,15 @@ export function AddTechnicalLogbookEntryModal({
                         <label className="block text-gray-700 text-sm mb-1">
                           Date (UTC)
                         </label>
-                        <input
-                          type="date"
+                        <DateInput
                           value={formData.onBlocksDate}
-                          onChange={(e) =>
+                          onChange={(onBlocksDate) =>
                             setFormData({
                               ...formData,
-                              onBlocksDate: e.target.value,
+                              onBlocksDate,
                             })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                         />
                       </div>
                       <div>
@@ -4576,16 +4576,15 @@ export function AddTechnicalLogbookEntryModal({
                       <label className="block text-gray-700 text-sm mb-1">
                         Date
                       </label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={formData.pilotAcceptDate}
-                        onChange={(e) =>
+                        onChange={(pilotAcceptDate) =>
                           setFormData({
                             ...formData,
-                            pilotAcceptDate: e.target.value,
+                            pilotAcceptDate,
                           })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
                     </div>
                     <div>
@@ -4740,16 +4739,15 @@ export function AddTechnicalLogbookEntryModal({
                       <label className="block text-gray-700 text-sm mb-1">
                         Date
                       </label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={formData.rtsDate}
-                        onChange={(e) =>
+                        onChange={(rtsDate) =>
                           setFormData({
                             ...formData,
-                            rtsDate: e.target.value,
+                            rtsDate,
                           })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
                     </div>
                     <div>

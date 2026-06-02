@@ -8,6 +8,7 @@ import { Spinner } from "./ui/spinner";
 import {
   formatTimeZuluMilitary,
   computeTotalBlockTimeFromUtc,
+  formatDisplayDate,
 } from "../utility/utils";
 
 interface LogbookEntry {
@@ -83,48 +84,8 @@ export function ViewTechnicalLogbookEntryModal({
     return String(value);
   };
 
-  // Format date from YYYY-MM-DD to MM/DD/YYYY
-  const formatDate = (dateStr: string | undefined) => {
-    if (!dateStr) return "N/A";
-    try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return "N/A";
-      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
-        .getDate()
-        .toString()
-        .padStart(2, "0")}/${date.getFullYear()}`;
-    } catch {
-      return "N/A";
-    }
-  };
-
-  // Format date for Zulu display: DD MMM YYYY
-  const formatDateZulu = (dateStr: string | undefined) => {
-    if (!dateStr) return "N/A";
-    try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return "N/A";
-      const months = [
-        "JAN",
-        "FEB",
-        "MAR",
-        "APR",
-        "MAY",
-        "JUN",
-        "JUL",
-        "AUG",
-        "SEP",
-        "OCT",
-        "NOV",
-        "DEC",
-      ];
-      return `${date.getDate().toString().padStart(2, "0")} ${
-        months[date.getMonth()]
-      } ${date.getFullYear()}`;
-    } catch {
-      return "N/A";
-    }
-  };
+  const formatDate = (dateStr: string | undefined) =>
+    formatDisplayDate(dateStr, { fallback: "N/A" });
 
   // Format time for view as military time (24-hour, HHMM, e.g. 1430, 2317)
   const formatTimeZulu = (timeStr: string | undefined) => {
@@ -239,13 +200,13 @@ export function ViewTechnicalLogbookEntryModal({
         // Signatures
         pilotName: displayValue(entry.pilot),
         pilotAcceptDate: entryData.pilotAcceptDate
-          ? formatDateZulu(entryData.pilotAcceptDate)
+          ? formatDate(entryData.pilotAcceptDate)
           : "N/A",
         pilotAcceptTime: entryData.pilotAcceptTime
           ? formatTimeZulu(entryData.pilotAcceptTime)
           : "N/A",
         rtsName: "N/A", // Will need to fetch from account API using rtsSignedBy
-        rtsDate: entryData.rtsDate ? formatDateZulu(entryData.rtsDate) : "N/A",
+        rtsDate: entryData.rtsDate ? formatDate(entryData.rtsDate) : "N/A",
         rtsTime: entryData.rtsTime ? formatTimeZulu(entryData.rtsTime) : "N/A",
         dateTime:
           entryData.destinationDate && entryData.destinationTime

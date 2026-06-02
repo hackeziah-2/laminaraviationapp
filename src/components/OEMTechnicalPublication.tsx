@@ -34,6 +34,8 @@ import {
   getOemApiErrorMessage,
 } from "../api/oemTechnicalPublicationApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDateForApi, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
 const SEARCH_DEBOUNCE_MS = 400;
 
@@ -55,21 +57,11 @@ function getCategoryTypeLabel(value: string): string {
 }
 
 function formatExpiryDisplay(expiry: string | null | undefined): string {
-  if (!expiry?.trim()) return "N/A";
-  const d = new Date(expiry);
-  if (isNaN(d.getTime())) return expiry;
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return formatDisplayDate(expiry, { fallback: "N/A" });
 }
 
 function toApiDate(value: string | null | undefined): string {
-  if (!value?.trim()) return "";
-  const d = new Date(value.trim());
-  if (isNaN(d.getTime())) return value.trim();
-  return d.toISOString().slice(0, 10);
+  return formatDateForApi(value);
 }
 
 export function OEMTechnicalPublication() {
@@ -817,16 +809,15 @@ export function OEMTechnicalPublication() {
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Expiry Date <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={addForm.expiryDate}
-                    onChange={(e) =>
+                    onChange={(expiryDate) =>
                       setAddForm((prev) => ({
                         ...prev,
-                        expiryDate: e.target.value,
+                        expiryDate,
                       }))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                   />
                 </div>
                 <div>

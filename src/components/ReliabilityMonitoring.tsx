@@ -9,7 +9,7 @@ import {
   Filter,
   ChevronDown,
 } from "lucide-react";
-import { formatTimeZulu } from "../utility/utils";
+import { formatTimeZulu, formatDisplayDate } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { PageSizeSelect } from "./ui/DataTablePagination";
 
@@ -476,13 +476,13 @@ export function ReliabilityMonitoring() {
                       {record.atlSeqNo}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
-                      {record.dateStarted}
+                      {formatDisplayDate(record.dateStarted)}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
                       {formatTimeZulu(record.timeStarted)}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
-                      {record.dateReleased}
+                      {formatDisplayDate(record.dateReleased)}
                     </td>
                     <td className="px-4 py-3 text-gray-900 text-sm border-r border-gray-100">
                       {formatTimeZulu(record.timeReleased)}

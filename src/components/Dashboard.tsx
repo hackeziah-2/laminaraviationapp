@@ -13,6 +13,7 @@ import type {
   DashboardRecentActivity,
   DashboardMaintenanceAlert,
 } from "../api/dashboardApi";
+import { formatDisplayDate } from "../utility/utils";
 
 const DEFAULT_STATS = [
   {
@@ -175,12 +176,7 @@ export function Dashboard() {
   const onTimeMaintenanceTrend =
     perf?.onTimeMaintenanceTrend ?? "↑ 3% vs last month";
 
-  const today = new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const today = formatDisplayDate(new Date().toISOString());
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-6 pb-8 sm:gap-8">

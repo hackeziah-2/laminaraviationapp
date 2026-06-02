@@ -2644,34 +2644,55 @@ html {
   background: #ffffff26;
 }
 
-/* Calendar input styling to match the desired native design */
-input[type="date"] {
+/* Date fields (dd/mm/yyyy text input) */
+input[data-slot="date-input"] {
   color-scheme: light;
-  min-height: 42px;
-  padding-inline: .75rem;
-  padding-right: 2.5rem;
-  border: 1px solid #d1d5db;
+}
+
+/* react-day-picker — table grid (do not override head_row/row with flex) */
+.rdp-laminar.rdp {
+  margin: 0;
+  --rdp-cell-size: 2.25rem;
+  --rdp-accent-color: #2563eb;
+  --rdp-background-color: #eff6ff;
+  --rdp-selected-color: #fff;
+}
+
+.rdp-laminar .rdp-month {
+  margin: 0;
+}
+
+.rdp-laminar .rdp-table {
+  width: 100%;
+  max-width: calc(var(--rdp-cell-size) * 7);
+}
+
+.rdp-laminar .rdp-head_cell {
+  width: var(--rdp-cell-size);
+  font-weight: 600;
+}
+
+.rdp-laminar .rdp-cell {
+  width: var(--rdp-cell-size);
+  padding: 0;
+}
+
+.rdp-laminar .rdp-day {
   border-radius: 0.5rem;
-  background-color: #fff;
-  color: #111827;
-  line-height: 1.25rem;
+  border-width: 0;
 }
 
-input[type="date"]:focus {
-  outline: none !important;
-  border-color: #9ca3af !important;
-  box-shadow: 0 0 0 2px #9ca3af40 !important;
+.rdp-laminar .rdp-day_selected,
+.rdp-laminar .rdp-day_selected:hover,
+.rdp-laminar .rdp-day_selected:focus-visible {
+  background-color: #2563eb;
+  color: #fff;
 }
 
-input[type="date"]::-webkit-datetime-edit {
-  color: inherit;
-}
-
-input[type="date"]::-webkit-calendar-picker-indicator {
-  cursor: pointer;
-  opacity: 1;
-  padding: 2px;
-  margin-right: -2px;
+.rdp-laminar .rdp-day_today:not(.rdp-day_selected) {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 600;
 }
 
 @property --tw-translate-x {

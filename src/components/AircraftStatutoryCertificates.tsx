@@ -36,6 +36,8 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDateForApi, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
@@ -112,20 +114,6 @@ function normalizeWebLink(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-/** Normalize any date string to YYYY-MM-DD for <input type="date"> and API payload */
-function toDateInputValue(dateStr: string | null | undefined): string {
-  if (!dateStr || typeof dateStr !== "string") return "";
-  const trimmed = dateStr.trim();
-  if (!trimmed) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
-  const d = new Date(trimmed);
-  if (isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 export function AircraftStatutoryCertificates() {
@@ -369,21 +357,8 @@ export function AircraftStatutoryCertificates() {
     return (c as any).msn ?? c.msn ?? "-";
   };
 
-  const formatExpiry = (dateStr: string | null | undefined): string => {
-    if (!dateStr) return "—";
-    try {
-      const d = new Date(dateStr);
-      return isNaN(d.getTime())
-        ? dateStr
-        : d.toLocaleDateString("en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "2-digit",
-          });
-    } catch {
-      return dateStr;
-    }
-  };
+  const formatExpiry = (dateStr: string | null | undefined): string =>
+    formatDisplayDate(dateStr, { fallback: "—" });
 
   const openHistoryModal = (cert: CertificateType) => {
     const ascId = getAscHistoryId(cert);
@@ -632,7 +607,7 @@ export function AircraftStatutoryCertificates() {
         (c as any).certificate_type ??
         c.certificateType ??
         "",
-      expiryDate: toDateInputValue(rawExpiry),
+      expiryDate: formatDateForApi(rawExpiry),
       webLink: (c as any).webLink ?? c.webLink ?? "",
     });
     const reg =
@@ -704,7 +679,7 @@ export function AircraftStatutoryCertificates() {
     if (!isValidWebLink(formData.webLink))
       newErrors.webLink =
         "Web link must be a valid URL (e.g. https://example.com)";
-    const expiryValue = toDateInputValue(formData.expiryDate);
+    const expiryValue = formatDateForApi(formData.expiryDate);
     if (!expiryValue || !expiryValue.trim())
       newErrors.expiryDate = "Date of expiration is required";
 
@@ -721,7 +696,7 @@ export function AircraftStatutoryCertificates() {
         editingCertificate?.aircraftId ??
         (editingCertificate?.aircraft as any)?.id ??
         null;
-      const expiryForApi = toDateInputValue(formData.expiryDate) || null;
+      const expiryForApi = formatDateForApi(formData.expiryDate) || null;
       const payload: Record<string, unknown> = {
         certificate_type: certType,
         category_type: certType,
@@ -1440,16 +1415,15 @@ export function AircraftStatutoryCertificates() {
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Date of Expiration <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={formData.expiryDate}
-                  onChange={(e) => {
-                    setFormData({ ...formData, expiryDate: e.target.value });
+                  onChange={(expiryDate) => {
+                    setFormData({ ...formData, expiryDate });
                     if (saveFormErrors.expiryDate)
                       setSaveFormErrors((prev) => ({ ...prev, expiryDate: "" }));
                   }}
-                  placeholder="mm/dd/yyyy"
-                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  aria-invalid={!!saveFormErrors.expiryDate}
+                  inputClassName={`rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     saveFormErrors.expiryDate
                       ? "border-red-500"
                       : "border-gray-300"

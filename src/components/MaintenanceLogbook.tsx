@@ -25,7 +25,8 @@ import {
 } from "../api/accountApi";
 import { getAircraftById } from "../api/aircraftApi";
 import { Aircraft } from "../types/Aircraft";
-import { toCamel } from "../utility/utils";
+import { toCamel, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 import {
   getEngineLogbooks,
   getAirframeLogbooks,
@@ -351,34 +352,8 @@ export function MaintenanceLogbook() {
 
   const currentEntries = getCurrentEntries();
 
-  // Format date from YYYY-MM-DD to DD/MMM/YYYY
-  const formatDate = (dateStr: string | undefined): string => {
-    if (!dateStr) return "-";
-    try {
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return dateStr;
-      const months = [
-        "JAN",
-        "FEB",
-        "MAR",
-        "APR",
-        "MAY",
-        "JUN",
-        "JUL",
-        "AUG",
-        "SEP",
-        "OCT",
-        "NOV",
-        "DEC",
-      ];
-      const day = date.getDate().toString().padStart(2, "0");
-      const month = months[date.getMonth()];
-      const year = date.getFullYear();
-      return `${day}/${month}/${year}`;
-    } catch {
-      return dateStr;
-    }
-  };
+  const formatDate = (dateStr: string | undefined): string =>
+    formatDisplayDate(dateStr);
 
   // Handle delete entry
   const handleDelete = async (entryId: number) => {
@@ -2715,13 +2690,12 @@ export function MaintenanceLogbook() {
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Date:
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={formData.date}
-                      onChange={(e) =>
-                        setFormData({ ...formData, date: e.target.value })
+                      onChange={(date) =>
+                        setFormData({ ...formData, date })
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                     />
                   </div>
                   <div>

@@ -13,15 +13,21 @@ import Swal from "sweetalert2";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   getAdvisoryPaged,
-  getAdvisoryById,
+  getAdvisoryForRenew,
   renewAdvisory,
   withholdAdvisory,
   advisoryExpiryToDateInputValue,
+  renewDateFieldOrEmpty,
+  renewTextFieldOrEmpty,
+  isAuthExpiryAdvisoryType,
+  mergeAdvisoryRenewFormFromDetail,
+  resolveAdvisoryRegulatoryCompliance,
   type AdvisoryItem,
   type AdvisorySortBy,
   type AdvisorySortOrder,
 } from "../api/advisoryApi";
 import { Spinner } from "./ui/spinner";
+import { DateInput } from "./ui/DateInput";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,13 +90,14 @@ export function RegulatoryAdvisory() {
   const [renewAdvisoryRow, setRenewAdvisoryRow] = useState<AdvisoryItem | null>(
     null
   );
-  /** Holds id, expiry (editable), category_type, optional regulatory_compliance and web_link for PUT. */
+  /** Renew form state; regulatory_compliance required for GET/PUT. */
   const [renewUpdate, setRenewUpdate] = useState<{
     id: number;
     expiry: string;
     category_type: string;
-    regulatory_compliance?: string;
+    regulatory_compliance: string;
     web_link: string;
+    auth_issue_date: string;
   } | null>(null);
   const [renewSubmitting, setRenewSubmitting] = useState(false);
   const [renewErrors, setRenewErrors] = useState<Record<string, string>>({});
@@ -182,6 +189,8 @@ export function RegulatoryAdvisory() {
         return "bg-violet-500/10 text-violet-700 border border-violet-200";
       case "WITHHOLD":
         return "bg-red-500/10 text-red-700 border border-red-200";
+      case "AUTH_EXPIRY":
+        return "bg-amber-500/10 text-amber-800 border border-amber-200";
       default:
         return "bg-gray-500/10 text-gray-700 border border-gray-200";
     }
@@ -189,44 +198,51 @@ export function RegulatoryAdvisory() {
 
   const openRenewModal = async (advisory: AdvisoryItem) => {
     const openedId = advisory.id;
+    const regulatory_compliance = resolveAdvisoryRegulatoryCompliance(advisory);
+    if (!regulatory_compliance) {
+      await Swal.fire({
+        icon: "error",
+        title: "Cannot renew",
+        text: "This advisory row is missing regulatory_compliance (required by the API).",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+
     const seq = ++renewDetailSeqRef.current;
     setRenewAdvisoryRow(advisory);
-    const listWebLink = String(advisory.web_link ?? "").trim();
     setRenewUpdate({
       id: openedId,
       expiry: advisoryExpiryToDateInputValue(advisory.expiry ?? ""),
       category_type: advisory.category_type ?? advisory.type ?? "",
-      web_link: listWebLink,
-      ...(advisory.regulatory_compliance
-        ? { regulatory_compliance: advisory.regulatory_compliance }
-        : {}),
+      regulatory_compliance,
+      web_link: renewTextFieldOrEmpty(advisory.web_link),
+      auth_issue_date: renewDateFieldOrEmpty(advisory.auth_issue_date),
     });
     setShowRenewModal(true);
     setRenewDetailLoading(true);
     try {
-      const detail = await getAdvisoryById(openedId);
+      const detail = await getAdvisoryForRenew(openedId, regulatory_compliance);
       if (renewDetailSeqRef.current !== seq) return;
 
-      if (!detail) return;
-
-      setRenewAdvisoryRow({ ...detail, id: openedId });
       setRenewUpdate((prev) => {
         if (!prev || Number(prev.id) !== Number(openedId)) return prev;
-        const detailLink = String(detail.web_link ?? "").trim();
-        const detailExpiryNorm = advisoryExpiryToDateInputValue(detail.expiry);
-        return {
-          id: openedId,
-          expiry: detailExpiryNorm !== "" ? detailExpiryNorm : prev.expiry,
-          category_type:
-            detail.category_type ?? detail.type ?? prev.category_type,
-          web_link: detailLink !== "" ? detailLink : prev.web_link,
-          ...(detail.regulatory_compliance
-            ? { regulatory_compliance: detail.regulatory_compliance }
-            : prev.regulatory_compliance
-            ? { regulatory_compliance: prev.regulatory_compliance }
-            : {}),
-        };
+        return mergeAdvisoryRenewFormFromDetail(prev, detail);
       });
+    } catch (err: unknown) {
+      if (renewDetailSeqRef.current !== seq) return;
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data
+          ?.detail ??
+        (err as Error)?.message ??
+        "Failed to load advisory details";
+      await Swal.fire({
+        icon: "error",
+        title: "Error",
+        text: String(message),
+        confirmButtonColor: "#2563eb",
+      });
+      closeRenewModal();
     } finally {
       if (renewDetailSeqRef.current === seq) {
         setRenewDetailLoading(false);
@@ -244,21 +260,33 @@ export function RegulatoryAdvisory() {
 
   const handleRenewSubmit = async () => {
     if (!renewUpdate) return;
+    const newErrors: Record<string, string> = {};
+    if (!renewUpdate.regulatory_compliance.trim()) {
+      newErrors.regulatory_compliance = "Regulatory compliance is required";
+    }
     if (!renewUpdate.expiry.trim()) {
-      setRenewErrors({ expiry: "Expiration date is required" });
+      newErrors.expiry = "Expiration date is required";
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setRenewErrors(newErrors);
       return;
     }
     setRenewErrors({});
     setRenewSubmitting(true);
     try {
-      await renewAdvisory(renewUpdate.id, renewUpdate.expiry, {
-        ...(renewUpdate.regulatory_compliance
-          ? { regulatory_compliance: renewUpdate.regulatory_compliance }
+      const renewIsAuthExpiry = isAuthExpiryAdvisoryType(
+        renewAdvisoryRow?.type,
+        renewUpdate.category_type,
+        renewAdvisoryRow?.item_type
+      );
+      await renewAdvisory(renewUpdate.id, {
+        regulatory_compliance: renewUpdate.regulatory_compliance,
+        expiry_date: renewUpdate.expiry,
+        web_link: renewUpdate.web_link ?? "",
+        include_auth_issue_date: renewIsAuthExpiry,
+        ...(renewIsAuthExpiry
+          ? { auth_issue_date: renewUpdate.auth_issue_date }
           : {}),
-        ...(renewUpdate.category_type
-          ? { category_type: renewUpdate.category_type }
-          : {}),
-        web_link: renewUpdate.web_link.trim(),
       });
       closeRenewModal();
       await Swal.fire({
@@ -354,10 +382,7 @@ export function RegulatoryAdvisory() {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
       } else {
-        const aoa: string[][] = [
-          [...ADVISORY_EXPORT_HEADERS],
-          ...dataRows,
-        ];
+        const aoa: string[][] = [[...ADVISORY_EXPORT_HEADERS], ...dataRows];
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Advisory");
@@ -492,6 +517,7 @@ export function RegulatoryAdvisory() {
                 REGULATORY CORRESPONDENCE (NON CERT)
               </option>
               <option value="LICENSE">LICENSE</option>
+              <option value="AUTH_EXPIRY">AUTH EXPIRY</option>
             </select>
           </div>
         </div>
@@ -656,7 +682,9 @@ export function RegulatoryAdvisory() {
                                     showConfirmButton: false,
                                   });
                                   const typeParam =
-                                    filterType === "all" ? undefined : filterType;
+                                    filterType === "all"
+                                      ? undefined
+                                      : filterType;
                                   getAdvisoryPaged(
                                     currentPage,
                                     itemsPerPage,
@@ -763,9 +791,44 @@ export function RegulatoryAdvisory() {
             </div>
 
             <div className="space-y-4 mb-4">
+              {isAuthExpiryAdvisoryType(
+                renewAdvisoryRow.type,
+                renewUpdate.category_type,
+                renewAdvisoryRow.item_type
+              ) && (
+                <>
+                  {/* <p className="text-xs font-medium uppercase tracking-wide text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
+                    Item type: Auth expiry
+                  </p> */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
+                      AUTH ISSUE DATE
+                      <span className="text-xs font-normal text-gray-400"></span>
+                      {renewDetailLoading && (
+                        <Loader2
+                          className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0"
+                          aria-label="Loading auth issue date"
+                        />
+                      )}
+                    </label>
+                    <DateInput
+                      value={renewUpdate.auth_issue_date}
+                      onChange={(auth_issue_date) =>
+                        setRenewUpdate((prev) =>
+                          prev ? { ...prev, auth_issue_date } : null
+                        )
+                      }
+                      disabled={renewDetailLoading}
+                      className="w-full rounded-lg disabled:opacity-60 border-gray-300 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
                   Expiration date <span className="text-red-500">*</span>
+                  <span className="text-xs font-normal text-gray-400"></span>
                   {renewDetailLoading && (
                     <Loader2
                       className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0"
@@ -773,31 +836,33 @@ export function RegulatoryAdvisory() {
                     />
                   )}
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={renewUpdate.expiry}
-                  onChange={(e) => {
+                  onChange={(expiry) => {
                     setRenewUpdate((prev) =>
-                      prev ? { ...prev, expiry: e.target.value } : null
+                      prev ? { ...prev, expiry } : null
                     );
                     if (renewErrors.expiry)
                       setRenewErrors((prev) => ({ ...prev, expiry: "" }));
                   }}
                   disabled={renewDetailLoading}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-1 bg-white text-gray-900 disabled:opacity-60 ${
+                  className={`w-full rounded-lg disabled:opacity-60 ${
                     renewErrors.expiry
                       ? "border-red-500 focus:ring-red-300 focus:border-red-500"
                       : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
                   }`}
-                  placeholder="e.g. 27 FEB 26"
                 />
                 {renewErrors.expiry && (
-                  <p className="mt-1 text-xs text-red-600">{renewErrors.expiry}</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    {renewErrors.expiry}
+                  </p>
                 )}
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5 flex items-center gap-2">
-                  Weblink
+                  Web link
+                  <span className="text-xs font-normal text-gray-400"></span>
                   {renewDetailLoading && (
                     <Loader2
                       className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0"

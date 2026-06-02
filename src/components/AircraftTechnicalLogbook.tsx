@@ -43,6 +43,7 @@ import {
   isTechnicalPublicationRestrictedEdit,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
+import { formatDisplayDate } from "../utility/utils";
 
 interface LogbookEntry {
   id: number;
@@ -168,26 +169,6 @@ export function AircraftTechnicalLogbook() {
     apiEntry: AircraftTechnicalLog,
     index: number
   ): LogbookEntry => {
-    // Format date from YYYY-MM-DD to MM/DD/YYYY
-    const formatDate = (dateStr: string) => {
-      if (!dateStr) return "";
-      const date = new Date(dateStr);
-      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
-        .getDate()
-        .toString()
-        .padStart(2, "0")}/${date.getFullYear()}`;
-    };
-
-    const formatCreatedAtDateOnly = (dateStr: string | undefined) => {
-      if (!dateStr) return "—";
-      const date = new Date(dateStr);
-      if (Number.isNaN(date.getTime())) return "—";
-      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
-        .getDate()
-        .toString()
-        .padStart(2, "0")}/${date.getFullYear()}`;
-    };
-
     // Format route from stations
     const route = `${apiEntry.originStation || ""} → ${
       apiEntry.destinationStation || ""
@@ -217,8 +198,11 @@ export function AircraftTechnicalLogbook() {
     return {
       id: apiEntry.id,
       seqNo: apiEntry.sequenceNo || "",
-      date: formatDate(apiEntry.originDate || apiEntry.destinationDate || ""),
-      createdAt: formatCreatedAtDateOnly(apiEntry.createdAt),
+      date: formatDisplayDate(
+        apiEntry.originDate || apiEntry.destinationDate || "",
+        { fallback: "" }
+      ),
+      createdAt: formatDisplayDate(apiEntry.createdAt, { fallback: "—" }),
       acReg: apiEntry.aircraft?.registration || "",
       route: route,
       origin: apiEntry?.originStation || "",

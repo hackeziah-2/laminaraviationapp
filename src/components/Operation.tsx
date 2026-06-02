@@ -61,6 +61,7 @@ import {
   formatApiErrorForSwal,
   formatTimeZulu,
   formatAtlDateTimeUtc,
+  formatDisplayDate,
   computeTotalBlockTimeFromUtc,
   computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
@@ -998,18 +999,7 @@ export function Operation() {
     const n = v != null && v !== "" ? Number(v) : null;
     return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
   };
-  const formatDisplayDate = (value?: string | null) =>
-    value
-      ? new Date(value)
-          .toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })
-          .replace(/ /g, "-")
-      : "-";
-
-  /** `date_time_reported` / `date_time_released` — e.g. Feb 29, 2024 12:00 AM UTC */
+  /** `date_time_reported` / `date_time_released` — e.g. 29/02/2024 12:00 AM UTC */
   const formatAtlDateTimeListCell = (raw?: string | null) =>
     formatAtlDateTimeUtc(raw);
 
@@ -2234,10 +2224,7 @@ export function Operation() {
               <p className="text-gray-500 text-sm mb-2">Last Updated</p>
               <p className="text-gray-900 text-sm">
                 {fleetTimeRecords.length > 0 && fleetTimeRecords[0].updatedAt
-                  ? new Date(fleetTimeRecords[0].updatedAt).toLocaleDateString(
-                      "en-US",
-                      { month: "short", day: "numeric", year: "numeric" }
-                    )
+                  ? formatDisplayDate(fleetTimeRecords[0].updatedAt)
                   : "-"}
               </p>
             </div>
@@ -2884,29 +2871,13 @@ export function Operation() {
                                   {formatOptionalNumber1dp(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.originDate
-                                    ? new Date(record.originDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.originTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.destinationDate
-                                    ? new Date(record.destinationDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.destinationTime)}
@@ -3554,29 +3525,13 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.originDate
-                                  ? new Date(record.originDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
+                                {formatDisplayDate(record.originDate)}
                                 {record.originTime
                                   ? ` ${formatTimeZulu(record.originTime)}`
                                   : ""}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.destinationDate
-                                  ? new Date(record.destinationDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
+                                {formatDisplayDate(record.destinationDate)}
                                 {record.destinationTime
                                   ? ` ${formatTimeZulu(record.destinationTime)}`
                                   : ""}
@@ -3774,29 +3729,13 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {record.originDate
-                                    ? new Date(record.originDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.originDate)}
                                   {record.originTime
                                     ? ` ${formatTimeZulu(record.originTime)}`
                                     : ""}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {record.destinationDate
-                                    ? new Date(record.destinationDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.destinationDate)}
                                   {record.destinationTime
                                     ? ` ${formatTimeZulu(
                                         record.destinationTime

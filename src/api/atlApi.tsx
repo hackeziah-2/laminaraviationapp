@@ -52,7 +52,7 @@ function cpcpNumericForForm(v: unknown): string | undefined {
   return s || undefined;
 }
 
-/** `origin_date` → `YYYY-MM-DD` for `<input type="date">`. */
+/** `origin_date` → `YYYY-MM-DD` for DateInput / API. */
 function cpcpDateForLastDoneField(v: unknown): string | undefined {
   if (v == null || v === "") return undefined;
   const str = String(v).trim();

@@ -1,3 +1,5 @@
+import { formatDisplayDateFromDate } from "../utility/utils";
+
 /**
  * CPCP auto-compute formulas (Excel-like).
  * - Next due Tach = Last Done Tach + interval hours
@@ -49,10 +51,7 @@ function formatNum(n: number | null): string {
 
 function formatDate(d: Date | null): string {
   if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return "-";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return formatDisplayDateFromDate(d);
 }
 
 /** API / normalized list values use "-" for empty; treat those as absent so we can fall back to formulas */

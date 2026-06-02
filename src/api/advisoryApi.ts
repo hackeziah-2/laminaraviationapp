@@ -1,4 +1,5 @@
 import apiClient from "./index";
+import { formatDateForApi, normalizeWebLink } from "../utility/utils";
 
 /**
  * Advisory payloads can arrive in either camelCase or uppercase field names.
@@ -13,6 +14,8 @@ export interface AdvisoryItemRaw {
   TYPE?: string;
   type?: string;
   category_type?: string;
+  item_type?: string;
+  ITEM_TYPE?: string;
   EXPIRY?: string;
   expiry?: string;
   expiration_date?: string;
@@ -27,6 +30,15 @@ export interface AdvisoryItemRaw {
   REMAINING_DAYS?: number | string;
   remaining_days?: number | string;
   regulatory_compliance?: string;
+  AUTH_ISSUE_DATE?: string;
+  auth_issue_date?: string;
+  authIssueDate?: string;
+  AUTH_ISSUE?: string;
+  auth_issue?: string;
+  date_of_auth_issue?: string;
+  DATE_OF_AUTH_ISSUE?: string;
+  authorization_issue_date?: string;
+  AUTHORIZATION_ISSUE_DATE?: string;
   WEB_LINK?: string;
   web_link?: string;
   webLink?: string;
@@ -48,18 +60,66 @@ export interface AdvisoryItem {
   item: string;
   type: string;
   category_type?: string;
+  /** Same as list `TYPE` / `item_type` when API sends it separately. */
+  item_type?: string;
   expiry: string;
   remainingValidity: string;
   regulatory_compliance?: string;
   /** From list/detail API; may be empty string. */
   web_link: string;
+  /** Authorization issue date (AUTH_EXPIRY and related types). */
+  auth_issue_date?: string;
 }
 
-/** Payload for renew advisory: PUT advisory/{id}/{expiry}/ */
-export interface RenewAdvisoryPayload {
-  regulatory_compliance?: string;
-  category_type?: string;
-  web_link?: string;
+/** GET /api/v1/advisory/{id}/?regulatory_compliance=… */
+export interface AdvisoryRenewDetail {
+  auth_issue_date: string;
+  expiry_date: string;
+  web_link: string;
+}
+
+/** PUT /api/v1/advisory/{id}/renew/ (auth_issue_date only for AUTH_EXPIRY renewals). */
+export interface RenewAdvisoryBody {
+  regulatory_compliance: string;
+  expiry_date: string;
+  web_link: string;
+  /** Omitted when not AUTH_EXPIRY; null or YYYY-MM-DD when included. */
+  auth_issue_date?: string | null;
+}
+
+/** @deprecated Use RenewAdvisoryBody */
+export type RenewAdvisoryPayload = RenewAdvisoryBody;
+
+/** Resolve required `regulatory_compliance` query/body value from a list row. */
+export function resolveAdvisoryRegulatoryCompliance(
+  advisory: Pick<AdvisoryItem, "regulatory_compliance" | "category_type" | "type">
+): string {
+  const direct = String(advisory.regulatory_compliance ?? "").trim();
+  if (direct) return direct;
+  const raw = String(advisory.category_type ?? advisory.type ?? "").trim();
+  if (!raw) return "";
+  return raw
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
+
+/** True when item_type / TYPE / category_type is AUTH_EXPIRY (renew shows auth issue date). */
+export function isAuthExpiryAdvisoryType(
+  type?: string,
+  categoryType?: string,
+  itemType?: string
+): boolean {
+  const norm = (s?: string) =>
+    String(s ?? "")
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, "_");
+  for (const raw of [itemType, type, categoryType]) {
+    const t = norm(raw);
+    if (t === "AUTH_EXPIRY" || t.includes("AUTH_EXPIRY")) return true;
+  }
+  return false;
 }
 
 /** Response: flat list, grouped by type, or wrapped in results/items. */
@@ -120,6 +180,24 @@ function webLinkFromFlatRecord(r: Record<string, unknown>): string {
   );
 }
 
+function authIssueDateFromFlatRecord(r: Record<string, unknown>): string {
+  return firstString(
+    r.AUTH_ISSUE_DATE,
+    r.auth_issue_date,
+    r.authIssueDate,
+    r.AUTH_ISSUE,
+    r.auth_issue,
+    r.date_of_auth_issue,
+    r.DATE_OF_AUTH_ISSUE,
+    r.authorization_issue_date,
+    r.AUTHORIZATION_ISSUE_DATE,
+    r.issue_date,
+    r.ISSUE_DATE,
+    r.date_of_issue,
+    r.DATE_OF_ISSUE
+  );
+}
+
 function hasExpiryLikeField(o: Record<string, unknown>): boolean {
   return (
     firstString(
@@ -144,6 +222,7 @@ function looksLikeAdvisoryRow(o: Record<string, unknown>): boolean {
     (typeof o.regulatory_compliance === "string" &&
       o.regulatory_compliance.trim() !== "") ||
     webLinkFromFlatRecord(o) !== "" ||
+    authIssueDateFromFlatRecord(o) !== "" ||
     hasExpiryLikeField(o) ||
     o.REMAINING_VALIDITY != null ||
     o.remaining_validity != null ||
@@ -295,20 +374,57 @@ function extractWebLink(raw: AdvisoryItemRaw): string {
   return "";
 }
 
-/** Normalize expiry strings from the API for HTML date inputs (YYYY-MM-DD). */
+/** Resolve auth issue date from list/detail shapes (top-level or one-level nested). */
+function extractAuthIssueDate(raw: AdvisoryItemRaw): string {
+  const r = raw as Record<string, unknown>;
+  let s = authIssueDateFromFlatRecord(r);
+  if (s) return s;
+  for (const key of [
+    "advisory",
+    "detail",
+    "document",
+    "metadata",
+    "fields",
+  ]) {
+    const n = r[key];
+    if (n != null && typeof n === "object" && !Array.isArray(n)) {
+      s = authIssueDateFromFlatRecord(n as Record<string, unknown>);
+      if (s) return s;
+    }
+  }
+  return "";
+}
+
+/** Normalize expiry strings from the API for DateInput (YYYY-MM-DD). */
 export function advisoryExpiryToDateInputValue(
   dateStr: string | null | undefined
 ): string {
-  if (!dateStr || typeof dateStr !== "string") return "";
-  const trimmed = dateStr.trim();
-  if (!trimmed) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
-  const d = new Date(trimmed);
-  if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return formatDateForApi(dateStr);
+}
+
+/** Renew form/API text: null, undefined, or placeholder → "". */
+export function renewTextFieldOrEmpty(
+  value: string | null | undefined
+): string {
+  const s = String(value ?? "").trim();
+  if (!s || s === "-" || s === "—" || /^n\/?a$/i.test(s)) return "";
+  return s;
+}
+
+/** Renew date field: unparseable or missing → "". */
+export function renewDateFieldOrEmpty(
+  value: string | null | undefined
+): string {
+  return advisoryExpiryToDateInputValue(value) || "";
+}
+
+/** Renew web_link: no data → ""; otherwise normalized URL. */
+export function renewWebLinkFieldOrEmpty(
+  value: string | null | undefined
+): string {
+  const raw = renewTextFieldOrEmpty(value);
+  if (!raw) return "";
+  return normalizeWebLink(raw) ?? raw;
 }
 
 function formatRemainingValidity(value: number | string | undefined): string {
@@ -334,12 +450,12 @@ function normalizeItem(
   const item = firstString(raw?.ITEM, raw?.item);
   const type = firstString(raw?.TYPE, raw?.type, typeKey);
   const expiry = firstString(
+    raw?.expiry_date,
+    raw?.EXPIRY_DATE,
     raw?.EXPIRY,
     raw?.expiry,
     raw?.EXPIRATION_DATE,
     raw?.expiration_date,
-    raw?.EXPIRY_DATE,
-    raw?.expiry_date,
     raw?.DATE_OF_EXPIRATION,
     raw?.date_of_expiration
   );
@@ -362,7 +478,10 @@ function normalizeItem(
       ? raw.category_type.trim()
       : undefined;
 
+  const item_type = firstString(raw?.item_type, raw?.ITEM_TYPE, type);
+
   const web_link = extractWebLink(raw);
+  const auth_issue_date = extractAuthIssueDate(raw);
 
   return {
     id: Number.isFinite(idValue) ? idValue : index,
@@ -373,6 +492,74 @@ function normalizeItem(
     web_link,
     ...(regulatory_compliance ? { regulatory_compliance } : {}),
     ...(category_type ? { category_type } : {}),
+    ...(item_type ? { item_type } : {}),
+    ...(auth_issue_date ? { auth_issue_date } : {}),
+  };
+}
+
+/** Merge GET advisory/{id}/?regulatory_compliance=… into renew form state. */
+export function mergeAdvisoryRenewFormFromDetail(
+  prev: {
+    id: number;
+    expiry: string;
+    category_type: string;
+    web_link: string;
+    auth_issue_date: string;
+    regulatory_compliance: string;
+  },
+  detail: AdvisoryRenewDetail
+): typeof prev {
+  return {
+    ...prev,
+    expiry: detail.expiry_date || prev.expiry,
+    web_link: renewTextFieldOrEmpty(detail.web_link),
+    auth_issue_date: renewDateFieldOrEmpty(detail.auth_issue_date),
+  };
+}
+
+function parseAdvisoryRenewDetail(raw: unknown): AdvisoryRenewDetail | null {
+  const root = parseMaybeJsonResponse(raw);
+  if (root == null || typeof root !== "object") return null;
+
+  let o = root as Record<string, unknown>;
+  if (o.data != null && typeof o.data === "object" && !Array.isArray(o.data)) {
+    o = o.data as Record<string, unknown>;
+  } else if (
+    o.result != null &&
+    typeof o.result === "object" &&
+    !Array.isArray(o.result)
+  ) {
+    o = o.result as Record<string, unknown>;
+  }
+
+  const expiry_date = advisoryExpiryToDateInputValue(
+    firstString(
+      o.expiry_date,
+      o.EXPIRY_DATE,
+      o.expiry,
+      o.EXPIRY,
+      o.EXPIRATION_DATE,
+      o.expiration_date
+    )
+  );
+  if (!expiry_date) return null;
+
+  const auth_issue_date = renewDateFieldOrEmpty(
+    firstString(
+      o.auth_issue_date,
+      o.AUTH_ISSUE_DATE,
+      o.authIssueDate,
+      authIssueDateFromFlatRecord(o)
+    )
+  );
+  const web_link = renewTextFieldOrEmpty(
+    firstString(o.web_link, o.WEB_LINK, o.webLink)
+  );
+
+  return {
+    expiry_date,
+    auth_issue_date,
+    web_link,
   };
 }
 
@@ -541,60 +728,110 @@ export async function getAdvisoryPaged(
 }
 
 /**
- * GET single advisory for renew/edit (full fields e.g. web_link). GET /api/v1/advisory/{id}/
- * Tries trailing slash and no-slash paths; unwraps common response envelopes.
+ * GET advisory renewal fields.
+ * GET /api/v1/advisory/{id}/?regulatory_compliance={value} (required)
  */
+export async function getAdvisoryForRenew(
+  id: number | string,
+  regulatory_compliance: string
+): Promise<AdvisoryRenewDetail> {
+  const rc = String(regulatory_compliance ?? "").trim();
+  if (!rc) {
+    throw new Error("regulatory_compliance is required");
+  }
+  const params = new URLSearchParams({ regulatory_compliance: rc });
+  const { data } = await apiClient.get<unknown>(
+    `advisory/${id}/?${params.toString()}`,
+    { headers: { Accept: "application/json" } }
+  );
+  const parsed = parseAdvisoryRenewDetail(data);
+  if (!parsed) {
+    throw new Error("Invalid advisory detail response");
+  }
+  return parsed;
+}
+
+/** @deprecated Use getAdvisoryForRenew(id, regulatory_compliance) */
 export async function getAdvisoryById(
-  id: number | string
+  id: number | string,
+  regulatory_compliance?: string
 ): Promise<AdvisoryItem | null> {
-  const tryGet = async (path: string): Promise<unknown | null> => {
+  if (regulatory_compliance?.trim()) {
     try {
-      const { data } = await apiClient.get<unknown>(path, {
-        headers: { Accept: "application/json" },
-      });
-      return parseMaybeJsonResponse(data ?? null);
+      const detail = await getAdvisoryForRenew(id, regulatory_compliance);
+      const idNum = Number(id);
+      return {
+        id: Number.isFinite(idNum) ? idNum : 0,
+        item: "",
+        type: "",
+        expiry: detail.expiry_date,
+        remainingValidity: "",
+        web_link: detail.web_link,
+        auth_issue_date: detail.auth_issue_date,
+        regulatory_compliance: regulatory_compliance.trim(),
+      };
     } catch {
       return null;
     }
+  }
+  return null;
+}
+
+/** Input for PUT /advisory/{id}/renew/ */
+export type BuildRenewAdvisoryBodyInput = {
+  regulatory_compliance: string;
+  expiry_date: string;
+  web_link: string;
+  auth_issue_date?: string | null;
+  /** When false, auth_issue_date is not sent (non–AUTH_EXPIRY). */
+  include_auth_issue_date?: boolean;
+};
+
+/**
+ * Build PUT /advisory/{id}/renew/ body.
+ * auth_issue_date is only included when include_auth_issue_date is true;
+ * empty value is sent as null (not required).
+ */
+export function buildRenewAdvisoryBody(
+  fields: BuildRenewAdvisoryBodyInput
+): RenewAdvisoryBody {
+  const regulatory_compliance = String(
+    fields.regulatory_compliance ?? ""
+  ).trim();
+  const expiry_date = renewDateFieldOrEmpty(fields.expiry_date);
+  const web_link = renewWebLinkFieldOrEmpty(fields.web_link);
+
+  const body: RenewAdvisoryBody = {
+    regulatory_compliance,
+    expiry_date,
+    web_link,
   };
 
-  const raw =
-    (await tryGet(`advisory/${id}/`)) ?? (await tryGet(`advisory/${id}`));
-  const wantNum = Number(id);
-  const preferredPk = Number.isFinite(wantNum) ? wantNum : null;
-  let inner: AdvisoryItemRaw | null =
-    unwrapAdvisoryDetailPayload(raw) ??
-    (preferredPk != null ? findAdvisoryRowByIdInPayload(raw, id) : null) ??
-    deepFindAdvisoryRecord(raw, 0, preferredPk);
-  if (inner == null) {
-    inner = deepFindAdvisoryRecord(raw, 0, null);
+  if (fields.include_auth_issue_date) {
+    const auth_issue_date = renewDateFieldOrEmpty(fields.auth_issue_date);
+    body.auth_issue_date = auth_issue_date || null;
   }
-  if (inner == null) return null;
-  const typeHint = firstString(inner.TYPE, inner.type, "");
-  const idNum = Number(id);
-  return normalizeItem(
-    inner,
-    typeHint,
-    Number.isFinite(idNum) ? idNum : 0
-  );
+
+  return body;
 }
 
 /**
- * Renew advisory: PUT /api/v1/advisory/{id}/{expiry}/
- * Body: { regulatory_compliance?, category_type?, web_link? } — include `web_link` when updating advisory URL (may be "").
+ * Renew advisory: PUT /api/v1/advisory/{id}/renew/
  */
 export async function renewAdvisory(
   id: number | string,
-  expiry: string,
-  payload: RenewAdvisoryPayload
+  fields: BuildRenewAdvisoryBodyInput
 ): Promise<void> {
-  const body: RenewAdvisoryPayload = {};
-  if (payload.regulatory_compliance)
-    body.regulatory_compliance = payload.regulatory_compliance;
-  if (payload.category_type) body.category_type = payload.category_type;
-  if (payload.web_link !== undefined)
-    body.web_link = String(payload.web_link).trim();
-  await apiClient.put(`advisory/${id}/${encodeURIComponent(expiry)}/`, body);
+  const body = buildRenewAdvisoryBody(fields);
+  if (!body.regulatory_compliance) {
+    throw new Error("regulatory_compliance is required");
+  }
+  if (!body.expiry_date) {
+    throw new Error("expiry_date is required");
+  }
+  await apiClient.put(`advisory/${id}/renew/`, body, {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 /**

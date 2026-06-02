@@ -7,6 +7,8 @@ import {
 } from "../api/atlApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDateForApi } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
 interface CPCPEntryModalProps {
   isOpen: boolean;
@@ -60,15 +62,7 @@ function toDateInputValue(s: string | undefined): string {
   if (!s || !String(s).trim()) return "";
   const str = String(s).trim();
   if (str === "-" || str === "—") return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  const d = new Date(str);
-  if (!Number.isNaN(d.getTime())) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-  return str;
+  return formatDateForApi(str) || "";
 }
 
 const defaultFormData = {
@@ -388,12 +382,15 @@ export function CPCPEntryModal({
                 <label className="block text-gray-900 text-sm mb-2">
                   Last Done Date
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   name="last_done_date"
                   value={formData.last_done_date}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onChange={(last_done_date) => {
+                    setFormData((prev) => ({ ...prev, last_done_date }));
+                    if (errors.last_done_date)
+                      setErrors((prev) => ({ ...prev, last_done_date: "" }));
+                  }}
+                  className="w-full"
                 />
               </div>
             </div>

@@ -28,6 +28,10 @@ import {
   type AircraftMaintenanceDetails,
 } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
+import {
+  formatDisplayDate,
+  formatDisplayDateFromDate,
+} from "../utility/utils";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -130,27 +134,9 @@ function parseDate(s: string | undefined): Date | null {
   return null;
 }
 
-/** Format date for display (DD-Mon-YY) */
 function formatDate(d: Date | null): string {
   if (!d) return "";
-  const day = d.getDate();
-  const mon = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ][d.getMonth()];
-  const y = d.getFullYear();
-  const yy = y >= 2000 ? String(y).slice(-2) : String(y).slice(-2);
-  return `${day}-${mon}-${yy}`;
+  return formatDisplayDateFromDate(d);
 }
 
 /** Days between two dates (truncated) */
@@ -1173,7 +1159,9 @@ export const TCCDetailContent = forwardRef<
                       </td>
                       {/* LAST DONE: Date, TACH, AFTT (reference) */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
-                        {item.lastDoneDate}
+                        {formatDisplayDate(item.lastDoneDate, {
+                          fallback: item.lastDoneDate ?? "",
+                        })}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
                         {item.lastDoneTach ?? item.lastDoneYear}
@@ -1185,7 +1173,9 @@ export const TCCDetailContent = forwardRef<
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
                         {row.nextDueDate
                           ? formatDate(row.nextDueDate)
-                          : item.nextDueDate}
+                          : formatDisplayDate(item.nextDueDate, {
+                              fallback: item.nextDueDate ?? "",
+                            })}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs">
                         {formatNum(row.nextDueTach) || item.nextDueYear}

@@ -32,6 +32,8 @@ import {
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
 /**
  * Certificate Monitoring (global): /certificate-monitoring
@@ -868,7 +870,7 @@ export function CertificateMonitoring() {
                               "-"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {cert.expiryDate || "-"}
+                            {formatDisplayDate(cert.expiryDate)}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {formatDaysLeft(daysLeft, status)}
@@ -1015,13 +1017,12 @@ export function CertificateMonitoring() {
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Issue Date
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={formData.issueDate}
-                      onChange={(e) =>
-                        setFormData({ ...formData, issueDate: e.target.value })
+                      onChange={(issueDate) =>
+                        setFormData({ ...formData, issueDate })
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                     />
                   </div>
 
@@ -1030,13 +1031,12 @@ export function CertificateMonitoring() {
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Expiry Date
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={formData.expiryDate}
-                      onChange={(e) =>
-                        setFormData({ ...formData, expiryDate: e.target.value })
+                      onChange={(expiryDate) =>
+                        setFormData({ ...formData, expiryDate })
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                     />
                   </div>
                 </div>
@@ -1295,7 +1295,7 @@ export function CertificateMonitoring() {
                       Issue Date
                     </label>
                     <p className="text-gray-900">
-                      {viewingCertificate.issueDate || "-"}
+                      {formatDisplayDate(viewingCertificate.issueDate)}
                     </p>
                   </div>
                   <div>
@@ -1303,7 +1303,7 @@ export function CertificateMonitoring() {
                       Expiry Date
                     </label>
                     <p className="text-gray-900">
-                      {viewingCertificate.expiryDate || "-"}
+                      {formatDisplayDate(viewingCertificate.expiryDate)}
                     </p>
                   </div>
                 </div>

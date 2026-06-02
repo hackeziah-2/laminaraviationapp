@@ -40,6 +40,7 @@ import {
   type AircraftMaintenanceDetails,
 } from "../api/aircraftApi";
 import * as XLSX from "xlsx";
+import { formatDisplayDate } from "../utility/utils";
 
 const CPCP_EXPORT_HEADERS = [
   "SEQUENCE NO",
@@ -803,7 +804,7 @@ export const CPCPMonitoring = forwardRef<
                                 {item.interval?.months ?? "0"}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {item.lastDone?.date || "-"}
+                                {formatDisplayDate(item.lastDone?.date)}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
                                 {item.lastDone?.tach || "-"}
@@ -812,7 +813,7 @@ export const CPCPMonitoring = forwardRef<
                                 {item.lastDone?.aftf || "-"}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {computed.nextDue.date}
+                                {formatDisplayDate(computed.nextDue.date)}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
                                 {computed.nextDue.tach}
@@ -1028,7 +1029,7 @@ export const CPCPMonitoring = forwardRef<
                         Last Done Date
                       </span>
                       <p className="text-gray-900">
-                        {viewEntry.lastDone?.date || "-"}
+                        {formatDisplayDate(viewEntry.lastDone?.date)}
                       </p>
                     </div>
                   </div>
@@ -1046,7 +1047,7 @@ export const CPCPMonitoring = forwardRef<
                         Next due date
                       </span>
                       <p className="text-gray-900">
-                        {viewEntry.nextDue?.date ?? "-"}
+                        {formatDisplayDate(viewEntry.nextDue?.date)}
                       </p>
                     </div>
                     <div>

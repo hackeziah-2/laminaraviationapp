@@ -20,6 +20,7 @@ import {
 import { SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDisplayDate } from "../utility/utils";
 
 /** Map status text to badge/row color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
 function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
@@ -296,13 +297,7 @@ export function AircraftFleetDailyUpdate() {
           <h3 className="text-sm">AIRCRAFT FLEET DAILY UPDATE</h3>
           <span className="text-sm">
             DATE:{" "}
-            {new Date()
-              .toLocaleDateString("en-GB", {
-                day: "2-digit",
-                month: "short",
-                year: "2-digit",
-              })
-              .replace(/ /g, "-")}
+            {formatDisplayDate(new Date().toISOString())}
           </span>
         </div>
 

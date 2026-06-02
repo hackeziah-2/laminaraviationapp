@@ -60,6 +60,206 @@ export function toCamelDeep(value: unknown): unknown {
 
 export const dateToday = new Date().toISOString().split("T")[0];
 
+/** Empty is allowed; otherwise must be a valid http(s) URL. */
+export function isValidWebLink(value: string | null | undefined): boolean {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!v) return true;
+  try {
+    const url =
+      v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Normalize Web Link for API: valid URL string or null. Adds https:// if missing. */
+export function normalizeWebLink(value: string | null | undefined): string | null {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!v) return null;
+  try {
+    const url =
+      v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
+    new URL(url);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse a date string for display (ISO date, datetime, or parseable value). */
+export function parseDisplayDate(
+  value: string | null | undefined
+): Date | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+
+  const isoDate = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?/);
+  if (isoDate) {
+    const y = Number(isoDate[1]);
+    const m = Number(isoDate[2]);
+    const day = Number(isoDate[3]);
+    const d = new Date(y, m - 1, day);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day);
+      if (
+        d.getFullYear() === year &&
+        d.getMonth() === month - 1 &&
+        d.getDate() === day
+      ) {
+        return d;
+      }
+    }
+  }
+
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Format a Date as dd/mm/yyyy (en-GB). */
+export function formatDisplayDateFromDate(
+  d: Date,
+  options?: { timeZone?: string }
+): string {
+  if (Number.isNaN(d.getTime())) return "-";
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  };
+  if (options?.timeZone) opts.timeZone = options.timeZone;
+  return d.toLocaleDateString("en-GB", opts);
+}
+
+/** Placeholder / prompt for date text inputs (display format). */
+export const DISPLAY_DATE_PLACEHOLDER = "DD/MM/YYYY";
+
+/** Hint for date field labels and tooltips. */
+export const DISPLAY_DATE_FORMAT_HINT =
+  "Display: DD/MM/YYYY · Saved as YYYY-MM-DD";
+
+/**
+ * Format digits while typing into DD/MM/YYYY (max 8 digits: ddmmyyyy).
+ */
+export function formatDateInputDisplay(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/** True when display text is a full DD/MM/YYYY value (10 characters). */
+export function isCompleteDisplayDate(value: string): boolean {
+  return /^\d{2}\/\d{2}\/\d{4}$/.test(value.trim());
+}
+
+/** Normalize typed or pasted text to DD/MM/YYYY display. */
+export function normalizeDateInputText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  // Complete display dates and ISO/API pastes normalize to canonical DD/MM/YYYY.
+  if (
+    isCompleteDisplayDate(trimmed) ||
+    /^\d{4}-\d{2}-\d{2}/.test(trimmed)
+  ) {
+    const api = formatDateForApi(trimmed);
+    if (api) return apiDateToDisplay(api);
+  }
+
+  return formatDateInputDisplay(trimmed);
+}
+
+/**
+ * Normalize any supported date string to YYYY-MM-DD for API payloads and DateInput value.
+ */
+export function formatDateForApi(
+  value: string | null | undefined
+): string {
+  if (value == null) return "";
+  const s = String(value).trim();
+  if (!s || s === "-" || s === "—") return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const probe = new Date(year, month - 1, day);
+      if (
+        probe.getFullYear() === year &&
+        probe.getMonth() === month - 1 &&
+        probe.getDate() === day
+      ) {
+        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+    }
+  }
+
+  const d = parseDisplayDate(s);
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** YYYY-MM-DD → DD/MM/YYYY for DateInput text display. */
+export function apiDateToDisplay(value: string | null | undefined): string {
+  const api = formatDateForApi(value);
+  if (!api) return "";
+  const [y, m, d] = api.split("-");
+  if (!y || !m || !d) return formatDisplayDate(api, { fallback: "" });
+  return `${d}/${m}/${y}`;
+}
+
+/** Format a date value for display as dd/mm/yyyy. */
+export function formatDisplayDate(
+  value: string | null | undefined,
+  options?: { fallback?: string }
+): string {
+  const fallback = options?.fallback ?? "-";
+  const trimmed = value != null ? String(value).trim() : "";
+  if (!trimmed) return fallback;
+  const d = parseDisplayDate(trimmed);
+  if (!d) return trimmed;
+  return formatDisplayDateFromDate(d);
+}
+
+/** Format a date-time value: dd/mm/yyyy, HH:MM (24h, en-GB). */
+export function formatDisplayDateTime(
+  value: string | null | undefined,
+  options?: { fallback?: string }
+): string {
+  const fallback = options?.fallback ?? "-";
+  const trimmed = value != null ? String(value).trim() : "";
+  if (!trimmed) return fallback;
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return trimmed;
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** Parse ATL API `date_time_reported` / ISO strings as UTC (Zulu). */
 function parseAtlDateTimeAsUtc(raw: string): Date | null {
   const s = String(raw).trim();
@@ -84,18 +284,13 @@ function parseAtlDateTimeAsUtc(raw: string): Date | null {
 }
 
 /**
- * ATL Date Reported display, e.g. "Feb 29, 2024 12:00 AM UTC".
+ * ATL Date Reported display, e.g. "29/02/2024 12:00 AM UTC".
  */
 export function formatAtlDateTimeUtc(raw?: string | null): string {
   if (raw == null || String(raw).trim() === "") return "-";
   const d = parseAtlDateTimeAsUtc(String(raw).trim());
   if (!d) return String(raw).trim();
-  const datePart = d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const datePart = formatDisplayDateFromDate(d, { timeZone: "UTC" });
   const timePart = d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",

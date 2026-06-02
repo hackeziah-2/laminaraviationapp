@@ -27,6 +27,13 @@ import {
   deleteWorkOrderAdMonitoring,
   type WorkOrderAdMonitoring,
 } from "../api/workOrderAdMonitoringApi";
+import {
+  getAircraftAdMonitoringById,
+  type ADMonitoring,
+} from "../api/adMonitoringApi";
+import { AdWebLinkButton } from "./AdWebLinkDisplay";
+import { formatDateForApi, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 import * as XLSX from "xlsx";
 import {
   DropdownMenu,
@@ -103,25 +110,6 @@ async function runImportWithProgress(
   });
 }
 
-function toDateInputValue(s: string | null | undefined): string {
-  if (s == null || String(s).trim() === "") return "";
-  const raw = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function formatDateDisplay(s: string | null | undefined): string {
-  if (s == null || String(s).trim() === "") return "—";
-  const d = new Date(String(s).trim());
-  if (Number.isNaN(d.getTime())) return String(s);
-  return d.toLocaleDateString();
-}
-
 const WO_AD_EXPORT_HEADERS = [
   "WO NUMBER",
   "LAST DONE ACTT",
@@ -137,7 +125,9 @@ function workOrderToExportRow(wo: WorkOrderAdMonitoring): string[] {
     String(wo.woNumber ?? "").trim(),
     String(wo.lastDoneActt ?? ""),
     String(wo.lastDoneTach ?? ""),
-    toDateInputValue(wo.lastDoneDate) || String(wo.lastDoneDate ?? "").trim(),
+    formatDisplayDate(wo.lastDoneDate, {
+      fallback: String(wo.lastDoneDate ?? "").trim(),
+    }),
     String(wo.nextDoneActt ?? ""),
     String(wo.nextDueTach ?? ""),
     String(wo.atlRef ?? "").trim(),
@@ -184,7 +174,8 @@ export function ADWorkOrders() {
     useState<WorkOrderAdMonitoring | null>(null);
   const [aircraft_id, setAircraftId] = useState<string>("");
   const [sequence_no, setSequenceNo] = useState<string>("");
-
+  const [adDetail, setAdDetail] = useState<ADMonitoring | null>(null);
+  const [adDetailLoading, setAdDetailLoading] = useState(false);
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
   const [atlSearchDebounced, setAtlSearchDebounced] = useState("");
@@ -232,6 +223,28 @@ export function ADWorkOrders() {
   useEffect(() => {
     fetchWorkOrders();
   }, [fetchWorkOrders]);
+
+  useEffect(() => {
+    if (!hasValidParams) {
+      setAdDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setAdDetailLoading(true);
+    getAircraftAdMonitoringById(aircraft_fk, ad_monitoring_fk)
+      .then((entry) => {
+        if (!cancelled) setAdDetail(entry);
+      })
+      .catch(() => {
+        if (!cancelled) setAdDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAdDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraft_fk, ad_monitoring_fk, hasValidParams]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -415,7 +428,7 @@ export function ADWorkOrders() {
       woNumber: item.woNumber,
       lastDoneActt: String(item.lastDoneActt ?? ""),
       lastDoneTach: String(item.lastDoneTach ?? ""),
-      lastDoneDate: toDateInputValue(item.lastDoneDate),
+      lastDoneDate: formatDateForApi(item.lastDoneDate),
       nextDoneActt: String(item.nextDoneActt ?? ""),
       nextDueTach: String(item.nextDueTach ?? ""),
       atlRef: item.atlRef ?? "",
@@ -712,8 +725,30 @@ export function ADWorkOrders() {
             </DropdownMenu>
           </div>
         </div>
-        <div>
-          <h2 className="text-gray-900">Work Orders — AD Monitoring</h2>
+        <div className="space-y-2">
+          <h2 className="text-gray-900">
+            {adDetailLoading
+              ? "AD Monitoring"
+              : adDetail
+              ? "Work Orders"
+              : "Work Orders — AD Monitoring"}
+          </h2>
+          {adDetail && !adDetailLoading && (
+            <>
+              <p className="text-sm text-gray-500 flex flex-wrap items-center gap-x-1 gap-y-1">
+                <span>
+                  AD Number: {adDetail.adNumber || "—"} · Subject:{" "}
+                  {adDetail.subject || "—"} · Web Link:
+                </span>
+                <AdWebLinkButton webLink={adDetail.webLink} />
+              </p>
+              <p className="text-sm text-gray-500">
+                Inspection interval: {adDetail.inspectionInterval || "—"} · Date
+                of effectivity:{" "}
+                {formatDisplayDate(adDetail.compliDate, { fallback: "—" })}
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -815,7 +850,7 @@ export function ADWorkOrders() {
                           {wo.lastDoneTach}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">
-                          {formatDateDisplay(wo.lastDoneDate)}
+                          {formatDisplayDate(wo.lastDoneDate, { fallback: "—" })}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900">
                           {wo.nextDoneActt}
@@ -977,16 +1012,16 @@ export function ADWorkOrders() {
                     <label className="block text-gray-700 text-xs mb-1.5">
                       Date
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={formData.lastDoneDate}
-                      onChange={(e) =>
+                      onChange={(lastDoneDate) =>
                         setFormData({
                           ...formData,
-                          lastDoneDate: e.target.value,
+                          lastDoneDate,
                         })
                       }
-                      className="w-full min-w-[120px] px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="min-w-[120px]"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                     />
                   </div>
                 </div>
