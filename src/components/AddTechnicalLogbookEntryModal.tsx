@@ -59,6 +59,49 @@ import {
 /**
  * Flat + nested engine/propeller/airframe shapes from the ATL API (matches Operation list display).
  */
+const DEFAULT_ATL_PREV_TIME = "0.00";
+
+function parseAtlBatchFkForLatest(
+  raw: string | null | undefined
+): number | undefined {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function formatAtlPrevTimeFromLatest(
+  value: number | null | undefined
+): string {
+  if (value == null || !Number.isFinite(Number(value))) {
+    return DEFAULT_ATL_PREV_TIME;
+  }
+  return Number(value).toFixed(2);
+}
+
+function getPrevTimesFromLatestAtl(latestEntry: AircraftTechnicalLog | null): {
+  airframePrevTime: string;
+  enginePrevTime: string;
+  propellerPrevTime: string;
+} {
+  if (!latestEntry) {
+    return {
+      airframePrevTime: DEFAULT_ATL_PREV_TIME,
+      enginePrevTime: DEFAULT_ATL_PREV_TIME,
+      propellerPrevTime: DEFAULT_ATL_PREV_TIME,
+    };
+  }
+  return {
+    airframePrevTime: formatAtlPrevTimeFromLatest(
+      latestEntry.airframeTotalTime
+    ),
+    enginePrevTime: formatAtlPrevTimeFromLatest(latestEntry.engineTotalTime),
+    propellerPrevTime: formatAtlPrevTimeFromLatest(
+      latestEntry.propellerTotalTime
+    ),
+  };
+}
+
 function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
   const numStr = (v: unknown) =>
     v === null || v === undefined || v === "" ? "" : String(v);
@@ -360,20 +403,20 @@ export function AddTechnicalLogbookEntryModal({
     dateTimeReportedTime: "",
     // Airframe & Component Times
 
-    airframePrevTime: "",
+    airframePrevTime: DEFAULT_ATL_PREV_TIME,
     airframeFlightTime: "",
     airframeTotalTime: "",
     airframeRunTime: "",
     airframeAftt: "",
 
-    enginePrevTime: "",
+    enginePrevTime: DEFAULT_ATL_PREV_TIME,
     engineFlightTime: "",
     engineTotalTime: "",
     engineRunTime: "",
     engineTsn: "",
     engineTso: "",
     engineTbo: "",
-    propellerPrevTime: "",
+    propellerPrevTime: DEFAULT_ATL_PREV_TIME,
     propellerFlightTime: "",
     propellerTotalTime: "",
     propellerRunTime: "",
@@ -567,37 +610,6 @@ export function AddTechnicalLogbookEntryModal({
               acReg: aircraftData.registration || "",
             }));
             setSelectedAircraftId(aircraftId);
-
-            // Fetch latest technical log for auto-population
-            const latestEntry = await getLatestAircraftTechnicalLog(aircraftId);
-            if (latestEntry) {
-              setLatestSequenceNo(latestEntry.sequenceNo ?? null);
-              setFormData((prev) => ({
-                ...prev,
-                hobbsMeterStart:
-                  latestEntry.hobbsMeterEnd != null &&
-                  latestEntry.hobbsMeterEnd !== 0
-                    ? latestEntry.hobbsMeterEnd.toString()
-                    : prev.hobbsMeterStart,
-                tachometerStart:
-                  latestEntry.tachometerEnd != null &&
-                  latestEntry.tachometerEnd !== 0
-                    ? latestEntry.tachometerEnd.toString()
-                    : prev.tachometerStart,
-
-                airframePrevTime:
-                  latestEntry.airframeTotalTime?.toString() ||
-                  prev.airframePrevTime,
-                enginePrevTime:
-                  latestEntry.engineTotalTime?.toString() ||
-                  prev.enginePrevTime,
-                propellerPrevTime:
-                  latestEntry.propellerTotalTime?.toString() ||
-                  prev.enginePrevTime,
-              }));
-            } else {
-              setLatestSequenceNo(null);
-            }
           } catch (error) {
             console.error("Error fetching aircraft by ID:", error);
             // Fallback: try to find in aircrafts list
@@ -629,43 +641,6 @@ export function AddTechnicalLogbookEntryModal({
                   acReg: aircraft.registration,
                 }));
                 setSelectedAircraftId(aircraftId);
-
-                // Fetch latest technical log
-                try {
-                  const latestEntry = await getLatestAircraftTechnicalLog(
-                    aircraftId
-                  );
-                  if (latestEntry) {
-                    setLatestSequenceNo(latestEntry.sequenceNo ?? null);
-                    setFormData((prev) => ({
-                      ...prev,
-                      hobbsMeterStart:
-                        latestEntry.hobbsMeterEnd != null &&
-                        latestEntry.hobbsMeterEnd !== 0
-                          ? latestEntry.hobbsMeterEnd.toString()
-                          : prev.hobbsMeterStart,
-                      tachometerStart:
-                        latestEntry.tachometerEnd != null &&
-                        latestEntry.tachometerEnd !== 0
-                          ? latestEntry.tachometerEnd.toString()
-                          : prev.tachometerStart,
-
-                      airframePrevTime:
-                        latestEntry.airframeTotalTime?.toString() ||
-                        prev.airframePrevTime,
-                      enginePrevTime:
-                        latestEntry.engineTotalTime?.toString() ||
-                        prev.enginePrevTime,
-                      propellerPrevTime:
-                        latestEntry.propellerTotalTime?.toString() ||
-                        prev.enginePrevTime,
-                    }));
-                  } else {
-                    setLatestSequenceNo(null);
-                  }
-                } catch (error) {
-                  console.error("Error fetching latest technical log:", error);
-                }
               }
             }
           }
@@ -975,19 +950,19 @@ export function AddTechnicalLogbookEntryModal({
         dfpWebLink: "",
         dateTimeReportedDate: "",
         dateTimeReportedTime: "",
-        airframePrevTime: "",
+        airframePrevTime: DEFAULT_ATL_PREV_TIME,
         airframeFlightTime: "",
         airframeTotalTime: "",
         airframeRunTime: "",
         airframeAftt: "",
-        enginePrevTime: "",
+        enginePrevTime: DEFAULT_ATL_PREV_TIME,
         engineFlightTime: "",
         engineTotalTime: "",
         engineRunTime: "",
         engineTsn: "",
         engineTso: "",
         engineTbo: "",
-        propellerPrevTime: "",
+        propellerPrevTime: DEFAULT_ATL_PREV_TIME,
         propellerFlightTime: "",
         propellerTotalTime: "",
         propellerRunTime: "",
@@ -1002,45 +977,48 @@ export function AddTechnicalLogbookEntryModal({
   }, [editEntry, isOpen, listViewComputedTimes, defaultAtlBatchFk]);
 
   // Fetch latest technical log entry to populate start values (only for new entries)
-  const fetchLatestTechnicalLog = async () => {
+  const fetchLatestTechnicalLog = async (
+    aircraftFk: number,
+    batchFk?: number
+  ) => {
+    if (editEntry) return;
+
     try {
-      // Don't fetch if editing an existing entry
-      if (editEntry) {
-        return;
-      }
+      const latestEntry = await getLatestAircraftTechnicalLog(
+        aircraftFk,
+        batchFk
+      );
+      const prevTimes = getPrevTimesFromLatestAtl(latestEntry);
 
-      // Don't fetch if no aircraft is selected
-      if (!selectedAircraftId) {
-        return;
-      }
-
-      // Check if this is a new entry (both start values are empty)
-      const isNewEntry =
-        (formData.hobbsMeterStart === "" || formData.hobbsMeterStart === "0") &&
-        (formData.tachometerStart === "" || formData.tachometerStart === "0");
-
-      if (isNewEntry) {
-        const latestEntry = await getLatestAircraftTechnicalLog(
-          selectedAircraftId
+      if (latestEntry) {
+        setLatestSequenceNo(latestEntry.sequenceNo ?? null);
+        setPreviousEngineTsn(
+          parseFloat(
+            String(
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? latestEntry.engineTsn
+                : 0
+            )
+          ) || 0
         );
-        if (latestEntry) {
-          setLatestSequenceNo(latestEntry.sequenceNo ?? null);
-          setPreviousEngineTsn(
-            parseFloat(
-              String(
-                latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
-                  ? latestEntry.engineTsn
-                  : 0
-              )
-            ) || 0
-          );
-          setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
-          setPreviousPropellerTsn(
-            parseFloat(String(latestEntry.propellerTsn)) || 0
-          );
-          setPreviousPropellerTso(Number(latestEntry.propellerTso) || 0);
-          setFormData((prev) => ({
+        setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
+        setPreviousPropellerTsn(
+          parseFloat(String(latestEntry.propellerTsn)) || 0
+        );
+        setPreviousPropellerTso(Number(latestEntry.propellerTso) || 0);
+      } else {
+        setLatestSequenceNo(null);
+      }
+
+      setFormData((prev) => {
+        const isNewEntry =
+          (prev.hobbsMeterStart === "" || prev.hobbsMeterStart === "0") &&
+          (prev.tachometerStart === "" || prev.tachometerStart === "0");
+
+        if (latestEntry && isNewEntry) {
+          return {
             ...prev,
+            ...prevTimes,
             hobbsMeterStart:
               latestEntry.hobbsMeterEnd != null &&
               latestEntry.hobbsMeterEnd !== 0
@@ -1051,16 +1029,6 @@ export function AddTechnicalLogbookEntryModal({
               latestEntry.tachometerEnd !== 0
                 ? latestEntry.tachometerEnd.toString()
                 : prev.tachometerStart,
-
-            airframePrevTime:
-              latestEntry.airframeTotalTime?.toString() ||
-              latestEntry.airframeAftt?.toString() ||
-              prev.airframePrevTime,
-            enginePrevTime:
-              latestEntry.engineTotalTime?.toString() || prev.enginePrevTime,
-            propellerPrevTime:
-              latestEntry.propellerTotalTime?.toString() ||
-              prev.propellerPrevTime,
             engineTsn:
               latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
                 ? String(latestEntry.engineTsn)
@@ -1081,31 +1049,30 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller:
               latestEntry.lifeTimeLimitPropeller?.toString() ??
               prev.lifeTimeLimitPropeller,
-
-            // airframeFlightTime: "",
-            // engineFlightTime: "",
-            // propellerFlightTime: "",
-
-            // airframeTotalTime: "",
-            // engineTotalTime: "",
-            // propellerTotalTime: "",
-
-            // airFramePrevTime:
-            //   latestEntry.airFramePrevTime?.toString() || prev.airFramePrevTime,
-            // enginePrevTime:
-            //   latestEntry.enginePrevTime?.toString() || prev.enginePrevTime,
-            // propellerPrevTime:
-            //   latestEntry.propellerPrevTime?.toString() || prev.propellerPrevTime,
-          }));
-        } else {
-          setLatestSequenceNo(null);
+          };
         }
-      }
+
+        if (!latestEntry && isNewEntry) {
+          return {
+            ...prev,
+            ...prevTimes,
+            hobbsMeterStart: "0",
+            tachometerStart: "0",
+          };
+        }
+
+        return { ...prev, ...prevTimes };
+      });
     } catch (error) {
       console.error("Error fetching latest technical log:", error);
-      // Silently fail - don't show error to user, just use empty values
     }
   };
+
+  useEffect(() => {
+    if (!isOpen || editEntry || !selectedAircraftId) return;
+    const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
+    void fetchLatestTechnicalLog(selectedAircraftId, batchId);
+  }, [isOpen, editEntry, selectedAircraftId, formData.atlBatchFk]);
 
   // Debounce remarks search
   useEffect(() => {
@@ -1281,84 +1248,6 @@ export function AddTechnicalLogbookEntryModal({
     // Clear validation error when aircraft is selected
     if (validationErrors.acReg) {
       setValidationErrors({ ...validationErrors, acReg: "" });
-    }
-
-    // Fetch latest technical log for the selected aircraft and update start values (only for new entries)
-    if (!editEntry) {
-      try {
-        const latestEntry = await getLatestAircraftTechnicalLog(id);
-        if (latestEntry) {
-          setLatestSequenceNo(latestEntry.sequenceNo ?? null);
-          setPreviousEngineTsn(
-            parseFloat(
-              String(
-                latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
-                  ? latestEntry.engineTsn
-                  : 0
-              )
-            ) || 0
-          );
-          setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
-          setPreviousPropellerTsn(
-            parseFloat(String(latestEntry.propellerTsn)) || 0
-          );
-          setPreviousPropellerTso(Number(latestEntry.propellerTso) || 0);
-          setFormData((prev) => ({
-            ...prev,
-            hobbsMeterStart:
-              latestEntry.hobbsMeterEnd != null &&
-              latestEntry.hobbsMeterEnd !== 0
-                ? latestEntry.hobbsMeterEnd.toString()
-                : prev.hobbsMeterStart,
-            tachometerStart:
-              latestEntry.tachometerEnd != null &&
-              latestEntry.tachometerEnd !== 0
-                ? latestEntry.tachometerEnd.toString()
-                : prev.tachometerStart,
-
-            airframePrevTime:
-              latestEntry.airframeTotalTime?.toString() ||
-              latestEntry.airframeAftt?.toString() ||
-              prev.airframePrevTime,
-            enginePrevTime:
-              latestEntry.engineTotalTime?.toString() || prev.enginePrevTime,
-            propellerPrevTime:
-              latestEntry.propellerTotalTime?.toString() ||
-              prev.propellerPrevTime,
-            engineTsn:
-              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
-                ? String(latestEntry.engineTsn)
-                : prev.engineTsn != null
-                ? String(prev.engineTsn)
-                : "",
-            engineTso: latestEntry.engineTso?.toString() ?? prev.engineTso,
-            engineTbo: latestEntry.engineTbo?.toString() ?? prev.engineTbo,
-            propellerTsn:
-              latestEntry.propellerTsn?.toString() ?? prev.propellerTsn,
-            propellerTso:
-              latestEntry.propellerTso?.toString() ?? prev.propellerTso,
-            propellerTbo:
-              latestEntry.propellerTbo?.toString() ?? prev.propellerTbo,
-            lifeTimeLimitEngine:
-              latestEntry.lifeTimeLimitEngine?.toString() ??
-              prev.lifeTimeLimitEngine,
-            lifeTimeLimitPropeller:
-              latestEntry.lifeTimeLimitPropeller?.toString() ??
-              prev.lifeTimeLimitPropeller,
-          }));
-        } else {
-          setLatestSequenceNo(null);
-          // If no latest entry exists, clear the start values
-          setFormData((prev) => ({
-            ...prev,
-            hobbsMeterStart: "0",
-            tachometerStart: "0",
-          }));
-        }
-      } catch (error) {
-        console.error("Error fetching latest technical log:", error);
-        // Silently fail - don't show error to user
-      }
     }
   };
 
@@ -2458,19 +2347,19 @@ export function AddTechnicalLogbookEntryModal({
         dfpWebLink: "",
         dateTimeReportedDate: "",
         dateTimeReportedTime: "",
-        airframePrevTime: "",
+        airframePrevTime: DEFAULT_ATL_PREV_TIME,
         airframeFlightTime: "",
         airframeTotalTime: "",
         airframeRunTime: "",
         airframeAftt: "",
-        enginePrevTime: "",
+        enginePrevTime: DEFAULT_ATL_PREV_TIME,
         engineFlightTime: "",
         engineTotalTime: "",
         engineRunTime: "",
         engineTsn: "",
         engineTso: "",
         engineTbo: "",
-        propellerPrevTime: "",
+        propellerPrevTime: DEFAULT_ATL_PREV_TIME,
         propellerFlightTime: "",
         propellerTotalTime: "",
         propellerRunTime: "",
@@ -3882,7 +3771,7 @@ export function AddTechnicalLogbookEntryModal({
                                 "airframe"
                               )
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
@@ -3896,7 +3785,7 @@ export function AddTechnicalLogbookEntryModal({
                                 "engine"
                               )
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
@@ -3910,7 +3799,7 @@ export function AddTechnicalLogbookEntryModal({
                                 "propeller"
                               )
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm"
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                           />
                         </td>
                       </tr>

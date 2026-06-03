@@ -855,14 +855,21 @@ export const deleteAircraftTechnicalLog = async (
 };
 
 /**
- * Get the latest Aircraft Technical Log entry for a specific aircraft
+ * Get the latest Aircraft Technical Log entry for a specific aircraft (optionally scoped to a batch).
  */
 export const getLatestAircraftTechnicalLog = async (
-  aircraftFk: number
+  aircraftFk: number,
+  batchId?: number | null
 ): Promise<AircraftTechnicalLog | null> => {
   try {
+    const params = new URLSearchParams({
+      aircraft_fk: String(aircraftFk),
+    });
+    if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
+      params.set("batch_id", String(batchId));
+    }
     const response = await apiClient.get(
-      `aircraft-technical-log/latest?aircraft_fk=${aircraftFk}`
+      `aircraft-technical-log/latest?${params.toString()}`
     );
     const raw = response.data?.data ?? response.data;
     if (raw == null || typeof raw !== "object") return null;
