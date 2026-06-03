@@ -1,15 +1,43 @@
-import { X, FileText } from "lucide-react";
+import { X, FileText, Download, Eye, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
+import Swal from "sweetalert2";
 import {
   AircraftTechnicalLog,
   getAircraftTechnicalLogById,
 } from "../api/aircraftTechnicalLogApi";
+import { normalizeStoredFilePath } from "../api/fileUploadApi";
 import { Spinner } from "./ui/spinner";
 import {
   formatTimeZuluMilitary,
   computeTotalBlockTimeFromUtc,
   formatDisplayDate,
+  formatOptionalNumber2dp,
 } from "../utility/utils";
+
+function isExternalUrl(value: string | undefined | null): boolean {
+  return /^https?:\/\//i.test((value ?? "").trim());
+}
+
+function atlStoredFilePath(value: string | undefined | null): string {
+  const v = (value ?? "").trim();
+  if (!v || isExternalUrl(v)) return "";
+  return v;
+}
+
+function getMimeFromFilename(path: string): string | null {
+  const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  return null;
+}
+
+function isImageFilePath(path: string): boolean {
+  const mime = getMimeFromFilename(path);
+  return !!(mime && mime.startsWith("image/"));
+}
 
 interface LogbookEntry {
   id: number;
@@ -41,6 +69,11 @@ export function ViewTechnicalLogbookEntryModal({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showFileViewModal, setShowFileViewModal] = useState(false);
+  const [fileViewBlobUrl, setFileViewBlobUrl] = useState<string | null>(null);
+  const [fileViewMimeType, setFileViewMimeType] = useState<string | null>(null);
+  const [fileViewLoading, setFileViewLoading] = useState(false);
+  const [fileViewError, setFileViewError] = useState<string | null>(null);
 
   // Fetch entry details by ID when modal opens
   useEffect(() => {
@@ -69,6 +102,131 @@ export function ViewTechnicalLogbookEntryModal({
   }, [isOpen, entry?.id]);
 
   if (!isOpen || !entry) return null;
+
+  const closeFileViewModal = () => {
+    if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
+    setShowFileViewModal(false);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setFileViewError(null);
+  };
+
+  const handleDownloadAtlFile = async (
+    folder: "white_atl" | "dfp",
+    filePath: string,
+    displayName?: string
+  ) => {
+    const normalized = normalizeStoredFilePath(filePath);
+    if (!normalized) return;
+    try {
+      const { downloadModuleFile } = await import("../api/fileUploadApi");
+      const blob = await downloadModuleFile(folder, normalized);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download =
+        displayName || normalized.split("/").pop() || "download";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { detail?: string } }; message?: string })
+          ?.response?.data?.detail ||
+        (err as Error)?.message ||
+        "Failed to download file.";
+      await Swal.fire({
+        icon: "error",
+        title: "Download failed",
+        text: message,
+      });
+    }
+  };
+
+  const handleViewAtlFile = async (
+    folder: "white_atl" | "dfp",
+    filePath: string
+  ) => {
+    const normalized = normalizeStoredFilePath(filePath);
+    if (!normalized) return;
+    setFileViewLoading(true);
+    setFileViewError(null);
+    setFileViewBlobUrl(null);
+    setFileViewMimeType(null);
+    setShowFileViewModal(true);
+    try {
+      const { downloadModuleFile } = await import("../api/fileUploadApi");
+      const blob = await downloadModuleFile(folder, normalized);
+      const url = window.URL.createObjectURL(blob);
+      const serverType = blob.type || null;
+      const isOctetStream =
+        !serverType || serverType === "application/octet-stream";
+      const mimeType = isOctetStream
+        ? getMimeFromFilename(normalized)
+        : serverType;
+      setFileViewBlobUrl(url);
+      setFileViewMimeType(mimeType ?? null);
+      setFileViewError(null);
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { detail?: string } }; message?: string })
+          ?.response?.data?.detail ||
+        (err as Error)?.message ||
+        "Failed to open file.";
+      setFileViewError(message);
+      setFileViewBlobUrl(null);
+      setFileViewMimeType(null);
+    } finally {
+      setFileViewLoading(false);
+    }
+  };
+
+  const renderAtlFileActions = (
+    folder: "white_atl" | "dfp",
+    filePath: string
+  ) => (
+    <div className="flex flex-col gap-1 mt-1">
+      {isImageFilePath(filePath) && (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+          onClick={() => handleViewAtlFile(folder, filePath)}
+        >
+          <Eye className="w-4 h-4 flex-shrink-0" />
+          View
+        </button>
+      )}
+      <button
+        type="button"
+        className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+        onClick={() =>
+          handleDownloadAtlFile(
+            folder,
+            filePath,
+            filePath.split("/").pop() || folder
+          )
+        }
+      >
+        <Download className="w-4 h-4 flex-shrink-0" />
+        Download
+      </button>
+    </div>
+  );
+
+  const renderWebLink = (url: string) => {
+    const href = url.startsWith("http") ? url : `https://${url}`;
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:text-blue-800 underline text-sm"
+      >
+        Link
+      </a>
+    );
+  };
 
   // Helper function to display N/A for empty values
   const displayValue = (value: string | undefined | null | number): string => {
@@ -176,17 +334,19 @@ export function ViewTechnicalLogbookEntryModal({
         // Tachometer & Hobbs (tachometerTotal = end - start; hobbsMeterTotal = end - start)
         tachometerStart: displayValue(entryData.tachometerStart),
         tachometerEnd: displayValue(entryData.tachometerEnd),
-        tachometerTotal: displayValue(
+        tachometerTotal: formatOptionalNumber2dp(
           entryData.tachometerStart != null && entryData.tachometerEnd != null
             ? entryData.tachometerEnd - entryData.tachometerStart
-            : entryData.tachometerTotal
+            : entryData.tachometerTotal,
+          "N/A"
         ),
         hobbsMeterStart: displayValue(entryData.hobbsMeterStart),
         hobbsMeterEnd: displayValue(entryData.hobbsMeterEnd),
-        hobbsMeterTotal: displayValue(
+        hobbsMeterTotal: formatOptionalNumber2dp(
           entryData.hobbsMeterStart != null && entryData.hobbsMeterEnd != null
             ? entryData.hobbsMeterEnd - entryData.hobbsMeterStart
-            : entryData.hobbsMeterTotal
+            : entryData.hobbsMeterTotal,
+          "N/A"
         ),
         // Inspection & Service
         nextInspectionDue: displayValue(entryData.nextInspectionDue),
@@ -255,8 +415,12 @@ export function ViewTechnicalLogbookEntryModal({
         lifeTimeLimitPropeller: formatComponentTime(
           entryData.lifeTimeLimitPropeller
         ),
-        whiteAtl: entryData.whiteAtl || entryData.whiteAtlWebLink || "N/A",
-        dfp: entryData.dfp || entryData.dfpWebLink || "N/A",
+        whiteAtlFile: atlStoredFilePath(entryData.whiteAtl),
+        whiteAtlWebLink: (entryData.whiteAtlWebLink?.trim() ||
+          (isExternalUrl(entryData.whiteAtl) ? entryData.whiteAtl?.trim() : "")) as string,
+        dfpFile: atlStoredFilePath(entryData.dfp),
+        dfpWebLink: (entryData.dfpWebLink?.trim() ||
+          (isExternalUrl(entryData.dfp) ? entryData.dfp?.trim() : "")) as string,
       }
     : {
         // Fallback to mock data if fullEntry is not provided
@@ -310,8 +474,10 @@ export function ViewTechnicalLogbookEntryModal({
         propellerPrevTime: "-",
         propellerFlightTime: "-",
         propellerTotalTime: "760.9",
-        whiteAtl: "N/A",
-        dfp: "N/A",
+        whiteAtlFile: "",
+        whiteAtlWebLink: "",
+        dfpFile: "",
+        dfpWebLink: "",
       };
 
   return (
@@ -662,10 +828,10 @@ export function ViewTechnicalLogbookEntryModal({
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs mb-1">
-                        Total
+                        Tachometer Total
                       </label>
                       <p className="text-gray-900">
-                        {displayValue(detailData.tachometerTotal)}
+                        {detailData.tachometerTotal}
                       </p>
                     </div>
                   </div>
@@ -695,10 +861,10 @@ export function ViewTechnicalLogbookEntryModal({
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs mb-1">
-                        Total
+                        Hobbs Meter Total
                       </label>
                       <p className="text-gray-900">
-                        {displayValue(detailData.hobbsMeterTotal)}
+                        {detailData.hobbsMeterTotal}
                       </p>
                     </div>
                   </div>
@@ -1136,28 +1302,8 @@ export function ViewTechnicalLogbookEntryModal({
                   <label className="block text-gray-600 text-sm mb-1">
                     White ATL
                   </label>
-                  {detailData.whiteAtl && detailData.whiteAtl !== "N/A" ? (
-                    <div>
-                      <p className="text-gray-900 mb-1">
-                        {detailData.whiteAtl.includes("http") ||
-                        detailData.whiteAtl.includes("/") ? (
-                          <a
-                            href={
-                              detailData.whiteAtl.startsWith("http")
-                                ? detailData.whiteAtl
-                                : `/uploads/${detailData.whiteAtl}`
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
-                          >
-                            {detailData.whiteAtl.replace("uploads/", "")}
-                          </a>
-                        ) : (
-                          detailData.whiteAtl
-                        )}
-                      </p>
-                    </div>
+                  {detailData.whiteAtlFile ? (
+                    renderAtlFileActions("white_atl", detailData.whiteAtlFile)
                   ) : (
                     <p className="text-gray-400">N/A</p>
                   )}
@@ -1166,28 +1312,28 @@ export function ViewTechnicalLogbookEntryModal({
                   <label className="block text-gray-600 text-sm mb-1">
                     DFP
                   </label>
-                  {detailData.dfp && detailData.dfp !== "N/A" ? (
-                    <div>
-                      <p className="text-gray-900 mb-1">
-                        {detailData.dfp.includes("http") ||
-                        detailData.dfp.includes("/") ? (
-                          <a
-                            href={
-                              detailData.dfp.startsWith("http")
-                                ? detailData.dfp
-                                : `/uploads/${detailData.dfp}`
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 underline"
-                          >
-                            {detailData.dfp.replace("uploads/", "")}
-                          </a>
-                        ) : (
-                          detailData.dfp
-                        )}
-                      </p>
-                    </div>
+                  {detailData.dfpFile ? (
+                    renderAtlFileActions("dfp", detailData.dfpFile)
+                  ) : (
+                    <p className="text-gray-400">N/A</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    White ATL Weblink
+                  </label>
+                  {detailData.whiteAtlWebLink ? (
+                    renderWebLink(detailData.whiteAtlWebLink)
+                  ) : (
+                    <p className="text-gray-400">N/A</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-gray-600 text-sm mb-1">
+                    DFP Weblink
+                  </label>
+                  {detailData.dfpWebLink ? (
+                    renderWebLink(detailData.dfpWebLink)
                   ) : (
                     <p className="text-gray-400">N/A</p>
                   )}
@@ -1207,6 +1353,77 @@ export function ViewTechnicalLogbookEntryModal({
           </button>
         </div>
       </div>
+
+      {/* File preview (images) */}
+      {showFileViewModal && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          style={{
+            backgroundColor: "rgba(0,0,0,0.5)",
+            backdropFilter: "blur(4px)",
+          }}
+          onClick={closeFileViewModal}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <span className="text-sm font-medium text-gray-900">
+                View file
+              </span>
+              <button
+                type="button"
+                onClick={closeFileViewModal}
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
+              {fileViewLoading && (
+                <div className="flex flex-col items-center gap-2 text-gray-500">
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                  <span className="text-sm">Loading file…</span>
+                </div>
+              )}
+              {fileViewError && !fileViewLoading && (
+                <div className="text-center text-red-600 text-sm">
+                  {fileViewError}
+                </div>
+              )}
+              {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
+                <>
+                  {fileViewMimeType?.startsWith("image/") && (
+                    <img
+                      src={fileViewBlobUrl}
+                      alt="File preview"
+                      className="max-w-full max-h-[70vh] object-contain"
+                    />
+                  )}
+                  {!fileViewMimeType?.startsWith("image/") && (
+                    <div className="text-center text-gray-600 text-sm">
+                      <p className="mb-2">
+                        Preview not available for this file type.
+                      </p>
+                      <a
+                        href={fileViewBlobUrl}
+                        download
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        Open in new tab / Download
+                      </a>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

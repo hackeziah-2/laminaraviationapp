@@ -306,6 +306,71 @@ function parseAtlDateTimeAsUtc(raw: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const ATL_DATE_REPORTED_LOCALE = "en-PH";
+const ATL_DATE_REPORTED_TIME_ZONE = "Asia/Manila";
+
+/**
+ * ATL Date Reported display (Philippines / Asia-Manila), e.g. "6/3/2024, 10:30:00 pm".
+ */
+export function formatAtlDateReportedManila(raw?: string | null): string {
+  if (raw == null || String(raw).trim() === "") return "-";
+  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  if (!d) return String(raw).trim();
+  return d.toLocaleString(ATL_DATE_REPORTED_LOCALE, {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+  });
+}
+
+/** Current Date Reported string (en-PH, Asia/Manila) — e.g. for live display. */
+export function formatAtlDateReportedManilaNow(now = new Date()): string {
+  return now.toLocaleString(ATL_DATE_REPORTED_LOCALE, {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+  });
+}
+
+/** Date/time parts in Asia/Manila for ATL Date Reported auto-set on upload. */
+export function getManilaDateTimeParts(now = new Date()): {
+  date: string;
+  time: string;
+} {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  const y = get("year");
+  const mo = get("month");
+  const day = get("day");
+  const hh = get("hour");
+  const mm = get("minute");
+  return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}` };
+}
+
+/**
+ * ATL Date Reported display from form fields or API value (Asia/Manila).
+ */
+export function formatAtlDateReportedManilaFromParts(
+  formDate?: string,
+  formTime?: string,
+  apiValue?: string | null
+): string {
+  if (apiValue != null && String(apiValue).trim() !== "") {
+    return formatAtlDateReportedManila(apiValue);
+  }
+  if (!formDate?.trim()) return "";
+  const time = formTime?.trim() || "00:00";
+  const parts = time.split(":");
+  const hh = (parts[0] || "00").padStart(2, "0");
+  const mm = (parts[1] || "00").padStart(2, "0");
+  return formatAtlDateReportedManila(`${formDate.trim()}T${hh}:${mm}:00`);
+}
+
 /**
  * ATL Date Reported display, e.g. "29/02/2024 12:00 AM UTC".
  */
@@ -338,6 +403,18 @@ export function formatAtlDateTimeUtcFromParts(
   const hh = (parts[0] || "00").padStart(2, "0");
   const mm = (parts[1] || "00").padStart(2, "0");
   return formatAtlDateTimeUtc(`${formDate.trim()}T${hh}:${mm}:00`);
+}
+
+/**
+ * Format numeric values (e.g. tach/hobbs totals) to two decimal places for display.
+ */
+export function formatOptionalNumber2dp(
+  value: unknown,
+  fallback = "-"
+): string {
+  if (value == null || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : fallback;
 }
 
 /**

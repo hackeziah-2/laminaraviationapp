@@ -61,6 +61,7 @@ import {
   formatApiErrorForSwal,
   formatTimeZulu,
   formatAtlDateTimeUtc,
+  formatAtlDateReportedManila,
   formatDisplayDate,
   computeTotalBlockTimeFromUtc,
   computeTotalFlightHoursDecimalFromUtc,
@@ -77,6 +78,8 @@ import {
   canCreateAtlBatch,
   canEditAtlBatch,
   canManageAtlBatchFilter,
+  canEditAtlFields,
+  canOpenAtlEditModal,
   getAtlEditDeniedMessage,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
@@ -565,17 +568,22 @@ export function Operation() {
   const operationAtlPermissionModuleCode =
     canUpdate("operation") || canCreate("operation") ? "operation" : "logbook";
 
-  const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
-    isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
+  const canOpenAtlEditForRecord = (_record: AircraftTechnicalLog) =>
+    canOpenAtlEditModal(operationAtlRole);
 
-  const atlEditButtonTitle = (record: AircraftTechnicalLog) =>
-    allowAtlEditForRecord(record)
-      ? "Edit"
-      : getAtlEditDeniedMessage(operationAtlRole, record.workStatus);
+  const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
+    canEditAtlFields(operationAtlRole, record.workStatus);
+
+  const atlEditButtonTitle = (record: AircraftTechnicalLog) => {
+    if (!canOpenAtlEditForRecord(record))
+      return "Edit not available for your role";
+    if (!allowAtlEditForRecord(record)) return "View entry (read-only)";
+    return "Edit";
+  };
 
   const operationTechPubCanEditAtl = (record: AircraftTechnicalLog) =>
     isTechnicalPublicationRole(operationAtlRole) &&
-    allowAtlEditForRecord(record);
+    canOpenAtlEditForRecord(record);
 
   const handleBack = () => {
     navigate("/profile");
@@ -1005,7 +1013,10 @@ export function Operation() {
     const n = v != null && v !== "" ? Number(v) : null;
     return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
   };
-  /** `date_time_reported` / `date_time_released` — e.g. 29/02/2024 12:00 AM UTC */
+  /** `date_time_reported` — Philippines (Asia/Manila) locale display */
+  const formatAtlDateReportedListCell = (raw?: string | null) =>
+    formatAtlDateReportedManila(raw);
+  /** `date_time_released` — UTC */
   const formatAtlDateTimeListCell = (raw?: string | null) =>
     formatAtlDateTimeUtc(raw);
 
@@ -1386,7 +1397,7 @@ export function Operation() {
         key: "dateTimeReported",
         label: "Reported Date",
         getValue: (record) =>
-          formatAtlDateTimeListCell(record.dateTimeReported ?? null),
+          formatAtlDateReportedListCell(record.dateTimeReported ?? null),
       },
       {
         key: "dateTimeReleased",
@@ -2812,21 +2823,19 @@ export function Operation() {
                                         View
                                       </button>
                                       {(canUpdateOperationAtl ||
-                                        operationTechPubCanEditAtl(record)) && (
+                                        operationTechPubCanEditAtl(record)) &&
+                                        canOpenAtlEditForRecord(record) && (
                                         <>
                                           <span className="text-gray-400">
                                             |
                                           </span>
                                           <button
                                             type="button"
-                                            disabled={
-                                              !allowAtlEditForRecord(record)
-                                            }
                                             onClick={() => {
                                               setSelectedEntry(record);
                                               setShowEditModal(true);
                                             }}
-                                            className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
                                             title={atlEditButtonTitle(record)}
                                           >
                                             Edit
@@ -3199,7 +3208,7 @@ export function Operation() {
                                   </table>
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlDateTimeListCell(
+                                  {formatAtlDateReportedListCell(
                                     record.dateTimeReported ?? null
                                   )}
                                 </td>
@@ -3480,24 +3489,18 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubCanEditAtl(record)) && (
+                                      operationTechPubCanEditAtl(record)) &&
+                                      canOpenAtlEditForRecord(record) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
                                           type="button"
-                                          disabled={
-                                            !allowAtlEditForRecord(record)
-                                          }
                                           onClick={() => {
                                             setSelectedEntry(record);
                                             setShowEditModal(true);
                                           }}
-                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
-                                          title={
-                                            allowAtlEditForRecord(record)
-                                              ? "Edit"
-                                              : atlEditButtonTitle(record)
-                                          }
+                                          className="hover:underline text-xs"
+                                          title={atlEditButtonTitle(record)}
                                         >
                                           Edit
                                         </button>
@@ -3870,24 +3873,18 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubCanEditAtl(record)) && (
+                                      operationTechPubCanEditAtl(record)) &&
+                                      canOpenAtlEditForRecord(record) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
                                           type="button"
-                                          disabled={
-                                            !allowAtlEditForRecord(record)
-                                          }
                                           onClick={() => {
                                             setSelectedEntry(record);
                                             setShowEditModal(true);
                                           }}
-                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
-                                          title={
-                                            allowAtlEditForRecord(record)
-                                              ? "Edit"
-                                              : atlEditButtonTitle(record)
-                                          }
+                                          className="hover:underline text-xs"
+                                          title={atlEditButtonTitle(record)}
                                         >
                                           Edit
                                         </button>
@@ -3917,7 +3914,7 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlDateTimeListCell(
+                                {formatAtlDateReportedListCell(
                                   record.dateTimeReported ?? null
                                 )}
                               </td>

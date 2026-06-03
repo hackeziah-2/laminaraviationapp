@@ -34,7 +34,9 @@ import {
   snakeAllKeys,
   computeTotalBlockTimeFromUtc,
   toCamel,
-  formatAtlDateTimeUtcFromParts,
+  formatAtlDateReportedManilaFromParts,
+  formatOptionalNumber2dp,
+  getManilaDateTimeParts,
 } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 import {
@@ -51,7 +53,10 @@ import {
   canUploadWhiteAtlAndDfpFiles,
   canManageAtlBatchFilter,
   canShowTechPubViewForRoleAndWorkStatus,
+  canEditAtlWhiteAtlDfpFields,
+  isAtlWhiteAtlDfpOnlyEdit,
   getAtlEditDeniedMessage,
+  canEditAtlFields,
   isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRestrictedEdit,
   isTechnicalPublicationRole,
@@ -72,9 +77,7 @@ function parseAtlBatchFkForLatest(
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-function formatAtlPrevTimeFromLatest(
-  value: number | null | undefined
-): string {
+function formatAtlPrevTimeFromLatest(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(Number(value))) {
     return DEFAULT_ATL_PREV_TIME;
   }
@@ -182,16 +185,6 @@ function splitAtlDateTimeFromApi(raw: string | undefined | null): {
   return { date: "", time: "" };
 }
 
-/** Current UTC date/time for Zulu Date Reported automation. */
-function getZuluDateTimeParts(now = new Date()): { date: string; time: string } {
-  const y = now.getUTCFullYear();
-  const mo = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(now.getUTCDate()).padStart(2, "0");
-  const hh = String(now.getUTCHours()).padStart(2, "0");
-  const mm = String(now.getUTCMinutes()).padStart(2, "0");
-  return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}` };
-}
-
 function hasAtlDateReportedValue(
   formDate: string,
   formTime: string,
@@ -234,6 +227,8 @@ interface AddTechnicalLogbookEntryModalProps {
    * all other fields are read-only and Update requires a new file selection.
    */
   editRestrictedToWhiteAtlDfpOnly?: boolean;
+  /** When true, all fields are read-only and Save/Update is hidden (RBAC view-only edit modal). */
+  forceReadOnly?: boolean;
   /** Operation: per-row list computed component times when READ-by-id omits cumulative fields. */
   listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
   /** When creating, pre-select ATL batch (e.g. match parent "Filter by ATL batch"). Ignored when editEntry is set. */
@@ -249,6 +244,7 @@ export function AddTechnicalLogbookEntryModal({
   permissionModuleCode,
   viewerRole,
   editRestrictedToWhiteAtlDfpOnly = false,
+  forceReadOnly = false,
   listViewComputedTimes = null,
   defaultAtlBatchFk,
 }: AddTechnicalLogbookEntryModalProps) {
@@ -324,17 +320,47 @@ export function AddTechnicalLogbookEntryModal({
     dfpWebLink: "",
   });
 
+  const canEditWhiteAtlDfpSection = useMemo(
+    () =>
+      Boolean(
+        editEntry &&
+          canEditAtlWhiteAtlDfpFields(
+            atlRoleForWorkStatus,
+            editEntry.workStatus
+          )
+      ),
+    [editEntry, atlRoleForWorkStatus]
+  );
+
+  const atlFormReadOnly = useMemo(
+    () =>
+      Boolean(
+        forceReadOnly ||
+          (editEntry &&
+            !canEditAtlFields(atlRoleForWorkStatus, editEntry.workStatus) &&
+            !canEditWhiteAtlDfpSection)
+      ),
+    [forceReadOnly, editEntry, atlRoleForWorkStatus, canEditWhiteAtlDfpSection]
+  );
+
   const attachmentsOnlyLocked = Boolean(
     editEntry &&
+      canEditWhiteAtlDfpSection &&
       (editRestrictedToWhiteAtlDfpOnly ||
         isTechnicalPublicationRestrictedEdit(
           atlRoleForWorkStatus,
           editEntry.workStatus
+        ) ||
+        isAtlWhiteAtlDfpOnlyEdit(
+          atlRoleForWorkStatus,
+          editEntry.workStatus
         ))
   );
-  const canUploadAtlInCurrentMode = attachmentsOnlyLocked
-    ? true
-    : canUploadAtlAttachments;
+
+  const mainFormLocked = atlFormReadOnly || attachmentsOnlyLocked;
+  const canUploadAtlInCurrentMode =
+    canEditWhiteAtlDfpSection &&
+    (attachmentsOnlyLocked || canUploadAtlAttachments);
 
   const mod = permissionModuleCode;
 
@@ -434,22 +460,31 @@ export function AddTechnicalLogbookEntryModal({
     return true;
   }, [attachmentsOnlyLocked, canUploadAtlInCurrentMode]);
 
-  const allowSubmit = useMemo(
-    () =>
-      (!editEntry && (!mod || canCreate(mod))) ||
-      (!!editEntry &&
-        (attachmentsOnlyLocked
-          ? techPubCanSubmitAttachmentsOnlyEdit
-          : Boolean(mod) && canUpdate(mod as string))),
-    [
-      editEntry,
-      mod,
-      canCreate,
-      canUpdate,
-      attachmentsOnlyLocked,
-      techPubCanSubmitAttachmentsOnlyEdit,
-    ]
-  );
+  const allowSubmit = useMemo(() => {
+    if (atlFormReadOnly) return false;
+    if (!editEntry && (!mod || canCreate(mod))) return true;
+    if (!editEntry) return false;
+    if (attachmentsOnlyLocked) {
+      return (
+        techPubCanSubmitAttachmentsOnlyEdit &&
+        Boolean(mod) &&
+        canUpdate(mod as string)
+      );
+    }
+    if (!canEditAtlFields(atlRoleForWorkStatus, editEntry.workStatus)) {
+      return false;
+    }
+    return Boolean(mod) && canUpdate(mod as string);
+  }, [
+    atlFormReadOnly,
+    editEntry,
+    mod,
+    canCreate,
+    canUpdate,
+    atlRoleForWorkStatus,
+    attachmentsOnlyLocked,
+    techPubCanSubmitAttachmentsOnlyEdit,
+  ]);
 
   const workStatusDropdownKeys = useMemo(
     () =>
@@ -752,10 +787,21 @@ export function AddTechnicalLogbookEntryModal({
         afterLandingMinutes: "",
         tachometerStart: editEntry.tachometerStart?.toString() || "",
         tachometerEnd: editEntry.tachometerEnd?.toString() || "",
-        tachometerTotal: editEntry.tachometerTotal?.toString() || "",
+        tachometerTotal: formatOptionalNumber2dp(
+          editEntry.tachometerStart != null && editEntry.tachometerEnd != null
+            ? Number(editEntry.tachometerEnd) - Number(editEntry.tachometerStart)
+            : editEntry.tachometerTotal,
+          "0.00"
+        ),
         hobbsMeterStart: editEntry.hobbsMeterStart?.toString() || "",
         hobbsMeterEnd: editEntry.hobbsMeterEnd?.toString() || "",
-        hobbsMeterTotal: editEntry.hobbsMeterTotal?.toString() || "",
+        hobbsMeterTotal: formatOptionalNumber2dp(
+          editEntry.hobbsMeterStart != null && editEntry.hobbsMeterEnd != null
+            ? Number(editEntry.hobbsMeterEnd) -
+              Number(editEntry.hobbsMeterStart)
+            : editEntry.hobbsMeterTotal,
+          "0.00"
+        ),
         nextInspectionDue: editEntry.nextInspectionDue || "",
         tachTimeDue: editEntry.tachTimeDue?.toString() || "",
         pilotReport: editEntry.remarks || "",
@@ -1830,12 +1876,14 @@ export function AddTechnicalLogbookEntryModal({
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
 
+    if (atlFormReadOnly) {
+      return;
+    }
+
     if (
       editEntry &&
-      !isAtlEditAllowedForRoleAndWorkStatus(
-        atlRoleForWorkStatus,
-        editEntry.workStatus
-      )
+      !canEditAtlFields(atlRoleForWorkStatus, editEntry.workStatus) &&
+      !attachmentsOnlyLocked
     ) {
       await Swal.fire({
         icon: "error",
@@ -1987,7 +2035,7 @@ export function AddTechnicalLogbookEntryModal({
           initialTechPubLinksRef.current
         )
       ) {
-        const now = getZuluDateTimeParts();
+        const now = getManilaDateTimeParts();
         reportedDate = now.date;
         reportedTime = now.time;
         setFormData((prev) => ({
@@ -2527,7 +2575,8 @@ export function AddTechnicalLogbookEntryModal({
       if (
         attachmentsOnlyLocked &&
         editEntry &&
-        normalizeAtlWorkStatus(editEntry.workStatus) === "AWAITING_ATTACHMENT" &&
+        normalizeAtlWorkStatus(editEntry.workStatus) ===
+          "AWAITING_ATTACHMENT" &&
         (field === "whiteAtl" || field === "dfp") &&
         file instanceof File
       ) {
@@ -2750,7 +2799,11 @@ export function AddTechnicalLogbookEntryModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">
-            {editEntry ? "Edit Entry" : "Add New Entry"}
+            {editEntry
+              ? atlFormReadOnly
+                ? "View Entry"
+                : "Edit Entry"
+              : "Add New Entry"}
           </h2>
           <button
             onClick={onClose}
@@ -2763,9 +2816,14 @@ export function AddTechnicalLogbookEntryModal({
         {/* Form Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="p-6 space-y-6">
+            {atlFormReadOnly && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                This entry is read-only for your role at the current work status.
+              </p>
+            )}
             <div
               className={`space-y-6 ${
-                attachmentsOnlyLocked
+                mainFormLocked
                   ? "pointer-events-none select-none opacity-[0.92]"
                   : ""
               }`}
@@ -2823,9 +2881,9 @@ export function AddTechnicalLogbookEntryModal({
                             workStatus: e.target.value,
                           })
                         }
-                        disabled={attachmentsOnlyLocked}
+                        disabled={mainFormLocked}
                         className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 ${
-                          attachmentsOnlyLocked
+                          mainFormLocked
                             ? "bg-gray-100 cursor-not-allowed"
                             : "bg-white"
                         }`}
@@ -3300,11 +3358,14 @@ export function AddTechnicalLogbookEntryModal({
                     </div>
                     <div>
                       <label className="block text-gray-700 text-xs mb-1">
-                        Total
+                        Tachometer Total
                       </label>
                       <input
                         type="text"
-                        value={formData.tachometerTotal}
+                        value={formatOptionalNumber2dp(
+                          formData.tachometerTotal,
+                          "0.00"
+                        )}
                         readOnly
                         disabled
                         className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
@@ -3353,11 +3414,14 @@ export function AddTechnicalLogbookEntryModal({
                     </div>
                     <div>
                       <label className="block text-gray-700 text-xs mb-1">
-                        Total
+                        Hobbs Meter Total
                       </label>
                       <input
                         type="text"
-                        value={formData.hobbsMeterTotal}
+                        value={formatOptionalNumber2dp(
+                          formData.hobbsMeterTotal,
+                          "0.00"
+                        )}
                         readOnly
                         disabled
                         className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
@@ -4694,27 +4758,6 @@ export function AddTechnicalLogbookEntryModal({
             {canUseTechPubView && (
               <div id="TechPubView">
                 <div className="bg-white p-4 rounded-lg border border-gray-200">
-                  {attachmentsOnlyLocked && (
-                    <p className="text-sm text-gray-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-4">
-                      As Technical Publication, only{" "}
-                      <strong>White ATL</strong>, <strong>DFP</strong>,{" "}
-                      <strong>White ATL Link</strong>, and <strong>DFP Link</strong>{" "}
-                      can be updated while status is{" "}
-                      <strong>Pending</strong> or{" "}
-                      <strong>Awaiting Attachment</strong>. Provide at least one
-                      attachment or link before saving.{" "}
-                      <strong>Date Reported</strong> is set automatically on first
-                      successful update (UTC) when empty.
-                      {normalizeAtlWorkStatus(editEntry?.workStatus) ===
-                        "AWAITING_ATTACHMENT" && (
-                        <>
-                          {" "}
-                          Saving while status is Awaiting Attachment moves the
-                          entry to <strong>Pending</strong>.
-                        </>
-                      )}
-                    </p>
-                  )}
                   <div className="mb-4">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div>
@@ -4954,7 +4997,7 @@ export function AddTechnicalLogbookEntryModal({
                             editEntry?.dateTimeReported
                         ) ? (
                           <p className="text-gray-900">
-                            {formatAtlDateTimeUtcFromParts(
+                            {formatAtlDateReportedManilaFromParts(
                               formData.dateTimeReportedDate,
                               formData.dateTimeReportedTime,
                               preservedDateReportedRef.current ??
@@ -4964,7 +5007,7 @@ export function AddTechnicalLogbookEntryModal({
                         ) : (
                           <p className="text-gray-500">
                             {isTechPubRole
-                              ? "Set automatically on first attachment upload (UTC/Zulu)."
+                              ? "Set automatically on first attachment upload (Philippines time)."
                               : "Not set yet."}
                           </p>
                         )}

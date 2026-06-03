@@ -39,6 +39,8 @@ import {
   formatAtlWorkStatusLabel,
   canManageAtlBatchFilter,
   getAtlEditDeniedMessage,
+  canEditAtlFields,
+  canOpenAtlEditModal,
   isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRole,
   isTechnicalPublicationRestrictedEdit,
@@ -471,21 +473,26 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
-  const allowAtlEditForEntry = (entry: LogbookEntry) =>
-    isAtlEditAllowedForRoleAndWorkStatus(logbookAtlRole, entry.workStatus);
+  const canOpenAtlEditForEntry = (_entry: LogbookEntry) =>
+    canOpenAtlEditModal(logbookAtlRole);
 
-  const atlEditButtonTitle = (entry: LogbookEntry) =>
-    allowAtlEditForEntry(entry)
-      ? "Edit"
-      : getAtlEditDeniedMessage(logbookAtlRole, entry.workStatus);
+  const allowAtlEditForEntry = (entry: LogbookEntry) =>
+    canEditAtlFields(logbookAtlRole, entry.workStatus);
+
+  const atlEditButtonTitle = (entry: LogbookEntry) => {
+    if (!canOpenAtlEditForEntry(entry)) return "Edit not available for your role";
+    if (!allowAtlEditForEntry(entry)) return "View entry (read-only)";
+    return "Edit";
+  };
 
   /** Technical Publication may edit White ATL / DFP / links without logbook Update permission. */
   const logbookTechPubCanEditAtl = (entry: LogbookEntry) =>
-    isTechnicalPublicationRole(logbookAtlRole) && allowAtlEditForEntry(entry);
+    isTechnicalPublicationRole(logbookAtlRole) &&
+    canOpenAtlEditForEntry(entry);
 
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
-    if (!allowAtlEditForEntry(entry)) return;
+    if (!canOpenAtlEditForEntry(entry)) return;
     setSelectedEntry(entry);
     setIsEditModalOpen(true);
   };
@@ -861,10 +868,10 @@ export function AircraftTechnicalLogbook() {
                               <Eye className="w-4 h-4" />
                             </button>
                             {(canUpdateLogbookAtl ||
-                              logbookTechPubCanEditAtl(entry)) && (
+                              logbookTechPubCanEditAtl(entry)) &&
+                              canOpenAtlEditForEntry(entry) && (
                               <button
                                 type="button"
-                                disabled={!allowAtlEditForEntry(entry)}
                                 onClick={() => handleEditEntry(entry)}
                                 className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
                                 title={atlEditButtonTitle(entry)}
