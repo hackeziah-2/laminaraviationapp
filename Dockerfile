@@ -17,10 +17,16 @@ RUN npm ci
 COPY . .
 
 # Build arguments: set at build time via docker-compose (--env-file .env.dev | .env.uat | .env.prod)
-ARG VITE_API_URL=http://localhost:8000/api/v1/
-ARG VITE_APP_URL=http://localhost:3000
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_APP_URL=$VITE_APP_URL
+ARG VITE_API_URL
+ARG VITE_APP_URL
+
+ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_APP_URL=${VITE_APP_URL}
+
+RUN echo "=================================="
+RUN echo "VITE_API_URL=${VITE_API_URL}"
+RUN echo "VITE_APP_URL=${VITE_APP_URL}"
+RUN echo "=================================="
 
 # Build for production
 RUN npm run build
