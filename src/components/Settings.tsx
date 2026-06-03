@@ -3003,6 +3003,8 @@ export function Settings() {
                           {canUpdate("settings") && (
                             <button
                               onClick={async () => {
+                                const fallbackPerms =
+                                  getDefaultModulePermissions(modulesList);
                                 try {
                                   const roleWithPerms = await rolesApi.getRole(
                                     role.id
@@ -3010,24 +3012,30 @@ export function Settings() {
                                   const perms =
                                     roleWithPerms.permissions?.length > 0
                                       ? roleWithPerms.permissions
-                                      : getDefaultModulePermissions(
-                                          modulesList
-                                        );
+                                      : fallbackPerms;
+                                  const roleForEdit: Role = {
+                                    id: roleWithPerms.id,
+                                    name: roleWithPerms.name || role.name,
+                                    description:
+                                      roleWithPerms.description ||
+                                      role.description ||
+                                      "",
+                                    userCount:
+                                      roleWithPerms.userCount ?? role.userCount,
+                                  };
                                   setCustomPermissions((prev) => ({
                                     ...prev,
-                                    [role.name]: perms,
+                                    [roleForEdit.name]: perms,
                                   }));
-                                  setSelectedRoleForEdit(role);
-                                  setShowEditRoleModal(true);
+                                  setSelectedRoleForEdit(roleForEdit);
                                 } catch {
                                   setCustomPermissions((prev) => ({
                                     ...prev,
-                                    [role.name]:
-                                      getDefaultModulePermissions(modulesList),
+                                    [role.name]: fallbackPerms,
                                   }));
                                   setSelectedRoleForEdit(role);
-                                  setShowEditRoleModal(true);
                                 }
+                                setShowEditRoleModal(true);
                               }}
                               type="button"
                               className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
@@ -3446,18 +3454,27 @@ export function Settings() {
           try {
             const result = await rolesApi.updateRole(
               updatedRole.id,
-              { name: updatedRole.name, description: updatedRole.description },
+              {
+                name: updatedRole.name.trim(),
+                description: updatedRole.description.trim(),
+              },
               updatedPermissions
             );
+            const savedRole: Role = {
+              id: result.id,
+              name: result.name,
+              description: result.description,
+              userCount: result.userCount ?? updatedRole.userCount,
+            };
             setRoles((prev) =>
-              prev.map((r) => (r.id === updatedRole.id ? result : r))
+              prev.map((r) => (r.id === savedRole.id ? savedRole : r))
             );
             fetchRoles();
             setCustomPermissions((prev) => {
               const next = { ...prev };
               const oldName = selectedRoleForEdit?.name;
-              if (oldName && oldName !== updatedRole.name) delete next[oldName];
-              next[updatedRole.name] = result.permissions?.length
+              if (oldName && oldName !== savedRole.name) delete next[oldName];
+              next[savedRole.name] = result.permissions?.length
                 ? result.permissions
                 : updatedPermissions;
               return next;
@@ -3466,7 +3483,7 @@ export function Settings() {
             setSelectedRoleForEdit(null);
             await Swal.fire({
               title: "Success!",
-              text: `Role ${updatedRole.name} has been updated successfully!`,
+              text: `Role ${savedRole.name} has been updated successfully!`,
               icon: "success",
               confirmButtonColor: "#1f2937",
             });
@@ -3509,21 +3526,30 @@ export function Settings() {
         onCreate={async (newRole, permissions) => {
           try {
             const created = await rolesApi.createRole(
-              { name: newRole.name, description: newRole.description },
+              {
+                name: newRole.name.trim(),
+                description: newRole.description.trim(),
+              },
               permissions
             );
-            setRoles((prev) => [...prev, created]);
+            const savedRole: Role = {
+              id: created.id,
+              name: created.name,
+              description: created.description,
+              userCount: created.userCount ?? 0,
+            };
+            setRoles((prev) => [...prev, savedRole]);
             fetchRoles();
             setCustomPermissions((prev) => ({
               ...prev,
-              [created.name]: created.permissions?.length
+              [savedRole.name]: created.permissions?.length
                 ? created.permissions
                 : permissions,
             }));
             setShowCreateRoleModal(false);
             await Swal.fire({
               title: "Success!",
-              text: `Role ${created.name} has been created successfully!`,
+              text: `Role ${savedRole.name} has been created successfully!`,
               icon: "success",
               confirmButtonColor: "#1f2937",
             });
