@@ -32,14 +32,21 @@ import {
   pickLatestAtlBatchId,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftList } from "../api/aircraftApi";
+import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
   canManageAtlBatchFilter,
+  getAtlEditDeniedMessage,
+  canEditAtlFields,
+  canOpenAtlEditModal,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isTechnicalPublicationRole,
+  isTechnicalPublicationRestrictedEdit,
   normalizeAtlWorkStatus,
 } from "../utility/atlEditRbac";
+import { formatDisplayDate } from "../utility/utils";
 
 interface LogbookEntry {
   id: number;
@@ -134,31 +141,37 @@ export function AircraftTechnicalLogbook() {
     normalizedUserRole === "maintenance planner" ||
     normalizedUserRole.endsWith(" maintenance planner");
 
+  /** Role from GET /auth/me — aligns ATL edit RBAC with login session (same as Operation). */
+  const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
+    undefined
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getMe()
+      .then((me) => {
+        if (!cancelled) setSessionRoleName(me.role?.trim() || undefined);
+      })
+      .catch(() => {
+        if (!cancelled) setSessionRoleName(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const logbookAtlRole = useMemo(
+    () => sessionRoleName || user?.role?.trim() || undefined,
+    [sessionRoleName, user?.role]
+  );
+
+  const canUpdateLogbookAtl = canUpdate("logbook");
+
   // Map backend data to frontend format
   const mapToLogbookEntry = (
     apiEntry: AircraftTechnicalLog,
     index: number
   ): LogbookEntry => {
-    // Format date from YYYY-MM-DD to MM/DD/YYYY
-    const formatDate = (dateStr: string) => {
-      if (!dateStr) return "";
-      const date = new Date(dateStr);
-      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
-        .getDate()
-        .toString()
-        .padStart(2, "0")}/${date.getFullYear()}`;
-    };
-
-    const formatCreatedAtDateOnly = (dateStr: string | undefined) => {
-      if (!dateStr) return "—";
-      const date = new Date(dateStr);
-      if (Number.isNaN(date.getTime())) return "—";
-      return `${(date.getMonth() + 1).toString().padStart(2, "0")}/${date
-        .getDate()
-        .toString()
-        .padStart(2, "0")}/${date.getFullYear()}`;
-    };
-
     // Format route from stations
     const route = `${apiEntry.originStation || ""} → ${
       apiEntry.destinationStation || ""
@@ -188,8 +201,11 @@ export function AircraftTechnicalLogbook() {
     return {
       id: apiEntry.id,
       seqNo: apiEntry.sequenceNo || "",
-      date: formatDate(apiEntry.originDate || apiEntry.destinationDate || ""),
-      createdAt: formatCreatedAtDateOnly(apiEntry.createdAt),
+      date: formatDisplayDate(
+        apiEntry.originDate || apiEntry.destinationDate || "",
+        { fallback: "" }
+      ),
+      createdAt: formatDisplayDate(apiEntry.createdAt, { fallback: "—" }),
       acReg: apiEntry.aircraft?.registration || "",
       route: route,
       origin: apiEntry?.originStation || "",
@@ -457,12 +473,26 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
+  const canOpenAtlEditForEntry = (_entry: LogbookEntry) =>
+    canOpenAtlEditModal(logbookAtlRole);
+
   const allowAtlEditForEntry = (entry: LogbookEntry) =>
-    isAtlEditAllowedForRoleAndWorkStatus(user?.role, entry.workStatus);
+    canEditAtlFields(logbookAtlRole, entry.workStatus);
+
+  const atlEditButtonTitle = (entry: LogbookEntry) => {
+    if (!canOpenAtlEditForEntry(entry)) return "Edit not available for your role";
+    if (!allowAtlEditForEntry(entry)) return "View entry (read-only)";
+    return "Edit";
+  };
+
+  /** Technical Publication may edit White ATL / DFP / links without logbook Update permission. */
+  const logbookTechPubCanEditAtl = (entry: LogbookEntry) =>
+    isTechnicalPublicationRole(logbookAtlRole) &&
+    canOpenAtlEditForEntry(entry);
 
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
-    if (!allowAtlEditForEntry(entry)) return;
+    if (!canOpenAtlEditForEntry(entry)) return;
     setSelectedEntry(entry);
     setIsEditModalOpen(true);
   };
@@ -837,17 +867,14 @@ export function AircraftTechnicalLogbook() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
-                            {canUpdate("logbook") && (
+                            {(canUpdateLogbookAtl ||
+                              logbookTechPubCanEditAtl(entry)) &&
+                              canOpenAtlEditForEntry(entry) && (
                               <button
                                 type="button"
-                                disabled={!allowAtlEditForEntry(entry)}
                                 onClick={() => handleEditEntry(entry)}
                                 className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
-                                title={
-                                  allowAtlEditForEntry(entry)
-                                    ? "Edit"
-                                    : "Editing is not allowed for your role at this work status."
-                                }
+                                title={atlEditButtonTitle(entry)}
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
@@ -1052,7 +1079,11 @@ export function AircraftTechnicalLogbook() {
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
           permissionModuleCode="logbook"
-          viewerRole={user?.role}
+          viewerRole={logbookAtlRole}
+          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationRestrictedEdit(
+            logbookAtlRole,
+            selectedEntry.workStatus
+          )}
         />
       )}
 

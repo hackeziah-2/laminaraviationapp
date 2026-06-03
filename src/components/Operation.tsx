@@ -60,6 +60,9 @@ import {
   toCamelDeep,
   formatApiErrorForSwal,
   formatTimeZulu,
+  formatAtlDateTimeUtc,
+  formatAtlDateReportedManila,
+  formatDisplayDate,
   computeTotalBlockTimeFromUtc,
   computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
@@ -75,9 +78,12 @@ import {
   canCreateAtlBatch,
   canEditAtlBatch,
   canManageAtlBatchFilter,
+  canEditAtlFields,
+  canOpenAtlEditModal,
+  getAtlEditDeniedMessage,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
-  isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
+  isTechnicalPublicationRestrictedEdit,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
@@ -459,9 +465,9 @@ function formatOptionalNumber1dp(value: unknown): string {
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
 const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
   FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
+  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
   REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
   APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
-  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
   REJECTED_QUALITY: { backgroundColor: "#fff1f2", color: "#9f1239" },
   PENDING: { backgroundColor: "#f5f3ff", color: "#5b21b6" },
   COMPLETED: { backgroundColor: "#f0fdf4", color: "#166534" },
@@ -562,12 +568,22 @@ export function Operation() {
   const operationAtlPermissionModuleCode =
     canUpdate("operation") || canCreate("operation") ? "operation" : "logbook";
 
+  const canOpenAtlEditForRecord = (_record: AircraftTechnicalLog) =>
+    canOpenAtlEditModal(operationAtlRole);
+
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
-    isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
+    canEditAtlFields(operationAtlRole, record.workStatus);
+
+  const atlEditButtonTitle = (record: AircraftTechnicalLog) => {
+    if (!canOpenAtlEditForRecord(record))
+      return "Edit not available for your role";
+    if (!allowAtlEditForRecord(record)) return "View entry (read-only)";
+    return "Edit";
+  };
 
   const operationTechPubCanEditAtl = (record: AircraftTechnicalLog) =>
     isTechnicalPublicationRole(operationAtlRole) &&
-    allowAtlEditForRecord(record);
+    canOpenAtlEditForRecord(record);
 
   const handleBack = () => {
     navigate("/profile");
@@ -997,42 +1013,12 @@ export function Operation() {
     const n = v != null && v !== "" ? Number(v) : null;
     return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
   };
-  const formatDisplayDate = (value?: string | null) =>
-    value
-      ? new Date(value)
-          .toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })
-          .replace(/ /g, "-")
-      : "-";
-
-  /** `date_time_reported` / `date_time_released` (ISO or date) for list cells */
-  const formatAtlDateTimeListCell = (raw?: string | null) => {
-    if (raw == null || String(raw).trim() === "") return "-";
-    const s = String(raw).trim();
-    const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2}(?::\d{2})?)/i);
-    if (m) {
-      const dateLine = formatDisplayDate(m[1]);
-      const timeLine = formatTimeZulu(m[2].slice(0, 5));
-      return timeLine && timeLine !== "-"
-        ? `${dateLine} ${timeLine}`.trim()
-        : dateLine;
-    }
-    const d = new Date(s);
-    if (!Number.isNaN(d.getTime())) {
-      const y = d.getFullYear();
-      const mo = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${formatDisplayDate(`${y}-${mo}-${day}`)} ${formatTimeZulu(
-        `${hh}:${mm}`
-      )}`.trim();
-    }
-    return s;
-  };
+  /** `date_time_reported` — Philippines (Asia/Manila) locale display */
+  const formatAtlDateReportedListCell = (raw?: string | null) =>
+    formatAtlDateReportedManila(raw);
+  /** `date_time_released` — UTC */
+  const formatAtlDateTimeListCell = (raw?: string | null) =>
+    formatAtlDateTimeUtc(raw);
 
   const partRemainingRemoved = (part: AtlComponentPartRow) =>
     part.partRemovedRemainingTime ?? part.part_removed_remaining_time ?? "-";
@@ -1411,7 +1397,7 @@ export function Operation() {
         key: "dateTimeReported",
         label: "Reported Date",
         getValue: (record) =>
-          formatAtlDateTimeListCell(record.dateTimeReported ?? null),
+          formatAtlDateReportedListCell(record.dateTimeReported ?? null),
       },
       {
         key: "dateTimeReleased",
@@ -2255,10 +2241,7 @@ export function Operation() {
               <p className="text-gray-500 text-sm mb-2">Last Updated</p>
               <p className="text-gray-900 text-sm">
                 {fleetTimeRecords.length > 0 && fleetTimeRecords[0].updatedAt
-                  ? new Date(fleetTimeRecords[0].updatedAt).toLocaleDateString(
-                      "en-US",
-                      { month: "short", day: "numeric", year: "numeric" }
-                    )
+                  ? formatDisplayDate(fleetTimeRecords[0].updatedAt)
                   : "-"}
               </p>
             </div>
@@ -2840,26 +2823,20 @@ export function Operation() {
                                         View
                                       </button>
                                       {(canUpdateOperationAtl ||
-                                        operationTechPubCanEditAtl(record)) && (
+                                        operationTechPubCanEditAtl(record)) &&
+                                        canOpenAtlEditForRecord(record) && (
                                         <>
                                           <span className="text-gray-400">
                                             |
                                           </span>
                                           <button
                                             type="button"
-                                            disabled={
-                                              !allowAtlEditForRecord(record)
-                                            }
                                             onClick={() => {
                                               setSelectedEntry(record);
                                               setShowEditModal(true);
                                             }}
-                                            className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
-                                            title={
-                                              allowAtlEditForRecord(record)
-                                                ? "Edit"
-                                                : "Editing is not allowed for your role at this work status."
-                                            }
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                            title={atlEditButtonTitle(record)}
                                           >
                                             Edit
                                           </button>
@@ -2905,29 +2882,13 @@ export function Operation() {
                                   {formatOptionalNumber1dp(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.originDate
-                                    ? new Date(record.originDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.originTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.destinationDate
-                                    ? new Date(record.destinationDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.destinationTime)}
@@ -3247,7 +3208,7 @@ export function Operation() {
                                   </table>
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlDateTimeListCell(
+                                  {formatAtlDateReportedListCell(
                                     record.dateTimeReported ?? null
                                   )}
                                 </td>
@@ -3307,8 +3268,8 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.whiteAtl &&
-                                  record.whiteAtl.trim() !== "" ? (
+                                  {(record.whiteAtl?.trim() ||
+                                    record.whiteAtlWebLink?.trim()) ? (
                                     <div className="flex flex-col gap-1">
                                       <button
                                         type="button"
@@ -3316,9 +3277,14 @@ export function Operation() {
                                         onClick={() =>
                                           handleDownloadFile(
                                             "white_atl",
-                                            record.whiteAtl!,
-                                            record.whiteAtl!.split("/").pop() ||
-                                              "white_atl"
+                                            record.whiteAtl?.trim() ||
+                                              record.whiteAtlWebLink!.trim(),
+                                            (
+                                              record.whiteAtl?.trim() ||
+                                              record.whiteAtlWebLink!.trim()
+                                            )
+                                              .split("/")
+                                              .pop() || "white_atl"
                                           )
                                         }
                                       >
@@ -3333,7 +3299,8 @@ export function Operation() {
                                         onClick={() =>
                                           handleViewFile(
                                             "white_atl",
-                                            record.whiteAtl!
+                                            record.whiteAtl?.trim() ||
+                                              record.whiteAtlWebLink!.trim()
                                           )
                                         }
                                       >
@@ -3346,7 +3313,8 @@ export function Operation() {
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-sm bg-white">
-                                  {record.dfp && record.dfp.trim() !== "" ? (
+                                  {(record.dfp?.trim() ||
+                                    record.dfpWebLink?.trim()) ? (
                                     <div className="flex flex-col gap-1">
                                       <button
                                         type="button"
@@ -3354,9 +3322,14 @@ export function Operation() {
                                         onClick={() =>
                                           handleDownloadFile(
                                             "dfp",
-                                            record.dfp!,
-                                            record.dfp!.split("/").pop() ||
-                                              "dfp"
+                                            record.dfp?.trim() ||
+                                              record.dfpWebLink!.trim(),
+                                            (
+                                              record.dfp?.trim() ||
+                                              record.dfpWebLink!.trim()
+                                            )
+                                              .split("/")
+                                              .pop() || "dfp"
                                           )
                                         }
                                       >
@@ -3369,7 +3342,11 @@ export function Operation() {
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
                                         onClick={() =>
-                                          handleViewFile("dfp", record.dfp!)
+                                          handleViewFile(
+                                            "dfp",
+                                            record.dfp?.trim() ||
+                                              record.dfpWebLink!.trim()
+                                          )
                                         }
                                       >
                                         <Eye className="w-4 h-4 flex-shrink-0" />
@@ -3512,24 +3489,18 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubCanEditAtl(record)) && (
+                                      operationTechPubCanEditAtl(record)) &&
+                                      canOpenAtlEditForRecord(record) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
                                           type="button"
-                                          disabled={
-                                            !allowAtlEditForRecord(record)
-                                          }
                                           onClick={() => {
                                             setSelectedEntry(record);
                                             setShowEditModal(true);
                                           }}
-                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
-                                          title={
-                                            allowAtlEditForRecord(record)
-                                              ? "Edit"
-                                              : "Editing is not allowed for your role at this work status."
-                                          }
+                                          className="hover:underline text-xs"
+                                          title={atlEditButtonTitle(record)}
                                         >
                                           Edit
                                         </button>
@@ -3559,29 +3530,13 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.originDate
-                                  ? new Date(record.originDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
+                                {formatDisplayDate(record.originDate)}
                                 {record.originTime
                                   ? ` ${formatTimeZulu(record.originTime)}`
                                   : ""}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.destinationDate
-                                  ? new Date(record.destinationDate)
-                                      .toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "short",
-                                        year: "numeric",
-                                      })
-                                      .replace(/ /g, "-")
-                                  : "-"}
+                                {formatDisplayDate(record.destinationDate)}
                                 {record.destinationTime
                                   ? ` ${formatTimeZulu(record.destinationTime)}`
                                   : ""}
@@ -3743,11 +3698,7 @@ export function Operation() {
                                               setShowEditModal(true);
                                             }}
                                             className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
-                                            title={
-                                              allowAtlEditForRecord(record)
-                                                ? "Edit"
-                                                : "Editing is not allowed for your role at this work status."
-                                            }
+                                            title={atlEditButtonTitle(record)}
                                           >
                                             Edit
                                           </button>
@@ -3779,29 +3730,13 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {record.originDate
-                                    ? new Date(record.originDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.originDate)}
                                   {record.originTime
                                     ? ` ${formatTimeZulu(record.originTime)}`
                                     : ""}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {record.destinationDate
-                                    ? new Date(record.destinationDate)
-                                        .toLocaleDateString("en-GB", {
-                                          day: "2-digit",
-                                          month: "short",
-                                          year: "numeric",
-                                        })
-                                        .replace(/ /g, "-")
-                                    : "-"}
+                                  {formatDisplayDate(record.destinationDate)}
                                   {record.destinationTime
                                     ? ` ${formatTimeZulu(
                                         record.destinationTime
@@ -3938,24 +3873,18 @@ export function Operation() {
                                       View
                                     </button>
                                     {(canUpdateOperationAtl ||
-                                      operationTechPubCanEditAtl(record)) && (
+                                      operationTechPubCanEditAtl(record)) &&
+                                      canOpenAtlEditForRecord(record) && (
                                       <>
                                         <span className="text-gray-400">|</span>
                                         <button
                                           type="button"
-                                          disabled={
-                                            !allowAtlEditForRecord(record)
-                                          }
                                           onClick={() => {
                                             setSelectedEntry(record);
                                             setShowEditModal(true);
                                           }}
-                                          className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
-                                          title={
-                                            allowAtlEditForRecord(record)
-                                              ? "Edit"
-                                              : "Editing is not allowed for your role at this work status."
-                                          }
+                                          className="hover:underline text-xs"
+                                          title={atlEditButtonTitle(record)}
                                         >
                                           Edit
                                         </button>
@@ -3985,7 +3914,7 @@ export function Operation() {
                                   : "-"}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlDateTimeListCell(
+                                {formatAtlDateReportedListCell(
                                   record.dateTimeReported ?? null
                                 )}
                               </td>
@@ -4218,7 +4147,7 @@ export function Operation() {
           aircraftId={effectiveAircraftId}
           permissionModuleCode={operationAtlPermissionModuleCode}
           viewerRole={operationAtlRole}
-          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
+          editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationRestrictedEdit(
             operationAtlRole,
             selectedEntry.workStatus
           )}

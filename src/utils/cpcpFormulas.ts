@@ -1,3 +1,5 @@
+import { formatDisplayDateFromDate } from "../utility/utils";
+
 /**
  * CPCP auto-compute formulas (Excel-like).
  * - Next due Tach = Last Done Tach + interval hours
@@ -49,10 +51,7 @@ function formatNum(n: number | null): string {
 
 function formatDate(d: Date | null): string {
   if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return "-";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return formatDisplayDateFromDate(d);
 }
 
 /** API / normalized list values use "-" for empty; treat those as absent so we can fall back to formulas */
@@ -64,6 +63,36 @@ function hasApiDisplayValue(v: any): boolean {
 
 /** Status from remaining %: Due → red, <10% → orange, <20% → yellow, <40% → green, else white */
 export type CPCPRemainingStatus = "red" | "orange" | "yellow" | "green" | "white";
+export type CPCPRemainingAlert = "default" | "green" | "yellow" | "orange" | "red";
+
+/**
+ * Dynamic threshold color from interval limit and remaining value.
+ * - Red: remaining <= 0
+ * - Orange: 0 < remaining% <= 10
+ * - Yellow: 10 < remaining% <= 20
+ * - Green: 20 < remaining% <= 40
+ * - Default: remaining% > 40 or missing/invalid data
+ */
+export function getCpcpRemainingAlert(
+  intervalLimit: number | null,
+  remainingValue: number | null
+): CPCPRemainingAlert {
+  if (
+    intervalLimit == null ||
+    remainingValue == null ||
+    !Number.isFinite(intervalLimit) ||
+    !Number.isFinite(remainingValue) ||
+    intervalLimit <= 0
+  ) {
+    return "default";
+  }
+  if (remainingValue <= 0) return "red";
+  const remainingPct = (remainingValue / intervalLimit) * 100;
+  if (remainingPct <= 10) return "orange";
+  if (remainingPct <= 20) return "yellow";
+  if (remainingPct <= 40) return "green";
+  return "default";
+}
 
 export interface CPCPComputed {
   nextDue: {
@@ -123,7 +152,7 @@ export function computeCpcpRow(
   let remainingDays: number | null = null;
   if (nextDueDate) {
     remainingMonths = yearFrac(today, nextDueDate) * 12;
-    remainingDays = Math.abs(daysBetween(today, nextDueDate));
+    remainingDays = daysBetween(today, nextDueDate);
   }
 
   // Remaining tach = Next due Tach - aircraft current Tach

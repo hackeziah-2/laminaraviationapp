@@ -140,16 +140,24 @@ export const getAccount = async (accountId: number): Promise<Account> => {
   return normalizeAccount({ ...raw, id: accountId });
 };
 
-/** Raw account-information record for fields like auth_initial_doi. GET /api/v1/account-information/{account_id} */
+/** Raw account-information fields not always on list responses. GET /api/v1/account-information/{account_id} */
+export interface AccountInformationDetails {
+  auth_initial_doi?: string;
+  auth_stamp?: string;
+}
+
 export const getAccountInformationById = async (
   accountId: number
-): Promise<{ auth_initial_doi?: string }> => {
+): Promise<AccountInformationDetails> => {
   const response = await apiClient.get(`${BASE}/${accountId}`);
   const raw = (response.data ?? {}) as Record<string, unknown>;
   const doi = raw.auth_initial_doi ?? raw.authInitialDoi ?? raw.authInitialDOI;
+  const stamp = raw.auth_stamp ?? raw.authStamp;
   return {
     auth_initial_doi:
       typeof doi === "string" ? doi.trim() || undefined : undefined,
+    auth_stamp:
+      typeof stamp === "string" ? stamp.trim() || undefined : undefined,
   };
 };
 
@@ -166,6 +174,7 @@ export const createAccount = async (payload: {
   status?: boolean;
   password?: string;
   auth_initial_doi?: string;
+  auth_stamp?: string;
 }): Promise<Account> => {
   const body: Record<string, string | number | boolean | undefined> = {
     first_name: payload.firstName,
@@ -181,6 +190,8 @@ export const createAccount = async (payload: {
   };
   if (payload.auth_initial_doi != null && payload.auth_initial_doi !== "")
     body.auth_initial_doi = payload.auth_initial_doi.trim();
+  if (payload.auth_stamp != null && payload.auth_stamp.trim() !== "")
+    body.auth_stamp = payload.auth_stamp.trim();
   const response = await apiClient.post(`${BASE}/`, body);
   const raw = response.data ?? {};
   return normalizeAccount(raw);
@@ -197,6 +208,7 @@ export type AccountUpdatePayload = Partial<{
   roleId: number;
   status: boolean;
   auth_initial_doi: string | null;
+  auth_stamp: string | null;
 }>;
 
 function buildAccountUpdateBody(
@@ -218,6 +230,11 @@ function buildAccountUpdateBody(
         ? payload.auth_initial_doi.trim()
         : "";
     body.auth_initial_doi = doi ? doi : null;
+  }
+  if (payload.auth_stamp !== undefined) {
+    const stamp =
+      typeof payload.auth_stamp === "string" ? payload.auth_stamp.trim() : "";
+    body.auth_stamp = stamp ? stamp : null;
   }
   return body;
 }

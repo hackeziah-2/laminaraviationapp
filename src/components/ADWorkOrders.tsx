@@ -27,6 +27,13 @@ import {
   deleteWorkOrderAdMonitoring,
   type WorkOrderAdMonitoring,
 } from "../api/workOrderAdMonitoringApi";
+import {
+  getAircraftAdMonitoringById,
+  type ADMonitoring,
+} from "../api/adMonitoringApi";
+import { AdWebLinkButton } from "./AdWebLinkDisplay";
+import { formatDateForApi, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 import * as XLSX from "xlsx";
 import {
   DropdownMenu,
@@ -34,7 +41,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { getAtlList, type AtlItem } from "../api/atlApi";
+import { searchAtlOptionsForTcc, type AtlItem } from "../api/atlApi";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 import { cn } from "./ui/utils";
@@ -103,41 +110,74 @@ async function runImportWithProgress(
   });
 }
 
-function toDateInputValue(s: string | null | undefined): string {
-  if (s == null || String(s).trim() === "") return "";
-  const raw = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function formatDateDisplay(s: string | null | undefined): string {
-  if (s == null || String(s).trim() === "") return "—";
-  const d = new Date(String(s).trim());
-  if (Number.isNaN(d.getTime())) return String(s);
-  return d.toLocaleDateString();
-}
-
 const WO_AD_EXPORT_HEADERS = [
   "WO NUMBER",
-  "LAST DONE ACTT",
+  "LAST DONE AFTT",
   "LAST DONE TACH",
   "LAST DONE DATE",
-  "NEXT DONE ACTT",
+  "NEXT DONE AFTT",
   "TACH",
   "ATL REF",
 ] as const;
+
+type AdWorkOrderFormData = {
+  woNumber: string;
+  lastDoneActt: string;
+  lastDoneTach: string;
+  lastDoneDate: string;
+  nextDoneActt: string;
+  nextDueTach: string;
+  atlRef: string;
+};
+
+function parseAdWorkOrderNumeric(
+  value: string | number | null | undefined
+): number | null {
+  if (value == null || value === "") return null;
+  const s = String(value).trim().replace(/,/g, "");
+  if (!s) return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatAdWorkOrderNextDue(value: number): string {
+  const rounded = Math.round(value * 1e6) / 1e6;
+  const s = String(rounded);
+  if (!s.includes(".")) return s;
+  return s.replace(/\.?0+$/, "") || "0";
+}
+
+/** Next Due = Last Done + Inspection Interval (blank when either operand is missing/invalid). */
+function computeAdWorkOrderNextDue(
+  lastDone: string | number | null | undefined,
+  inspectionInterval: string | null | undefined
+): string {
+  const last = parseAdWorkOrderNumeric(lastDone);
+  const interval = parseAdWorkOrderNumeric(inspectionInterval);
+  if (last === null || interval === null) return "";
+  return formatAdWorkOrderNextDue(last + interval);
+}
+
+function applyAdWorkOrderNextDue(
+  data: AdWorkOrderFormData,
+  inspectionInterval: string | null | undefined
+): AdWorkOrderFormData {
+  const interval = String(inspectionInterval ?? "").trim();
+  return {
+    ...data,
+    nextDoneActt: computeAdWorkOrderNextDue(data.lastDoneActt, interval),
+    nextDueTach: computeAdWorkOrderNextDue(data.lastDoneTach, interval),
+  };
+}
 
 function workOrderToExportRow(wo: WorkOrderAdMonitoring): string[] {
   return [
     String(wo.woNumber ?? "").trim(),
     String(wo.lastDoneActt ?? ""),
     String(wo.lastDoneTach ?? ""),
-    toDateInputValue(wo.lastDoneDate) || String(wo.lastDoneDate ?? "").trim(),
+    formatDisplayDate(wo.lastDoneDate, {
+      fallback: String(wo.lastDoneDate ?? "").trim(),
+    }),
     String(wo.nextDoneActt ?? ""),
     String(wo.nextDueTach ?? ""),
     String(wo.atlRef ?? "").trim(),
@@ -157,7 +197,7 @@ export function ADWorkOrders() {
   };
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<AdWorkOrderFormData>({
     woNumber: "",
     lastDoneActt: "",
     lastDoneTach: "",
@@ -184,6 +224,27 @@ export function ADWorkOrders() {
     useState<WorkOrderAdMonitoring | null>(null);
   const [aircraft_id, setAircraftId] = useState<string>("");
   const [sequence_no, setSequenceNo] = useState<string>("");
+  const [adDetail, setAdDetail] = useState<ADMonitoring | null>(null);
+  const [adDetailLoading, setAdDetailLoading] = useState(false);
+
+  const inspectionInterval = adDetail?.inspectionInterval ?? "";
+
+  const patchFormData = useCallback(
+    (
+      patch:
+        | Partial<AdWorkOrderFormData>
+        | ((prev: AdWorkOrderFormData) => AdWorkOrderFormData)
+    ) => {
+      setFormData((prev) => {
+        const next =
+          typeof patch === "function"
+            ? patch(prev)
+            : { ...prev, ...patch };
+        return applyAdWorkOrderNextDue(next, inspectionInterval);
+      });
+    },
+    [inspectionInterval]
+  );
 
   const [atlOptions, setAtlOptions] = useState<AtlItem[]>([]);
   const [atlSearch, setAtlSearch] = useState("");
@@ -234,6 +295,28 @@ export function ADWorkOrders() {
   }, [fetchWorkOrders]);
 
   useEffect(() => {
+    if (!hasValidParams) {
+      setAdDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setAdDetailLoading(true);
+    getAircraftAdMonitoringById(aircraft_fk, ad_monitoring_fk)
+      .then((entry) => {
+        if (!cancelled) setAdDetail(entry);
+      })
+      .catch(() => {
+        if (!cancelled) setAdDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAdDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraft_fk, ad_monitoring_fk, hasValidParams]);
+
+  useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
 
@@ -267,9 +350,10 @@ export function ADWorkOrders() {
     const run = async () => {
       setAtlLoading(true);
       try {
-        const list = await getAtlList(
+        const list = await searchAtlOptionsForTcc(
           atlSearchDebounced.trim(),
-          aircraft_fk > 0 ? aircraft_fk : undefined
+          aircraft_fk > 0 ? aircraft_fk : undefined,
+          { resultLineStyle: "adWorkOrder" }
         );
         if (!cancelled.current) setAtlOptions(list);
       } finally {
@@ -295,6 +379,11 @@ export function ADWorkOrders() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [showAddModal, atlOpen]);
+
+  useEffect(() => {
+    if (!showAddModal) return;
+    setFormData((prev) => applyAdWorkOrderNextDue(prev, inspectionInterval));
+  }, [showAddModal, inspectionInterval]);
 
   const resetForm = () => {
     setFormData({
@@ -411,15 +500,20 @@ export function ADWorkOrders() {
 
   const openEdit = (item: WorkOrderAdMonitoring) => {
     setEditingWorkOrder(item);
-    setFormData({
-      woNumber: item.woNumber,
-      lastDoneActt: String(item.lastDoneActt ?? ""),
-      lastDoneTach: String(item.lastDoneTach ?? ""),
-      lastDoneDate: toDateInputValue(item.lastDoneDate),
-      nextDoneActt: String(item.nextDoneActt ?? ""),
-      nextDueTach: String(item.nextDueTach ?? ""),
-      atlRef: item.atlRef ?? "",
-    });
+    setFormData(
+      applyAdWorkOrderNextDue(
+        {
+          woNumber: item.woNumber,
+          lastDoneActt: String(item.lastDoneActt ?? ""),
+          lastDoneTach: String(item.lastDoneTach ?? ""),
+          lastDoneDate: formatDateForApi(item.lastDoneDate),
+          nextDoneActt: "",
+          nextDueTach: "",
+          atlRef: item.atlRef ?? "",
+        },
+        inspectionInterval
+      )
+    );
     setShowAddModal(true);
   };
 
@@ -712,8 +806,30 @@ export function ADWorkOrders() {
             </DropdownMenu>
           </div>
         </div>
-        <div>
-          <h2 className="text-gray-900">Work Orders — AD Monitoring</h2>
+        <div className="space-y-2">
+          <h2 className="text-gray-900">
+            {adDetailLoading
+              ? "AD Monitoring"
+              : adDetail
+              ? "Work Orders"
+              : "Work Orders — AD Monitoring"}
+          </h2>
+          {adDetail && !adDetailLoading && (
+            <>
+              <p className="text-sm text-gray-500 flex flex-wrap items-center gap-x-1 gap-y-1">
+                <span>
+                  AD Number: {adDetail.adNumber || "—"} · Subject:{" "}
+                  {adDetail.subject || "—"} · Web Link:
+                </span>
+                <AdWebLinkButton webLink={adDetail.webLink} />
+              </p>
+              <p className="text-sm text-gray-500">
+                Inspection interval: {adDetail.inspectionInterval || "—"} · Date
+                of effectivity:{" "}
+                {formatDisplayDate(adDetail.compliDate, { fallback: "—" })}
+              </p>
+            </>
+          )}
         </div>
       </div>
 
@@ -767,7 +883,7 @@ export function ADWorkOrders() {
                       WO NUMBER
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-l border-gray-200">
-                      LAST DONE ACTT
+                      LAST DONE AFTT
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
                       LAST DONE TACH
@@ -776,7 +892,7 @@ export function ADWorkOrders() {
                       LAST DONE DATE
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider">
-                      NEXT DUE ACTT
+                      NEXT DUE AFTT
                     </th>
                     <th className="px-5 py-3 text-left text-gray-900 text-xs uppercase tracking-wider border-r border-gray-200">
                       NEXT DUE TACH
@@ -815,7 +931,9 @@ export function ADWorkOrders() {
                           {wo.lastDoneTach}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">
-                          {formatDateDisplay(wo.lastDoneDate)}
+                          {formatDisplayDate(wo.lastDoneDate, {
+                            fallback: "—",
+                          })}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900">
                           {wo.nextDoneActt}
@@ -931,112 +1049,18 @@ export function ADWorkOrders() {
                   placeholder="e.g., 17212-A-000343"
                   value={formData.woNumber}
                   onChange={(e) =>
-                    setFormData({ ...formData, woNumber: e.target.value })
+                    patchFormData({ woNumber: e.target.value })
                   }
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-              </div>
-              <div>
-                <div className="text-amber-600 text-sm mb-2">Last Done</div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      ACTT
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 60"
-                      value={formData.lastDoneActt}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          lastDoneActt: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      Tach
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 60"
-                      value={formData.lastDoneTach}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          lastDoneTach: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      Date
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.lastDoneDate}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          lastDoneDate: e.target.value,
-                        })
-                      }
-                      className="w-full min-w-[120px] px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div>
-                <div className="text-amber-600 text-sm mb-2">Next Due</div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      ACTT
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 6180.1"
-                      value={formData.nextDoneActt}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          nextDoneActt: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-gray-700 text-xs mb-1.5">
-                      Tach
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 6170.6"
-                      value={formData.nextDueTach}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          nextDueTach: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
               </div>
               <div>
                 <label className="block text-gray-900 text-sm font-medium mb-1">
                   Sequence No.
                 </label>
                 <p className="text-xs text-gray-500 mb-2">
-                  ATL Reference (sequence no.) — search and select from this
-                  aircraft&apos;s ATL list.
+                  Search by sequence number. Selecting a row fills Last Done
+                  AFTT, Tach, and Date from that ATL.
                 </p>
                 <Popover open={atlOpen} onOpenChange={setAtlOpen} modal={false}>
                   <PopoverAnchor ref={atlAnchorRef} className="block w-full">
@@ -1055,7 +1079,7 @@ export function ADWorkOrders() {
                         onChange={(e) => {
                           const val = e.target.value;
                           setAtlSearch(val);
-                          setFormData((prev) => ({ ...prev, atlRef: val }));
+                          patchFormData({ atlRef: val });
                           setAtlOpen(true);
                         }}
                         onFocus={() => {
@@ -1064,7 +1088,7 @@ export function ADWorkOrders() {
                             setAtlSearch(formData.atlRef);
                           }
                         }}
-                        placeholder="Type or search ATL sequence number..."
+                        placeholder="Search by sequence number..."
                         className={cn(
                           "w-full min-h-[2.75rem] pl-3 pr-10 py-2.5 text-sm leading-normal",
                           "rounded-lg border border-gray-300 bg-white text-gray-900 shadow-sm",
@@ -1150,8 +1174,6 @@ export function ADWorkOrders() {
                           {atlOptions.map((opt) => {
                             const seq = opt.sequenceNo ?? String(opt.id);
                             const isSelected = seq === formData.atlRef;
-                            const nof = opt.natureOfFlightDisplay ?? "—";
-                            const acReg = opt.aircraftRegistration ?? "—";
                             return (
                               <li key={opt.id}>
                                 <button
@@ -1159,28 +1181,46 @@ export function ADWorkOrders() {
                                   role="option"
                                   aria-selected={isSelected}
                                   className={cn(
-                                    "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors",
+                                    "w-full px-3 py-2.5 text-left text-sm transition-colors tabular-nums",
                                     isSelected
-                                      ? "bg-blue-50 text-blue-900"
+                                      ? "bg-blue-50 text-blue-900 font-medium"
                                       : "text-gray-900 hover:bg-gray-50 active:bg-gray-100"
                                   )}
                                   onMouseDown={(e) => {
                                     e.preventDefault();
-                                    setFormData((prev) => ({
-                                      ...prev,
-                                      atlRef: seq,
-                                    }));
+                                    patchFormData((prev) => {
+                                      const next = {
+                                        ...prev,
+                                        atlRef: seq,
+                                      };
+                                      if (
+                                        opt.cpcpLastDoneAftt != null &&
+                                        opt.cpcpLastDoneAftt !== ""
+                                      ) {
+                                        next.lastDoneActt =
+                                          opt.cpcpLastDoneAftt;
+                                      }
+                                      if (
+                                        opt.cpcpLastDoneTach != null &&
+                                        opt.cpcpLastDoneTach !== ""
+                                      ) {
+                                        next.lastDoneTach =
+                                          opt.cpcpLastDoneTach;
+                                      }
+                                      if (
+                                        opt.cpcpLastDoneDate != null &&
+                                        opt.cpcpLastDoneDate !== ""
+                                      ) {
+                                        next.lastDoneDate =
+                                          opt.cpcpLastDoneDate;
+                                      }
+                                      return next;
+                                    });
                                     setAtlSearch(seq);
                                     setAtlOpen(false);
                                   }}
                                 >
-                                  <span className="font-semibold tabular-nums text-gray-900">
-                                    {seq}
-                                  </span>
-                                  <span className="text-gray-300">·</span>
-                                  <span className="text-gray-700">{nof}</span>
-                                  <span className="text-gray-300">·</span>
-                                  <span className="text-gray-700">{acReg}</span>
+                                  {opt.label}
                                 </button>
                               </li>
                             );
@@ -1190,6 +1230,92 @@ export function ADWorkOrders() {
                     </div>
                   </PopoverContent>
                 </Popover>
+              </div>
+              <div>
+                <div className="text-amber-600 text-sm mb-2">Last Done</div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      AFTT
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., 60"
+                      value={formData.lastDoneActt}
+                      onChange={(e) =>
+                        patchFormData({ lastDoneActt: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      Tach
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g., 60"
+                      value={formData.lastDoneTach}
+                      onChange={(e) =>
+                        patchFormData({ lastDoneTach: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      Date
+                    </label>
+                    <DateInput
+                      value={formData.lastDoneDate}
+                      onChange={(lastDoneDate) =>
+                        patchFormData({ lastDoneDate })
+                      }
+                      className="min-w-[120px]"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-amber-600 text-sm mb-1">Next Due</div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Inspection Interval
+                  {inspectionInterval.trim()
+                    ? ` (${inspectionInterval.trim()})`
+                    : " (set interval on the AD record)"}
+                  .
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      AFTT
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      tabIndex={-1}
+                      placeholder="—"
+                      value={formData.nextDoneActt}
+                      className="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700 cursor-not-allowed"
+                      aria-readonly="true"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-gray-700 text-xs mb-1.5">
+                      Tach
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      tabIndex={-1}
+                      placeholder="—"
+                      value={formData.nextDueTach}
+                      className="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700 cursor-not-allowed"
+                      aria-readonly="true"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 shrink-0">

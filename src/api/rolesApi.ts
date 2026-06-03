@@ -170,19 +170,31 @@ export const getRolesPaged = async (
   return { items, total: Number(total), page: raw.page ?? page, pages: Number(pages) };
 };
 
+/** Request body fields for role name/description (backend may use either key). */
+function buildRoleWriteBody(
+  payload: { name: string; description: string },
+  permissions?: Permission[]
+): Record<string, unknown> {
+  const name = payload.name.trim();
+  const description = payload.description.trim();
+  const body: Record<string, unknown> = {
+    name,
+    description,
+    role_description: description,
+  };
+  if (Array.isArray(permissions) && permissions.length) {
+    body.permissions = permissions;
+  }
+  return body;
+}
+
 /** Create role: POST /api/v1/roles/ — returns created role with permissions (RoleReadWithPermissions). */
 export const createRole = async (
   payload: CreateRolePayload,
   permissions?: Permission[]
 ): Promise<RoleWithPermissions> => {
   const perms = Array.isArray(permissions) ? permissions : payload.permissions ?? [];
-  const body: Record<string, unknown> = {
-    name: payload.name,
-    description: payload.description,
-  };
-  if (perms.length) {
-    body.permissions = perms;
-  }
+  const body = buildRoleWriteBody(payload, perms.length ? perms : undefined);
   const response = await apiClient.post("roles/", body);
   const raw = response.data ?? {};
   const data = (raw as Record<string, unknown>).data ?? raw;
@@ -196,13 +208,7 @@ export const updateRole = async (
   payload: { name: string; description: string },
   permissions?: Permission[]
 ): Promise<RoleWithPermissions> => {
-  const body: Record<string, unknown> = {
-    name: payload.name,
-    description: payload.description,
-  };
-  if (Array.isArray(permissions) && permissions.length) {
-    body.permissions = permissions;
-  }
+  const body = buildRoleWriteBody(payload, permissions);
   const response = await apiClient.put(`roles/${id}/`, body);
   const raw = response.data ?? {};
   const data = (raw as Record<string, unknown>).data ?? raw;

@@ -18,7 +18,11 @@ import {
   TableRow,
 } from "./ui/table";
 import type { Aircraft } from "../types/Aircraft";
-import { toCamel } from "../utility/utils";
+import {
+  toCamel,
+  formatDisplayDate,
+  formatDisplayDateTime,
+} from "../utility/utils";
 
 const HISTORY_PAGE_SIZE = 10;
 
@@ -43,14 +47,10 @@ function isDateLikeValue(value: string): boolean {
 
 function formatDateLike(value: string): string {
   if (!isDateLikeValue(value)) return value;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return parsed.toLocaleDateString();
+    return formatDisplayDate(value, { fallback: value });
   }
-
-  return parsed.toLocaleString();
+  return formatDisplayDateTime(value, { fallback: value });
 }
 
 function formatCellValue(value: unknown): string {

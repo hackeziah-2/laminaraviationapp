@@ -35,6 +35,8 @@ import * as modulesApi from "../api/modulesApi";
 import { MODULE_PERMISSIONS_LIST } from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
 interface User {
   id: number;
@@ -52,6 +54,7 @@ interface User {
   lastDone: string;
   createdDate: string;
   auth_initial_doi?: string | null;
+  auth_stamp?: string | null;
 }
 
 /** Role (including user_count from GET /v1/roles/roles-list) */
@@ -96,6 +99,7 @@ interface AddUserModalProps {
     password: string;
     confirmPassword: string;
     auth_initial_doi: string;
+    auth_stamp: string;
   }) => void | Promise<void>;
 }
 
@@ -491,6 +495,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
     password: "",
     confirmPassword: "",
     auth_initial_doi: null,
+    auth_stamp: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -543,6 +548,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
         password: "",
         confirmPassword: "",
         auth_initial_doi: null,
+        auth_stamp: "",
       });
       setErrors({});
       onClose();
@@ -701,15 +707,30 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Authorization Initial DOI (Date of Issuance)
+              Auth No / Auth Stamp
             </label>
             <input
-              type="date"
-              value={formData.auth_initial_doi || null}
+              type="text"
+              value={formData.auth_stamp}
               onChange={(e) =>
-                setFormData({ ...formData, auth_initial_doi: e.target.value })
+                setFormData({ ...formData, auth_stamp: e.target.value })
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter authorization number / stamp"
+              autoComplete="off"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Authorization Initial DOI (Date of Issuance)
+            </label>
+            <DateInput
+              value={formData.auth_initial_doi ?? ""}
+              onChange={(auth_initial_doi) =>
+                setFormData({ ...formData, auth_initial_doi })
+              }
+              inputClassName="border-gray-300 rounded-lg text-sm"
             />
           </div>
 
@@ -819,6 +840,7 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
                   password: "",
                   confirmPassword: "",
                   auth_initial_doi: "",
+                  auth_stamp: "",
                 });
                 setErrors({});
               }}
@@ -862,6 +884,7 @@ function EditUserModal({
     role_id: user?.roleId || 0,
     status: user?.status || "active",
     auth_initial_doi: user?.auth_initial_doi || "",
+    auth_stamp: user?.auth_stamp || "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -880,11 +903,12 @@ function EditUserModal({
         role_id: user.roleId || 0,
         status: user.status || "active",
         auth_initial_doi: user.auth_initial_doi || "",
+        auth_stamp: user.auth_stamp || "",
       }));
     }
   }, [user]);
 
-  // Load auth_initial_doi when opening edit (not returned by list API)
+  // Load auth_initial_doi and auth_stamp when opening edit (not returned by list API)
   React.useEffect(() => {
     if (!isOpen || !user?.id) return;
     accountApi
@@ -893,6 +917,7 @@ function EditUserModal({
         setFormData((prev) => ({
           ...prev,
           auth_initial_doi: info.auth_initial_doi || "",
+          auth_stamp: info.auth_stamp || "",
         }));
       })
       .catch(() => {});
@@ -943,6 +968,7 @@ function EditUserModal({
           role: resolvedRole,
           status: formData.status as "active" | "inactive",
           auth_initial_doi: formData.auth_initial_doi || null,
+          auth_stamp: formData.auth_stamp.trim() || null,
         })
       );
       onClose();
@@ -1098,15 +1124,29 @@ function EditUserModal({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Authorization Initial DOI (Date of Issuance)
+              Auth No / Auth Stamp
             </label>
             <input
-              type="date"
-              value={formData.auth_initial_doi}
+              type="text"
+              value={formData.auth_stamp}
               onChange={(e) =>
-                setFormData({ ...formData, auth_initial_doi: e.target.value })
+                setFormData({ ...formData, auth_stamp: e.target.value })
               }
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter authorization number / stamp"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Authorization Initial DOI (Date of Issuance)
+            </label>
+            <DateInput
+              value={formData.auth_initial_doi}
+              onChange={(auth_initial_doi) =>
+                setFormData({ ...formData, auth_initial_doi })
+              }
+              inputClassName="border-gray-300 rounded-lg text-sm"
             />
           </div>
           <div>
@@ -2107,18 +2147,10 @@ export function Settings() {
 
   const [roles, setRoles] = useState<Role[]>(defaultRoles);
 
-  const formatReadableDateTime = useCallback((value?: string) => {
-    if (!value) return "Never";
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-    return parsed.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, []);
+  const formatReadableDateTime = useCallback(
+    (value?: string) => formatDisplayDateTime(value, { fallback: "Never" }),
+    []
+  );
 
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -2150,9 +2182,7 @@ export function Settings() {
         role: roleLabel,
         status: acc.status ? "active" : "inactive",
         lastDone: formatReadableDateTime(acc.lastLogin),
-        createdDate: acc.createdAt
-          ? new Date(acc.createdAt).toLocaleDateString()
-          : "-",
+        createdDate: formatDisplayDate(acc.createdAt),
       };
     },
     [roles, formatReadableDateTime]
@@ -2973,6 +3003,8 @@ export function Settings() {
                           {canUpdate("settings") && (
                             <button
                               onClick={async () => {
+                                const fallbackPerms =
+                                  getDefaultModulePermissions(modulesList);
                                 try {
                                   const roleWithPerms = await rolesApi.getRole(
                                     role.id
@@ -2980,24 +3012,30 @@ export function Settings() {
                                   const perms =
                                     roleWithPerms.permissions?.length > 0
                                       ? roleWithPerms.permissions
-                                      : getDefaultModulePermissions(
-                                          modulesList
-                                        );
+                                      : fallbackPerms;
+                                  const roleForEdit: Role = {
+                                    id: roleWithPerms.id,
+                                    name: roleWithPerms.name || role.name,
+                                    description:
+                                      roleWithPerms.description ||
+                                      role.description ||
+                                      "",
+                                    userCount:
+                                      roleWithPerms.userCount ?? role.userCount,
+                                  };
                                   setCustomPermissions((prev) => ({
                                     ...prev,
-                                    [role.name]: perms,
+                                    [roleForEdit.name]: perms,
                                   }));
-                                  setSelectedRoleForEdit(role);
-                                  setShowEditRoleModal(true);
+                                  setSelectedRoleForEdit(roleForEdit);
                                 } catch {
                                   setCustomPermissions((prev) => ({
                                     ...prev,
-                                    [role.name]:
-                                      getDefaultModulePermissions(modulesList),
+                                    [role.name]: fallbackPerms,
                                   }));
                                   setSelectedRoleForEdit(role);
-                                  setShowEditRoleModal(true);
                                 }
+                                setShowEditRoleModal(true);
                               }}
                               type="button"
                               className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
@@ -3259,6 +3297,7 @@ export function Settings() {
               status: true,
               password: newUser.password,
               auth_initial_doi: newUser.auth_initial_doi?.trim() || undefined,
+              auth_stamp: newUser.auth_stamp?.trim() || undefined,
             });
             setShowAddUserModal(false);
             await fetchUsersList();
@@ -3301,6 +3340,7 @@ export function Settings() {
               roleId: updatedUser.roleId,
               status: updatedUser.status === "active",
               auth_initial_doi: updatedUser.auth_initial_doi || null,
+              auth_stamp: updatedUser.auth_stamp ?? null,
             });
             setShowEditUserModal(false);
             setSelectedUser(null);
@@ -3414,18 +3454,27 @@ export function Settings() {
           try {
             const result = await rolesApi.updateRole(
               updatedRole.id,
-              { name: updatedRole.name, description: updatedRole.description },
+              {
+                name: updatedRole.name.trim(),
+                description: updatedRole.description.trim(),
+              },
               updatedPermissions
             );
+            const savedRole: Role = {
+              id: result.id,
+              name: result.name,
+              description: result.description,
+              userCount: result.userCount ?? updatedRole.userCount,
+            };
             setRoles((prev) =>
-              prev.map((r) => (r.id === updatedRole.id ? result : r))
+              prev.map((r) => (r.id === savedRole.id ? savedRole : r))
             );
             fetchRoles();
             setCustomPermissions((prev) => {
               const next = { ...prev };
               const oldName = selectedRoleForEdit?.name;
-              if (oldName && oldName !== updatedRole.name) delete next[oldName];
-              next[updatedRole.name] = result.permissions?.length
+              if (oldName && oldName !== savedRole.name) delete next[oldName];
+              next[savedRole.name] = result.permissions?.length
                 ? result.permissions
                 : updatedPermissions;
               return next;
@@ -3434,7 +3483,7 @@ export function Settings() {
             setSelectedRoleForEdit(null);
             await Swal.fire({
               title: "Success!",
-              text: `Role ${updatedRole.name} has been updated successfully!`,
+              text: `Role ${savedRole.name} has been updated successfully!`,
               icon: "success",
               confirmButtonColor: "#1f2937",
             });
@@ -3477,21 +3526,30 @@ export function Settings() {
         onCreate={async (newRole, permissions) => {
           try {
             const created = await rolesApi.createRole(
-              { name: newRole.name, description: newRole.description },
+              {
+                name: newRole.name.trim(),
+                description: newRole.description.trim(),
+              },
               permissions
             );
-            setRoles((prev) => [...prev, created]);
+            const savedRole: Role = {
+              id: created.id,
+              name: created.name,
+              description: created.description,
+              userCount: created.userCount ?? 0,
+            };
+            setRoles((prev) => [...prev, savedRole]);
             fetchRoles();
             setCustomPermissions((prev) => ({
               ...prev,
-              [created.name]: created.permissions?.length
+              [savedRole.name]: created.permissions?.length
                 ? created.permissions
                 : permissions,
             }));
             setShowCreateRoleModal(false);
             await Swal.fire({
               title: "Success!",
-              text: `Role ${created.name} has been created successfully!`,
+              text: `Role ${savedRole.name} has been created successfully!`,
               icon: "success",
               confirmButtonColor: "#1f2937",
             });

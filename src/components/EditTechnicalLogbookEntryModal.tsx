@@ -8,8 +8,10 @@ import {
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
 import {
-  isAtlEditAllowedForRoleAndWorkStatus,
-  isTechnicalPublicationAwaitingAttachmentRestrictedEdit,
+  ATL_EDIT_FORBIDDEN_MESSAGE,
+  canEditAtlFields,
+  canOpenAtlEditModal,
+  isTechnicalPublicationRestrictedEdit,
 } from "../utility/atlEditRbac";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 
@@ -132,20 +134,8 @@ export function EditTechnicalLogbookEntryModal({
     );
   }
 
-  // Entry loaded: enforce role + work_status before showing the edit form
   if (fullEntry) {
-    const applyTechPubAttachmentOnlyRestriction =
-      isTechnicalPublicationAwaitingAttachmentRestrictedEdit(
-        effectiveViewerRole,
-        fullEntry.workStatus
-      ) || editRestrictedToWhiteAtlDfpOnly;
-
-    if (
-      !isAtlEditAllowedForRoleAndWorkStatus(
-        effectiveViewerRole,
-        fullEntry.workStatus
-      )
-    ) {
+    if (!canOpenAtlEditModal(effectiveViewerRole)) {
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -154,13 +144,7 @@ export function EditTechnicalLogbookEntryModal({
             aria-hidden="true"
           />
           <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col p-6 gap-4">
-            <p className="text-gray-800 text-sm">
-              You cannot edit this ATL entry for your role while work status is{" "}
-              <span className="font-medium">
-                {(fullEntry.workStatus || "unset").replace(/_/g, " ")}
-              </span>
-              .
-            </p>
+            <p className="text-gray-800 text-sm">{ATL_EDIT_FORBIDDEN_MESSAGE}</p>
             <button
               type="button"
               onClick={onClose}
@@ -172,6 +156,18 @@ export function EditTechnicalLogbookEntryModal({
         </div>
       );
     }
+
+    const applyTechPubAttachmentOnlyRestriction =
+      isTechnicalPublicationRestrictedEdit(
+        effectiveViewerRole,
+        fullEntry.workStatus
+      ) || editRestrictedToWhiteAtlDfpOnly;
+
+    const readOnlyEntry = !canEditAtlFields(
+      effectiveViewerRole,
+      fullEntry.workStatus
+    );
+
     return (
       <AddTechnicalLogbookEntryModal
         isOpen={true}
@@ -184,6 +180,7 @@ export function EditTechnicalLogbookEntryModal({
         editRestrictedToWhiteAtlDfpOnly={
           applyTechPubAttachmentOnlyRestriction
         }
+        forceReadOnly={readOnlyEntry}
         listViewComputedTimes={listViewComputedTimes}
       />
     );

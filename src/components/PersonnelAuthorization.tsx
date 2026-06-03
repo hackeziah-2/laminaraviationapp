@@ -29,6 +29,11 @@ import {
   type PersonnelAuthorizationRecord,
   type PersonnelComplianceItemType,
 } from "../api/personnelAuthorizationApi";
+import { formatDateForApi, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
+
+const displayDate = (v?: string | null) =>
+  formatDisplayDate(v ?? undefined, { fallback: "—" });
 import {
   getAuthorizationScopeCessnaList,
   getAuthorizationScopeBaronList,
@@ -174,14 +179,19 @@ const PERSONNEL_STICKY_TH: readonly [string, string, string, string, string] = [
   "sticky left-[30.5rem] z-30 min-w-[7.5rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
 ];
 
-const PERSONNEL_STICKY_TD_BASE: readonly [string, string, string, string, string] =
-  [
-    "sticky left-0 z-20 min-w-[6.75rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
-    "sticky left-[6.75rem] z-20 min-w-[9rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
-    "sticky left-[15.75rem] z-20 min-w-[6.75rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
-    "sticky left-[22.5rem] z-20 min-w-[8rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
-    "sticky left-[30.5rem] z-20 min-w-[7.5rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
-  ];
+const PERSONNEL_STICKY_TD_BASE: readonly [
+  string,
+  string,
+  string,
+  string,
+  string
+] = [
+  "sticky left-0 z-20 min-w-[6.75rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+  "sticky left-[6.75rem] z-20 min-w-[9rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+  "sticky left-[15.75rem] z-20 min-w-[6.75rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+  "sticky left-[22.5rem] z-20 min-w-[8rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+  "sticky left-[30.5rem] z-20 min-w-[7.5rem] border-r border-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]",
+];
 
 function personnelStickyTd(
   col: 0 | 1 | 2 | 3 | 4,
@@ -325,12 +335,7 @@ export function PersonnelAuthorization() {
     } finally {
       setListLoading(false);
     }
-  }, [
-    listGroupBy,
-    itemTypeFilter,
-    expiryDateSort,
-    debouncedNameSearch,
-  ]);
+  }, [listGroupBy, itemTypeFilter, expiryDateSort, debouncedNameSearch]);
 
   const total = personnel.length;
   const totalPages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
@@ -451,11 +456,7 @@ export function PersonnelAuthorization() {
 
   const openViewEditModal = (person: Personnel) => {
     setEditingPersonnel(person);
-    const toDateInput = (s: string) => {
-      if (!s || s === "—") return "";
-      const d = new Date(s);
-      return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
-    };
+    const toDateInput = (s: string) => formatDateForApi(s);
     setCreateForm({
       accountInformationId: person.accountInformationId ?? 0,
       authorizationNumber: person.authorizationNo,
@@ -489,7 +490,8 @@ export function PersonnelAuthorization() {
     if (!createForm.authorizationNumber.trim())
       newErrors.authorizationNumber = "Authorization number is required";
     if (!createForm.name.trim()) newErrors.name = "Name is required";
-    if (!createForm.position.trim()) newErrors.position = "Position is required";
+    if (!createForm.position.trim())
+      newErrors.position = "Position is required";
     if (!createForm.itemType) newErrors.itemType = "Item type is required";
     if (
       !createForm.accountInformationId ||
@@ -514,7 +516,8 @@ export function PersonnelAuthorization() {
       expiryMissing = !createForm.hfTrainingExpiry.trim();
     }
     if (expiryMissing)
-      newErrors.expiryDate = "Expiry date is required for the selected item type";
+      newErrors.expiryDate =
+        "Expiry date is required for the selected item type";
     setCreateFormErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -659,11 +662,11 @@ export function PersonnelAuthorization() {
           p.name,
           p.position,
           p.licNoType,
-          p.authInitialDOI,
-          p.authIssueDate,
+          displayDate(p.authInitialDOI),
+          displayDate(p.authIssueDate),
           itemTypeDisplayLabel(p.itemType) || p.itemType || "",
           p.authorizationScope,
-          p.expiryDate,
+          displayDate(p.expiryDate),
         ]);
         if (format === "csv") {
           const headerLine = [...MATRIX1_EXPORT_HEADERS]
@@ -697,17 +700,17 @@ export function PersonnelAuthorization() {
           p.name,
           p.position,
           p.licNoType,
-          p.authInitialDOI,
-          p.authIssueDate,
-          p.authExpiryDate,
+          displayDate(p.authInitialDOI),
+          displayDate(p.authIssueDate),
+          displayDate(p.authExpiryDate),
           p.scopeCessna,
           p.scopeBaron,
           p.scopeOthers,
-          p.othersExpiryDate,
-          p.caapLicExpiry,
-          p.hfTrainingExpiry,
-          p.typeTrainingCessna,
-          p.typeTrainingBaron,
+          displayDate(p.othersExpiryDate),
+          displayDate(p.caapLicExpiry),
+          displayDate(p.hfTrainingExpiry),
+          displayDate(p.typeTrainingCessna),
+          displayDate(p.typeTrainingBaron),
         ]);
         if (format === "csv") {
           const headerLine = [...MATRIX2_EXPORT_HEADERS]
@@ -1078,9 +1081,7 @@ export function PersonnelAuthorization() {
                   <th className={PERSONNEL_STICKY_TH[1]}>NAME</th>
                   <th className={PERSONNEL_STICKY_TH[2]}>POSITION</th>
                   <th className={PERSONNEL_STICKY_TH[3]}>LIC NO / TYPE</th>
-                  <th className={PERSONNEL_STICKY_TH[4]}>
-                    AUTH INITIAL DOI
-                  </th>
+                  <th className={PERSONNEL_STICKY_TH[4]}>AUTH INITIAL DOI</th>
                   <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
                     AUTH ISSUE DATE
                   </th>
@@ -1245,7 +1246,11 @@ export function PersonnelAuthorization() {
                 </tr>
               ) : personnel.length > 0 ? (
                 personnelPage.map((person, rowIndex) => {
-                  const rowKey = `${(currentPage - 1) * itemsPerPage + rowIndex}-${person.id}-${person.itemType || ""}-${person.expiryDate || ""}-${person.authorizationNo || ""}`;
+                  const rowKey = `${
+                    (currentPage - 1) * itemsPerPage + rowIndex
+                  }-${person.id}-${person.itemType || ""}-${
+                    person.expiryDate || ""
+                  }-${person.authorizationNo || ""}`;
                   const isWithhold =
                     person.isWithhold ??
                     (person as { is_withhold?: boolean }).is_withhold ??
@@ -1313,9 +1318,15 @@ export function PersonnelAuthorization() {
                             cellClass
                           )}
                         >
-                          {person.authInitialDOI}
+                          {formatDisplayDate(person.authInitialDOI, {
+                            fallback: "—",
+                          })}
                         </td>
-                        <td className={cellClass}>{person.authIssueDate}</td>
+                        <td className={cellClass}>
+                          {formatDisplayDate(person.authIssueDate, {
+                            fallback: "—",
+                          })}
+                        </td>
                         <td className={cellClass}>
                           <div className="uppercase">
                             {person.itemType ? (
@@ -1331,13 +1342,11 @@ export function PersonnelAuthorization() {
                           )}
                         </td>
                         <td className={cellClass}>
-                          {person.expiryDate || (
-                            <span className={placeholderClass}>—</span>
-                          )}
+                          {formatDisplayDate(person.expiryDate, {
+                            fallback: "",
+                          }) || <span className={placeholderClass}>—</span>}
                         </td>
-                        <td
-                          className={`${cellClassNoWrap} whitespace-nowrap`}
-                        >
+                        <td className={`${cellClassNoWrap} whitespace-nowrap`}>
                           <div className="flex items-center gap-1">
                             <button
                               type="button"
@@ -1362,9 +1371,7 @@ export function PersonnelAuthorization() {
                             {canDelete("regulatory-compliance") && (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  handleDeletePersonnel(person.id)
-                                }
+                                onClick={() => handleDeletePersonnel(person.id)}
                                 className="p-2 text-red-600 hover:bg-red-50 rounded"
                                 title="Delete"
                                 aria-label="Delete"
@@ -1401,7 +1408,11 @@ export function PersonnelAuthorization() {
                         {person.name}
                       </td>
                       <td
-                        className={personnelStickyTd(2, isWithhold, cellClassNoWrap)}
+                        className={personnelStickyTd(
+                          2,
+                          isWithhold,
+                          cellClassNoWrap
+                        )}
                       >
                         {person.position}
                       </td>
@@ -1415,13 +1426,19 @@ export function PersonnelAuthorization() {
                       <td
                         className={personnelStickyTd(4, isWithhold, cellClass)}
                       >
-                        {person.authInitialDOI}
+                        {formatDisplayDate(person.authInitialDOI, {
+                          fallback: "—",
+                        })}
                       </td>
-                      <td className={cellClass}>{person.authIssueDate}</td>
                       <td className={cellClass}>
-                        {person.authExpiryDate || (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                        {formatDisplayDate(person.authIssueDate, {
+                          fallback: "—",
+                        })}
+                      </td>
+                      <td className={cellClass}>
+                        {formatDisplayDate(person.authExpiryDate, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
                       </td>
                       <td className={cellClassNoWrap}>
                         {person.scopeCessna || (
@@ -1439,29 +1456,29 @@ export function PersonnelAuthorization() {
                         )}
                       </td>
                       <td className={cellClass}>
-                        {person.othersExpiryDate || (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                        {formatDisplayDate(person.othersExpiryDate, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
                       </td>
                       <td className={cellClass}>
-                        {person.caapLicExpiry || (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                        {formatDisplayDate(person.caapLicExpiry, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
                       </td>
                       <td className={cellClass}>
-                        {person.hfTrainingExpiry || (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                        {formatDisplayDate(person.hfTrainingExpiry, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
                       </td>
                       <td className={cellClass}>
-                        {person.typeTrainingCessna || (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                        {formatDisplayDate(person.typeTrainingCessna, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
                       </td>
                       <td className={cellClass}>
-                        {person.typeTrainingBaron || (
-                          <span className={placeholderClass}>—</span>
-                        )}
+                        {formatDisplayDate(person.typeTrainingBaron, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
                       </td>
                     </tr>
                   );
@@ -1541,7 +1558,7 @@ export function PersonnelAuthorization() {
               />
               <PersonnelDetailRow
                 label="Auth Initial DOI"
-                value={viewingPersonnel.authInitialDOI}
+                value={displayDate(viewingPersonnel.authInitialDOI)}
               />
               <div>
                 <span className="mb-0.5 block text-sm text-gray-500">
@@ -1551,12 +1568,12 @@ export function PersonnelAuthorization() {
               </div>
               <PersonnelDetailRow
                 label="Auth Issue Date"
-                value={viewingPersonnel.authIssueDate}
+                value={displayDate(viewingPersonnel.authIssueDate)}
               />
               {viewingItemType === "AUTH_EXPIRY" && (
                 <PersonnelDetailRow
                   label="Authorization Expiry Date"
-                  value={viewingPersonnel.authExpiryDate}
+                  value={displayDate(viewingPersonnel.authExpiryDate)}
                 />
               )}
               {viewingItemType === "CESSNA" && (
@@ -1567,7 +1584,7 @@ export function PersonnelAuthorization() {
                   />
                   <PersonnelDetailRow
                     label="Type Training Expiry (Cessna 150, 152, 172)"
-                    value={viewingPersonnel.typeTrainingCessna}
+                    value={displayDate(viewingPersonnel.typeTrainingCessna)}
                   />
                 </>
               )}
@@ -1579,7 +1596,7 @@ export function PersonnelAuthorization() {
                   />
                   <PersonnelDetailRow
                     label="Type Training Expiry (Baron 95-C55)"
-                    value={viewingPersonnel.typeTrainingBaron}
+                    value={displayDate(viewingPersonnel.typeTrainingBaron)}
                   />
                 </>
               )}
@@ -1591,20 +1608,20 @@ export function PersonnelAuthorization() {
                   />
                   <PersonnelDetailRow
                     label="Others Expiry Date"
-                    value={viewingPersonnel.othersExpiryDate}
+                    value={displayDate(viewingPersonnel.othersExpiryDate)}
                   />
                 </>
               )}
               {viewingItemType === "CAAP_LICENSE" && (
                 <PersonnelDetailRow
                   label="CAAP License Expiry:"
-                  value={viewingPersonnel.caapLicExpiry}
+                  value={displayDate(viewingPersonnel.caapLicExpiry)}
                 />
               )}
               {viewingItemType === "HF_TRAINING" && (
                 <PersonnelDetailRow
                   label="Human Factors Training Expiry"
-                  value={viewingPersonnel.hfTrainingExpiry}
+                  value={displayDate(viewingPersonnel.hfTrainingExpiry)}
                 />
               )}
             </div>
@@ -1886,13 +1903,12 @@ export function PersonnelAuthorization() {
                   <label className="block text-gray-700 text-sm mb-1.5">
                     Authorization Initial DOI (Date of Issuance)
                   </label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={createForm.authInitialDOI}
                     readOnly
-                    title="mm/dd/yyyy — From selected Authorization Number. Auto-filled (by-auth-stamp) when you select Authorization Number"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 text-gray-900 cursor-default [color-scheme:light]"
-                    placeholder="Select Authorization Number above"
+                    title="DD/MM/YYYY — From selected Authorization Number. Auto-filled (by-auth-stamp) when you select Authorization Number"
+                    onChange={() => {}}
+                    inputClassName="border-gray-300 rounded-md text-sm bg-gray-50 text-gray-900 cursor-default"
                     aria-describedby="auth-initial-doi-hint"
                   />
                   <p
@@ -1902,24 +1918,6 @@ export function PersonnelAuthorization() {
                     From selected Authorization Number
                     <br />
                   </p>
-                </div>
-
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Authorization Issue Date{" "}
-                    {/* <span className="text-red-500">*</span> */}
-                  </label>
-                  <input
-                    type="date"
-                    value={createForm.authIssueDate}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({
-                        ...prev,
-                        authIssueDate: e.target.value,
-                      }))
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                  />
                 </div>
 
                 <div>
@@ -1976,32 +1974,50 @@ export function PersonnelAuthorization() {
 
                 {createForm.itemType === "AUTH_EXPIRY" && (
                   <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Authorization Expiry Date{" "}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      name="expiry_date"
-                      required
-                      type="date"
-                      value={createForm.authExpiryDate}
-                      onChange={(e) => {
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          authExpiryDate: e.target.value,
-                        }));
-                        if (createFormErrors.expiryDate)
-                          setCreateFormErrors((prev) => ({
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Issue Date{" "}
+                        {/* <span className="text-red-500">*</span> */}
+                      </label>
+                      <DateInput
+                        value={createForm.authIssueDate}
+                        onChange={(authIssueDate) =>
+                          setCreateForm((prev) => ({
                             ...prev,
-                            expiryDate: "",
+                            authIssueDate,
+                          }))
+                        }
+                        inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Expiry Date{" "}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <DateInput
+                        name="expiry_date"
+                        required
+                        value={createForm.authExpiryDate}
+                        onChange={(authExpiryDate) => {
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            authExpiryDate,
                           }));
-                      }}
-                      className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
-                        createFormErrors.expiryDate
-                          ? "border-red-500"
-                          : "border-gray-300"
-                      }`}
-                    />
+                          if (createFormErrors.expiryDate)
+                            setCreateFormErrors((prev) => ({
+                              ...prev,
+                              expiryDate: "",
+                            }));
+                        }}
+                        aria-invalid={!!createFormErrors.expiryDate}
+                        inputClassName={`rounded-md text-sm bg-white text-gray-900 ${
+                          createFormErrors.expiryDate
+                            ? "border-red-500"
+                            : "border-gray-300"
+                        }`}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -2046,18 +2062,17 @@ export function PersonnelAuthorization() {
                         Type Training Expiry (Cessna 150, 152, 172){" "}
                         <span className="text-red-500">*</span>
                       </label>
-                      <input
+                      <DateInput
                         name="expiry_date"
                         required
-                        type="date"
                         value={createForm.typeTrainingCessna}
-                        onChange={(e) =>
+                        onChange={(typeTrainingCessna) =>
                           setCreateForm((prev) => ({
                             ...prev,
-                            typeTrainingCessna: e.target.value,
+                            typeTrainingCessna,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
                       />
                     </div>
                   </>
@@ -2104,18 +2119,17 @@ export function PersonnelAuthorization() {
                         Type Training Expiry (Baron 95-C55){" "}
                         <span className="text-red-500">*</span>
                       </label>
-                      <input
+                      <DateInput
                         name="expiry_date"
                         required
-                        type="date"
                         value={createForm.typeTrainingBaron}
-                        onChange={(e) =>
+                        onChange={(typeTrainingBaron) =>
                           setCreateForm((prev) => ({
                             ...prev,
-                            typeTrainingBaron: e.target.value,
+                            typeTrainingBaron,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
                       />
                     </div>
                   </>
@@ -2158,20 +2172,20 @@ export function PersonnelAuthorization() {
                     </div>
                     <div>
                       <label className="block text-gray-700 text-sm mb-1.5">
-                        Others Expiry Date <span className="text-red-500">*</span>
+                        Others Expiry Date{" "}
+                        <span className="text-red-500">*</span>
                       </label>
-                      <input
+                      <DateInput
                         name="others_expiry_date"
                         required
-                        type="date"
                         value={createForm.othersExpiryDate}
-                        onChange={(e) =>
+                        onChange={(othersExpiryDate) =>
                           setCreateForm((prev) => ({
                             ...prev,
-                            othersExpiryDate: e.target.value,
+                            othersExpiryDate,
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
                       />
                     </div>
                   </>
@@ -2183,18 +2197,17 @@ export function PersonnelAuthorization() {
                       CAAP License Expiry:{" "}
                       <span className="text-red-500">*</span>
                     </label>
-                    <input
+                    <DateInput
                       name="expiry_date"
                       required
-                      type="date"
                       value={createForm.caapLicExpiry}
-                      onChange={(e) =>
+                      onChange={(caapLicExpiry) =>
                         setCreateForm((prev) => ({
                           ...prev,
-                          caapLicExpiry: e.target.value,
+                          caapLicExpiry,
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
                     />
                   </div>
                 )}
@@ -2205,18 +2218,17 @@ export function PersonnelAuthorization() {
                       Human Factors Training Expiry{" "}
                       <span className="text-red-500">*</span>
                     </label>
-                    <input
+                    <DateInput
                       name="expiry_date"
                       required
-                      type="date"
                       value={createForm.hfTrainingExpiry}
-                      onChange={(e) =>
+                      onChange={(hfTrainingExpiry) =>
                         setCreateForm((prev) => ({
                           ...prev,
-                          hfTrainingExpiry: e.target.value,
+                          hfTrainingExpiry,
                         }))
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
                     />
                   </div>
                 )}
@@ -2230,10 +2242,8 @@ export function PersonnelAuthorization() {
               >
                 Cancel
               </button>
-              {((!editingPersonnel &&
-                canCreate("regulatory-compliance")) ||
-                (editingPersonnel &&
-                  canUpdate("regulatory-compliance"))) && (
+              {((!editingPersonnel && canCreate("regulatory-compliance")) ||
+                (editingPersonnel && canUpdate("regulatory-compliance"))) && (
                 <button
                   type="button"
                   onClick={handleCreateSubmit}

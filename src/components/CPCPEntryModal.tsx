@@ -7,6 +7,8 @@ import {
 } from "../api/atlApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDateForApi } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
 interface CPCPEntryModalProps {
   isOpen: boolean;
@@ -35,7 +37,11 @@ function resolveAtlIdFromInitial(
   const fromField = initialData.atlId;
   if (typeof fromField === "number" && fromField > 0) return fromField;
   const atlNested = initialData.atl;
-  if (atlNested && typeof atlNested === "object" && (atlNested as any).id != null) {
+  if (
+    atlNested &&
+    typeof atlNested === "object" &&
+    (atlNested as any).id != null
+  ) {
     const id = Number((atlNested as any).id);
     if (Number.isFinite(id) && id > 0) return id;
   }
@@ -60,15 +66,7 @@ function toDateInputValue(s: string | undefined): string {
   if (!s || !String(s).trim()) return "";
   const str = String(s).trim();
   if (str === "-" || str === "—") return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  const d = new Date(str);
-  if (!Number.isNaN(d.getTime())) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-  return str;
+  return formatDateForApi(str) || "";
 }
 
 const defaultFormData = {
@@ -323,7 +321,9 @@ export function CPCPEntryModal({
                 }`}
               />
               {errors.description && (
-                <p className="mt-1 text-xs text-red-600">{errors.description}</p>
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.description}
+                </p>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -355,7 +355,110 @@ export function CPCPEntryModal({
               </div>
             </div>
           </div>
-
+          <div className="mb-6" ref={atlListRef}>
+            <label className="block text-gray-900 text-sm font-medium mb-1.5">
+              ATL Reference (Search by Sequence No)
+            </label>
+            {!aircraftIdValid ? (
+              <p className="text-xs text-amber-700 mb-2">
+                A valid aircraft ID is required to search this aircraft&apos;s
+                ATL (including technical log fallback).
+              </p>
+            ) : null}
+            <div className="relative">
+              <input
+                type="text"
+                value={
+                  atlOpen
+                    ? atlSearch
+                    : atlOptions.find((o) =>
+                        matchesAtlSelection(o, formData.atl_ref)
+                      )?.label ?? formData.atl_ref
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAtlSearch(val);
+                  setFormData((prev) => ({
+                    ...prev,
+                    atl_ref: val,
+                    atlId: null,
+                  }));
+                  setAtlOpen(true);
+                }}
+                onFocus={() => {
+                  setAtlOpen(true);
+                  if (!atlSearch && formData.atl_ref)
+                    setAtlSearch(formData.atl_ref);
+                }}
+                onBlur={() => setTimeout(() => setAtlOpen(false), 200)}
+                placeholder="Search by ATL sequence number..."
+                className="w-full min-h-[2.75rem] pl-3 pr-9 py-2.5 text-sm leading-normal bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none shrink-0" />
+              {atlOpen && (
+                <div className="absolute z-20 w-full mt-1.5 bg-white border border-gray-300 rounded-lg shadow-lg max-h-52 overflow-auto">
+                  {atlLoading ? (
+                    <div className="px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
+                      <SpinnerIcon size="sm" aria-hidden />
+                      Loading ATL...
+                    </div>
+                  ) : atlOptions.length === 0 ? (
+                    <div className="px-3 py-3 text-sm text-gray-500">
+                      No ATL found. Try a different sequence number.
+                    </div>
+                  ) : (
+                    <ul className="py-1">
+                      {atlOptions.map((opt) => (
+                        <li key={opt.id}>
+                          <button
+                            type="button"
+                            className={`w-full px-3 py-2.5 text-left text-sm transition-colors ${
+                              formData.atlId === opt.id
+                                ? "bg-blue-50 text-blue-700 font-medium"
+                                : "text-gray-900 hover:bg-gray-50"
+                            }`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setFormData((prev) => {
+                                const next: typeof prev = {
+                                  ...prev,
+                                  atl_ref: opt.sequenceNo ?? String(opt.id),
+                                  atlId: opt.id,
+                                };
+                                if (
+                                  opt.cpcpLastDoneTach != null &&
+                                  opt.cpcpLastDoneTach !== ""
+                                ) {
+                                  next.last_done_tach = opt.cpcpLastDoneTach;
+                                }
+                                if (
+                                  opt.cpcpLastDoneAftt != null &&
+                                  opt.cpcpLastDoneAftt !== ""
+                                ) {
+                                  next.last_done_aftt = opt.cpcpLastDoneAftt;
+                                }
+                                if (
+                                  opt.cpcpLastDoneDate != null &&
+                                  opt.cpcpLastDoneDate !== ""
+                                ) {
+                                  next.last_done_date = opt.cpcpLastDoneDate;
+                                }
+                                return next;
+                              });
+                              setAtlSearch(opt.sequenceNo ?? String(opt.id));
+                              setAtlOpen(false);
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
           <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <div>
@@ -388,118 +491,16 @@ export function CPCPEntryModal({
                 <label className="block text-gray-900 text-sm mb-2">
                   Last Done Date
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   name="last_done_date"
                   value={formData.last_done_date}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            <div className="mb-6" ref={atlListRef}>
-              <label className="block text-gray-900 text-sm font-medium mb-1.5">
-                ATL Reference (Search by Sequence No)
-              </label>
-              {!aircraftIdValid ? (
-                <p className="text-xs text-amber-700 mb-2">
-                  A valid aircraft ID is required to search this aircraft&apos;s
-                  ATL (including technical log fallback).
-                </p>
-              ) : null}
-              <div className="relative">
-                <input
-                  type="text"
-                  value={
-                    atlOpen
-                      ? atlSearch
-                      : atlOptions.find((o) =>
-                          matchesAtlSelection(o, formData.atl_ref)
-                        )?.label ?? formData.atl_ref
-                  }
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setAtlSearch(val);
-                    setFormData((prev) => ({
-                      ...prev,
-                      atl_ref: val,
-                      atlId: null,
-                    }));
-                    setAtlOpen(true);
+                  onChange={(last_done_date) => {
+                    setFormData((prev) => ({ ...prev, last_done_date }));
+                    if (errors.last_done_date)
+                      setErrors((prev) => ({ ...prev, last_done_date: "" }));
                   }}
-                  onFocus={() => {
-                    setAtlOpen(true);
-                    if (!atlSearch && formData.atl_ref)
-                      setAtlSearch(formData.atl_ref);
-                  }}
-                  onBlur={() => setTimeout(() => setAtlOpen(false), 200)}
-                  placeholder="Search by ATL sequence number..."
-                  className="w-full min-h-[2.75rem] pl-3 pr-9 py-2.5 text-sm leading-normal bg-white border border-gray-300 rounded-lg text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full"
                 />
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none shrink-0" />
-                {atlOpen && (
-                  <div className="absolute z-20 w-full mt-1.5 bg-white border border-gray-300 rounded-lg shadow-lg max-h-52 overflow-auto">
-                    {atlLoading ? (
-                      <div className="px-3 py-3 text-sm text-gray-500 flex items-center gap-2">
-                        <SpinnerIcon size="sm" aria-hidden />
-                        Loading ATL...
-                      </div>
-                    ) : atlOptions.length === 0 ? (
-                      <div className="px-3 py-3 text-sm text-gray-500">
-                        No ATL found. Try a different sequence number.
-                      </div>
-                    ) : (
-                      <ul className="py-1">
-                        {atlOptions.map((opt) => (
-                          <li key={opt.id}>
-                            <button
-                              type="button"
-                              className={`w-full px-3 py-2.5 text-left text-sm transition-colors ${
-                                formData.atlId === opt.id
-                                  ? "bg-blue-50 text-blue-700 font-medium"
-                                  : "text-gray-900 hover:bg-gray-50"
-                              }`}
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                setFormData((prev) => {
-                                  const next: typeof prev = {
-                                    ...prev,
-                                    atl_ref: opt.sequenceNo ?? String(opt.id),
-                                    atlId: opt.id,
-                                  };
-                                  if (
-                                    opt.cpcpLastDoneTach != null &&
-                                    opt.cpcpLastDoneTach !== ""
-                                  ) {
-                                    next.last_done_tach = opt.cpcpLastDoneTach;
-                                  }
-                                  if (
-                                    opt.cpcpLastDoneAftt != null &&
-                                    opt.cpcpLastDoneAftt !== ""
-                                  ) {
-                                    next.last_done_aftt = opt.cpcpLastDoneAftt;
-                                  }
-                                  if (
-                                    opt.cpcpLastDoneDate != null &&
-                                    opt.cpcpLastDoneDate !== ""
-                                  ) {
-                                    next.last_done_date = opt.cpcpLastDoneDate;
-                                  }
-                                  return next;
-                                });
-                                setAtlSearch(opt.sequenceNo ?? String(opt.id));
-                                setAtlOpen(false);
-                              }}
-                            >
-                              {opt.label}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           </>

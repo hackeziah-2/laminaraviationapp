@@ -1,10 +1,5 @@
 import apiClient from "./index";
-import {
-  downloadModuleFile,
-  FILE_UPLOAD_MODULES,
-  normalizeStoredFilePath,
-  resolveUploadedFilePath,
-} from "./fileUploadApi";
+import { normalizeWebLink } from "../utility/utils";
 
 export interface ADMonitoring {
   id: number;
@@ -15,7 +10,7 @@ export interface ADMonitoring {
   compliDate: string;
   workOrders: number;
   dateViewed: string;
-  filePath?: string;
+  webLink?: string | null;
 }
 
 export interface ADMonitoringCreate {
@@ -23,7 +18,7 @@ export interface ADMonitoringCreate {
   subject: string;
   inspectionInterval: string;
   compliDate: string;
-  filePath?: string;
+  webLink?: string | null;
 }
 
 export interface ADMonitoringUpdate {
@@ -31,7 +26,7 @@ export interface ADMonitoringUpdate {
   subject?: string;
   inspectionInterval?: string;
   compliDate?: string;
-  filePath?: string;
+  webLink?: string | null;
 }
 
 export interface PaginatedADResponse {
@@ -51,6 +46,11 @@ function normalizeItem(raw: any): ADMonitoring {
     r.compliance_required ??
     r.complianceRequired ??
     "";
+  const webLinkRaw = r.web_link ?? r.webLink;
+  const webLink =
+    webLinkRaw != null && String(webLinkRaw).trim() !== ""
+      ? String(webLinkRaw).trim()
+      : null;
   return {
     id: r.id ?? r.pk,
     adNumber: r.ad_number ?? r.adNumber ?? "",
@@ -67,7 +67,7 @@ function normalizeItem(raw: any): ADMonitoring {
       ? r.ad_works.length
       : Number(r.workOrders ?? 0),
     dateViewed: r.date_viewed ?? r.dateViewed ?? "",
-    filePath: r.file_path ?? r.filePath ?? undefined,
+    webLink,
   };
 }
 
@@ -141,8 +141,7 @@ export const getAircraftAdMonitoringById = async (
 
 export const createAircraftAdMonitoring = async (
   aircraftId: number,
-  data: ADMonitoringCreate,
-  uploadFile?: File | null
+  data: ADMonitoringCreate
 ): Promise<ADMonitoring> => {
   const payload: Record<string, unknown> = {
     aircraft_fk: aircraftId,
@@ -150,13 +149,8 @@ export const createAircraftAdMonitoring = async (
     subject: String(data.subject ?? "").trim(),
     inspection_interval: String(data.inspectionInterval ?? "").trim(),
     compli_date: data.compliDate?.trim() || null,
+    web_link: normalizeWebLink(data.webLink),
   };
-  const uploadedPath = await resolveUploadedFilePath(
-    FILE_UPLOAD_MODULES.adMonitoring,
-    uploadFile,
-    data.filePath?.trim() ? normalizePathNoUploadsPrefix(data.filePath.trim()) : undefined
-  );
-  if (uploadedPath) payload.file_path = uploadedPath;
 
   const res = await apiClient.post(AD_PATH(aircraftId), payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -175,7 +169,7 @@ export const createAircraftAdMonitoring = async (
         : "",
       workOrders: 0,
       dateViewed: "",
-      filePath: (payload.file_path as string) ?? undefined,
+      webLink: (payload.web_link as string | null) ?? null,
     };
   }
   throw new Error("Invalid create response");
@@ -184,8 +178,7 @@ export const createAircraftAdMonitoring = async (
 export const updateAircraftAdMonitoring = async (
   aircraftId: number,
   id: number,
-  data: ADMonitoringUpdate,
-  uploadFile?: File | null
+  data: ADMonitoringUpdate
 ): Promise<ADMonitoring> => {
   const payload: Record<string, unknown> = {
     aircraft_fk: aircraftId,
@@ -193,17 +186,8 @@ export const updateAircraftAdMonitoring = async (
     subject: String(data.subject ?? "").trim(),
     inspection_interval: String(data.inspectionInterval ?? "").trim(),
     compli_date: data.compliDate?.trim() || null,
+    web_link: normalizeWebLink(data.webLink),
   };
-  const uploadedPath = await resolveUploadedFilePath(
-    FILE_UPLOAD_MODULES.adMonitoring,
-    uploadFile,
-    data.filePath !== undefined
-      ? data.filePath?.trim()
-        ? normalizePathNoUploadsPrefix(data.filePath.trim())
-        : null
-      : undefined
-  );
-  if (uploadedPath !== undefined) payload.file_path = uploadedPath;
 
   const res = await apiClient.put(`${AD_PATH(aircraftId)}${id}/`, payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -221,7 +205,7 @@ export const updateAircraftAdMonitoring = async (
       : "",
     workOrders: 0,
     dateViewed: "",
-    filePath: (payload.file_path as string) ?? undefined,
+    webLink: (payload.web_link as string | null) ?? null,
   };
 };
 
@@ -230,17 +214,4 @@ export const deleteAircraftAdMonitoring = async (
   id: number
 ): Promise<void> => {
   await apiClient.delete(`${AD_PATH(aircraftId)}${id}/`);
-};
-
-/** Strip /app/uploads/, uploads/, leading slashes and api/v1 so we never add or send that prefix */
-function normalizePathNoUploadsPrefix(path: string): string {
-  return normalizeStoredFilePath(path);
-}
-
-/** Download AD file — GET api/v1/ad_monitoring/download/{filename} */
-export const downloadAdMonitoringFile = async (
-  _aircraftId: number,
-  filePath: string
-): Promise<Blob> => {
-  return downloadModuleFile(FILE_UPLOAD_MODULES.adMonitoring, filePath);
 };

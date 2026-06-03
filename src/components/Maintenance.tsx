@@ -38,11 +38,19 @@ import {
   createAircraftAdMonitoring,
   updateAircraftAdMonitoring,
   deleteAircraftAdMonitoring,
-  downloadAdMonitoringFile,
   type ADMonitoring,
 } from "../api/adMonitoringApi";
 import { getAircraftById } from "../api/aircraftApi";
-import { toCamel } from "../utility/utils";
+import {
+  toCamel,
+  isValidWebLink,
+  normalizeWebLink,
+  formatDisplayDate,
+  sanitizeIntegerOrFloatInput,
+  isOptionalIntegerOrFloat,
+} from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
+import { AdWebLinkButton } from "./AdWebLinkDisplay";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
@@ -217,6 +225,7 @@ const AD_EXPORT_HEADERS = [
   "INSPECTION INTERVAL",
   "DATE OF EFFECTIVITY",
   "WORK ORDERS",
+  "WEB LINK",
 ] as const;
 
 function adItemToExportRow(item: ADMonitoring): string[] {
@@ -226,6 +235,7 @@ function adItemToExportRow(item: ADMonitoring): string[] {
     String(item.inspectionInterval ?? "").trim(),
     String(item.compliDate ?? "").trim(),
     String(item.workOrders ?? 0),
+    String(item.webLink ?? "").trim(),
   ];
 }
 
@@ -310,19 +320,8 @@ export function Maintenance() {
   const activeCategoryFromUrl =
     (maintenanceSegment && PATH_TO_CATEGORY[maintenanceSegment]) || "LDND";
 
-  /** Format LDND Last Updated to YYYY-MM-DD */
-  const formatLdndLastUpdated = (value: string | null | undefined): string => {
-    if (value == null || String(value).trim() === "") return "—";
-    const s = String(value).trim();
-    const dateOnly = /^\d{4}-\d{2}-\d{2}/.exec(s);
-    if (dateOnly) return dateOnly[0];
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return s;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
+  const formatLdndLastUpdated = (value: string | null | undefined): string =>
+    formatDisplayDate(value, { fallback: "—" });
 
   const handleBack = () => {
     navigate("/profile");
@@ -429,11 +428,8 @@ export function Maintenance() {
     subject: "",
     inspectionInterval: "",
     compliDate: "",
+    webLink: "",
   });
-  // AD file upload (create/edit): file_path name for display, optional File for upload
-  const [adUploadFile, setAdUploadFile] = useState<File | null>(null);
-  const [adUploadFileName, setAdUploadFileName] = useState("");
-  const adFileInputRef = useRef<HTMLInputElement>(null);
 
   // LDND API state
   const [ldndItems, setLdndItems] = useState<LDNDMonitoring[]>([]);
@@ -468,12 +464,6 @@ export function Maintenance() {
     null
   );
   const [adSaving, setAdSaving] = useState(false);
-  // AD view file modal (for image preview)
-  const [adViewFileUrl, setAdViewFileUrl] = useState<string | null>(null);
-  const [adViewFilePath, setAdViewFilePath] = useState<string | null>(null);
-  const [adViewFileName, setAdViewFileName] = useState<string>("");
-  const [adViewIsImage, setAdViewIsImage] = useState(false);
-  const [adViewLoading, setAdViewLoading] = useState(false);
 
   const fetchLdnd = useCallback(async () => {
     if (!aircraftId || activeCategory !== "LDND") return;
@@ -1076,6 +1066,36 @@ export function Maintenance() {
     setShowAddModal(true);
   };
 
+  /** Create-only: pre-fill Last Done Tach Due from latest monitoring next_due_tach_hours */
+  const openAddLdndEntry = async () => {
+    setEditingLdndEntry(null);
+    setLdndFormErrors({});
+
+    let lastDoneTachDue = "";
+    if (aircraftId) {
+      try {
+        const latest = await getAircraftLdndMonitoringLatest(aircraftId);
+        setLdndLatest(latest);
+        if (latest?.nextDueTachHours != null) {
+          lastDoneTachDue = String(latest.nextDueTachHours);
+        }
+      } catch (err) {
+        console.error("LDND latest fetch for add entry:", err);
+      }
+    }
+
+    setNewEntry({
+      type: "",
+      unit: "HRS",
+      lastDoneTachDue,
+      lastDoneTachDone: "",
+      nextDueTachHours: "",
+      performedDateStart: "",
+      performedDateEnd: "",
+    });
+    setShowAddModal(true);
+  };
+
   const handleADCreateOrUpdate = async () => {
     const adNumber = String(newADEntry.adNumber).trim();
     const subject = String(newADEntry.subject).trim();
@@ -1087,34 +1107,39 @@ export function Maintenance() {
       });
       return;
     }
+    if (newADEntry.webLink.trim() && !isValidWebLink(newADEntry.webLink)) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Invalid Web Link",
+        text: "Please enter a valid URL (http:// or https://).",
+      });
+      return;
+    }
+    if (!isOptionalIntegerOrFloat(newADEntry.inspectionInterval)) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Invalid Interval",
+        text: "Interval must be a whole number or decimal (e.g. 500 or 12.5).",
+      });
+      return;
+    }
     setAdSaving(true);
     try {
       const basePayload = {
         adNumber,
         subject,
-        inspectionInterval: newADEntry.inspectionInterval ?? "",
+        inspectionInterval: String(newADEntry.inspectionInterval ?? "").trim(),
         compliDate: newADEntry.compliDate ?? "",
+        webLink: normalizeWebLink(newADEntry.webLink),
       };
       if (editingADEntry) {
-        const updatePayload = {
-          ...basePayload,
-          filePath:
-            adUploadFile == null && editingADEntry.filePath
-              ? editingADEntry.filePath
-              : undefined,
-        };
         await updateAircraftAdMonitoring(
           aircraftId,
           editingADEntry.id,
-          updatePayload,
-          adUploadFile ?? undefined
+          basePayload
         );
       } else {
-        await createAircraftAdMonitoring(
-          aircraftId,
-          basePayload,
-          adUploadFile ?? undefined
-        );
+        await createAircraftAdMonitoring(aircraftId, basePayload);
       }
       setShowADModal(false);
       setEditingADEntry(null);
@@ -1123,9 +1148,8 @@ export function Maintenance() {
         subject: "",
         inspectionInterval: "",
         compliDate: "",
+        webLink: "",
       });
-      setAdUploadFile(null);
-      setAdUploadFileName("");
       await fetchAd();
       await Swal.fire({
         icon: "success",
@@ -1177,136 +1201,10 @@ export function Maintenance() {
       subject: item.subject,
       inspectionInterval: item.inspectionInterval || "",
       compliDate: item.compliDate ? item.compliDate.slice(0, 10) : "",
+      webLink: item.webLink ?? "",
     });
-    setAdUploadFile(null);
-    setAdUploadFileName("");
     setShowADModal(true);
   };
-
-  const getADFilePath = (item: ADMonitoring | null): string | null => {
-    if (!item?.filePath) return null;
-    return typeof item.filePath === "string" ? item.filePath : null;
-  };
-  const extractADFilename = (filePath: string): string => {
-    const parts = filePath.split("/");
-    const last = parts[parts.length - 1] ?? filePath;
-    return last.split("?")[0] ?? last;
-  };
-
-  const isImageFilePath = (filePath: string): boolean => {
-    const lower = (filePath || "").toLowerCase();
-    return /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(lower);
-  };
-  const handleADFileChange = (file: File | null) => {
-    setAdUploadFile(file);
-    setAdUploadFileName(file ? file.name : "");
-  };
-  const handleADRemoveFile = () => {
-    setAdUploadFile(null);
-    setAdUploadFileName("");
-  };
-
-  /** AD file download — same pattern as Fleet Time Monitoring (Operation): folder/download/filename */
-  const handleADDownloadFile = async (
-    filePath: string,
-    displayName?: string
-  ) => {
-    if (!filePath?.trim()) {
-      await Swal.fire({
-        icon: "error",
-        title: "Download Failed",
-        text: "File path is not available.",
-      });
-      return;
-    }
-    try {
-      const downloadFileName =
-        displayName ||
-        extractADFilename(filePath) ||
-        filePath.split("/").pop() ||
-        "download";
-      const responseBlob = await downloadAdMonitoringFile(aircraftId, filePath);
-      const blob = new Blob([responseBlob]);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = downloadFileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      let msg = "Failed to download file.";
-      const data = err?.response?.data;
-      if (data instanceof Blob) {
-        try {
-          const text = await data.text();
-          try {
-            const parsed = JSON.parse(text);
-            msg = parsed.detail ?? parsed.message ?? text;
-          } catch {
-            msg = text || msg;
-          }
-        } catch {
-          // keep default msg
-        }
-      } else if (typeof data?.detail === "string") {
-        msg = data.detail;
-      } else if (data?.message) {
-        msg = data.message;
-      } else if (err?.message) {
-        msg = err.message;
-      }
-      await Swal.fire({
-        icon: "error",
-        title: "Download Failed",
-        text: msg,
-      });
-    }
-  };
-
-  const handleADViewFile = async (item: ADMonitoring) => {
-    const filePath = getADFilePath(item);
-    if (!filePath?.trim()) return;
-    const isImage = isImageFilePath(filePath);
-    setAdViewLoading(true);
-    setAdViewFilePath(null);
-    setAdViewFileUrl(null);
-    setAdViewFileName(extractADFilename(filePath));
-    setAdViewIsImage(isImage);
-    try {
-      const blob = await downloadAdMonitoringFile(aircraftId, filePath);
-      const url = window.URL.createObjectURL(blob);
-      setAdViewFilePath(filePath);
-      setAdViewFileUrl(url);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ?? err?.message ?? "Failed to load file.";
-      await Swal.fire({
-        icon: "error",
-        title: "Cannot open file",
-        text: msg,
-      });
-    } finally {
-      setAdViewLoading(false);
-    }
-  };
-
-  const handleADCloseViewFile = useCallback(() => {
-    setAdViewFileUrl((prev) => {
-      if (prev) window.URL.revokeObjectURL(prev);
-      return null;
-    });
-    setAdViewFilePath(null);
-    setAdViewFileName("");
-    setAdViewIsImage(false);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (adViewFileUrl) window.URL.revokeObjectURL(adViewFileUrl);
-    };
-  }, [adViewFileUrl]);
 
   const totalPages = ldndPages;
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1776,20 +1674,7 @@ export function Maintenance() {
                 </div>
                 {canCreate("maintenance") && (
                   <button
-                    onClick={() => {
-                      setEditingLdndEntry(null);
-                      setNewEntry({
-                        type: "",
-                        unit: "HRS",
-                        lastDoneTachDue: "",
-                        lastDoneTachDone: "",
-                        nextDueTachHours: "",
-                        performedDateStart: "",
-                        performedDateEnd: "",
-                      });
-                      setLdndFormErrors({});
-                      setShowAddModal(true);
-                    }}
+                    onClick={() => void openAddLdndEntry()}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
                   >
                     <Plus className="w-4 h-4" />
@@ -1953,11 +1838,15 @@ export function Maintenance() {
                             {item.lastDoneTachDone ?? "—"}
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
-                            {item.performedDateStart ?? "—"}
+                            {formatDisplayDate(item.performedDateStart, {
+                              fallback: "—",
+                            })}
                           </td>
 
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
-                            {item.performedDateEnd ?? "—"}
+                            {formatDisplayDate(item.performedDateEnd, {
+                              fallback: "—",
+                            })}
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.nextDueTachHours ?? "—"}
@@ -2041,9 +1930,8 @@ export function Maintenance() {
                         subject: "",
                         inspectionInterval: "",
                         compliDate: "",
+                        webLink: "",
                       });
-                      setAdUploadFile(null);
-                      setAdUploadFileName("");
                       setShowADModal(true);
                     }}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
@@ -2144,7 +2032,7 @@ export function Maintenance() {
                         Work Orders
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
-                        File
+                        Web Link
                       </th>
                       <th className="px-5 py-3 text-center text-gray-900 text-xs uppercase tracking-wider">
                         Actions
@@ -2177,7 +2065,9 @@ export function Maintenance() {
                             {item.inspectionInterval}
                           </td>
                           <td className="px-5 py-4 text-gray-600 text-sm">
-                            {item.compliDate}
+                            {formatDisplayDate(item.compliDate, {
+                              fallback: "—",
+                            })}
                           </td>
                           <td className="px-5 py-4 text-center">
                             <button
@@ -2189,36 +2079,7 @@ export function Maintenance() {
                             </button>
                           </td>
                           <td className="px-5 py-4 text-center">
-                            {getADFilePath(item) ? (
-                              isImageFilePath(getADFilePath(item)!) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => handleADViewFile(item)}
-                                  className="inline-flex items-center gap-1 px-2 py-1.5 text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200"
-                                  title="View image"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                  View
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleADDownloadFile(
-                                      getADFilePath(item)!,
-                                      extractADFilename(getADFilePath(item)!)
-                                    )
-                                  }
-                                  className="inline-flex items-center gap-1 px-2 py-1.5 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
-                                  title="Download file"
-                                >
-                                  <Download className="w-4 h-4" />
-                                  Download
-                                </button>
-                              )
-                            ) : (
-                              <span className="text-gray-400 text-sm">—</span>
-                            )}
+                            <AdWebLinkButton webLink={item.webLink} />
                           </td>
                           <td className="px-5 py-4 text-center">
                             <div className="flex items-center justify-center gap-1">
@@ -2456,17 +2317,15 @@ export function Maintenance() {
                     <label className="block text-gray-600 text-xs mb-1.5">
                       Performed Date Start
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={newEntry.performedDateStart || ""}
-                      onChange={(e) =>
+                      onChange={(performedDateStart) =>
                         setNewEntry({
                           ...newEntry,
-                          performedDateStart: e.target.value,
+                          performedDateStart,
                         })
                       }
-                      onKeyDown={handleLdndEnterKey}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                     />
                   </div>
 
@@ -2474,17 +2333,15 @@ export function Maintenance() {
                     <label className="block text-gray-600 text-xs mb-1.5">
                       Performed Date End
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={newEntry.performedDateEnd || ""}
-                      onChange={(e) =>
+                      onChange={(performedDateEnd) =>
                         setNewEntry({
                           ...newEntry,
-                          performedDateEnd: e.target.value,
+                          performedDateEnd,
                         })
                       }
-                      onKeyDown={handleLdndEnterKey}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                     />
                   </div>
                 </div>
@@ -2545,62 +2402,6 @@ export function Maintenance() {
         </div>
       )}
 
-      {/* AD View File Modal (image preview or download prompt) */}
-      {(adViewFileUrl !== null || adViewLoading) && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          onClick={handleADCloseViewFile}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">
-                {adViewFileName || "View file"}
-              </span>
-              <button
-                type="button"
-                onClick={handleADCloseViewFile}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-4 flex-1 min-h-0 overflow-auto flex items-center justify-center">
-              {adViewLoading ? (
-                <div className="flex items-center gap-2 text-gray-500">
-                  <Loader className="w-6 h-6 animate-spin" />
-                  <span>Loading…</span>
-                </div>
-              ) : adViewIsImage && adViewFileUrl ? (
-                <img
-                  src={adViewFileUrl}
-                  alt={adViewFileName}
-                  className="max-w-full max-h-[70vh] object-contain"
-                />
-              ) : adViewFilePath ? (
-                <div className="text-center py-6">
-                  <p className="text-gray-600 mb-4">
-                    This file cannot be previewed here.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleADDownloadFile(adViewFilePath, adViewFileName);
-                    }}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 text-gray-700"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download file
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Add Entry Modal for AD with Frosted Glass Overlay */}
       {showADModal && (
         <div
@@ -2631,192 +2432,147 @@ export function Maintenance() {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="p-6">
               <div className="grid grid-cols-4 gap-6">
-                {/* Column 1: AD NUMBER */}
-                <div className="space-y-4">
-                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                    AD Number
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1.5">
+                  <div className="space-y-4">
+                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
                       AD Number
-                    </label>
-                    <input
-                      type="text"
-                      value={newADEntry.adNumber}
-                      onChange={(e) =>
-                        setNewADEntry({
-                          ...newADEntry,
-                          adNumber: e.target.value,
-                        })
-                      }
-                      placeholder="e.g., AD 2023-01-15"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                {/* Column 2: SUBJECT */}
-                <div className="space-y-4">
-                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                    Subject
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1.5">
-                      Subject
-                    </label>
-                    <input
-                      type="text"
-                      value={newADEntry.subject}
-                      onChange={(e) =>
-                        setNewADEntry({
-                          ...newADEntry,
-                          subject: e.target.value,
-                        })
-                      }
-                      placeholder="Enter subject"
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                    />
-                  </div>
-                </div>
-
-                {/* Column 3: INSPECTION INTERVAL */}
-                <div className="space-y-4">
-                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                    Inspection Interval
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1.5">
-                      Interval
-                    </label>
-                    <input
-                      type="text"
-                      value={newADEntry.inspectionInterval}
-                      onChange={(e) =>
-                        setNewADEntry({
-                          ...newADEntry,
-                          inspectionInterval: e.target.value,
-                        })
-                      }
-                      placeholder="e.g., 500 FH"
-                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                    />
-                  </div>
-                </div>
-
-                {/* Column 4: COMPLIANCE DATE */}
-                <div className="space-y-4">
-                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                    Compliance Date
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-xs mb-1.5">
-                      Date
-                    </label>
-                    <input
-                      type="date"
-                      value={newADEntry.compliDate}
-                      onChange={(e) =>
-                        setNewADEntry({
-                          ...newADEntry,
-                          compliDate: e.target.value,
-                        })
-                      }
-                      placeholder="e.g., 15-Dec-2024"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* File — view, download, re-upload/replace (create/edit) */}
-              <div className="mt-6 pt-4 border-t border-gray-200">
-                <div className="text-gray-900 text-sm font-medium mb-2">
-                  File
-                </div>
-                <input
-                  ref={adFileInputRef}
-                  type="file"
-                  id="ad-file-upload"
-                  className="hidden"
-                  onChange={(e) => {
-                    handleADFileChange(e.target.files?.[0] ?? null);
-                    e.target.value = "";
-                  }}
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                />
-                {editingADEntry &&
-                getADFilePath(editingADEntry) &&
-                !adUploadFile ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
-                      <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
-                      <span className="flex-1 text-sm text-gray-900 truncate">
-                        {extractADFilename(getADFilePath(editingADEntry)!)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleADDownloadFile(
-                            getADFilePath(editingADEntry)!,
-                            extractADFilename(getADFilePath(editingADEntry)!)
-                          )
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-xs mb-1.5">
+                        AD Number
+                      </label>
+                      <input
+                        type="text"
+                        value={newADEntry.adNumber}
+                        onChange={(e) =>
+                          setNewADEntry({
+                            ...newADEntry,
+                            adNumber: e.target.value,
+                          })
                         }
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-100 text-green-700 hover:bg-green-200 transition-colors text-sm font-medium flex-shrink-0"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download
-                      </button>
+                        placeholder="e.g., AD 2023-01-15"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => adFileInputRef.current?.click()}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Replace file / Re-upload
-                    </button>
                   </div>
-                ) : adUploadFile || adUploadFileName ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg bg-gray-50">
-                      <FileText className="w-5 h-5 text-gray-600 flex-shrink-0" />
-                      <span className="flex-1 text-sm text-gray-900 truncate">
-                        {adUploadFileName}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleADRemoveFile}
-                        className="text-red-600 hover:text-red-700 p-1 flex-shrink-0"
-                        title="Remove"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                  <div className="space-y-4">
+                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                      Subject
                     </div>
-                    {editingADEntry && (
-                      <p className="text-xs text-gray-500">
-                        New file will replace the current one when you save.
-                      </p>
-                    )}
+                    <div>
+                      <label className="block text-gray-600 text-xs mb-1.5">
+                        Subject
+                      </label>
+                      <input
+                        type="text"
+                        value={newADEntry.subject}
+                        onChange={(e) =>
+                          setNewADEntry({
+                            ...newADEntry,
+                            subject: e.target.value,
+                          })
+                        }
+                        placeholder="Enter subject"
+                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                      />
+                    </div>
                   </div>
-                ) : (
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                    <label
-                      htmlFor="ad-file-upload"
-                      className="cursor-pointer flex flex-col items-center"
-                    >
-                      <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                      <span className="text-sm text-gray-600 mb-1">
-                        Choose file or drag here
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        PDF, DOC, DOCX, JPG, PNG
-                      </span>
-                    </label>
+                  <div className="space-y-4">
+                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                      Inspection Interval
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-xs mb-1.5">
+                        Interval
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={newADEntry.inspectionInterval}
+                        onChange={(e) =>
+                          setNewADEntry({
+                            ...newADEntry,
+                            inspectionInterval: sanitizeIntegerOrFloatInput(
+                              e.target.value
+                            ),
+                          })
+                        }
+                        placeholder="e.g., 500 or 12.5"
+                        className={`w-full px-3 py-2 border rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white ${
+                          newADEntry.inspectionInterval.trim() &&
+                          !isOptionalIntegerOrFloat(
+                            newADEntry.inspectionInterval
+                          )
+                            ? "border-red-400"
+                            : "border-gray-300"
+                        }`}
+                      />
+                      {newADEntry.inspectionInterval.trim() &&
+                        !isOptionalIntegerOrFloat(
+                          newADEntry.inspectionInterval
+                        ) && (
+                          <p className="mt-1 text-xs text-red-600">
+                            Enter a whole number or decimal only.
+                          </p>
+                        )}
+                    </div>
                   </div>
-                )}
+                  <div className="space-y-4">
+                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                      Compliance Date
+                    </div>
+                    <div>
+                      <label className="block text-gray-600 text-xs mb-1.5">
+                        Date
+                      </label>
+                      <DateInput
+                        value={newADEntry.compliDate}
+                        onChange={(compliDate) =>
+                          setNewADEntry({
+                            ...newADEntry,
+                            compliDate,
+                          })
+                        }
+                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+              <div className="mt-6 max-w-xl">
+                <label className="block text-gray-900 text-sm font-medium mb-2">
+                  Web Link
+                </label>
+                <input
+                  type="url"
+                  value={newADEntry.webLink}
+                  onChange={(e) =>
+                    setNewADEntry({ ...newADEntry, webLink: e.target.value })
+                  }
+                  placeholder="https://example.com/ad-document"
+                  className={`w-full px-3 py-2 border rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    newADEntry.webLink.trim() &&
+                    !isValidWebLink(newADEntry.webLink)
+                      ? "border-red-400"
+                      : "border-gray-300"
+                  }`}
+                />
+                {newADEntry.webLink.trim() &&
+                  !isValidWebLink(newADEntry.webLink) && (
+                    <p className="mt-1 text-xs text-red-600">
+                      Enter a valid URL (http:// or https://).
+                    </p>
+                  )}
+                <p className="mt-2 text-xs text-gray-500">
+                  Optional. Use the Link button in the table to open this URL in
+                  a new browser tab.
+                </p>
+                {newADEntry.webLink.trim() &&
+                  isValidWebLink(newADEntry.webLink) && (
+                    <div className="mt-4">
+                      <AdWebLinkButton webLink={newADEntry.webLink} />
+                    </div>
+                  )}
               </div>
             </div>
 

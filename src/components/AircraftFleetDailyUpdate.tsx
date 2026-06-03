@@ -8,6 +8,7 @@ import {
   X,
   ChevronUp,
   ChevronDown,
+  Save,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
@@ -15,11 +16,14 @@ import Swal from "sweetalert2";
 import {
   getFleetDailyUpdatePaged,
   updateFleetDailyUpdateRemark,
+  bulkUpdateFleetDailyUpdates,
   type FleetDailyUpdateItem,
+  type FleetDailyUpdateBulkUpdateItem,
 } from "../api/fleetDailyUpdateApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDisplayDate } from "../utility/utils";
 
 /** Map status text to badge/row color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
 function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
@@ -64,6 +68,90 @@ const STATUS_OPTIONS = [
   { value: "AOG", label: "AOG" },
 ];
 
+interface BulkEditDraft {
+  status: string;
+  tachEod: string;
+  remarks: string;
+}
+
+function getRowKey(item: FleetDailyUpdateItem): string {
+  if (item.id != null) return `id:${item.id}`;
+  const aircraftId = item.aircraftId ?? item.aircraft?.id;
+  if (aircraftId != null) return `aircraft:${aircraftId}`;
+  return `ident:${item.ident ?? item.registration ?? "unknown"}`;
+}
+
+function normalizeStatusForEdit(item: FleetDailyUpdateItem): string {
+  const currentStatus = item.status ?? item.workStatus ?? "";
+  const legacy =
+    currentStatus.trim().toLowerCase() === "running"
+      ? "Operational"
+      : currentStatus;
+  return STATUS_OPTIONS.some((o) => o.value === legacy)
+    ? legacy
+    : STATUS_OPTIONS[0]?.value ?? "Operational";
+}
+
+function draftFromItem(item: FleetDailyUpdateItem): BulkEditDraft {
+  return {
+    status: normalizeStatusForEdit(item),
+    tachEod: item.tachEod != null ? String(item.tachEod) : "",
+    remarks: item.remarks ?? "",
+  };
+}
+
+function parseTachEod(value: string): number | null {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  const n = parseFloat(trimmed.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function tachEodValuesEqual(a: string, b: string): boolean {
+  const parsedA = parseTachEod(a);
+  const parsedB = parseTachEod(b);
+  return parsedA === parsedB;
+}
+
+function buildBulkUpdates(
+  items: FleetDailyUpdateItem[],
+  drafts: Record<string, BulkEditDraft>,
+  originals: Record<string, BulkEditDraft>
+): FleetDailyUpdateBulkUpdateItem[] {
+  const updates: FleetDailyUpdateBulkUpdateItem[] = [];
+
+  for (const item of items) {
+    if (item.id == null) continue;
+
+    const key = getRowKey(item);
+    const draft = drafts[key];
+    const original = originals[key];
+    if (!draft || !original) continue;
+
+    const payload: FleetDailyUpdateBulkUpdateItem = { id: item.id };
+    let hasChanges = false;
+
+    if (draft.status !== original.status) {
+      payload.status = draft.status;
+      hasChanges = true;
+    }
+    if (!tachEodValuesEqual(draft.tachEod, original.tachEod)) {
+      payload.tach_time_eod = parseTachEod(draft.tachEod);
+      hasChanges = true;
+    }
+    if (draft.remarks !== original.remarks) {
+      payload.remarks = draft.remarks;
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      updates.push(payload);
+    }
+  }
+
+  return updates;
+}
+
 export function AircraftFleetDailyUpdate() {
   const { canUpdate } = useUserPermissions();
   const [searchQuery, setSearchQuery] = useState("");
@@ -91,6 +179,19 @@ export function AircraftFleetDailyUpdate() {
   const [remarkDraft, setRemarkDraft] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
   const [savingRemark, setSavingRemark] = useState(false);
+
+  // Bulk edit mode
+  const [bulkEditMode, setBulkEditMode] = useState(false);
+  const [bulkDrafts, setBulkDrafts] = useState<Record<string, BulkEditDraft>>(
+    {}
+  );
+  const [bulkOriginals, setBulkOriginals] = useState<
+    Record<string, BulkEditDraft>
+  >({});
+  const [bulkUpdates, setBulkUpdates] = useState<
+    FleetDailyUpdateBulkUpdateItem[]
+  >([]);
+  const [savingBulk, setSavingBulk] = useState(false);
 
   // Map filterStatus to API status param (backend may expect these values)
   const apiStatus = filterStatus === "all" ? "" : filterStatus;
@@ -122,6 +223,15 @@ export function AircraftFleetDailyUpdate() {
     fetchData();
   }, [fetchData]);
 
+  // Keep bulk PATCH payload in sync with table edits (only changed fields).
+  useEffect(() => {
+    if (!bulkEditMode) {
+      setBulkUpdates([]);
+      return;
+    }
+    setBulkUpdates(buildBulkUpdates(items, bulkDrafts, bulkOriginals));
+  }, [bulkEditMode, items, bulkDrafts, bulkOriginals]);
+
   // Debounce search
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -138,15 +248,126 @@ export function AircraftFleetDailyUpdate() {
   // No separate effect: page reset is done in handleFilterChange and items-per-page onChange
 
   const handleRefresh = useCallback(() => {
+    if (bulkEditMode) return;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, bulkEditMode]);
 
-  const handleFilterChange = (value: string) => {
+  const exitBulkEditMode = useCallback(() => {
+    setBulkEditMode(false);
+    setBulkDrafts({});
+    setBulkOriginals({});
+    setBulkUpdates([]);
+  }, []);
+
+  const enterBulkEditMode = useCallback(() => {
+    const drafts: Record<string, BulkEditDraft> = {};
+    const originals: Record<string, BulkEditDraft> = {};
+    for (const item of items) {
+      const key = getRowKey(item);
+      const draft = draftFromItem(item);
+      drafts[key] = draft;
+      originals[key] = { ...draft };
+    }
+    setBulkDrafts(drafts);
+    setBulkOriginals(originals);
+    setBulkUpdates([]);
+    setBulkEditMode(true);
+  }, [items]);
+
+  const cancelBulkEdit = useCallback(() => {
+    exitBulkEditMode();
+  }, [exitBulkEditMode]);
+
+  const updateBulkDraft = useCallback(
+    (key: string, field: keyof BulkEditDraft, value: string) => {
+      setBulkDrafts((prev) => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          [field]: value,
+        },
+      }));
+    },
+    []
+  );
+
+  const handleSaveBulkUpdates = useCallback(async () => {
+    if (bulkUpdates.length === 0) {
+      await Swal.fire({
+        icon: "info",
+        title: "No changes",
+        text: "No fields were modified.",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      return;
+    }
+
+    const confirm = await Swal.fire({
+      icon: "question",
+      title: "Save updates?",
+      text: "Are you sure you want to save these fleet daily updates?",
+      showCancelButton: true,
+      confirmButtonText: "Save",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#2563eb",
+    });
+    if (!confirm.isConfirmed) return;
+
+    setSavingBulk(true);
+    try {
+      await bulkUpdateFleetDailyUpdates({ updates: bulkUpdates });
+      exitBulkEditMode();
+      await fetchData();
+      await Swal.fire({
+        icon: "success",
+        title: "Saved",
+        text: "Fleet daily updates saved successfully.",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err: any) {
+      console.error("Error bulk updating fleet daily update:", err);
+      const msg =
+        err?.response?.data?.detail ??
+        err?.message ??
+        "Failed to save fleet daily updates.";
+      await Swal.fire({
+        icon: "error",
+        title: "Update failed",
+        text: typeof msg === "string" ? msg : JSON.stringify(msg),
+      });
+    } finally {
+      setSavingBulk(false);
+    }
+  }, [bulkUpdates, exitBulkEditMode, fetchData]);
+
+  const guardBulkEditNavigation = useCallback(async (): Promise<boolean> => {
+    if (!bulkEditMode) return true;
+    const result = await Swal.fire({
+      icon: "warning",
+      title: "Unsaved changes",
+      text: "Bulk edit is active. Cancel editing to continue.",
+      showCancelButton: true,
+      confirmButtonText: "Cancel editing",
+      cancelButtonText: "Stay",
+      confirmButtonColor: "#2563eb",
+    });
+    if (result.isConfirmed) {
+      exitBulkEditMode();
+      return true;
+    }
+    return false;
+  }, [bulkEditMode, exitBulkEditMode]);
+
+  const handleFilterChange = async (value: string) => {
+    if (!(await guardBulkEditNavigation())) return;
     setFilterStatus(value);
     setCurrentPage(1);
   };
 
-  const toggleRegistrationSort = () => {
+  const toggleRegistrationSort = async () => {
+    if (!(await guardBulkEditNavigation())) return;
     setRegistrationSort((prev) => (prev === "asc" ? "desc" : "asc"));
     setCurrentPage(1);
   };
@@ -266,18 +487,60 @@ export function AircraftFleetDailyUpdate() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <Loader className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
+          {bulkEditMode ? (
+            <>
+              <button
+                type="button"
+                onClick={handleSaveBulkUpdates}
+                disabled={savingBulk || loading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-white bg-blue-600 border border-blue-600 rounded hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {savingBulk ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span className="hidden sm:inline">
+                  {savingBulk ? "Saving..." : "Save Updates"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={cancelBulkEdit}
+                disabled={savingBulk}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <X className="w-4 h-4" />
+                <span className="hidden sm:inline">Cancel</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+              {canUpdate("daily-update") && (
+                <button
+                  type="button"
+                  onClick={enterBulkEditMode}
+                  disabled={loading || items.length === 0}
+                  className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-blue-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <Pencil className="w-4 h-4" />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+              )}
+            </>
+          )}
           {/* <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print</span>
@@ -295,14 +558,7 @@ export function AircraftFleetDailyUpdate() {
         <div className="bg-blue-600 text-white px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
           <h3 className="text-sm">AIRCRAFT FLEET DAILY UPDATE</h3>
           <span className="text-sm">
-            DATE:{" "}
-            {new Date()
-              .toLocaleDateString("en-GB", {
-                day: "2-digit",
-                month: "short",
-                year: "2-digit",
-              })
-              .replace(/ /g, "-")}
+            DATE: {formatDisplayDate(new Date().toISOString())}
           </span>
         </div>
 
@@ -317,7 +573,8 @@ export function AircraftFleetDailyUpdate() {
                 placeholder="Search by Aircraft Registration"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={bulkEditMode}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -328,8 +585,9 @@ export function AircraftFleetDailyUpdate() {
               <span className="text-sm text-gray-600">Filter by Status</span>
               <select
                 value={filterStatus}
-                onChange={(e) => handleFilterChange(e.target.value)}
-                className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right"
+                onChange={(e) => void handleFilterChange(e.target.value)}
+                disabled={bulkEditMode}
+                className="px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none pr-8 bg-no-repeat bg-right disabled:bg-gray-50 disabled:cursor-not-allowed"
                 style={{
                   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
                   backgroundPosition: "right 8px center",
@@ -412,9 +670,9 @@ export function AircraftFleetDailyUpdate() {
                 <th className="px-4 py-3 text-left text-gray-900 text-xs">
                   REMARKS
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs w-20">
+                {/* <th className="px-4 py-3 text-center text-gray-900 text-xs w-20">
                   ACTIONS
-                </th>
+                </th> */}
               </tr>
               <tr className="bg-gray-100 border-b border-gray-300">
                 <th className="border-r border-gray-300"></th>
@@ -451,8 +709,18 @@ export function AircraftFleetDailyUpdate() {
                     key={aircraft.id ?? aircraft.ident ?? Math.random()}
                     className={`border-b border-gray-200 ${getRowColorClass(
                       aircraft.rowColor,
-                      aircraft.statusColor,
-                      aircraft.status ?? aircraft.workStatus
+                      bulkEditMode
+                        ? statusToColor(
+                            bulkDrafts[getRowKey(aircraft)]?.status ??
+                              aircraft.status ??
+                              aircraft.workStatus
+                          )
+                        : aircraft.statusColor,
+                      bulkEditMode
+                        ? bulkDrafts[getRowKey(aircraft)]?.status ??
+                            aircraft.status ??
+                            aircraft.workStatus
+                        : aircraft.status ?? aircraft.workStatus
                     )}`}
                   >
                     <td className="px-4 py-3 text-sm text-gray-900 border-r border-gray-300">
@@ -475,8 +743,32 @@ export function AircraftFleetDailyUpdate() {
                       })()}
                     </td>
                     <td className="px-4 py-3 text-sm border-r border-gray-300">
-                      {getStatusBadge(
-                        aircraft.status ?? aircraft.workStatus ?? "-"
+                      {bulkEditMode ? (
+                        <select
+                          value={
+                            bulkDrafts[getRowKey(aircraft)]?.status ??
+                            normalizeStatusForEdit(aircraft)
+                          }
+                          onChange={(e) =>
+                            updateBulkDraft(
+                              getRowKey(aircraft),
+                              "status",
+                              e.target.value
+                            )
+                          }
+                          disabled={savingBulk}
+                          className="w-full min-w-[140px] px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                        >
+                          {STATUS_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        getStatusBadge(
+                          aircraft.status ?? aircraft.workStatus ?? "-"
+                        )
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
@@ -502,7 +794,30 @@ export function AircraftFleetDailyUpdate() {
                       {aircraft.tachDue ?? aircraft.tachTimeDue ?? "-"}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {aircraft.tachEod ?? "-"}
+                      {bulkEditMode ? (
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={
+                            bulkDrafts[getRowKey(aircraft)]?.tachEod ??
+                            (aircraft.tachEod != null
+                              ? String(aircraft.tachEod)
+                              : "")
+                          }
+                          onChange={(e) =>
+                            updateBulkDraft(
+                              getRowKey(aircraft),
+                              "tachEod",
+                              e.target.value
+                            )
+                          }
+                          disabled={savingBulk}
+                          className="w-full min-w-[80px] px-2 py-1.5 border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                          placeholder="-"
+                        />
+                      ) : (
+                        aircraft.tachEod ?? "-"
+                      )}
                     </td>
                     <td
                       className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${
@@ -520,10 +835,31 @@ export function AircraftFleetDailyUpdate() {
                       {aircraft.remainingPropeller ?? "-"}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">
-                      {aircraft.remarks ?? "-"}
+                      {bulkEditMode ? (
+                        <textarea
+                          value={
+                            bulkDrafts[getRowKey(aircraft)]?.remarks ??
+                            aircraft.remarks ??
+                            ""
+                          }
+                          onChange={(e) =>
+                            updateBulkDraft(
+                              getRowKey(aircraft),
+                              "remarks",
+                              e.target.value
+                            )
+                          }
+                          disabled={savingBulk}
+                          rows={2}
+                          className="w-full min-w-[160px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 resize-y"
+                          placeholder="Enter remarks..."
+                        />
+                      ) : (
+                        aircraft.remarks ?? "-"
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-center border-gray-300">
-                      {canUpdate("daily-update") && (
+                    {/* <td className="px-4 py-3 text-center border-gray-300">
+                      {canUpdate("daily-update") && !bulkEditMode && (
                         <button
                           type="button"
                           onClick={() => openRemarkModal(aircraft)}
@@ -534,7 +870,7 @@ export function AircraftFleetDailyUpdate() {
                           Edit
                         </button>
                       )}
-                    </td>
+                    </td> */}
                   </tr>
                 ))
               )}
@@ -546,11 +882,17 @@ export function AircraftFleetDailyUpdate() {
           <DataTablePagination
             currentPage={currentPage}
             totalPages={totalPages}
-            onPageChange={setCurrentPage}
+            onPageChange={async (page) => {
+              if (!(await guardBulkEditNavigation())) return;
+              setCurrentPage(page);
+            }}
             totalItems={total}
             totalLabel="aircraft"
             itemsPerPage={itemsPerPage}
-            onItemsPerPageChange={setItemsPerPage}
+            onItemsPerPageChange={async (size) => {
+              if (!(await guardBulkEditNavigation())) return;
+              setItemsPerPage(size);
+            }}
             pageSizeOptions={[10, 25, 50]}
             className="px-6"
           />

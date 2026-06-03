@@ -1,9 +1,6 @@
 import apiClient from "./index";
 import { toCamelDeep } from "../utility/utils";
-import {
-  FILE_UPLOAD_MODULES,
-  resolveUploadedFilePath,
-} from "./fileUploadApi";
+import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -117,6 +114,8 @@ export interface AircraftTechnicalLog {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  whiteAtlWebLink?: string;
+  dfpWebLink?: string;
   dateTimeReported?: string | null;
   dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecord[];
@@ -210,6 +209,8 @@ export interface AircraftTechnicalLogCreate {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  whiteAtlWebLink?: string;
+  dfpWebLink?: string;
   dateTimeReported?: string | null;
   dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecordCreate[];
@@ -271,6 +272,8 @@ export interface AircraftTechnicalLogUpdate {
   rtsTime?: string;
   whiteAtl?: string;
   dfp?: string;
+  whiteAtlWebLink?: string;
+  dfpWebLink?: string;
   dateTimeReported?: string | null;
   dateTimeReleased?: string | null;
   componentParts?: ComponentPartsRecordCreate[];
@@ -405,11 +408,7 @@ export function resolveAtlComponentMetric(
       airframe?.hrsTime,
       airframe?.run,
     ],
-    airframeAftt: [
-      auto?.airframeAftt,
-      auto?.airframe_aftt,
-      airframe?.aftt,
-    ],
+    airframeAftt: [auto?.airframeAftt, auto?.airframe_aftt, airframe?.aftt],
     engineRunTime: [
       auto?.engineRunTime,
       auto?.engine_run_time,
@@ -466,7 +465,9 @@ export function resolveAtlComponentMetric(
     ],
   };
 
-  return nestedCandidates[metric].find((value) => value != null && value !== "");
+  return nestedCandidates[metric].find(
+    (value) => value != null && value !== ""
+  );
 }
 
 /** Normalize rows from GET /aircraft-technical-log/paged (and manage/paged) across common response shapes. */
@@ -541,11 +542,7 @@ const fetchAircraftTechnicalLogs = async (
 
     // Query order: atl_batch* first, then page, limit, aircraft_fk, sort, search, work_status
     // e.g. .../paged?atl_batch=7&atl_batch_fk=7&page=1&limit=10&aircraft_fk=39&sort=sequence_no
-    if (
-      atlBatchFk != null &&
-      Number.isFinite(atlBatchFk) &&
-      atlBatchFk > 0
-    ) {
+    if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
       const idStr = String(atlBatchFk);
       params.append("atl_batch", idStr);
       params.append("atl_batch_fk", idStr);
@@ -554,14 +551,13 @@ const fetchAircraftTechnicalLogs = async (
     params.append("page", page.toString());
     params.append("limit", limit.toString());
 
-    const aircraftIdNum =
-      aircraftFk != null ? Number(aircraftFk) : NaN;
+    const aircraftIdNum = aircraftFk != null ? Number(aircraftFk) : NaN;
     if (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0) {
       params.append("aircraft_fk", String(aircraftIdNum));
     }
 
     if (sort) {
-      params.append("sort", sort);
+      params.append("sort", "-" + sort);
     }
 
     if (search.trim() !== "") {
@@ -606,8 +602,8 @@ const fetchAircraftTechnicalLogs = async (
     const normalizedPages = Number.isFinite(pagesRaw)
       ? Math.max(1, pagesRaw)
       : limit > 0
-        ? Math.max(1, Math.ceil(normalizedTotal / limit))
-        : 1;
+      ? Math.max(1, Math.ceil(normalizedTotal / limit))
+      : 1;
 
     return {
       items: transformedItems,
@@ -733,7 +729,9 @@ export const searchAircraftTechnicalLogBySequence = async (
         item.tachEnd;
       const tachNum =
         tachRaw != null && tachRaw !== ""
-          ? Number(typeof tachRaw === "string" ? tachRaw.replace(/,/g, "") : tachRaw)
+          ? Number(
+              typeof tachRaw === "string" ? tachRaw.replace(/,/g, "") : tachRaw
+            )
           : NaN;
       const afttRaw =
         item.auto_airframe_aftt ??
@@ -742,10 +740,15 @@ export const searchAircraftTechnicalLogBySequence = async (
         item.airframeAftt;
       const afttNum =
         afttRaw != null && afttRaw !== ""
-          ? Number(typeof afttRaw === "string" ? afttRaw.replace(/,/g, "") : afttRaw)
+          ? Number(
+              typeof afttRaw === "string" ? afttRaw.replace(/,/g, "") : afttRaw
+            )
           : NaN;
       const originDateRaw =
-        item.origin_date ?? item.originDate ?? item.date_of_origin ?? item.dateOfOrigin;
+        item.origin_date ??
+        item.originDate ??
+        item.date_of_origin ??
+        item.dateOfOrigin;
       return {
         id: Number.isFinite(logId) ? logId : 0,
         sequenceNo:
@@ -852,14 +855,21 @@ export const deleteAircraftTechnicalLog = async (
 };
 
 /**
- * Get the latest Aircraft Technical Log entry for a specific aircraft
+ * Get the latest Aircraft Technical Log entry for a specific aircraft (optionally scoped to a batch).
  */
 export const getLatestAircraftTechnicalLog = async (
-  aircraftFk: number
+  aircraftFk: number,
+  batchId?: number | null
 ): Promise<AircraftTechnicalLog | null> => {
   try {
+    const params = new URLSearchParams({
+      aircraft_fk: String(aircraftFk),
+    });
+    if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
+      params.set("batch_id", String(batchId));
+    }
     const response = await apiClient.get(
-      `aircraft-technical-log/latest?aircraft_fk=${aircraftFk}`
+      `aircraft-technical-log/latest?${params.toString()}`
     );
     const raw = response.data?.data ?? response.data;
     if (raw == null || typeof raw !== "object") return null;
@@ -1012,7 +1022,11 @@ export function formatAtlExcelImportProgressLabel(
   if (done != null && total > 0) {
     bits.push(`${done} of ${total} rows`);
   } else if (total > 0) {
-    bits.push(`${processed} processed${failed ? `, ${failed} failed` : ""} · ${total} total`);
+    bits.push(
+      `${processed} processed${
+        failed ? `, ${failed} failed` : ""
+      } · ${total} total`
+    );
   }
   if (bits.length > 0) return bits.join(" · ");
   return statusPhaseHint(data.status);
@@ -1069,9 +1083,7 @@ function isTerminalImportStatus(st: string): boolean {
 }
 
 /** `progress` as 0–100, or 0–1 ratio from API. */
-function normalizeProgressField(
-  p: number | undefined
-): number | undefined {
+function normalizeProgressField(p: number | undefined): number | undefined {
   if (p == null || !Number.isFinite(p)) return undefined;
   if (p > 0 && p <= 1) return Math.min(100, Math.round(p * 100));
   return Math.min(100, Math.max(0, Math.round(p)));
@@ -1086,11 +1098,7 @@ function percentFromRowCounts(
   const done = importRowsDoneCount(data);
   if (done == null) return undefined;
   const pct = Math.round((done / total) * 100);
-  if (
-    !forFailed &&
-    pct >= 100 &&
-    !isTerminalImportStatus(data.status)
-  ) {
+  if (!forFailed && pct >= 100 && !isTerminalImportStatus(data.status)) {
     return 99;
   }
   return Math.min(100, Math.max(0, pct));
@@ -1180,13 +1188,9 @@ export interface AtlBatch {
 
 function parseAtlBatchPayload(raw: unknown): AtlBatch {
   const r =
-    raw && typeof raw === "object"
-      ? (raw as Record<string, unknown>)
-      : {};
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const id = Number(r.id ?? r.pk ?? 0);
-  const name = String(
-    r.name ?? r.batch_name ?? r.batchName ?? ""
-  ).trim();
+  const name = String(r.name ?? r.batch_name ?? r.batchName ?? "").trim();
   const description =
     r.description != null ? String(r.description).trim() : undefined;
   const createdRaw = r.created_at ?? r.createdAt;
@@ -1200,9 +1204,7 @@ function parseAtlBatchPayload(raw: unknown): AtlBatch {
   return {
     id,
     name: name || `Batch ${id}`,
-    ...(description !== undefined && description !== ""
-      ? { description }
-      : {}),
+    ...(description !== undefined && description !== "" ? { description } : {}),
     ...(createdAt !== undefined ? { createdAt } : {}),
   };
 }

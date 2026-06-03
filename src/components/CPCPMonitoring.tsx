@@ -30,7 +30,7 @@ import {
   deleteCpcpMonitoring,
   type CPCPEntry,
 } from "../api/cpcpMonitoringApi";
-import { computeCpcpRow } from "../utils/cpcpFormulas";
+import { computeCpcpRow, getCpcpRemainingAlert } from "../utils/cpcpFormulas";
 import Swal from "sweetalert2";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
@@ -40,6 +40,7 @@ import {
   type AircraftMaintenanceDetails,
 } from "../api/aircraftApi";
 import * as XLSX from "xlsx";
+import { formatDisplayDate } from "../utility/utils";
 
 const CPCP_EXPORT_HEADERS = [
   "SEQUENCE NO",
@@ -467,18 +468,30 @@ export const CPCPMonitoring = forwardRef<
     setShowAddModal(true);
   }, []);
 
-  const getRowBackgroundColor = (status: string) => {
-    switch (status) {
+  const parseNum = (v: unknown): number | null => {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (!s || s === "-" || s === "—") return null;
+    const n = parseFloat(s.replace(/,/g, ""));
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const getRemainingCellClass = (
+    limit: number | null,
+    remaining: number | null
+  ): string => {
+    const alert = getCpcpRemainingAlert(limit, remaining);
+    switch (alert) {
       case "green":
-        return "bg-emerald-50/70";
+        return "bg-emerald-100 text-gray-900";
       case "yellow":
-        return "bg-amber-50/70";
+        return "bg-amber-100 text-gray-900";
       case "orange":
-        return "bg-orange-50/70";
+        return "bg-orange-100 text-gray-900";
       case "red":
-        return "bg-red-50/70";
+        return "bg-red-100 text-gray-900 font-semibold";
       default:
-        return "bg-white";
+        return "bg-white text-gray-700";
     }
   };
 
@@ -588,15 +601,15 @@ export const CPCPMonitoring = forwardRef<
             <div className="px-5 py-3 bg-gray-50/80 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                &lt; 40% remaining
+                &gt; 20% to ≤ 40% remaining
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-amber-500" />
-                &lt; 20% remaining
+                &gt; 10% to ≤ 20% remaining
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-100 text-orange-800 border border-orange-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-orange-500" />
-                &lt; 10% remaining
+                &gt; 0% to ≤ 10% remaining
               </span>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-800 border border-red-300 font-semibold">
                 <span className="w-2 h-2 rounded-full bg-red-500" />
@@ -758,32 +771,45 @@ export const CPCPMonitoring = forwardRef<
                             headerTach,
                             headerAftt
                           );
+                          const intervalHours = parseNum(item.interval?.hours);
+                          const intervalMonths = parseNum(item.interval?.months);
+                          const intervalDays =
+                            intervalMonths != null ? (intervalMonths * 365) / 12 : null;
+                          const remMonths = parseNum(computed.remaining.months);
+                          const remDays = parseNum(computed.remaining.days);
+                          const remTach = parseNum(computed.remaining.tach);
+                          const remAftt = parseNum(computed.remaining.aftf);
+
                           return (
                             <tr key={item.id} className="transition-colors">
                               <td
-                                className={`px-3 py-2.5 text-gray-700 whitespace-nowrap ${getRowBackgroundColor(
-                                  computed.status
+                                className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                  intervalMonths,
+                                  remMonths
                                 )}`}
                               >
                                 {computed.remaining.months}
                               </td>
                               <td
-                                className={`px-3 py-2.5 text-gray-700 whitespace-nowrap ${getRowBackgroundColor(
-                                  computed.status
+                                className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                  intervalDays,
+                                  remDays
                                 )}`}
                               >
                                 {computed.remaining.days}
                               </td>
                               <td
-                                className={`px-3 py-2.5 text-gray-700 whitespace-nowrap ${getRowBackgroundColor(
-                                  computed.status
+                                className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                  intervalHours,
+                                  remTach
                                 )}`}
                               >
                                 {computed.remaining.tach}
                               </td>
                               <td
-                                className={`px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100 ${getRowBackgroundColor(
-                                  computed.status
+                                className={`px-3 py-2.5 whitespace-nowrap border-r border-gray-100 ${getRemainingCellClass(
+                                  intervalHours,
+                                  remAftt
                                 )}`}
                               >
                                 {computed.remaining.aftf}
@@ -803,7 +829,7 @@ export const CPCPMonitoring = forwardRef<
                                 {item.interval?.months ?? "0"}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {item.lastDone?.date || "-"}
+                                {formatDisplayDate(item.lastDone?.date)}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
                                 {item.lastDone?.tach || "-"}
@@ -812,7 +838,7 @@ export const CPCPMonitoring = forwardRef<
                                 {item.lastDone?.aftf || "-"}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {computed.nextDue.date}
+                                {formatDisplayDate(computed.nextDue.date)}
                               </td>
                               <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
                                 {computed.nextDue.tach}
@@ -1028,7 +1054,7 @@ export const CPCPMonitoring = forwardRef<
                         Last Done Date
                       </span>
                       <p className="text-gray-900">
-                        {viewEntry.lastDone?.date || "-"}
+                        {formatDisplayDate(viewEntry.lastDone?.date)}
                       </p>
                     </div>
                   </div>
@@ -1046,7 +1072,7 @@ export const CPCPMonitoring = forwardRef<
                         Next due date
                       </span>
                       <p className="text-gray-900">
-                        {viewEntry.nextDue?.date ?? "-"}
+                        {formatDisplayDate(viewEntry.nextDue?.date)}
                       </p>
                     </div>
                     <div>
@@ -1066,6 +1092,40 @@ export const CPCPMonitoring = forwardRef<
                       </p>
                     </div>
                   </div>
+                  {(() => {
+                    const computed = computeCpcpRow(viewEntry, headerTach, headerAftt);
+                    const intervalHours = parseNum(viewEntry.interval?.hours);
+                    const intervalMonths = parseNum(viewEntry.interval?.months);
+                    const intervalDays =
+                      intervalMonths != null ? (intervalMonths * 365) / 12 : null;
+                    const remMonths = parseNum(computed.remaining.months);
+                    const remDays = parseNum(computed.remaining.days);
+                    const remTach = parseNum(computed.remaining.tach);
+                    const remAftt = parseNum(computed.remaining.aftf);
+                    return (
+                      <div className="pt-2 border-t border-gray-100">
+                        <span className="text-gray-500 block mb-2">Remaining</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalMonths, remMonths)}`}>
+                            <div className="text-xs uppercase opacity-80">Months</div>
+                            <div>{computed.remaining.months}</div>
+                          </div>
+                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalDays, remDays)}`}>
+                            <div className="text-xs uppercase opacity-80">Days</div>
+                            <div>{computed.remaining.days}</div>
+                          </div>
+                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalHours, remTach)}`}>
+                            <div className="text-xs uppercase opacity-80">TACH</div>
+                            <div>{computed.remaining.tach}</div>
+                          </div>
+                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalHours, remAftt)}`}>
+                            <div className="text-xs uppercase opacity-80">AFTT</div>
+                            <div>{computed.remaining.aftf}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : null}
             </div>

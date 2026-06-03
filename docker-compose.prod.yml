@@ -1,30 +1,26 @@
-# Production
-# Frontend: http://120.89.33.51:3002
-# Usage: docker-compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
-
 services:
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://120.89.33.51:8082/api/v1/}
-        VITE_APP_URL: ${VITE_APP_URL:-http://120.89.33.51:3002}
+        VITE_API_URL: "/api/v1/"
+        VITE_APP_URL: "https://fleet.laminaraviationapps.com"
+
     image: laminar-aviation-app:latest
     container_name: laminar-aviation-frontend
+
     env_file:
       - .env.prod
+
     ports:
-      - "3002:80"
+      - "3000:80"
+
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
+
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+
     networks:
       - laminar-network
 
