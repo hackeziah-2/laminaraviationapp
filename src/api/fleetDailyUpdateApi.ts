@@ -203,6 +203,32 @@ export async function getFleetDailyUpdatePaged(
 export interface FleetDailyUpdateUpdatePayload {
   remarks?: string;
   status?: string;
+  tachTimeEod?: number | null;
+}
+
+/** Backend bulk PATCH expects uppercase enum values, e.g. OPERATIONAL. */
+export function fleetDailyStatusToApiValue(status: string): string {
+  const normalized = normalizeFleetDailyStatus(status);
+  const map: Record<string, string> = {
+    Operational: "OPERATIONAL",
+    "Ongoing Maintenance": "ONGOING MAINTENANCE",
+    AOG: "AOG",
+  };
+  return map[normalized] ?? normalized.toUpperCase().replace(/_/g, " ");
+}
+
+/**
+ * One row in a bulk fleet daily update request (snake_case fields for backend).
+ */
+export interface FleetDailyUpdateBulkUpdateItem {
+  id: number;
+  status?: string;
+  tach_time_eod?: number | null;
+  remarks?: string;
+}
+
+export interface FleetDailyUpdateBulkPayload {
+  updates: FleetDailyUpdateBulkUpdateItem[];
 }
 
 /**
@@ -214,7 +240,7 @@ export async function updateFleetDailyUpdateRemark(
   item: FleetDailyUpdateItem,
   payload: FleetDailyUpdateUpdatePayload
 ): Promise<FleetDailyUpdateItem | null> {
-  const body: Record<string, string> = {};
+  const body: Record<string, string | number | null> = {};
   if (payload.remarks !== undefined) {
     body.remarks = payload.remarks ?? "";
   }
@@ -222,6 +248,9 @@ export async function updateFleetDailyUpdateRemark(
     const statusValue = payload.status ?? "";
     body.work_status = statusValue; // backend often expects snake_case
     body.status = statusValue;       // some backends use status
+  }
+  if (payload.tachTimeEod !== undefined) {
+    body.tach_time_eod = payload.tachTimeEod;
   }
   if (Object.keys(body).length === 0) return normalizeItem(item as any);
   const mergedItem = (raw: any): FleetDailyUpdateItem =>
@@ -245,4 +274,40 @@ export async function updateFleetDailyUpdateRemark(
     return mergedItem(raw);
   }
   throw new Error("Fleet daily update item has no id or aircraftId");
+}
+
+/**
+ * Bulk update fleet daily update rows in one request.
+ * PATCH api/v1/fleet-daily-update/bulk/
+ * Body: { updates: [{ id, status?, tach_time_eod?, remarks? }] }
+ */
+export async function bulkUpdateFleetDailyUpdates(
+  payload: FleetDailyUpdateBulkPayload
+): Promise<void> {
+  if (payload.updates.length === 0) return;
+
+  const updates = payload.updates.map((item) => {
+    const row: FleetDailyUpdateBulkUpdateItem = { id: item.id };
+    if (item.status !== undefined) {
+      row.status = fleetDailyStatusToApiValue(item.status);
+    }
+    if (item.tach_time_eod !== undefined) {
+      row.tach_time_eod = item.tach_time_eod;
+    }
+    if (item.remarks !== undefined) {
+      row.remarks = item.remarks;
+    }
+    return row;
+  });
+
+  await apiClient.patch(
+    "fleet-daily-update/bulk/",
+    { updates },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    }
+  );
 }

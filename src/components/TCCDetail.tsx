@@ -28,6 +28,10 @@ import {
   type AircraftMaintenanceDetails,
 } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
+import {
+  formatDisplayDate,
+  formatDisplayDateFromDate,
+} from "../utility/utils";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -130,27 +134,9 @@ function parseDate(s: string | undefined): Date | null {
   return null;
 }
 
-/** Format date for display (DD-Mon-YY) */
 function formatDate(d: Date | null): string {
   if (!d) return "";
-  const day = d.getDate();
-  const mon = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ][d.getMonth()];
-  const y = d.getFullYear();
-  const yy = y >= 2000 ? String(y).slice(-2) : String(y).slice(-2);
-  return `${day}-${mon}-${yy}`;
+  return formatDisplayDateFromDate(d);
 }
 
 /** Days between two dates (truncated) */
@@ -182,7 +168,7 @@ export interface TCCComputedRow {
   limitHours: number;
 }
 
-/** Color for REMAINING group: Red = Due, Orange = <10%, Yellow = <20%, Green = <40% */
+/** Color for REMAINING group: Red <=0, Orange <=10, Yellow <=20, Green <=40 */
 function getRemainingColorClass(remainingPct: number | null): string {
   if (
     remainingPct == null ||
@@ -191,9 +177,9 @@ function getRemainingColorClass(remainingPct: number | null): string {
   ) {
     return "bg-red-100 text-red-800"; // Due
   }
-  if (remainingPct < 10) return "bg-orange-100 text-orange-800"; // Less than 10% Remaining
-  if (remainingPct < 20) return "bg-yellow-100 text-yellow-800"; // Less than 20% Remaining
-  if (remainingPct < 40) return "bg-green-100 text-green-800"; // Less than 40% Remaining
+  if (remainingPct <= 10) return "bg-orange-100 text-orange-800"; // >0 to 10% remaining
+  if (remainingPct <= 20) return "bg-yellow-100 text-yellow-800"; // >10% to 20% remaining
+  if (remainingPct <= 40) return "bg-green-100 text-green-800"; // >20% to 40% remaining
   return "";
 }
 
@@ -821,15 +807,15 @@ export const TCCDetailContent = forwardRef<
         <div className="px-5 py-3 bg-gray-50/80 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            &lt; 40% remaining
+            &gt; 20% to ≤ 40% remaining
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-semibold">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
-            &lt; 20% remaining
+            &gt; 10% to ≤ 20% remaining
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-orange-100 text-orange-800 border border-orange-300 font-semibold">
             <span className="w-2 h-2 rounded-full bg-orange-500" />
-            &lt; 10% remaining
+            &gt; 0% to ≤ 10% remaining
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-800 border border-red-300 font-semibold">
             <span className="w-2 h-2 rounded-full bg-red-500" />
@@ -1078,7 +1064,7 @@ export const TCCDetailContent = forwardRef<
                           {formatTccCategoryDisplay(item.category)}
                         </td>
                       )}
-                      {/* REMAINING: Years — color by % remaining: Red=Due, Orange=<10%, Yellow=<20%, Green=<40% */}
+                      {/* REMAINING: Years — color by % remaining: Red<=0, Orange<=10, Yellow<=20, Green<=40 */}
                       {(() => {
                         const pctYears =
                           row.limitYears > 0 && row.remainingYears != null
@@ -1173,7 +1159,9 @@ export const TCCDetailContent = forwardRef<
                       </td>
                       {/* LAST DONE: Date, TACH, AFTT (reference) */}
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
-                        {item.lastDoneDate}
+                        {formatDisplayDate(item.lastDoneDate, {
+                          fallback: item.lastDoneDate ?? "",
+                        })}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
                         {item.lastDoneTach ?? item.lastDoneYear}
@@ -1185,7 +1173,9 @@ export const TCCDetailContent = forwardRef<
                       <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
                         {row.nextDueDate
                           ? formatDate(row.nextDueDate)
-                          : item.nextDueDate}
+                          : formatDisplayDate(item.nextDueDate, {
+                              fallback: item.nextDueDate ?? "",
+                            })}
                       </td>
                       <td className="px-3 py-3 text-gray-900 text-xs">
                         {formatNum(row.nextDueTach) || item.nextDueYear}

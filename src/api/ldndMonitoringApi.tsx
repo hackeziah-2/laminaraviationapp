@@ -47,6 +47,8 @@ export interface LDNDLatest {
   currentTach: number | string | null;
   nextInspectionDue: number | null;
   nextInspectionUnit: string | null;
+  /** From latest LDND monitoring record; used to pre-fill Last Done Tach Due on create */
+  nextDueTachHours: number | null;
   lastUpdated: string | null;
 }
 
@@ -94,6 +96,7 @@ export const getAircraftLdndMonitoringLatest = async (
       nextInspectionDue: toNum(r.next_inspection_due ?? r.nextInspectionDue),
       nextInspectionUnit:
         r.next_inspection_unit ?? r.nextInspectionUnit ?? null,
+      nextDueTachHours: toNum(r.next_due_tach_hours ?? r.nextDueTachHours),
       lastUpdated: r.last_updated ?? r.lastUpdated ?? null,
     };
   } catch (err: any) {

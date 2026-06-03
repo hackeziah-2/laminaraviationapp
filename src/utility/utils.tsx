@@ -60,6 +60,363 @@ export function toCamelDeep(value: unknown): unknown {
 
 export const dateToday = new Date().toISOString().split("T")[0];
 
+/** Empty is allowed; otherwise must be a valid http(s) URL. */
+export function isValidWebLink(value: string | null | undefined): boolean {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!v) return true;
+  try {
+    const url =
+      v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Normalize Web Link for API: valid URL string or null. Adds https:// if missing. */
+export function normalizeWebLink(value: string | null | undefined): string | null {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!v) return null;
+  try {
+    const url =
+      v.startsWith("http://") || v.startsWith("https://") ? v : `https://${v}`;
+    new URL(url);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+/** Restrict typing to digits and at most one decimal point (integer/float entry). */
+export function sanitizeIntegerOrFloatInput(raw: string): string {
+  let s = String(raw ?? "")
+    .replace(/,/g, "")
+    .replace(/[^\d.]/g, "");
+  const firstDot = s.indexOf(".");
+  if (firstDot !== -1) {
+    s =
+      s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, "");
+  }
+  return s;
+}
+
+/** True when empty or a complete integer/float (rejects incomplete values like `12.`). */
+export function isOptionalIntegerOrFloat(
+  value: string | null | undefined
+): boolean {
+  const s = String(value ?? "").trim();
+  if (!s) return true;
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(s)) return false;
+  return Number.isFinite(parseFloat(s));
+}
+
+/** Parse a date string for display (ISO date, datetime, or parseable value). */
+export function parseDisplayDate(
+  value: string | null | undefined
+): Date | null {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+
+  const isoDate = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?/);
+  if (isoDate) {
+    const y = Number(isoDate[1]);
+    const m = Number(isoDate[2]);
+    const day = Number(isoDate[3]);
+    const d = new Date(y, m - 1, day);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day);
+      if (
+        d.getFullYear() === year &&
+        d.getMonth() === month - 1 &&
+        d.getDate() === day
+      ) {
+        return d;
+      }
+    }
+  }
+
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Format a Date as dd/mm/yyyy (en-GB). */
+export function formatDisplayDateFromDate(
+  d: Date,
+  options?: { timeZone?: string }
+): string {
+  if (Number.isNaN(d.getTime())) return "-";
+  const opts: Intl.DateTimeFormatOptions = {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  };
+  if (options?.timeZone) opts.timeZone = options.timeZone;
+  return d.toLocaleDateString("en-GB", opts);
+}
+
+/** Placeholder / prompt for date text inputs (display format). */
+export const DISPLAY_DATE_PLACEHOLDER = "DD/MM/YYYY";
+
+/** Hint for date field labels and tooltips. */
+export const DISPLAY_DATE_FORMAT_HINT =
+  "Display: DD/MM/YYYY · Saved as YYYY-MM-DD";
+
+/**
+ * Format digits while typing into DD/MM/YYYY (max 8 digits: ddmmyyyy).
+ */
+export function formatDateInputDisplay(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/** True when display text is a full DD/MM/YYYY value (10 characters). */
+export function isCompleteDisplayDate(value: string): boolean {
+  return /^\d{2}\/\d{2}\/\d{4}$/.test(value.trim());
+}
+
+/** Normalize typed or pasted text to DD/MM/YYYY display. */
+export function normalizeDateInputText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  // Complete display dates and ISO/API pastes normalize to canonical DD/MM/YYYY.
+  if (
+    isCompleteDisplayDate(trimmed) ||
+    /^\d{4}-\d{2}-\d{2}/.test(trimmed)
+  ) {
+    const api = formatDateForApi(trimmed);
+    if (api) return apiDateToDisplay(api);
+  }
+
+  return formatDateInputDisplay(trimmed);
+}
+
+/**
+ * Normalize any supported date string to YYYY-MM-DD for API payloads and DateInput value.
+ */
+export function formatDateForApi(
+  value: string | null | undefined
+): string {
+  if (value == null) return "";
+  const s = String(value).trim();
+  if (!s || s === "-" || s === "—") return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dmy = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const probe = new Date(year, month - 1, day);
+      if (
+        probe.getFullYear() === year &&
+        probe.getMonth() === month - 1 &&
+        probe.getDate() === day
+      ) {
+        return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+    }
+  }
+
+  const d = parseDisplayDate(s);
+  if (!d) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** YYYY-MM-DD → DD/MM/YYYY for DateInput text display. */
+export function apiDateToDisplay(value: string | null | undefined): string {
+  const api = formatDateForApi(value);
+  if (!api) return "";
+  const [y, m, d] = api.split("-");
+  if (!y || !m || !d) return formatDisplayDate(api, { fallback: "" });
+  return `${d}/${m}/${y}`;
+}
+
+/** Format a date value for display as dd/mm/yyyy. */
+export function formatDisplayDate(
+  value: string | null | undefined,
+  options?: { fallback?: string }
+): string {
+  const fallback = options?.fallback ?? "-";
+  const trimmed = value != null ? String(value).trim() : "";
+  if (!trimmed) return fallback;
+  const d = parseDisplayDate(trimmed);
+  if (!d) return trimmed;
+  return formatDisplayDateFromDate(d);
+}
+
+/** Format a date-time value: dd/mm/yyyy, HH:MM (24h, en-GB). */
+export function formatDisplayDateTime(
+  value: string | null | undefined,
+  options?: { fallback?: string }
+): string {
+  const fallback = options?.fallback ?? "-";
+  const trimmed = value != null ? String(value).trim() : "";
+  if (!trimmed) return fallback;
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return trimmed;
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Parse ATL API `date_time_reported` / ISO strings as UTC (Zulu). */
+function parseAtlDateTimeAsUtc(raw: string): Date | null {
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(`${s}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/i);
+  if (m) {
+    const hh = m[2].padStart(2, "0");
+    const mm = m[3].padStart(2, "0");
+    const ss = (m[4] || "00").padStart(2, "0");
+    const d = new Date(`${m[1]}T${hh}:${mm}:${ss}Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const normalized = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)
+    ? s
+    : `${s.replace(/\.\d+$/, "")}Z`;
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const ATL_DATE_REPORTED_LOCALE = "en-PH";
+const ATL_DATE_REPORTED_TIME_ZONE = "Asia/Manila";
+
+/**
+ * ATL Date Reported display (Philippines / Asia-Manila), e.g. "6/3/2024, 10:30:00 pm".
+ */
+export function formatAtlDateReportedManila(raw?: string | null): string {
+  if (raw == null || String(raw).trim() === "") return "-";
+  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  if (!d) return String(raw).trim();
+  return d.toLocaleString(ATL_DATE_REPORTED_LOCALE, {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+  });
+}
+
+/** Current Date Reported string (en-PH, Asia/Manila) — e.g. for live display. */
+export function formatAtlDateReportedManilaNow(now = new Date()): string {
+  return now.toLocaleString(ATL_DATE_REPORTED_LOCALE, {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+  });
+}
+
+/** Date/time parts in Asia/Manila for ATL Date Reported auto-set on upload. */
+export function getManilaDateTimeParts(now = new Date()): {
+  date: string;
+  time: string;
+} {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  const y = get("year");
+  const mo = get("month");
+  const day = get("day");
+  const hh = get("hour");
+  const mm = get("minute");
+  return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}` };
+}
+
+/**
+ * ATL Date Reported display from form fields or API value (Asia/Manila).
+ */
+export function formatAtlDateReportedManilaFromParts(
+  formDate?: string,
+  formTime?: string,
+  apiValue?: string | null
+): string {
+  if (apiValue != null && String(apiValue).trim() !== "") {
+    return formatAtlDateReportedManila(apiValue);
+  }
+  if (!formDate?.trim()) return "";
+  const time = formTime?.trim() || "00:00";
+  const parts = time.split(":");
+  const hh = (parts[0] || "00").padStart(2, "0");
+  const mm = (parts[1] || "00").padStart(2, "0");
+  return formatAtlDateReportedManila(`${formDate.trim()}T${hh}:${mm}:00`);
+}
+
+/**
+ * ATL Date Reported display, e.g. "29/02/2024 12:00 AM UTC".
+ */
+export function formatAtlDateTimeUtc(raw?: string | null): string {
+  if (raw == null || String(raw).trim() === "") return "-";
+  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  if (!d) return String(raw).trim();
+  const datePart = formatDisplayDateFromDate(d, { timeZone: "UTC" });
+  const timePart = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  });
+  return `${datePart} ${timePart} UTC`;
+}
+
+/** Format from form date/time fields or API value (TechPubView read-only display). */
+export function formatAtlDateTimeUtcFromParts(
+  formDate?: string,
+  formTime?: string,
+  apiValue?: string | null
+): string {
+  if (apiValue != null && String(apiValue).trim() !== "") {
+    return formatAtlDateTimeUtc(apiValue);
+  }
+  if (!formDate?.trim()) return "";
+  const time = formTime?.trim() || "00:00";
+  const parts = time.split(":");
+  const hh = (parts[0] || "00").padStart(2, "0");
+  const mm = (parts[1] || "00").padStart(2, "0");
+  return formatAtlDateTimeUtc(`${formDate.trim()}T${hh}:${mm}:00`);
+}
+
+/**
+ * Format numeric values (e.g. tach/hobbs totals) to two decimal places for display.
+ */
+export function formatOptionalNumber2dp(
+  value: unknown,
+  fallback = "-"
+): string {
+  if (value == null || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
 /**
  * Format time from API to HH:MM format (24-hour)
  * @param timeStr - Time string in HHMM format (4 digits) or HH:MM format

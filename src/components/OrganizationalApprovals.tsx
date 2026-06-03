@@ -38,25 +38,15 @@ import {
   type CertificateTypeOption,
 } from "../api/organizationalApprovalApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatDateForApi, formatDisplayDate } from "../utility/utils";
+import { DateInput } from "./ui/DateInput";
 
-/** Format expiry string (ISO or other) for display e.g. "16 Aug 30" */
 function formatExpiryDisplay(expiry: string | null | undefined): string {
-  if (!expiry?.trim()) return "—";
-  const d = new Date(expiry);
-  if (isNaN(d.getTime())) return expiry;
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "2-digit",
-  });
+  return formatDisplayDate(expiry, { fallback: "—" });
 }
 
-/** Normalize date to YYYY-MM-DD for API */
 function toApiDate(value: string | null | undefined): string {
-  if (!value?.trim()) return "";
-  const d = new Date(value.trim());
-  if (isNaN(d.getTime())) return value.trim();
-  return d.toISOString().slice(0, 10);
+  return formatDateForApi(value);
 }
 
 const SEARCH_DEBOUNCE_MS = 400;
@@ -1119,15 +1109,15 @@ export function OrganizationalApprovals() {
                 <label className="block text-gray-700 text-sm mb-1.5">
                   Expiry Date <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="date"
+                <DateInput
                   value={formData.expiryDate}
-                  onChange={(e) => {
-                    setFormData({ ...formData, expiryDate: e.target.value });
+                  onChange={(expiryDate) => {
+                    setFormData({ ...formData, expiryDate });
                     if (formErrors.expiryDate)
                       setFormErrors((prev) => ({ ...prev, expiryDate: "" }));
                   }}
-                  className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  aria-invalid={!!formErrors.expiryDate}
+                  inputClassName={`rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     formErrors.expiryDate ? "border-red-500" : "border-gray-300"
                   }`}
                 />
