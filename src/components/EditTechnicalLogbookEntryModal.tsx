@@ -8,6 +8,7 @@ import {
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
 import {
+  getAtlEditDeniedMessage,
   isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRestrictedEdit,
 } from "../utility/atlEditRbac";
@@ -155,11 +156,10 @@ export function EditTechnicalLogbookEntryModal({
           />
           <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col p-6 gap-4">
             <p className="text-gray-800 text-sm">
-              You cannot edit this ATL entry for your role while work status is{" "}
-              <span className="font-medium">
-                {(fullEntry.workStatus || "unset").replace(/_/g, " ")}
-              </span>
-              .
+              {getAtlEditDeniedMessage(
+                effectiveViewerRole,
+                fullEntry.workStatus
+              )}
             </p>
             <button
               type="button"

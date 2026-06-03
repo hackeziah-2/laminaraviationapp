@@ -77,6 +77,7 @@ import {
   canCreateAtlBatch,
   canEditAtlBatch,
   canManageAtlBatchFilter,
+  getAtlEditDeniedMessage,
   isAtlEditAllowedForRoleAndWorkStatus,
   isMechanicRole,
   isTechnicalPublicationRestrictedEdit,
@@ -461,9 +462,9 @@ function formatOptionalNumber1dp(value: unknown): string {
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
 const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
   FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
+  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
   REJECTED_MAINTENANCE: { backgroundColor: "#fef2f2", color: "#991b1b" },
   APPROVED: { backgroundColor: "#ecfdf5", color: "#065f46" },
-  AWAITING_ATTACHMENT: { backgroundColor: "#f0f9ff", color: "#075985" },
   REJECTED_QUALITY: { backgroundColor: "#fff1f2", color: "#9f1239" },
   PENDING: { backgroundColor: "#f5f3ff", color: "#5b21b6" },
   COMPLETED: { backgroundColor: "#f0fdf4", color: "#166534" },
@@ -566,6 +567,11 @@ export function Operation() {
 
   const allowAtlEditForRecord = (record: AircraftTechnicalLog) =>
     isAtlEditAllowedForRoleAndWorkStatus(operationAtlRole, record.workStatus);
+
+  const atlEditButtonTitle = (record: AircraftTechnicalLog) =>
+    allowAtlEditForRecord(record)
+      ? "Edit"
+      : getAtlEditDeniedMessage(operationAtlRole, record.workStatus);
 
   const operationTechPubCanEditAtl = (record: AircraftTechnicalLog) =>
     isTechnicalPublicationRole(operationAtlRole) &&
@@ -2821,11 +2827,7 @@ export function Operation() {
                                               setShowEditModal(true);
                                             }}
                                             className="hover:text-blue-700 hover:underline transition-colors text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-blue-600 disabled:hover:no-underline"
-                                            title={
-                                              allowAtlEditForRecord(record)
-                                                ? "Edit"
-                                                : "Editing is not allowed for your role at this work status."
-                                            }
+                                            title={atlEditButtonTitle(record)}
                                           >
                                             Edit
                                           </button>
@@ -3494,7 +3496,7 @@ export function Operation() {
                                           title={
                                             allowAtlEditForRecord(record)
                                               ? "Edit"
-                                              : "Editing is not allowed for your role at this work status."
+                                              : atlEditButtonTitle(record)
                                           }
                                         >
                                           Edit
@@ -3693,11 +3695,7 @@ export function Operation() {
                                               setShowEditModal(true);
                                             }}
                                             className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
-                                            title={
-                                              allowAtlEditForRecord(record)
-                                                ? "Edit"
-                                                : "Editing is not allowed for your role at this work status."
-                                            }
+                                            title={atlEditButtonTitle(record)}
                                           >
                                             Edit
                                           </button>
@@ -3888,7 +3886,7 @@ export function Operation() {
                                           title={
                                             allowAtlEditForRecord(record)
                                               ? "Edit"
-                                              : "Editing is not allowed for your role at this work status."
+                                              : atlEditButtonTitle(record)
                                           }
                                         >
                                           Edit

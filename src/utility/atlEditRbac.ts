@@ -7,13 +7,13 @@
  * - Dropdown targets: which work_status values the user may pick in the form.
  *
  * Current-status edit gate:
- * - Maintenance Planner → APPROVED, AWAITING_ATTACHMENT
+ * - Maintenance Planner → FOR_REVIEW, AWAITING_ATTACHMENT only (blocked at REJECTED_QUALITY, PENDING, COMPLETED, APPROVED, etc.)
  * - Maintenance Manager → FOR_REVIEW, APPROVED
  * - Technical Publication → AWAITING_ATTACHMENT, PENDING
  * - Quality Manager → PENDING
  *
  * Dropdown targets:
- * - Maintenance Planner → APPROVED, AWAITING_ATTACHMENT
+ * - Maintenance Planner → FOR_REVIEW, AWAITING_ATTACHMENT
  * - Maintenance Manager → FOR_REVIEW, APPROVED
  * - Technical Publication → AWAITING_ATTACHMENT, PENDING
  * - Quality Manager → PENDING, COMPLETED, REJECTED_QUALITY
@@ -23,15 +23,38 @@
 
 export const ATL_WORK_STATUS_KEYS = [
   "FOR_REVIEW",
+  "AWAITING_ATTACHMENT",
   "REJECTED_MAINTENANCE",
   "APPROVED",
-  "AWAITING_ATTACHMENT",
   "REJECTED_QUALITY",
   "PENDING",
   "COMPLETED",
 ] as const;
 
 export type AtlWorkStatusKey = (typeof ATL_WORK_STATUS_KEYS)[number];
+
+/** Operation / Technical Logbook: Maintenance Planner may edit and pick only these work statuses. */
+export const MAINTENANCE_PLANNER_ATL_WORK_STATUS_OPTIONS: readonly AtlWorkStatusKey[] =
+  ["FOR_REVIEW", "AWAITING_ATTACHMENT"];
+
+/** Statuses where Maintenance Planner cannot open full ATL edit (includes all non-allowed). */
+export const MAINTENANCE_PLANNER_ATL_EDIT_BLOCKED_STATUSES: readonly AtlWorkStatusKey[] =
+  ["REJECTED_QUALITY", "PENDING", "COMPLETED", "APPROVED"];
+
+export const MAINTENANCE_PLANNER_ATL_EDIT_DENIED_MESSAGE =
+  "Maintenance Planner is not allowed to edit ATL when work status is REJECTED_QUALITY, PENDING, COMPLETED, or APPROVED.";
+
+const MAINTENANCE_PLANNER_ATL_EDIT_ALLOWED_SET = new Set<AtlWorkStatusKey>(
+  MAINTENANCE_PLANNER_ATL_WORK_STATUS_OPTIONS
+);
+
+export function isMaintenancePlannerAtlEditBlocked(
+  workStatus: string | undefined
+): boolean {
+  const key = normalizeAtlWorkStatus(workStatus);
+  if (!key) return true;
+  return !MAINTENANCE_PLANNER_ATL_EDIT_ALLOWED_SET.has(key);
+}
 
 export function normalizeAtlWorkStatus(
   status: string | undefined
@@ -198,6 +221,12 @@ function isMaintenancePlannerRoleName(n: string): boolean {
   );
 }
 
+export function isMaintenancePlannerRole(
+  userRole: string | undefined
+): boolean {
+  return isMaintenancePlannerRoleName(normalizeRoleNameForMatch(userRole));
+}
+
 function isMaintenanceManagerRoleName(n: string): boolean {
   return (
     n === "maintenance manager" ||
@@ -258,24 +287,45 @@ function resolveAtlRbacRole(userRole: string | undefined): AtlRbacRole | null {
 }
 
 const ATL_EDIT_OPEN_ALLOWED_BY_ROLE: Record<
-  AtlRbacRole,
+  Exclude<AtlRbacRole, "maintenance_planner">,
   ReadonlySet<AtlWorkStatusKey>
 > = {
-  maintenance_planner: new Set(["APPROVED", "AWAITING_ATTACHMENT"]),
   maintenance_manager: new Set(["FOR_REVIEW", "APPROVED"]),
   technical_publication: new Set(["AWAITING_ATTACHMENT", "PENDING"]),
   quality_manager: new Set(["PENDING"]),
 };
 
 const ATL_EDIT_TARGET_ALLOWED_BY_ROLE: Record<
-  AtlRbacRole,
+  Exclude<AtlRbacRole, "maintenance_planner">,
   ReadonlySet<AtlWorkStatusKey>
 > = {
-  maintenance_planner: new Set(["APPROVED", "AWAITING_ATTACHMENT"]),
   maintenance_manager: new Set(["FOR_REVIEW", "APPROVED"]),
   technical_publication: new Set(["AWAITING_ATTACHMENT", "PENDING"]),
   quality_manager: new Set(["PENDING", "COMPLETED", "REJECTED_QUALITY"]),
 };
+
+function isMaintenancePlannerEditOpenAllowed(
+  workStatus: string | undefined
+): boolean {
+  const key = normalizeAtlWorkStatus(workStatus);
+  if (!key) return false;
+  return MAINTENANCE_PLANNER_ATL_EDIT_ALLOWED_SET.has(key);
+}
+
+/** User-facing message when edit is denied for role + work status (Operation / Logbook modules). */
+export function getAtlEditDeniedMessage(
+  userRole: string | undefined,
+  workStatus: string | undefined
+): string {
+  if (
+    isMaintenancePlannerRole(userRole) &&
+    isMaintenancePlannerAtlEditBlocked(workStatus)
+  ) {
+    return MAINTENANCE_PLANNER_ATL_EDIT_DENIED_MESSAGE;
+  }
+  const label = (workStatus || "unset").replace(/_/g, " ");
+  return `You cannot edit this ATL entry for your role while work status is ${label}.`;
+}
 
 /**
  * Whether the Edit ATL modal may open for this role and work status.
@@ -288,6 +338,9 @@ export function isAtlEditAllowedForRoleAndWorkStatus(
 ): boolean {
   const rbacRole = resolveAtlRbacRole(userRole);
   if (!rbacRole) return true;
+  if (rbacRole === "maintenance_planner") {
+    return isMaintenancePlannerEditOpenAllowed(workStatus);
+  }
   const key = normalizeAtlWorkStatus(workStatus);
   if (!key) return false;
   return ATL_EDIT_OPEN_ALLOWED_BY_ROLE[rbacRole].has(key);
@@ -325,9 +378,12 @@ export function getAtlWorkStatusDropdownKeysForRole(
   const rbacRole = resolveAtlRbacRole(trimmed);
   if (!rbacRole) return ATL_WORK_STATUS_KEYS;
 
-  const allowed = ATL_WORK_STATUS_KEYS.filter((k) =>
-    ATL_EDIT_TARGET_ALLOWED_BY_ROLE[rbacRole].has(k)
-  );
+  const allowed =
+    rbacRole === "maintenance_planner"
+      ? [...MAINTENANCE_PLANNER_ATL_WORK_STATUS_OPTIONS]
+      : ATL_WORK_STATUS_KEYS.filter((k) =>
+          ATL_EDIT_TARGET_ALLOWED_BY_ROLE[rbacRole].has(k)
+        );
 
   const cur = normalizeAtlWorkStatus(options?.currentWorkStatus);
   if (cur && !allowed.includes(cur)) {

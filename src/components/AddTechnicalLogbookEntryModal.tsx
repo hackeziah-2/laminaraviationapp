@@ -51,6 +51,8 @@ import {
   canUploadWhiteAtlAndDfpFiles,
   canManageAtlBatchFilter,
   canShowTechPubViewForRoleAndWorkStatus,
+  getAtlEditDeniedMessage,
+  isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRestrictedEdit,
   isTechnicalPublicationRole,
   normalizeAtlWorkStatus,
@@ -1827,6 +1829,25 @@ export function AddTechnicalLogbookEntryModal({
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
+
+    if (
+      editEntry &&
+      !isAtlEditAllowedForRoleAndWorkStatus(
+        atlRoleForWorkStatus,
+        editEntry.workStatus
+      )
+    ) {
+      await Swal.fire({
+        icon: "error",
+        title: "Edit not allowed",
+        text: getAtlEditDeniedMessage(
+          atlRoleForWorkStatus,
+          editEntry.workStatus
+        ),
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
 
     if (attachmentsOnlyLocked) {
       if (!techPubCanSubmitAttachmentsOnlyEdit) {

@@ -38,6 +38,7 @@ import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
   canManageAtlBatchFilter,
+  getAtlEditDeniedMessage,
   isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRole,
   isTechnicalPublicationRestrictedEdit,
@@ -473,6 +474,11 @@ export function AircraftTechnicalLogbook() {
   const allowAtlEditForEntry = (entry: LogbookEntry) =>
     isAtlEditAllowedForRoleAndWorkStatus(logbookAtlRole, entry.workStatus);
 
+  const atlEditButtonTitle = (entry: LogbookEntry) =>
+    allowAtlEditForEntry(entry)
+      ? "Edit"
+      : getAtlEditDeniedMessage(logbookAtlRole, entry.workStatus);
+
   /** Technical Publication may edit White ATL / DFP / links without logbook Update permission. */
   const logbookTechPubCanEditAtl = (entry: LogbookEntry) =>
     isTechnicalPublicationRole(logbookAtlRole) && allowAtlEditForEntry(entry);
@@ -861,11 +867,7 @@ export function AircraftTechnicalLogbook() {
                                 disabled={!allowAtlEditForEntry(entry)}
                                 onClick={() => handleEditEntry(entry)}
                                 className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
-                                title={
-                                  allowAtlEditForEntry(entry)
-                                    ? "Edit"
-                                    : "Editing is not allowed for your role at this work status."
-                                }
+                                title={atlEditButtonTitle(entry)}
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
