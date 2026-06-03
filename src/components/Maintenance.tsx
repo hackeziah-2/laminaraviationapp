@@ -1066,6 +1066,36 @@ export function Maintenance() {
     setShowAddModal(true);
   };
 
+  /** Create-only: pre-fill Last Done Tach Due from latest monitoring next_due_tach_hours */
+  const openAddLdndEntry = async () => {
+    setEditingLdndEntry(null);
+    setLdndFormErrors({});
+
+    let lastDoneTachDue = "";
+    if (aircraftId) {
+      try {
+        const latest = await getAircraftLdndMonitoringLatest(aircraftId);
+        setLdndLatest(latest);
+        if (latest?.nextDueTachHours != null) {
+          lastDoneTachDue = String(latest.nextDueTachHours);
+        }
+      } catch (err) {
+        console.error("LDND latest fetch for add entry:", err);
+      }
+    }
+
+    setNewEntry({
+      type: "",
+      unit: "HRS",
+      lastDoneTachDue,
+      lastDoneTachDone: "",
+      nextDueTachHours: "",
+      performedDateStart: "",
+      performedDateEnd: "",
+    });
+    setShowAddModal(true);
+  };
+
   const handleADCreateOrUpdate = async () => {
     const adNumber = String(newADEntry.adNumber).trim();
     const subject = String(newADEntry.subject).trim();
@@ -1644,20 +1674,7 @@ export function Maintenance() {
                 </div>
                 {canCreate("maintenance") && (
                   <button
-                    onClick={() => {
-                      setEditingLdndEntry(null);
-                      setNewEntry({
-                        type: "",
-                        unit: "HRS",
-                        lastDoneTachDue: "",
-                        lastDoneTachDone: "",
-                        nextDueTachHours: "",
-                        performedDateStart: "",
-                        performedDateEnd: "",
-                      });
-                      setLdndFormErrors({});
-                      setShowAddModal(true);
-                    }}
+                    onClick={() => void openAddLdndEntry()}
                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm whitespace-nowrap"
                   >
                     <Plus className="w-4 h-4" />
