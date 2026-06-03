@@ -88,6 +88,29 @@ export function normalizeWebLink(value: string | null | undefined): string | nul
   }
 }
 
+/** Restrict typing to digits and at most one decimal point (integer/float entry). */
+export function sanitizeIntegerOrFloatInput(raw: string): string {
+  let s = String(raw ?? "")
+    .replace(/,/g, "")
+    .replace(/[^\d.]/g, "");
+  const firstDot = s.indexOf(".");
+  if (firstDot !== -1) {
+    s =
+      s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, "");
+  }
+  return s;
+}
+
+/** True when empty or a complete integer/float (rejects incomplete values like `12.`). */
+export function isOptionalIntegerOrFloat(
+  value: string | null | undefined
+): boolean {
+  const s = String(value ?? "").trim();
+  if (!s) return true;
+  if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(s)) return false;
+  return Number.isFinite(parseFloat(s));
+}
+
 /** Parse a date string for display (ISO date, datetime, or parseable value). */
 export function parseDisplayDate(
   value: string | null | undefined

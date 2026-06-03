@@ -1,5 +1,6 @@
 import apiClient from "./index";
 import { searchAircraftTechnicalLogBySequence } from "./aircraftTechnicalLogApi";
+import { formatDisplayDate } from "../utility/utils";
 
 /** Human-readable nature of flight for dropdowns (matches technical log vocabulary). */
 export function formatNatureOfFlightForDisplay(
@@ -28,9 +29,10 @@ export interface AtlListOptions {
   /**
    * CPCP / TCC ATL picker: show each result as
    * `Seq No.: {sequence}: TACH: …  AFTT: …  DATE: …`
+   * AD Work Order picker: `{sequence} - {AFTT} - {TACH END} - {Origin Date}`
    * Default keeps `Sequence · Nature · Registration` for other screens.
    */
-  resultLineStyle?: "standard" | "cpcp";
+  resultLineStyle?: "standard" | "cpcp" | "adWorkOrder";
 }
 
 function displayAtlField(v: unknown): string {
@@ -69,14 +71,14 @@ function cpcpDateForLastDoneField(v: unknown): string | undefined {
 }
 
 function cpcpAutofillFromRaw(
-  lineStyle: "standard" | "cpcp",
+  lineStyle: AtlListOptions["resultLineStyle"],
   tachRaw: unknown,
   afttRaw: unknown,
   originDateRaw: unknown
 ): Partial<
   Pick<AtlItem, "cpcpLastDoneTach" | "cpcpLastDoneAftt" | "cpcpLastDoneDate">
 > {
-  if (lineStyle !== "cpcp") return {};
+  if (lineStyle !== "cpcp" && lineStyle !== "adWorkOrder") return {};
   const out: Partial<
     Pick<AtlItem, "cpcpLastDoneTach" | "cpcpLastDoneAftt" | "cpcpLastDoneDate">
   > = {};
@@ -107,6 +109,26 @@ export function buildAtlCpcpSearchLabel(
   )}`;
 }
 
+/**
+ * AD Work Order ATL picker search result line.
+ * `{sequence} - {AFTT} - {TACH END} - {Origin Date (DD/MM/YYYY)}`
+ */
+export function buildAtlAdWorkOrderSearchLabel(
+  sequenceNo: string,
+  tachometerEnd: unknown,
+  autoAirframeAftt: unknown,
+  originDate: unknown
+): string {
+  const seq = String(sequenceNo ?? "").trim() || "—";
+  const aftt = displayAtlField(autoAirframeAftt);
+  const tach = displayAtlField(tachometerEnd);
+  const apiDate = cpcpDateForLastDoneField(originDate);
+  const dateDisplay = apiDate
+    ? formatDisplayDate(apiDate, { fallback: "—" })
+    : displayAtlField(originDate);
+  return `${seq} - ${aftt} - ${tach} - ${dateDisplay}`;
+}
+
 export interface AtlItem {
   id: number;
   sequenceNo?: string;
@@ -120,7 +142,7 @@ export interface AtlItem {
   natureOfFlightDisplay?: string;
   /** Aircraft registration when returned on the ATL row */
   aircraftRegistration?: string;
-  /** CPCP picker: autofill Last Done from selected ATL row (only when `resultLineStyle: "cpcp"`). */
+  /** CPCP / AD Work Order picker: autofill Last Done from selected ATL row (`cpcp` or `adWorkOrder`). */
   cpcpLastDoneTach?: string;
   cpcpLastDoneAftt?: string;
   cpcpLastDoneDate?: string;
@@ -195,7 +217,14 @@ export const getAtlList = async (
       const label =
         lineStyle === "cpcp"
           ? buildAtlCpcpSearchLabel(seqPart, tachRaw, afttRaw, originDateRaw)
-          : `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
+          : lineStyle === "adWorkOrder"
+            ? buildAtlAdWorkOrderSearchLabel(
+                seqPart,
+                afttRaw,
+                tachRaw,
+                originDateRaw
+              )
+            : `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
       return {
         id,
         sequenceNo: seqNo,
@@ -251,7 +280,14 @@ export const searchAtlOptionsForTcc = async (
               t.autoAirframeAftt,
               t.originDate
             )
-          : `${seq} · ${natureDisplay} · ${reg}`;
+          : lineStyle === "adWorkOrder"
+            ? buildAtlAdWorkOrderSearchLabel(
+                seq,
+                t.autoAirframeAftt,
+                t.tachometerEnd,
+                t.originDate
+              )
+            : `${seq} · ${natureDisplay} · ${reg}`;
       return {
         id: t.id,
         sequenceNo: String(t.sequenceNo ?? "").trim(),

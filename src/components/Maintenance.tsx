@@ -46,6 +46,8 @@ import {
   isValidWebLink,
   normalizeWebLink,
   formatDisplayDate,
+  sanitizeIntegerOrFloatInput,
+  isOptionalIntegerOrFloat,
 } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 import { AdWebLinkButton } from "./AdWebLinkDisplay";
@@ -1083,12 +1085,20 @@ export function Maintenance() {
       });
       return;
     }
+    if (!isOptionalIntegerOrFloat(newADEntry.inspectionInterval)) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Invalid Interval",
+        text: "Interval must be a whole number or decimal (e.g. 500 or 12.5).",
+      });
+      return;
+    }
     setAdSaving(true);
     try {
       const basePayload = {
         adNumber,
         subject,
-        inspectionInterval: newADEntry.inspectionInterval ?? "",
+        inspectionInterval: String(newADEntry.inspectionInterval ?? "").trim(),
         compliDate: newADEntry.compliDate ?? "",
         webLink: normalizeWebLink(newADEntry.webLink),
       };
@@ -2461,16 +2471,34 @@ export function Maintenance() {
                       </label>
                       <input
                         type="text"
+                        inputMode="decimal"
                         value={newADEntry.inspectionInterval}
                         onChange={(e) =>
                           setNewADEntry({
                             ...newADEntry,
-                            inspectionInterval: e.target.value,
+                            inspectionInterval: sanitizeIntegerOrFloatInput(
+                              e.target.value
+                            ),
                           })
                         }
-                        placeholder="e.g., 500 FH"
-                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        placeholder="e.g., 500 or 12.5"
+                        className={`w-full px-3 py-2 border rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white ${
+                          newADEntry.inspectionInterval.trim() &&
+                          !isOptionalIntegerOrFloat(
+                            newADEntry.inspectionInterval
+                          )
+                            ? "border-red-400"
+                            : "border-gray-300"
+                        }`}
                       />
+                      {newADEntry.inspectionInterval.trim() &&
+                        !isOptionalIntegerOrFloat(
+                          newADEntry.inspectionInterval
+                        ) && (
+                          <p className="mt-1 text-xs text-red-600">
+                            Enter a whole number or decimal only.
+                          </p>
+                        )}
                     </div>
                   </div>
                   <div className="space-y-4">
