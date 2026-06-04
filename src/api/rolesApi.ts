@@ -1,5 +1,6 @@
 import type { AxiosRequestConfig } from "axios";
 import apiClient from "./index";
+import { getAccountsPaged } from "./accountApi";
 
 export interface Role {
   id: number;
@@ -28,6 +29,57 @@ export interface CreateRolePayload {
   permissions?: Permission[];
 }
 
+const USER_COUNT_FIELD_KEYS = [
+  "user_count",
+  "userCount",
+  "users_count",
+  "usersCount",
+  "assigned_user_count",
+  "assigned_users_count",
+] as const;
+
+/** Parse user count when the API includes it on a role payload. */
+export function extractRoleUserCount(
+  raw: Record<string, unknown> | null | undefined
+): number | undefined {
+  if (!raw) return undefined;
+  for (const key of USER_COUNT_FIELD_KEYS) {
+    if (!(key in raw)) continue;
+    const val = raw[key];
+    if (val === undefined || val === null || val === "") continue;
+    const n = Number(val);
+    if (Number.isFinite(n)) return Math.max(0, Math.trunc(n));
+  }
+  if (Array.isArray(raw.users)) return raw.users.length;
+  if (Array.isArray(raw.accounts)) return raw.accounts.length;
+  return undefined;
+}
+
+function parseRoleUserCountResponse(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.trunc(raw));
+  }
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+  const inner = (obj.data ?? obj) as Record<string, unknown>;
+  return (
+    extractRoleUserCount(inner) ??
+    extractRoleUserCount(obj) ??
+    (typeof inner.count === "number" && Number.isFinite(inner.count)
+      ? Math.max(0, Math.trunc(inner.count))
+      : undefined) ??
+    (typeof obj.count === "number" && Number.isFinite(obj.count)
+      ? Math.max(0, Math.trunc(obj.count))
+      : undefined) ??
+    (typeof inner.total === "number" && Number.isFinite(inner.total)
+      ? Math.max(0, Math.trunc(inner.total))
+      : undefined) ??
+    (typeof obj.total === "number" && Number.isFinite(obj.total)
+      ? Math.max(0, Math.trunc(obj.total))
+      : undefined)
+  );
+}
+
 function normalizeRole(raw: Record<string, unknown>): Role {
   const getStr = (k: string, fallback = "") =>
     String(
@@ -52,8 +104,61 @@ function normalizeRole(raw: Record<string, unknown>): Role {
       "roleDescription",
       "desc",
     ]),
-    userCount: Number(raw.user_count ?? raw.userCount ?? 0),
+    userCount: extractRoleUserCount(raw) ?? 0,
   };
+}
+
+/**
+ * Resolve how many users are assigned to a role (for Edit Role).
+ * Tries GET /roles/:id, optional count endpoints, then account list total by role name.
+ */
+export async function fetchRoleUserCount(
+  roleId: number,
+  roleName?: string
+): Promise<number> {
+  if (!roleId) return 0;
+
+  const silent = {
+    skipGlobalErrorLog: true,
+  } as AxiosRequestConfig & { skipGlobalErrorLog?: boolean };
+
+  try {
+    const response = await apiClient.get(`roles/${roleId}/`, silent);
+    const raw = response.data ?? {};
+    const data = ((raw as Record<string, unknown>).data ?? raw) as Record<
+      string,
+      unknown
+    >;
+    const fromRole = parseRoleUserCountResponse(data);
+    if (fromRole !== undefined) return fromRole;
+  } catch {
+    /* try fallbacks */
+  }
+
+  for (const path of [
+    `roles/${roleId}/user-count/`,
+    `roles/${roleId}/users/count/`,
+  ]) {
+    try {
+      const response = await apiClient.get(path, silent);
+      const fromCount = parseRoleUserCountResponse(response.data);
+      if (fromCount !== undefined) return fromCount;
+    } catch {
+      /* next path */
+    }
+  }
+
+  const name = roleName?.trim();
+  if (name) {
+    try {
+      const { total } = await getAccountsPaged(1, 1, "", name);
+      return Math.max(0, total);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return 0;
 }
 
 /** List roles: try GET roles/roles-list and roles/paged first (many backends use POST-only on roles/). */

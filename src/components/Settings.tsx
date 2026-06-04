@@ -1561,6 +1561,8 @@ function EditRoleModal({
   const [rolePermissions, setRolePermissions] = useState<Permission[]>(merged);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [userCount, setUserCount] = useState(role?.userCount ?? 0);
+  const [userCountLoading, setUserCountLoading] = useState(false);
 
   React.useEffect(() => {
     if (role) {
@@ -1572,6 +1574,22 @@ function EditRoleModal({
         mergePermissionsWithModuleList(moduleList, permissions)
       );
       setErrors({});
+      setUserCount(role.userCount ?? 0);
+
+      let cancelled = false;
+      setUserCountLoading(true);
+      rolesApi
+        .fetchRoleUserCount(role.id, role.name)
+        .then((count) => {
+          if (!cancelled) setUserCount(count);
+        })
+        .finally(() => {
+          if (!cancelled) setUserCountLoading(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
     }
   }, [role, permissions, moduleList]);
 
@@ -1649,12 +1667,22 @@ function EditRoleModal({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 User Count
               </label>
-              <input
-                type="text"
-                value={`${role.userCount} users`}
-                disabled
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={
+                    userCountLoading
+                      ? "Loading..."
+                      : `${userCount} user${userCount === 1 ? "" : "s"}`
+                  }
+                  disabled
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 pr-9"
+                />
+                {userCountLoading && (
+                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+                )}
+              </div>
             </div>
           </div>
 
@@ -3013,15 +3041,21 @@ export function Settings() {
                                     roleWithPerms.permissions?.length > 0
                                       ? roleWithPerms.permissions
                                       : fallbackPerms;
+                                  const roleName =
+                                    roleWithPerms.name || role.name;
+                                  const userCount =
+                                    await rolesApi.fetchRoleUserCount(
+                                      roleWithPerms.id,
+                                      roleName
+                                    );
                                   const roleForEdit: Role = {
                                     id: roleWithPerms.id,
-                                    name: roleWithPerms.name || role.name,
+                                    name: roleName,
                                     description:
                                       roleWithPerms.description ||
                                       role.description ||
                                       "",
-                                    userCount:
-                                      roleWithPerms.userCount ?? role.userCount,
+                                    userCount,
                                   };
                                   setCustomPermissions((prev) => ({
                                     ...prev,

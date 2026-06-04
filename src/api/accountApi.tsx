@@ -16,6 +16,8 @@ export interface Account {
   status: boolean;
   createdAt: string;
   lastLogin: string;
+  /** Authorization stamp from account information (when returned by list/detail API). */
+  authStamp?: string;
 }
 
 export interface AccountResponse {
@@ -60,6 +62,7 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
     status: Boolean(raw.status ?? true),
     createdAt: getStr("created_at"),
     lastLogin: getStr("last_login"),
+    authStamp: getStr("auth_stamp") || getStr("authStamp") || undefined,
   };
 }
 
