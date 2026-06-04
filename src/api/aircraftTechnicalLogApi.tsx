@@ -527,6 +527,19 @@ function readPagedNumeric(
 
 // CRUD Operations
 
+/**
+ * Normalize sort for paged ATL endpoints: `field` (asc) or `-field` (desc).
+ * Passes through values that already include a direction prefix.
+ */
+export function normalizeAtlPagedSortParam(sort: string): string {
+  const trimmed = sort.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("-") || trimmed.startsWith("+")) {
+    return trimmed.replace(/^--+/, "-");
+  }
+  return trimmed;
+}
+
 const fetchAircraftTechnicalLogs = async (
   endpoint: string,
   page = 1,
@@ -541,7 +554,7 @@ const fetchAircraftTechnicalLogs = async (
     const params = new URLSearchParams();
 
     // Query order: atl_batch* first, then page, limit, aircraft_fk, sort, search, work_status
-    // e.g. .../paged?atl_batch=7&atl_batch_fk=7&page=1&limit=10&aircraft_fk=39&sort=sequence_no
+    // e.g. .../paged?...&sort=sequence_no (asc) or sort=-created_at (desc)
     if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
       const idStr = String(atlBatchFk);
       params.append("atl_batch", idStr);
@@ -556,8 +569,9 @@ const fetchAircraftTechnicalLogs = async (
       params.append("aircraft_fk", String(aircraftIdNum));
     }
 
-    if (sort) {
-      params.append("sort", "-" + sort);
+    const sortParam = normalizeAtlPagedSortParam(sort);
+    if (sortParam) {
+      params.append("sort", sortParam);
     }
 
     if (search.trim() !== "") {
