@@ -13,15 +13,26 @@ import {
 describe("ATL RBAC — Maintenance Planner", () => {
   const role = "Maintenance Planner";
 
-  it("allows FOR_REVIEW and AWAITING_ATTACHMENT", () => {
+  it("allows FOR_REVIEW, AWAITING_ATTACHMENT, PENDING, and REJECTED_MAINTENANCE", () => {
     expect(canEditAtlFields(role, "FOR_REVIEW")).toBe(true);
     expect(canEditAtlFields(role, "AWAITING_ATTACHMENT")).toBe(true);
+    expect(canEditAtlFields(role, "PENDING")).toBe(true);
+    expect(canEditAtlFields(role, "REJECTED_MAINTENANCE")).toBe(true);
   });
 
-  it("blocks REJECTED_QUALITY, PENDING, COMPLETED, APPROVED", () => {
-    for (const s of ["REJECTED_QUALITY", "PENDING", "COMPLETED", "APPROVED"]) {
+  it("blocks REJECTED_QUALITY, COMPLETED, and APPROVED", () => {
+    for (const s of ["REJECTED_QUALITY", "COMPLETED", "APPROVED"]) {
       expect(canEditAtlFields(role, s)).toBe(false);
     }
+  });
+
+  it("dropdown lists all allowed statuses", () => {
+    expect(getAtlWorkStatusDropdownKeysForRole(role)).toEqual([
+      "FOR_REVIEW",
+      "AWAITING_ATTACHMENT",
+      "PENDING",
+      "REJECTED_MAINTENANCE",
+    ]);
   });
 });
 
