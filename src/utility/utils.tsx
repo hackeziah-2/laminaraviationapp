@@ -471,6 +471,62 @@ export function formatTimeZulu(timeStr: string | undefined | null): string {
   }
 }
 
+/** Shown when optional Zulu Time is non-empty but not strict HH:mm UTC. */
+export const ZULU_TIME_VALIDATION_ERROR =
+  "Invalid Zulu Time. Please use HH:mm format (00:00–23:59 UTC).";
+
+/** Strict 24-hour UTC: HH:mm with leading zeros; 24:00 is not allowed. */
+const ZULU_TIME_HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export function isValidZuluTimeHHmm(value: string): boolean {
+  const t = value.trim();
+  if (!t || t === "24:00") return false;
+  return ZULU_TIME_HHMM_RE.test(t);
+}
+
+/** Optional field: empty is valid; otherwise must pass {@link isValidZuluTimeHHmm}. */
+export function validateOptionalZuluTime(
+  value: string | undefined | null
+): string | undefined {
+  const t = (value ?? "").trim();
+  if (!t) return undefined;
+  return isValidZuluTimeHHmm(t) ? undefined : ZULU_TIME_VALIDATION_ERROR;
+}
+
+/** HH:mm display value from API strings (24-hour, no AM/PM). */
+export function zuluTimeToTimeInputValue(
+  timeStr: string | undefined | null
+): string {
+  const formatted = formatTimeZulu(timeStr);
+  return formatted === "-" ? "" : formatted;
+}
+
+/** Mask keystrokes to HH:mm (24-hour text field; strips AM/PM and non-digits). */
+export function formatZuluTimeKeyboardInput(value: string): string {
+  const stripped = value.replace(/\s*(AM|PM)\s*/gi, "").trim();
+  if (stripped.includes(":")) {
+    const [h = "", m = ""] = stripped.split(":");
+    const hours = h.replace(/\D/g, "").slice(0, 2);
+    const minutes = m.replace(/\D/g, "").slice(0, 2);
+    if (!hours && !minutes) return "";
+    return `${hours}:${minutes}`;
+  }
+  const numbers = stripped.replace(/\D/g, "").slice(0, 4);
+  if (numbers.length > 2) {
+    return `${numbers.slice(0, 2)}:${numbers.slice(2)}`;
+  }
+  return numbers;
+}
+
+/** On blur: pad to strict HH:mm when the time is otherwise valid. */
+export function normalizeOptionalZuluTimeInput(value: string): string {
+  const t = value.trim();
+  if (!t) return "";
+  if (isValidZuluTimeHHmm(t)) return t;
+  const formatted = formatTimeZulu(t);
+  return formatted === "-" ? t : formatted;
+}
+
 /**
  * Format time for VIEW as military time (24-hour, 4 digits HHMM, no colon)
  * e.g. "14:30" -> "1430", "23:17" -> "2317"

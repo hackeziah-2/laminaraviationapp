@@ -37,6 +37,10 @@ import {
   formatAtlDateReportedManilaFromParts,
   formatOptionalNumber2dp,
   getManilaDateTimeParts,
+  formatZuluTimeKeyboardInput,
+  normalizeOptionalZuluTimeInput,
+  validateOptionalZuluTime,
+  zuluTimeToTimeInputValue,
 } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 import {
@@ -50,13 +54,16 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
-  canUploadWhiteAtlAndDfpFiles,
+  isMaintenancePlannerAtlWorkStatusLockedOnEdit,
   canManageAtlBatchFilter,
-  canShowTechPubViewForRoleAndWorkStatus,
+  canUpdateAtlWhiteAtlDfpFields,
+  canShowAtlWhiteAtlDfpSection,
   canEditAtlWhiteAtlDfpFields,
   isAtlWhiteAtlDfpOnlyEdit,
   getAtlEditDeniedMessage,
   canEditAtlFields,
+  isAdminRole,
+  isAtlCompletedWorkStatus,
   isAtlEditAllowedForRoleAndWorkStatus,
   isTechnicalPublicationRestrictedEdit,
   isTechnicalPublicationRole,
@@ -290,23 +297,19 @@ export function AddTechnicalLogbookEntryModal({
 
   const showAtlBatchFormField = Boolean(editEntry || showAtlBatchFilter);
 
-  const canUploadAtlAttachments = useMemo(
-    () => canUploadWhiteAtlAndDfpFiles(atlRoleForWorkStatus),
-    [atlRoleForWorkStatus]
-  );
-
   const isTechPubRole = useMemo(
     () => isTechnicalPublicationRole(atlRoleForWorkStatus),
     [atlRoleForWorkStatus]
   );
 
-  /** Admin: any status. Technical Publication: PENDING / AWAITING_ATTACHMENT only. */
+  /** Show section: privileged roles may add/edit; others see it read-only when data exists. */
   const canUseTechPubView = useMemo(
     () =>
       Boolean(editEntry) &&
-      canShowTechPubViewForRoleAndWorkStatus(
+      canShowAtlWhiteAtlDfpSection(
         atlRoleForWorkStatus,
-        editEntry?.workStatus
+        editEntry?.workStatus,
+        { isEdit: true, entry: editEntry }
       ),
     [editEntry, atlRoleForWorkStatus]
   );
@@ -324,7 +327,7 @@ export function AddTechnicalLogbookEntryModal({
     () =>
       Boolean(
         editEntry &&
-          canEditAtlWhiteAtlDfpFields(
+          canUpdateAtlWhiteAtlDfpFields(
             atlRoleForWorkStatus,
             editEntry.workStatus
           )
@@ -351,16 +354,13 @@ export function AddTechnicalLogbookEntryModal({
           atlRoleForWorkStatus,
           editEntry.workStatus
         ) ||
-        isAtlWhiteAtlDfpOnlyEdit(
-          atlRoleForWorkStatus,
-          editEntry.workStatus
-        ))
+        isAtlWhiteAtlDfpOnlyEdit(atlRoleForWorkStatus, editEntry.workStatus))
   );
 
   const mainFormLocked = atlFormReadOnly || attachmentsOnlyLocked;
   const canUploadAtlInCurrentMode =
     canEditWhiteAtlDfpSection &&
-    (attachmentsOnlyLocked || canUploadAtlAttachments);
+    (attachmentsOnlyLocked || canEditWhiteAtlDfpSection);
 
   const mod = permissionModuleCode;
 
@@ -491,8 +491,43 @@ export function AddTechnicalLogbookEntryModal({
       getAtlWorkStatusDropdownKeysForRole(atlRoleForWorkStatus, {
         pendingRole: Boolean(editEntry && permLoading && !atlRoleForWorkStatus),
         currentWorkStatus: formData.workStatus,
+        isEdit: Boolean(editEntry),
       }),
     [editEntry, permLoading, atlRoleForWorkStatus, formData.workStatus]
+  );
+
+  const workStatusChangeLocked = useMemo(
+    () =>
+      isMaintenancePlannerAtlWorkStatusLockedOnEdit(
+        atlRoleForWorkStatus,
+        formData.workStatus,
+        Boolean(editEntry)
+      ),
+    [atlRoleForWorkStatus, formData.workStatus, editEntry]
+  );
+
+  const displayWorkStatusLabel = useMemo(() => {
+    const key = normalizeAtlWorkStatus(formData.workStatus);
+    if (key) return formatAtlWorkStatusLabel(key);
+    const raw = formData.workStatus?.trim();
+    return raw || "—";
+  }, [formData.workStatus]);
+
+  /** Edit: dropdown only when role may change status; otherwise show current value as text. */
+  const canChangeWorkStatusOnEdit = useMemo(
+    () =>
+      Boolean(
+        editEntry &&
+          !mainFormLocked &&
+          !workStatusChangeLocked &&
+          workStatusDropdownKeys.length > 0
+      ),
+    [
+      editEntry,
+      mainFormLocked,
+      workStatusChangeLocked,
+      workStatusDropdownKeys.length,
+    ]
   );
 
   // Component Records state
@@ -760,10 +795,10 @@ export function AddTechnicalLogbookEntryModal({
           return nof;
         })(),
         offBlocksDate: editEntry.originDate || "",
-        offBlocksTime: formatTimeFromAPI(editEntry.originTime),
+        offBlocksTime: zuluTimeToTimeInputValue(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
         onBlocksDate: editEntry.destinationDate || "",
-        onBlocksTime: formatTimeFromAPI(editEntry.destinationTime),
+        onBlocksTime: zuluTimeToTimeInputValue(editEntry.destinationTime),
         onBlocksStation: editEntry.destinationStation || "",
         totalFlightTime: "",
         numberOfLandings: editEntry.numberOfLandings?.toString() || "",
@@ -789,7 +824,8 @@ export function AddTechnicalLogbookEntryModal({
         tachometerEnd: editEntry.tachometerEnd?.toString() || "",
         tachometerTotal: formatOptionalNumber2dp(
           editEntry.tachometerStart != null && editEntry.tachometerEnd != null
-            ? Number(editEntry.tachometerEnd) - Number(editEntry.tachometerStart)
+            ? Number(editEntry.tachometerEnd) -
+                Number(editEntry.tachometerStart)
             : editEntry.tachometerTotal,
           "0.00"
         ),
@@ -798,7 +834,7 @@ export function AddTechnicalLogbookEntryModal({
         hobbsMeterTotal: formatOptionalNumber2dp(
           editEntry.hobbsMeterStart != null && editEntry.hobbsMeterEnd != null
             ? Number(editEntry.hobbsMeterEnd) -
-              Number(editEntry.hobbsMeterStart)
+                Number(editEntry.hobbsMeterStart)
             : editEntry.hobbsMeterTotal,
           "0.00"
         ),
@@ -1771,30 +1807,12 @@ export function AddTechnicalLogbookEntryModal({
 
     // Nature of Flight can be blank/empty; when blank we send VOID to the endpoint (no validation error)
 
-    // Off-Blocks / Origin and On-Blocks / Destination: optional (format validation only when provided)
-    if (formData.offBlocksTime && formData.offBlocksTime.trim() !== "") {
-      if (!/^\d{2}:\d{2}$/.test(formData.offBlocksTime)) {
-        errors.offBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
-      } else {
-        const [hours, minutes] = formData.offBlocksTime.split(":").map(Number);
-        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-          errors.offBlocksTime =
-            "Time must be valid (hours: 0-23, minutes: 0-59)";
-        }
-      }
-    }
+    // Off-Blocks / Origin and On-Blocks / Destination Zulu Time: optional; strict HH:mm UTC when set
+    const offBlocksZuluErr = validateOptionalZuluTime(formData.offBlocksTime);
+    if (offBlocksZuluErr) errors.offBlocksTime = offBlocksZuluErr;
 
-    if (formData.onBlocksTime && formData.onBlocksTime.trim() !== "") {
-      if (!/^\d{2}:\d{2}$/.test(formData.onBlocksTime)) {
-        errors.onBlocksTime = "Time must be in HH:MM format (e.g., 23:17)";
-      } else {
-        const [hours, minutes] = formData.onBlocksTime.split(":").map(Number);
-        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-          errors.onBlocksTime =
-            "Time must be valid (hours: 0-23, minutes: 0-59)";
-        }
-      }
-    }
+    const onBlocksZuluErr = validateOptionalZuluTime(formData.onBlocksTime);
+    if (onBlocksZuluErr) errors.onBlocksTime = onBlocksZuluErr;
 
     // Numeric field validations
     if (
@@ -2241,19 +2259,21 @@ export function AddTechnicalLogbookEntryModal({
         !(formData.dfp instanceof File)
           ? { dfp: formData.dfp }
           : {}),
-        ...(attachmentsOnlyLocked && editEntry
-          ? {
-              whiteAtlWebLink: formData.whiteAtlWebLink?.trim() || null,
-              dfpWebLink: formData.dfpWebLink?.trim() || null,
-            }
-          : {
-              ...(formData.whiteAtlWebLink?.trim()
-                ? { whiteAtlWebLink: formData.whiteAtlWebLink.trim() }
-                : {}),
-              ...(formData.dfpWebLink?.trim()
-                ? { dfpWebLink: formData.dfpWebLink.trim() }
-                : {}),
-            }),
+        ...(canEditWhiteAtlDfpSection
+          ? attachmentsOnlyLocked && editEntry
+            ? {
+                whiteAtlWebLink: formData.whiteAtlWebLink?.trim() || null,
+                dfpWebLink: formData.dfpWebLink?.trim() || null,
+              }
+            : {
+                ...(formData.whiteAtlWebLink?.trim()
+                  ? { whiteAtlWebLink: formData.whiteAtlWebLink.trim() }
+                  : {}),
+                ...(formData.dfpWebLink?.trim()
+                  ? { dfpWebLink: formData.dfpWebLink.trim() }
+                  : {}),
+              }
+          : {}),
         componentParts: componentRecords.map((record) => ({
           qty: parseFloat(record.qty) || 0,
           unit: record.unit,
@@ -2818,7 +2838,11 @@ export function AddTechnicalLogbookEntryModal({
           <div className="p-6 space-y-6">
             {atlFormReadOnly && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                This entry is read-only for your role at the current work status.
+                {editEntry &&
+                isAtlCompletedWorkStatus(editEntry.workStatus) &&
+                !isAdminRole(atlRoleForWorkStatus)
+                  ? "This entry is completed. Only Admin may update fields."
+                  : "This entry is read-only for your role at the current work status."}
               </p>
             )}
             <div
@@ -2868,34 +2892,45 @@ export function AddTechnicalLogbookEntryModal({
                       </p>
                     )}
                   </div>
-                  <div>
+                  <div className="pointer-events-auto opacity-100">
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Work Status
                     </label>
                     {editEntry ? (
-                      <select
-                        value={formData.workStatus}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            workStatus: e.target.value,
-                          })
-                        }
-                        disabled={mainFormLocked}
-                        className={`w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900 ${
-                          mainFormLocked
-                            ? "bg-gray-100 cursor-not-allowed"
-                            : "bg-white"
-                        }`}
-                        aria-label="Work status"
-                      >
-                        <option value="">— Select —</option>
-                        {workStatusDropdownKeys.map((key) => (
-                          <option key={key} value={key}>
-                            {formatAtlWorkStatusLabel(key)}
-                          </option>
-                        ))}
-                      </select>
+                      canChangeWorkStatusOnEdit ? (
+                        <select
+                          value={formData.workStatus}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              workStatus: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                          aria-label="Work status"
+                        >
+                          <option value="">— Select —</option>
+                          {workStatusDropdownKeys.map((key) => (
+                            <option key={key} value={key}>
+                              {formatAtlWorkStatusLabel(key)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-900"
+                          title={
+                            workStatusChangeLocked
+                              ? "Work status cannot be changed for your role at this status"
+                              : mainFormLocked
+                                ? "Work status is read-only for your role at this status"
+                                : undefined
+                          }
+                          aria-label={`Work status: ${displayWorkStatusLabel}`}
+                        >
+                          {displayWorkStatusLabel}
+                        </div>
+                      )
                     ) : (
                       <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
                         FOR REVIEW
@@ -3182,12 +3217,15 @@ export function AddTechnicalLogbookEntryModal({
                         <div>
                           <input
                             type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
                             value={formData.offBlocksTime}
                             onChange={(e) => {
-                              const formatted = formatTimeInput(e.target.value);
                               setFormData({
                                 ...formData,
-                                offBlocksTime: formatted,
+                                offBlocksTime: formatZuluTimeKeyboardInput(
+                                  e.target.value
+                                ),
                               });
                               if (validationErrors.offBlocksTime) {
                                 setValidationErrors({
@@ -3196,13 +3234,41 @@ export function AddTechnicalLogbookEntryModal({
                                 });
                               }
                             }}
+                            onBlur={(e) => {
+                              const normalized = normalizeOptionalZuluTimeInput(
+                                e.target.value
+                              );
+                              setFormData((prev) => ({
+                                ...prev,
+                                offBlocksTime: normalized,
+                              }));
+                              const err =
+                                validateOptionalZuluTime(normalized);
+                              setValidationErrors((prev) => ({
+                                ...prev,
+                                offBlocksTime: err ?? "",
+                              }));
+                            }}
                             maxLength={5}
-                            placeholder="HH:MM"
-                            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                            title="HH:mm (UTC)"
+                            placeholder="HH:mm"
+                            pattern="[0-9]{2}:[0-9]{2}"
+                            aria-invalid={!!validationErrors.offBlocksTime}
+                            className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                              validationErrors.offBlocksTime
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
                           />
-                          <p className="text-xs text-gray-500 mt-1">
-                            Format: HH:MM (24-hour, e.g., 23:17)
-                          </p>
+                          {!validationErrors.offBlocksTime ? (
+                            <p className="text-xs text-gray-500 mt-1">
+                              24-hour HH:mm (UTC), 00:00–23:59
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs text-red-600">
+                              {validationErrors.offBlocksTime}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3254,12 +3320,15 @@ export function AddTechnicalLogbookEntryModal({
                         <div>
                           <input
                             type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
                             value={formData.onBlocksTime}
                             onChange={(e) => {
-                              const formatted = formatTimeInput(e.target.value);
                               setFormData({
                                 ...formData,
-                                onBlocksTime: formatted,
+                                onBlocksTime: formatZuluTimeKeyboardInput(
+                                  e.target.value
+                                ),
                               });
                               if (validationErrors.onBlocksTime) {
                                 setValidationErrors({
@@ -3268,13 +3337,41 @@ export function AddTechnicalLogbookEntryModal({
                                 });
                               }
                             }}
+                            onBlur={(e) => {
+                              const normalized = normalizeOptionalZuluTimeInput(
+                                e.target.value
+                              );
+                              setFormData((prev) => ({
+                                ...prev,
+                                onBlocksTime: normalized,
+                              }));
+                              const err =
+                                validateOptionalZuluTime(normalized);
+                              setValidationErrors((prev) => ({
+                                ...prev,
+                                onBlocksTime: err ?? "",
+                              }));
+                            }}
                             maxLength={5}
-                            placeholder="HH:MM"
-                            className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                            title="HH:mm (UTC)"
+                            placeholder="HH:mm"
+                            pattern="[0-9]{2}:[0-9]{2}"
+                            aria-invalid={!!validationErrors.onBlocksTime}
+                            className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                              validationErrors.onBlocksTime
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
                           />
-                          <p className="text-xs text-gray-500 mt-1">
-                            Format: HH:MM (24-hour, e.g., 23:17)
-                          </p>
+                          {!validationErrors.onBlocksTime ? (
+                            <p className="text-xs text-gray-500 mt-1">
+                              24-hour HH:mm (UTC), 00:00–23:59
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs text-red-600">
+                              {validationErrors.onBlocksTime}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -4754,10 +4851,17 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             </div>
 
-            {/* White ATL, DFP, Date Reported — Admin / Technical Publication (PENDING / AWAITING_ATTACHMENT) */}
+            {/* White ATL, DFP, Date Reported — view when data exists; update: Admin / Tech Pub / Maint Manager */}
             {canUseTechPubView && (
               <div id="TechPubView">
                 <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  {/* {!canUploadAtlInCurrentMode && (
+                    <p className="mb-4 text-sm text-gray-600">
+                      White ATL and DFP are view-only for your role. Only Admin,
+                      Technical Publication, and Maintenance Manager may update
+                      these fields.
+                    </p>
+                  )} */}
                   <div className="mb-4">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       <div>
