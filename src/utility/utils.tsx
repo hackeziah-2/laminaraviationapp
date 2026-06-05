@@ -309,26 +309,70 @@ function parseAtlDateTimeAsUtc(raw: string): Date | null {
 const ATL_DATE_REPORTED_LOCALE = "en-PH";
 const ATL_DATE_REPORTED_TIME_ZONE = "Asia/Manila";
 
+/** Shared en-PH / Asia/Manila realtime datetime format (24-hour, with seconds). */
+export const PHILIPPINES_DATETIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions =
+  {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  };
+
+/** Current Philippines datetime string — use for live display and create/update stamps. */
+export function formatPhilippinesDateTime(now = new Date()): string {
+  return now.toLocaleString(
+    ATL_DATE_REPORTED_LOCALE,
+    PHILIPPINES_DATETIME_FORMAT_OPTIONS
+  );
+}
+
+/** Parse ATL `date_time_reported` — naive datetimes are Asia/Manila local. */
+function parseAtlDateTimeReported(raw: string): Date | null {
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(`${s}T00:00:00+08:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/i);
+  if (m) {
+    const hh = m[2].padStart(2, "0");
+    const mm = m[3].padStart(2, "0");
+    const ss = (m[4] || "00").padStart(2, "0");
+    const d = new Date(`${m[1]}T${hh}:${mm}:${ss}+08:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /**
- * ATL Date Reported display (Philippines / Asia-Manila), e.g. "6/3/2024, 10:30:00 pm".
+ * ATL Date Reported display (Philippines / Asia-Manila), e.g. "06/03/2024, 22:30:45".
  */
 export function formatAtlDateReportedManila(raw?: string | null): string {
   if (raw == null || String(raw).trim() === "") return "-";
-  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  const d = parseAtlDateTimeReported(String(raw).trim());
   if (!d) return String(raw).trim();
-  return d.toLocaleString(ATL_DATE_REPORTED_LOCALE, {
-    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
-  });
+  return d.toLocaleString(
+    ATL_DATE_REPORTED_LOCALE,
+    PHILIPPINES_DATETIME_FORMAT_OPTIONS
+  );
 }
 
 /** Current Date Reported string (en-PH, Asia/Manila) — e.g. for live display. */
 export function formatAtlDateReportedManilaNow(now = new Date()): string {
-  return now.toLocaleString(ATL_DATE_REPORTED_LOCALE, {
-    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
-  });
+  return formatPhilippinesDateTime(now);
 }
 
-/** Date/time parts in Asia/Manila for ATL Date Reported auto-set on upload. */
+/** Date/time parts in Asia/Manila for ATL Date Reported auto-set on upload/submit. */
 export function getManilaDateTimeParts(now = new Date()): {
   date: string;
   time: string;
@@ -340,6 +384,7 @@ export function getManilaDateTimeParts(now = new Date()): {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hour12: false,
   }).formatToParts(now);
   const get = (type: Intl.DateTimeFormatPartTypes) =>
@@ -349,7 +394,19 @@ export function getManilaDateTimeParts(now = new Date()): {
   const day = get("day");
   const hh = get("hour");
   const mm = get("minute");
-  return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}` };
+  const ss = get("second");
+  return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}:${ss}` };
+}
+
+/** Parse API `date_time_reported` into Manila form date + time (HH:MM:SS). */
+export function splitAtlDateTimeReportedFromApi(raw?: string | null): {
+  date: string;
+  time: string;
+} {
+  if (raw == null || String(raw).trim() === "") return { date: "", time: "" };
+  const d = parseAtlDateTimeReported(String(raw).trim());
+  if (!d) return { date: "", time: "" };
+  return getManilaDateTimeParts(d);
 }
 
 /**
@@ -364,11 +421,12 @@ export function formatAtlDateReportedManilaFromParts(
     return formatAtlDateReportedManila(apiValue);
   }
   if (!formDate?.trim()) return "";
-  const time = formTime?.trim() || "00:00";
+  const time = formTime?.trim() || "00:00:00";
   const parts = time.split(":");
   const hh = (parts[0] || "00").padStart(2, "0");
   const mm = (parts[1] || "00").padStart(2, "0");
-  return formatAtlDateReportedManila(`${formDate.trim()}T${hh}:${mm}:00`);
+  const ss = (parts[2] || "00").padStart(2, "0");
+  return formatAtlDateReportedManila(`${formDate.trim()}T${hh}:${mm}:${ss}`);
 }
 
 /**
@@ -469,6 +527,62 @@ export function formatTimeZulu(timeStr: string | undefined | null): string {
   } catch {
     return "-";
   }
+}
+
+/** Shown when optional Zulu Time is non-empty but not strict HH:mm UTC. */
+export const ZULU_TIME_VALIDATION_ERROR =
+  "Invalid Zulu Time. Please use HH:mm format (00:00–23:59 UTC).";
+
+/** Strict 24-hour UTC: HH:mm with leading zeros; 24:00 is not allowed. */
+const ZULU_TIME_HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export function isValidZuluTimeHHmm(value: string): boolean {
+  const t = value.trim();
+  if (!t || t === "24:00") return false;
+  return ZULU_TIME_HHMM_RE.test(t);
+}
+
+/** Optional field: empty is valid; otherwise must pass {@link isValidZuluTimeHHmm}. */
+export function validateOptionalZuluTime(
+  value: string | undefined | null
+): string | undefined {
+  const t = (value ?? "").trim();
+  if (!t) return undefined;
+  return isValidZuluTimeHHmm(t) ? undefined : ZULU_TIME_VALIDATION_ERROR;
+}
+
+/** HH:mm display value from API strings (24-hour, no AM/PM). */
+export function zuluTimeToTimeInputValue(
+  timeStr: string | undefined | null
+): string {
+  const formatted = formatTimeZulu(timeStr);
+  return formatted === "-" ? "" : formatted;
+}
+
+/** Mask keystrokes to HH:mm (24-hour text field; strips AM/PM and non-digits). */
+export function formatZuluTimeKeyboardInput(value: string): string {
+  const stripped = value.replace(/\s*(AM|PM)\s*/gi, "").trim();
+  if (stripped.includes(":")) {
+    const [h = "", m = ""] = stripped.split(":");
+    const hours = h.replace(/\D/g, "").slice(0, 2);
+    const minutes = m.replace(/\D/g, "").slice(0, 2);
+    if (!hours && !minutes) return "";
+    return `${hours}:${minutes}`;
+  }
+  const numbers = stripped.replace(/\D/g, "").slice(0, 4);
+  if (numbers.length > 2) {
+    return `${numbers.slice(0, 2)}:${numbers.slice(2)}`;
+  }
+  return numbers;
+}
+
+/** On blur: pad to strict HH:mm when the time is otherwise valid. */
+export function normalizeOptionalZuluTimeInput(value: string): string {
+  const t = value.trim();
+  if (!t) return "";
+  if (isValidZuluTimeHHmm(t)) return t;
+  const formatted = formatTimeZulu(t);
+  return formatted === "-" ? t : formatted;
 }
 
 /**

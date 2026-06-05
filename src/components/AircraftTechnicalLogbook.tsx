@@ -20,6 +20,7 @@ import { DataTablePagination } from "./ui/DataTablePagination";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
+import { BulkStatusModal } from "./BulkStatusModal";
 import {
   getAircraftTechnicalLogs,
   getManagedAircraftTechnicalLogs,
@@ -42,10 +43,25 @@ import {
   canEditAtlFields,
   canOpenAtlEditModal,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isMaintenanceManagerRole,
+  isMaintenancePlannerRole,
+  isQualityManagerRole,
   isTechnicalPublicationRole,
   isTechnicalPublicationRestrictedEdit,
   normalizeAtlWorkStatus,
+  type AtlWorkStatusKey,
 } from "../utility/atlEditRbac";
+import {
+  canShowAtlBulkCheckboxForEntry,
+  canUseAtlBulkWorkStatusUpdate,
+  getAtlBulkTargetStatusesForRole,
+  validateAtlEntriesForBulkWorkStatus,
+} from "../utility/atlWorkStatusBulk";
+import {
+  bulkUpdateAtlWorkStatus,
+  BulkAtlWorkStatusValidationError,
+  type BulkAtlWorkStatusFailedItem,
+} from "../services/aircraftTechnicalLog.service";
 import { formatDisplayDate } from "../utility/utils";
 
 interface LogbookEntry {
@@ -112,6 +128,11 @@ export function AircraftTechnicalLogbook() {
   const [error, setError] = useState<string | null>(null);
   const [totalPages, setTotalPages] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [showBulkStatusModal, setShowBulkStatusModal] = useState(false);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
@@ -127,19 +148,6 @@ export function AircraftTechnicalLogbook() {
     return normalized || undefined;
   }, [selectedWorkStatus]);
   const showSeqWithBatchName = selectedAtlBatchFk == null;
-  const normalizedUserRole = (user?.role || "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, " ");
-  const isMaintenanceManager =
-    normalizedUserRole === "maintenance manager" ||
-    normalizedUserRole.endsWith(" maintenance manager");
-  const isQualityManager =
-    normalizedUserRole === "quality manager" ||
-    normalizedUserRole.endsWith(" quality manager");
-  const isMaintenancePlanner =
-    normalizedUserRole === "maintenance planner" ||
-    normalizedUserRole.endsWith(" maintenance planner");
 
   /** Role from GET /auth/me — aligns ATL edit RBAC with login session (same as Operation). */
   const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
@@ -165,7 +173,21 @@ export function AircraftTechnicalLogbook() {
     [sessionRoleName, user?.role]
   );
 
+  const isMaintenanceManager = isMaintenanceManagerRole(logbookAtlRole);
+  const isQualityManager = isQualityManagerRole(logbookAtlRole);
+  const isMaintenancePlanner = isMaintenancePlannerRole(logbookAtlRole);
+
   const canUpdateLogbookAtl = canUpdate("logbook");
+
+  const bulkWorkStatusOptions = useMemo(
+    () => getAtlBulkTargetStatusesForRole(logbookAtlRole),
+    [logbookAtlRole]
+  );
+
+  const showBulkSelection =
+    canUpdateLogbookAtl && canUseAtlBulkWorkStatusUpdate(logbookAtlRole);
+
+  const selectedCount = selectedEntryIds.size;
 
   // Map backend data to frontend format
   const mapToLogbookEntry = (
@@ -329,6 +351,17 @@ export function AircraftTechnicalLogbook() {
   }, [selectedWorkStatus]);
 
   useEffect(() => {
+    setSelectedEntryIds(new Set());
+  }, [
+    currentPage,
+    debouncedSearchTerm,
+    selectedAircraftFk,
+    selectedAtlBatchFk,
+    selectedWorkStatusFilter,
+    sortBy,
+  ]);
+
+  useEffect(() => {
     if (!showAtlBatchFilter) {
       setAtlBatchFilterOptions([]);
       atlBatchFilterTouchedRef.current = false;
@@ -416,6 +449,214 @@ export function AircraftTechnicalLogbook() {
 
   const paginatedEntries = entries;
 
+  const selectablePageEntries = useMemo(
+    () =>
+      paginatedEntries.filter((e) =>
+        canShowAtlBulkCheckboxForEntry(logbookAtlRole, e.workStatus)
+      ),
+    [paginatedEntries, logbookAtlRole]
+  );
+
+  const selectablePageIds = useMemo(
+    () => selectablePageEntries.map((e) => e.id),
+    [selectablePageEntries]
+  );
+
+  const allPageSelected =
+    selectablePageIds.length > 0 &&
+    selectablePageIds.every((id) => selectedEntryIds.has(id));
+
+  const clearSelection = () => setSelectedEntryIds(new Set());
+
+  const toggleEntrySelection = (id: number) => {
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        selectablePageIds.forEach((id) => next.delete(id));
+      } else {
+        selectablePageIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setSelectedEntryIds((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set<number>();
+      for (const id of prev) {
+        const entry = entries.find((e) => e.id === id);
+        if (
+          entry &&
+          canShowAtlBulkCheckboxForEntry(logbookAtlRole, entry.workStatus)
+        ) {
+          next.add(id);
+        }
+      }
+      if (next.size === prev.size) {
+        let unchanged = true;
+        for (const id of prev) {
+          if (!next.has(id)) {
+            unchanged = false;
+            break;
+          }
+        }
+        if (unchanged) return prev;
+      }
+      return next;
+    });
+  }, [entries, logbookAtlRole]);
+
+  const formatBulkFailedItemsHtml = (items: BulkAtlWorkStatusFailedItem[]) => {
+    if (!items.length) return "";
+    const rows = items
+      .slice(0, 8)
+      .map(
+        (item) =>
+          `<li class="text-left"><strong>ID ${item.id}</strong>: ${item.reason}</li>`
+      )
+      .join("");
+    const more =
+      items.length > 8
+        ? `<li class="text-left text-gray-500">…and ${
+            items.length - 8
+          } more</li>`
+        : "";
+    return `<ul class="list-disc pl-5 mt-2 space-y-1 text-sm">${rows}${more}</ul>`;
+  };
+
+  const handleBulkStatusConfirm = async (
+    targetStatus: AtlWorkStatusKey,
+    atomic: boolean
+  ) => {
+    const selected = paginatedEntries.filter(
+      (e) =>
+        selectedEntryIds.has(e.id) &&
+        canShowAtlBulkCheckboxForEntry(logbookAtlRole, e.workStatus)
+    );
+    const { validIds, failedItems: clientFailed } =
+      validateAtlEntriesForBulkWorkStatus(
+        logbookAtlRole,
+        selected.map((e) => ({ id: e.id, workStatus: e.workStatus })),
+        targetStatus
+      );
+
+    if (atomic && clientFailed.length > 0) {
+      await Swal.fire({
+        icon: "error",
+        title: "Bulk update cancelled",
+        html: `<p class="text-left">Atomic update requires every selected entry to pass workflow rules. Fix the following and try again:</p>${formatBulkFailedItemsHtml(
+          clientFailed
+        )}`,
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    const idsToSend = atomic
+      ? validIds
+      : [...new Set(selected.map((e) => e.id))];
+
+    if (idsToSend.length === 0) {
+      await Swal.fire({
+        icon: "warning",
+        title: "Nothing to update",
+        text: "No selected entries can be updated to the chosen work status.",
+        confirmButtonColor: "#1f2937",
+      });
+      return;
+    }
+
+    setBulkSubmitting(true);
+    try {
+      const result = await bulkUpdateAtlWorkStatus({
+        ids: idsToSend,
+        work_status: targetStatus,
+        atomic,
+      });
+
+      const mergedFailed = [
+        ...clientFailed,
+        ...result.failed_items.filter(
+          (f) => !clientFailed.some((c) => c.id === f.id)
+        ),
+      ];
+
+      await fetchEntries();
+      clearSelection();
+      setShowBulkStatusModal(false);
+
+      if (result.updated_count > 0 && mergedFailed.length === 0) {
+        await Swal.fire({
+          icon: "success",
+          title: "Work status updated",
+          text: `${result.updated_count} ${
+            result.updated_count === 1 ? "entry" : "entries"
+          } updated successfully.`,
+          confirmButtonColor: "#1f2937",
+        });
+        return;
+      }
+
+      if (result.updated_count > 0 && mergedFailed.length > 0) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Partial update",
+          html: `<p class="text-left"><strong>${
+            result.updated_count
+          }</strong> updated, <strong>${
+            mergedFailed.length
+          }</strong> failed.</p>${formatBulkFailedItemsHtml(mergedFailed)}`,
+          confirmButtonColor: "#1f2937",
+        });
+        return;
+      }
+
+      await Swal.fire({
+        icon: "error",
+        title: "Update failed",
+        html: `<p class="text-left">No entries were updated.</p>${formatBulkFailedItemsHtml(
+          mergedFailed
+        )}`,
+        confirmButtonColor: "#dc2626",
+      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof BulkAtlWorkStatusValidationError
+          ? err.message
+          : (err as { response?: { data?: { detail?: string } } })?.response
+              ?.data?.detail ||
+            (err as Error)?.message ||
+            "Failed to update work status";
+      await Swal.fire({
+        icon: "error",
+        title: "Bulk update failed",
+        text: String(message),
+        confirmButtonColor: "#dc2626",
+      });
+    } finally {
+      setBulkSubmitting(false);
+    }
+  };
+
+  const tableColSpan = showBulkSelection ? 6 : 5;
+
+  /** Fixed-width select column so header and row checkboxes stay vertically aligned. */
+  const bulkSelectCellClass = "w-11 min-w-[44px] max-w-[44px] p-0 align-middle";
+  const bulkSelectCheckboxWrapClass =
+    "flex items-center justify-center px-3 py-3.5";
+  const bulkSelectCheckboxClass =
+    "h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500";
+
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
     // Don't reset page here - let debounce handle it
@@ -480,15 +721,15 @@ export function AircraftTechnicalLogbook() {
     canEditAtlFields(logbookAtlRole, entry.workStatus);
 
   const atlEditButtonTitle = (entry: LogbookEntry) => {
-    if (!canOpenAtlEditForEntry(entry)) return "Edit not available for your role";
+    if (!canOpenAtlEditForEntry(entry))
+      return "Edit not available for your role";
     if (!allowAtlEditForEntry(entry)) return "View entry (read-only)";
     return "Edit";
   };
 
   /** Technical Publication may edit White ATL / DFP / links without logbook Update permission. */
   const logbookTechPubCanEditAtl = (entry: LogbookEntry) =>
-    isTechnicalPublicationRole(logbookAtlRole) &&
-    canOpenAtlEditForEntry(entry);
+    isTechnicalPublicationRole(logbookAtlRole) && canOpenAtlEditForEntry(entry);
 
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
@@ -501,7 +742,11 @@ export function AircraftTechnicalLogbook() {
   const handleDeleteEntry = async (entry: LogbookEntry) => {
     const result = await Swal.fire({
       title: "Are you sure?",
-      text: `Are you sure you want to delete entry with Sequence No ${formatLogbookSequenceNoCell(entry.seqNo, entry.atlBatchName, showSeqWithBatchName)}? This action cannot be undone.`,
+      text: `Are you sure you want to delete entry with Sequence No ${formatLogbookSequenceNoCell(
+        entry.seqNo,
+        entry.atlBatchName,
+        showSeqWithBatchName
+      )}? This action cannot be undone.`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#dc2626",
@@ -696,6 +941,44 @@ export function AircraftTechnicalLogbook() {
         </span>
       </div>
 
+      {showBulkSelection && selectedCount > 0 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex w-full items-center justify-between gap-6 rounded-lg border border-blue-200 bg-[#eef5fc] px-5 py-4"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            {/* <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold leading-none text-white"
+              aria-hidden
+            > */}
+            {/* {selectedCount} */}
+            {/* </span> */}
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900">
+                {selectedCount} {selectedCount === 1 ? "entry" : "entries"}{" "}
+                selected
+              </p>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="mt-1 text-sm font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline"
+              >
+                Clear selection
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowBulkStatusModal(true)}
+            className="ml-auto inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-800 transition-colors hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/25"
+          >
+            <Filter className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+            Update Status
+          </button>
+        </div>
+      )}
+
       {/* Search */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row gap-4">
@@ -793,6 +1076,20 @@ export function AircraftTechnicalLogbook() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
+                    {showBulkSelection && (
+                      <th className={bulkSelectCellClass}>
+                        <div className={bulkSelectCheckboxWrapClass}>
+                          <input
+                            type="checkbox"
+                            checked={allPageSelected}
+                            disabled={selectablePageIds.length === 0}
+                            onChange={toggleSelectAllOnPage}
+                            aria-label="Select all eligible entries on this page"
+                            className={bulkSelectCheckboxClass}
+                          />
+                        </div>
+                      </th>
+                    )}
                     <th
                       className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
                       onClick={() => handleSort("sequence_no")}
@@ -830,7 +1127,7 @@ export function AircraftTechnicalLogbook() {
                   {error ? (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={tableColSpan}
                         className="px-6 py-12 text-center text-red-600"
                       >
                         Error loading entries: {error}
@@ -840,8 +1137,30 @@ export function AircraftTechnicalLogbook() {
                     paginatedEntries.map((entry) => (
                       <tr
                         key={entry.id}
-                        className="hover:bg-gray-50 transition-colors"
+                        className={`transition-colors hover:bg-gray-50 ${
+                          selectedEntryIds.has(entry.id) ? "bg-blue-50/60" : ""
+                        }`}
                       >
+                        {showBulkSelection && (
+                          <td className={bulkSelectCellClass}>
+                            <div className={bulkSelectCheckboxWrapClass}>
+                              {canShowAtlBulkCheckboxForEntry(
+                                logbookAtlRole,
+                                entry.workStatus
+                              ) ? (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedEntryIds.has(entry.id)}
+                                  onChange={() =>
+                                    toggleEntrySelection(entry.id)
+                                  }
+                                  aria-label={`Select entry ${entry.seqNo}`}
+                                  className={bulkSelectCheckboxClass}
+                                />
+                              ) : null}
+                            </div>
+                          </td>
+                        )}
                         <td className="px-6 py-3.5 text-gray-900">
                           {formatLogbookSequenceNoCell(
                             entry.seqNo,
@@ -870,15 +1189,15 @@ export function AircraftTechnicalLogbook() {
                             {(canUpdateLogbookAtl ||
                               logbookTechPubCanEditAtl(entry)) &&
                               canOpenAtlEditForEntry(entry) && (
-                              <button
-                                type="button"
-                                onClick={() => handleEditEntry(entry)}
-                                className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
-                                title={atlEditButtonTitle(entry)}
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                            )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditEntry(entry)}
+                                  className="p-1.5 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 disabled:hover:bg-transparent"
+                                  title={atlEditButtonTitle(entry)}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
                             {canDelete("logbook") && (
                               <button
                                 onClick={() => handleDeleteEntry(entry)}
@@ -935,7 +1254,7 @@ export function AircraftTechnicalLogbook() {
                               })()}
                             {isMaintenanceManager &&
                               normalizeAtlWorkStatus(entry.workStatus) ===
-                                "FOR_REVIEW" && (
+                                "PENDING" && (
                                 <>
                                   <button
                                     type="button"
@@ -977,7 +1296,7 @@ export function AircraftTechnicalLogbook() {
                               )}
                             {isQualityManager &&
                               normalizeAtlWorkStatus(entry.workStatus) ===
-                                "PENDING" && (
+                                "APPROVED" && (
                                 <>
                                   <button
                                     type="button"
@@ -1024,7 +1343,7 @@ export function AircraftTechnicalLogbook() {
                   ) : (
                     <tr>
                       <td
-                        colSpan={5}
+                        colSpan={tableColSpan}
                         className="px-6 py-12 text-center text-gray-500"
                       >
                         No entries found matching your search criteria
@@ -1086,6 +1405,17 @@ export function AircraftTechnicalLogbook() {
           )}
         />
       )}
+
+      <BulkStatusModal
+        isOpen={showBulkStatusModal}
+        selectedCount={selectedCount}
+        statusOptions={bulkWorkStatusOptions}
+        submitting={bulkSubmitting}
+        onClose={() => {
+          if (!bulkSubmitting) setShowBulkStatusModal(false);
+        }}
+        onConfirm={handleBulkStatusConfirm}
+      />
 
       {/* View Entry Modal */}
       <ViewTechnicalLogbookEntryModal

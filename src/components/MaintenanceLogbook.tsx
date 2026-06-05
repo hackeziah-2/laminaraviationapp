@@ -21,11 +21,18 @@ import Swal from "sweetalert2";
 import {
   getAccountsByDesignation,
   getAllAccounts,
+  getAccountInformationById,
   Account,
 } from "../api/accountApi";
 import { getAircraftById } from "../api/aircraftApi";
 import { Aircraft } from "../types/Aircraft";
-import { toCamel, formatDisplayDate } from "../utility/utils";
+import {
+  toCamel,
+  formatDisplayDate,
+  isValidWebLink,
+  normalizeWebLink,
+} from "../utility/utils";
+import { AdWebLinkButton } from "./AdWebLinkDisplay";
 import { DateInput } from "./ui/DateInput";
 import {
   getEngineLogbooks,
@@ -153,6 +160,24 @@ function getMechanicDisplay(
   if (entry.mechanicName && entry.licenseNumber)
     return `${entry.mechanicName}-${entry.licenseNumber}`;
   return entry.mechanicName || entry.licenseNumber || "-";
+}
+
+const LOGBOOK_WEB_LINK_MAX_LENGTH = 2048;
+
+function getLogbookWebLink(
+  entry: { webLink?: string | null } | null | undefined
+): string {
+  if (!entry) return "";
+  const raw = entry as { webLink?: string; web_link?: string };
+  return (raw.webLink ?? raw.web_link ?? "").trim();
+}
+
+function LogbookWebLinkViewRow({ webLink }: { webLink?: string | null }) {
+  const trimmed = (webLink ?? "").trim();
+  if (!trimmed) {
+    return <span className="text-gray-400">-</span>;
+  }
+  return <AdWebLinkButton webLink={trimmed} />;
 }
 
 export function MaintenanceLogbook() {
@@ -515,6 +540,7 @@ export function MaintenanceLogbook() {
     mechanicName: "",
     licenseNumber: "",
     signature: "",
+    webLink: "",
   });
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
@@ -632,6 +658,28 @@ export function MaintenanceLogbook() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isMechanicDropdownOpen]);
+
+  /** On mechanic pick: set mechanic FK and fill Auth Stamp from account auth_stamp. */
+  const handleSelectMechanicAccount = async (account: Account) => {
+    let authStamp = (account.authStamp ?? "").trim();
+    if (!authStamp && account.id) {
+      try {
+        const info = await getAccountInformationById(account.id);
+        authStamp = (info.auth_stamp ?? "").trim();
+      } catch {
+        // Keep existing stamp if detail fetch fails
+      }
+    }
+    setFormData((prev) => ({
+      ...prev,
+      mechanicFk: account.id.toString(),
+      mechanicName: account.fullName || "",
+      licenseNumber: account.licenseNo || "",
+      signature: authStamp || prev.signature,
+    }));
+    setMechanicSearchTerm("");
+    setIsMechanicDropdownOpen(false);
+  };
 
   // Get selected mechanic display text (matching ATL pattern)
   const getSelectedMechanic = () => {
@@ -831,6 +879,7 @@ export function MaintenanceLogbook() {
             editingEntry.licenseNumber ??
             "",
           signature: editingEntry.signature || "",
+          webLink: getLogbookWebLink(editingEntry as { webLink?: string }),
         });
         // Set existing file info for editing
         const existingFile = (editingEntry as any).uploadFile;
@@ -906,6 +955,7 @@ export function MaintenanceLogbook() {
           mechanicName: "",
           licenseNumber: "",
           signature: "",
+          webLink: "",
         });
         setMechanicSearchTerm("");
         setIsMechanicDropdownOpen(false);
@@ -932,6 +982,13 @@ export function MaintenanceLogbook() {
 
     if (!editingEntry && !formData.sequenceNo?.trim()) {
       errors.sequenceNo = "Sequence Number is required";
+    }
+
+    const webLinkTrimmed = formData.webLink.trim();
+    if (webLinkTrimmed.length > LOGBOOK_WEB_LINK_MAX_LENGTH) {
+      errors.webLink = `Web Link must be at most ${LOGBOOK_WEB_LINK_MAX_LENGTH} characters`;
+    } else if (webLinkTrimmed && !isValidWebLink(webLinkTrimmed)) {
+      errors.webLink = "Enter a valid web link";
     }
 
     return errors;
@@ -1020,6 +1077,9 @@ export function MaintenanceLogbook() {
         licenseNumber:
           selectedMechanic?.licenseNo || formData.licenseNumber || undefined,
         signature: formData.signature || undefined,
+        webLink: formData.webLink.trim()
+          ? normalizeWebLink(formData.webLink) ?? undefined
+          : null,
       };
 
       // Include aircraft_fk for both create and update (required by backend)
@@ -1102,14 +1162,16 @@ export function MaintenanceLogbook() {
       // Keep 0 values for numbers as they are valid
       const cleanData = Object.fromEntries(
         Object.entries(data).filter(([key, v]) => {
-          if (v === undefined || v === null) return false;
+          if (v === undefined) return false;
+          // Allow clearing web link on update
+          if (key === "webLink" && v === null) return true;
+          if (v === null) return false;
           // Keep numbers including 0
           if (typeof v === "number") return true;
           // Keep boolean values
           if (typeof v === "boolean") return true;
           // For strings, filter out empty strings except for specific text fields
           if (typeof v === "string") {
-            // Keep empty strings for description, component, partNo, serialNo, signature, sequenceNo
             if (
               [
                 "description",
@@ -1118,11 +1180,11 @@ export function MaintenanceLogbook() {
                 "serialNo",
                 "signature",
                 "sequenceNo",
+                "webLink",
               ].includes(key)
             ) {
               return true;
             }
-            // Filter out empty strings for other fields
             return v.trim() !== "";
           }
           return true;
@@ -1181,6 +1243,7 @@ export function MaintenanceLogbook() {
           "serial_no",
           "signature",
           "sequence_no",
+          "web_link",
         ];
         Object.keys(apiDataSnake).forEach((key) => {
           const value = apiDataSnake[key];
@@ -1774,11 +1837,11 @@ export function MaintenanceLogbook() {
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
                       <div className="text-xs text-gray-700 mb-2">
-                        Signature/Stamp
+                        Auth Stamp
                       </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
                         <div className="text-gray-900">
-                          {selectedAirframeEntry.signature}
+                          {selectedAirframeEntry.signature?.trim() || "—"}
                         </div>
                       </div>
                     </div>
@@ -1803,6 +1866,13 @@ export function MaintenanceLogbook() {
                 ) : (
                   <span className="text-gray-400">No Upload</span>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-700 mb-1">Web Link</div>
+                <LogbookWebLinkViewRow
+                  webLink={getLogbookWebLink(selectedAirframeEntry)}
+                />
               </div>
             </div>
           </div>
@@ -2046,11 +2116,11 @@ export function MaintenanceLogbook() {
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
                       <div className="text-xs text-gray-700 mb-2">
-                        Signature/Stamp
+                        Auth Stamp
                       </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
                         <div className="text-gray-900">
-                          {selectedAvionicsEntry.signature}
+                          {selectedAvionicsEntry.signature?.trim() || "—"}
                         </div>
                       </div>
                     </div>
@@ -2075,6 +2145,13 @@ export function MaintenanceLogbook() {
                 ) : (
                   <span className="text-gray-400">-</span>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-700 mb-1">Web Link</div>
+                <LogbookWebLinkViewRow
+                  webLink={getLogbookWebLink(selectedAvionicsEntry)}
+                />
               </div>
             </div>
           </div>
@@ -2338,11 +2415,11 @@ export function MaintenanceLogbook() {
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
                       <div className="text-xs text-gray-700 mb-2">
-                        Signature/Stamp
+                        Auth Stamp
                       </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
                         <div className="text-gray-900">
-                          {selectedEngineEntry.signature}
+                          {selectedEngineEntry.signature?.trim() || "—"}
                         </div>
                       </div>
                     </div>
@@ -2367,6 +2444,13 @@ export function MaintenanceLogbook() {
                 ) : (
                   <span className="text-gray-400">-</span>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-700 mb-1">Web Link</div>
+                <LogbookWebLinkViewRow
+                  webLink={getLogbookWebLink(selectedEngineEntry)}
+                />
               </div>
             </div>
           </div>
@@ -2502,11 +2586,11 @@ export function MaintenanceLogbook() {
                   <div className="p-4 flex items-center justify-center">
                     <div className="text-center">
                       <div className="text-xs text-gray-700 mb-2">
-                        Signature/Stamp
+                        Auth Stamp
                       </div>
                       <div className="border-2 border-gray-900 px-4 py-2 inline-block">
                         <div className="text-gray-900">
-                          {selectedPropellerEntry.signature}
+                          {selectedPropellerEntry.signature?.trim() || "—"}
                         </div>
                       </div>
                     </div>
@@ -2531,6 +2615,13 @@ export function MaintenanceLogbook() {
                 ) : (
                   <span className="text-gray-400">-</span>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-700 mb-1">Web Link</div>
+                <LogbookWebLinkViewRow
+                  webLink={getLogbookWebLink(selectedPropellerEntry)}
+                />
               </div>
             </div>
           </div>
@@ -3315,12 +3406,9 @@ export function MaintenanceLogbook() {
                                     <li
                                       key={account.id}
                                       onClick={() => {
-                                        setFormData({
-                                          ...formData,
-                                          mechanicFk: account.id.toString(),
-                                        });
-                                        setMechanicSearchTerm("");
-                                        setIsMechanicDropdownOpen(false);
+                                        void handleSelectMechanicAccount(
+                                          account
+                                        );
                                       }}
                                       className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
                                         formData.mechanicFk ===
@@ -3349,7 +3437,7 @@ export function MaintenanceLogbook() {
                   <div className="flex items-center justify-center">
                     <div className="w-full">
                       <label className="block text-gray-700 text-sm mb-1.5">
-                        Signature/Stamp
+                        Auth Stamp
                       </label>
                       <input
                         type="text"
@@ -3361,7 +3449,7 @@ export function MaintenanceLogbook() {
                           })
                         }
                         className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400 text-center"
-                        placeholder="Signature/Stamp"
+                        placeholder="Auth Stamp"
                       />
                     </div>
                   </div>
@@ -3449,6 +3537,52 @@ export function MaintenanceLogbook() {
                       </button>
                     </div>
                   )}
+                </div>
+
+                {/* Web Link — below Attach Image */}
+                <div className="mb-6">
+                  <label
+                    htmlFor="logbook-web-link"
+                    className="block text-gray-700 text-sm mb-1.5"
+                  >
+                    Web Link
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+                    <input
+                      id="logbook-web-link"
+                      type="url"
+                      value={formData.webLink}
+                      maxLength={LOGBOOK_WEB_LINK_MAX_LENGTH}
+                      onChange={(e) => {
+                        setFormData({ ...formData, webLink: e.target.value });
+                        if (validationErrors.webLink) {
+                          setValidationErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.webLink;
+                            return next;
+                          });
+                        }
+                      }}
+                      placeholder="Enter web link"
+                      className={`w-full flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 ${
+                        validationErrors.webLink
+                          ? "border-red-500"
+                          : "border-gray-300"
+                      }`}
+                    />
+                    {formData.webLink.trim() &&
+                    normalizeWebLink(formData.webLink) ? (
+                      <AdWebLinkButton
+                        webLink={formData.webLink}
+                        className="shrink-0"
+                      />
+                    ) : null}
+                  </div>
+                  {validationErrors.webLink ? (
+                    <p className="mt-1 text-xs text-red-600">
+                      {validationErrors.webLink}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>

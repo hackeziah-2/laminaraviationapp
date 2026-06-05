@@ -54,6 +54,7 @@ export interface EngineLogbook {
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  webLink?: string;
   componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
@@ -73,6 +74,7 @@ export interface EngineLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
   componentParts?: ComponentPart[];
 }
 
@@ -90,6 +92,7 @@ export interface EngineLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
   componentParts?: ComponentPart[];
 }
 
@@ -109,6 +112,7 @@ export interface AirframeLogbook {
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  webLink?: string;
   componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
@@ -126,6 +130,7 @@ export interface AirframeLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
   componentParts?: ComponentPart[];
 }
 
@@ -141,6 +146,7 @@ export interface AirframeLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
   componentParts?: ComponentPart[];
 }
 
@@ -162,6 +168,7 @@ export interface AvionicsLogbook {
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  webLink?: string;
   componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
@@ -181,6 +188,7 @@ export interface AvionicsLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
   componentParts?: ComponentPart[];
 }
 
@@ -198,6 +206,7 @@ export interface AvionicsLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
   componentParts?: ComponentPart[];
 }
 
@@ -218,6 +227,7 @@ export interface PropellerLogbook {
   licenseNumber?: string;
   signature?: string;
   uploadFile?: string;
+  webLink?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -236,6 +246,7 @@ export interface PropellerLogbookCreate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
 }
 
 export interface PropellerLogbookUpdate {
@@ -252,6 +263,7 @@ export interface PropellerLogbookUpdate {
   mechanicName?: string;
   licenseNumber?: string;
   signature?: string;
+  webLink?: string | null;
 }
 
 // Transform response to camelCase (recursively handle nested objects and arrays)
