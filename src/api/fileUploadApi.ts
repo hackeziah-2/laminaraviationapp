@@ -41,6 +41,19 @@ export function normalizeStoredFilePath(path: string): string {
   return p;
 }
 
+export function isExternalUrl(value: string | undefined | null): boolean {
+  return /^https?:\/\//i.test((value ?? "").trim());
+}
+
+/** ATL White ATL / DFP stored upload path (excludes empty values and weblink URLs). */
+export function getAtlStoredUploadFilePath(
+  value: string | undefined | null
+): string {
+  const v = (value ?? "").trim();
+  if (!v || isExternalUrl(v)) return "";
+  return v;
+}
+
 /** Value to persist on entity records (prefer server filename). */
 export function storedPathForApi(upload: ModuleFileUploadResult): string {
   const filename = (upload.filename ?? "").trim();

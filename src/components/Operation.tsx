@@ -51,6 +51,7 @@ import {
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
+import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
 import Swal from "sweetalert2";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
@@ -3268,94 +3269,86 @@ export function Operation() {
                                     : "-"}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {(record.whiteAtl?.trim() ||
-                                    record.whiteAtlWebLink?.trim()) ? (
-                                    <div className="flex flex-col gap-1">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleDownloadFile(
-                                            "white_atl",
-                                            record.whiteAtl?.trim() ||
-                                              record.whiteAtlWebLink!.trim(),
-                                            (
-                                              record.whiteAtl?.trim() ||
-                                              record.whiteAtlWebLink!.trim()
+                                  {(() => {
+                                    const whiteAtlFile = getAtlStoredUploadFilePath(
+                                      record.whiteAtl
+                                    );
+                                    return whiteAtlFile ? (
+                                      <div className="flex flex-col gap-1">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleDownloadFile(
+                                              "white_atl",
+                                              whiteAtlFile,
+                                              whiteAtlFile.split("/").pop() ||
+                                                "white_atl"
                                             )
-                                              .split("/")
-                                              .pop() || "white_atl"
-                                          )
-                                        }
-                                      >
-                                        <Download className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">
-                                          Download
-                                        </span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleViewFile(
-                                            "white_atl",
-                                            record.whiteAtl?.trim() ||
-                                              record.whiteAtlWebLink!.trim()
-                                          )
-                                        }
-                                      >
-                                        <Eye className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">View</span>
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-900">-</span>
-                                  )}
+                                          }
+                                        >
+                                          <Download className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">
+                                            Download
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleViewFile(
+                                              "white_atl",
+                                              whiteAtlFile
+                                            )
+                                          }
+                                        >
+                                          <Eye className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">View</span>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-900">N/A</span>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-3 py-3 text-sm bg-white">
-                                  {(record.dfp?.trim() ||
-                                    record.dfpWebLink?.trim()) ? (
-                                    <div className="flex flex-col gap-1">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleDownloadFile(
-                                            "dfp",
-                                            record.dfp?.trim() ||
-                                              record.dfpWebLink!.trim(),
-                                            (
-                                              record.dfp?.trim() ||
-                                              record.dfpWebLink!.trim()
+                                  {(() => {
+                                    const dfpFile = getAtlStoredUploadFilePath(
+                                      record.dfp
+                                    );
+                                    return dfpFile ? (
+                                      <div className="flex flex-col gap-1">
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleDownloadFile(
+                                              "dfp",
+                                              dfpFile,
+                                              dfpFile.split("/").pop() || "dfp"
                                             )
-                                              .split("/")
-                                              .pop() || "dfp"
-                                          )
-                                        }
-                                      >
-                                        <Download className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">
-                                          Download
-                                        </span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleViewFile(
-                                            "dfp",
-                                            record.dfp?.trim() ||
-                                              record.dfpWebLink!.trim()
-                                          )
-                                        }
-                                      >
-                                        <Eye className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">View</span>
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-900">-</span>
-                                  )}
+                                          }
+                                        >
+                                          <Download className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">
+                                            Download
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleViewFile("dfp", dfpFile)
+                                          }
+                                        >
+                                          <Eye className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">View</span>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-900">N/A</span>
+                                    );
+                                  })()}
                                 </td>
                               </tr>
                             ))

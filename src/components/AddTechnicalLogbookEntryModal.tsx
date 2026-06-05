@@ -35,8 +35,10 @@ import {
   computeTotalBlockTimeFromUtc,
   toCamel,
   formatAtlDateReportedManilaFromParts,
+  formatPhilippinesDateTime,
   formatOptionalNumber2dp,
   getManilaDateTimeParts,
+  splitAtlDateTimeReportedFromApi,
   formatZuluTimeKeyboardInput,
   normalizeOptionalZuluTimeInput,
   validateOptionalZuluTime,
@@ -50,6 +52,7 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
+import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   formatAtlWorkStatusLabel,
@@ -163,33 +166,6 @@ function mergeAtlResolvedWithListComputed(
     return listComputed.toFixed(2);
   }
   return fallbackWhenBothMissing;
-}
-
-/** Parse API `date_time_reported` / `date_time_released` into form date + time (HH:MM). */
-function splitAtlDateTimeFromApi(raw: string | undefined | null): {
-  date: string;
-  time: string;
-} {
-  if (raw == null || String(raw).trim() === "") return { date: "", time: "" };
-  const s = String(raw).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return { date: s, time: "" };
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2}(?::\d{2})?)/i);
-  if (m) {
-    const p = m[2].split(":");
-    const hh = (p[0] || "00").padStart(2, "0");
-    const mm = (p[1] || "00").padStart(2, "0");
-    return { date: m[1], time: `${hh}:${mm}` };
-  }
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) {
-    const y = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return { date: `${y}-${mo}-${day}`, time: `${hh}:${mm}` };
-  }
-  return { date: "", time: "" };
 }
 
 function hasAtlDateReportedValue(
@@ -455,6 +431,24 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitPropeller: "",
   });
 
+  const [philippinesNow, setPhilippinesNow] = useState(() =>
+    formatPhilippinesDateTime()
+  );
+
+  const dateReportedIsSet = useMemo(
+    () =>
+      hasAtlDateReportedValue(
+        formData.dateTimeReportedDate,
+        formData.dateTimeReportedTime,
+        preservedDateReportedRef.current ?? editEntry?.dateTimeReported
+      ),
+    [
+      formData.dateTimeReportedDate,
+      formData.dateTimeReportedTime,
+      editEntry?.dateTimeReported,
+    ]
+  );
+
   const techPubCanSubmitAttachmentsOnlyEdit = useMemo(() => {
     if (!attachmentsOnlyLocked || !canUploadAtlInCurrentMode) return false;
     return true;
@@ -637,6 +631,16 @@ export function AddTechnicalLogbookEntryModal({
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen || !canUseTechPubView || dateReportedIsSet) return;
+    setPhilippinesNow(formatPhilippinesDateTime());
+    const id = window.setInterval(
+      () => setPhilippinesNow(formatPhilippinesDateTime()),
+      1000
+    );
+    return () => window.clearInterval(id);
+  }, [isOpen, canUseTechPubView, dateReportedIsSet]);
+
+  useEffect(() => {
     if (!isOpen) return;
     if (!editEntry && !showAtlBatchFilter) {
       setAtlBatchOptions([]);
@@ -762,7 +766,9 @@ export function AddTechnicalLogbookEntryModal({
         Math.max(0, (parseFloat(String(mergedPropTsn)) || 0) - run)
       );
       setPreviousPropellerTso(Math.max(0, (Number(mergedPropTso) || 0) - run));
-      const reported = splitAtlDateTimeFromApi(editEntry.dateTimeReported);
+      const reported = splitAtlDateTimeReportedFromApi(
+        editEntry.dateTimeReported
+      );
       preservedDateReportedRef.current =
         editEntry.dateTimeReported?.trim() || null;
       initialTechPubLinksRef.current = {
@@ -2046,12 +2052,12 @@ export function AddTechnicalLogbookEntryModal({
       if (
         !dateReportedAlreadySet &&
         isTechPubRole &&
-        editEntry &&
-        attachmentsOnlyLocked &&
-        hasTechPubAttachmentOrLinkUpdate(
+        (hasTechPubAttachmentOrLinkUpdate(
           formData,
           initialTechPubLinksRef.current
-        )
+        ) ||
+          formData.whiteAtl instanceof File ||
+          formData.dfp instanceof File)
       ) {
         const now = getManilaDateTimeParts();
         reportedDate = now.date;
@@ -2591,7 +2597,24 @@ export function AddTechnicalLogbookEntryModal({
     file: File | null
   ) => {
     setFormData((prev) => {
-      const next: typeof prev = { ...prev, [field]: file };
+      let next: typeof prev = { ...prev, [field]: file };
+      if (
+        (field === "whiteAtl" || field === "dfp") &&
+        file instanceof File &&
+        isTechPubRole &&
+        !hasAtlDateReportedValue(
+          next.dateTimeReportedDate,
+          next.dateTimeReportedTime,
+          preservedDateReportedRef.current ?? editEntry?.dateTimeReported
+        )
+      ) {
+        const now = getManilaDateTimeParts();
+        next = {
+          ...next,
+          dateTimeReportedDate: now.date,
+          dateTimeReportedTime: now.time,
+        };
+      }
       if (
         attachmentsOnlyLocked &&
         editEntry &&
@@ -2705,10 +2728,28 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  const existingWhiteAtlPath =
-    editEntry?.whiteAtl?.trim() || editEntry?.whiteAtlWebLink?.trim() || "";
-  const existingDfpPath =
-    editEntry?.dfp?.trim() || editEntry?.dfpWebLink?.trim() || "";
+  const existingWhiteAtlFilePath = getAtlStoredUploadFilePath(
+    editEntry?.whiteAtl
+  );
+  const existingDfpFilePath = getAtlStoredUploadFilePath(editEntry?.dfp);
+
+  const whiteAtlUploadLabel = (() => {
+    if (whiteAtlFileName) return whiteAtlFileName;
+    if (existingWhiteAtlFilePath) {
+      return (
+        existingWhiteAtlFilePath.split("/").pop() || existingWhiteAtlFilePath
+      );
+    }
+    return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
+  })();
+
+  const dfpUploadLabel = (() => {
+    if (dfpFileName) return dfpFileName;
+    if (existingDfpFilePath) {
+      return existingDfpFilePath.split("/").pop() || existingDfpFilePath;
+    }
+    return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
+  })();
 
   const closeFileViewModal = () => {
     if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
@@ -2923,8 +2964,8 @@ export function AddTechnicalLogbookEntryModal({
                             workStatusChangeLocked
                               ? "Work status cannot be changed for your role at this status"
                               : mainFormLocked
-                                ? "Work status is read-only for your role at this status"
-                                : undefined
+                              ? "Work status is read-only for your role at this status"
+                              : undefined
                           }
                           aria-label={`Work status: ${displayWorkStatusLabel}`}
                         >
@@ -3242,8 +3283,7 @@ export function AddTechnicalLogbookEntryModal({
                                 ...prev,
                                 offBlocksTime: normalized,
                               }));
-                              const err =
-                                validateOptionalZuluTime(normalized);
+                              const err = validateOptionalZuluTime(normalized);
                               setValidationErrors((prev) => ({
                                 ...prev,
                                 offBlocksTime: err ?? "",
@@ -3345,8 +3385,7 @@ export function AddTechnicalLogbookEntryModal({
                                 ...prev,
                                 onBlocksTime: normalized,
                               }));
-                              const err =
-                                validateOptionalZuluTime(normalized);
+                              const err = validateOptionalZuluTime(normalized);
                               setValidationErrors((prev) => ({
                                 ...prev,
                                 onBlocksTime: err ?? "",
@@ -4896,15 +4935,12 @@ export function AddTechnicalLogbookEntryModal({
                           >
                             <span
                               className={
-                                whiteAtlFileName
+                                whiteAtlFileName || existingWhiteAtlFilePath
                                   ? "text-gray-900"
                                   : "text-gray-400"
                               }
                             >
-                              {whiteAtlFileName ||
-                                (canUploadAtlInCurrentMode
-                                  ? "Choose file or N/A"
-                                  : "Upload not permitted for your role")}
+                              {whiteAtlUploadLabel}
                             </span>
                             <Upload className="w-4 h-4 text-gray-400" />
                           </label>
@@ -4917,16 +4953,16 @@ export function AddTechnicalLogbookEntryModal({
                               Remove file
                             </button>
                           )}
-                          {existingWhiteAtlPath !== "" && (
+                          {existingWhiteAtlFilePath !== "" && (
                             <div className="flex flex-col gap-1 mt-2">
-                              {isImageFilePath(existingWhiteAtlPath) && (
+                              {isImageFilePath(existingWhiteAtlFilePath) && (
                                 <button
                                   type="button"
                                   className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
                                   onClick={() =>
                                     handleViewAtlFile(
                                       "white_atl",
-                                      existingWhiteAtlPath
+                                      existingWhiteAtlFilePath
                                     )
                                   }
                                 >
@@ -4940,8 +4976,8 @@ export function AddTechnicalLogbookEntryModal({
                                 onClick={() =>
                                   handleDownloadAtlFile(
                                     "white_atl",
-                                    existingWhiteAtlPath,
-                                    existingWhiteAtlPath.split("/").pop() ||
+                                    existingWhiteAtlFilePath,
+                                    existingWhiteAtlFilePath.split("/").pop() ||
                                       "white_atl"
                                   )
                                 }
@@ -4981,13 +5017,12 @@ export function AddTechnicalLogbookEntryModal({
                           >
                             <span
                               className={
-                                dfpFileName ? "text-gray-900" : "text-gray-400"
+                                dfpFileName || existingDfpFilePath
+                                  ? "text-gray-900"
+                                  : "text-gray-400"
                               }
                             >
-                              {dfpFileName ||
-                                (canUploadAtlInCurrentMode
-                                  ? "Choose file or N/A"
-                                  : "Upload not permitted for your role")}
+                              {dfpUploadLabel}
                             </span>
                             <Upload className="w-4 h-4 text-gray-400" />
                           </label>
@@ -5000,14 +5035,17 @@ export function AddTechnicalLogbookEntryModal({
                               Remove file
                             </button>
                           )}
-                          {existingDfpPath !== "" && (
+                          {existingDfpFilePath !== "" && (
                             <div className="flex flex-col gap-1 mt-2">
-                              {isImageFilePath(existingDfpPath) && (
+                              {isImageFilePath(existingDfpFilePath) && (
                                 <button
                                   type="button"
                                   className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
                                   onClick={() =>
-                                    handleViewAtlFile("dfp", existingDfpPath)
+                                    handleViewAtlFile(
+                                      "dfp",
+                                      existingDfpFilePath
+                                    )
                                   }
                                 >
                                   <Eye className="w-4 h-4 flex-shrink-0" />
@@ -5020,8 +5058,9 @@ export function AddTechnicalLogbookEntryModal({
                                 onClick={() =>
                                   handleDownloadAtlFile(
                                     "dfp",
-                                    existingDfpPath,
-                                    existingDfpPath.split("/").pop() || "dfp"
+                                    existingDfpFilePath,
+                                    existingDfpFilePath.split("/").pop() ||
+                                      "dfp"
                                   )
                                 }
                               >
@@ -5101,18 +5140,29 @@ export function AddTechnicalLogbookEntryModal({
                             editEntry?.dateTimeReported
                         ) ? (
                           <p className="text-gray-900">
-                            {formatAtlDateReportedManilaFromParts(
+                            {/* {formatAtlDateReportedManilaFromParts(
                               formData.dateTimeReportedDate,
                               formData.dateTimeReportedTime,
                               preservedDateReportedRef.current ??
                                 editEntry?.dateTimeReported
-                            )}
+                            )} */}
+                            <>
+                              <span className="mt-1 block text-gray-700 tabular-nums">
+                                Set automatically on first attachment upload
+                              </span>
+                            </>
                           </p>
                         ) : (
                           <p className="text-gray-500">
-                            {isTechPubRole
-                              ? "Set automatically on first attachment upload (Philippines time)."
-                              : "Not set yet."}
+                            {isTechPubRole ? (
+                              <>
+                                <span className="mt-1 block text-gray-700 tabular-nums">
+                                  Set automatically on first attachment upload
+                                </span>
+                              </>
+                            ) : (
+                              "Not set yet."
+                            )}
                           </p>
                         )}
                       </div>

@@ -43,6 +43,9 @@ import {
   canEditAtlFields,
   canOpenAtlEditModal,
   isAtlEditAllowedForRoleAndWorkStatus,
+  isMaintenanceManagerRole,
+  isMaintenancePlannerRole,
+  isQualityManagerRole,
   isTechnicalPublicationRole,
   isTechnicalPublicationRestrictedEdit,
   normalizeAtlWorkStatus,
@@ -145,19 +148,6 @@ export function AircraftTechnicalLogbook() {
     return normalized || undefined;
   }, [selectedWorkStatus]);
   const showSeqWithBatchName = selectedAtlBatchFk == null;
-  const normalizedUserRole = (user?.role || "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, " ");
-  const isMaintenanceManager =
-    normalizedUserRole === "maintenance manager" ||
-    normalizedUserRole.endsWith(" maintenance manager");
-  const isQualityManager =
-    normalizedUserRole === "quality manager" ||
-    normalizedUserRole.endsWith(" quality manager");
-  const isMaintenancePlanner =
-    normalizedUserRole === "maintenance planner" ||
-    normalizedUserRole.endsWith(" maintenance planner");
 
   /** Role from GET /auth/me — aligns ATL edit RBAC with login session (same as Operation). */
   const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
@@ -182,6 +172,10 @@ export function AircraftTechnicalLogbook() {
     () => sessionRoleName || user?.role?.trim() || undefined,
     [sessionRoleName, user?.role]
   );
+
+  const isMaintenanceManager = isMaintenanceManagerRole(logbookAtlRole);
+  const isQualityManager = isQualityManagerRole(logbookAtlRole);
+  const isMaintenancePlanner = isMaintenancePlannerRole(logbookAtlRole);
 
   const canUpdateLogbookAtl = canUpdate("logbook");
 
@@ -1260,7 +1254,7 @@ export function AircraftTechnicalLogbook() {
                               })()}
                             {isMaintenanceManager &&
                               normalizeAtlWorkStatus(entry.workStatus) ===
-                                "FOR_REVIEW" && (
+                                "PENDING" && (
                                 <>
                                   <button
                                     type="button"
@@ -1302,7 +1296,7 @@ export function AircraftTechnicalLogbook() {
                               )}
                             {isQualityManager &&
                               normalizeAtlWorkStatus(entry.workStatus) ===
-                                "PENDING" && (
+                                "APPROVED" && (
                                 <>
                                   <button
                                     type="button"

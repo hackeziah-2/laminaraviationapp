@@ -5,7 +5,11 @@ import {
   AircraftTechnicalLog,
   getAircraftTechnicalLogById,
 } from "../api/aircraftTechnicalLogApi";
-import { normalizeStoredFilePath } from "../api/fileUploadApi";
+import {
+  getAtlStoredUploadFilePath,
+  isExternalUrl,
+  normalizeStoredFilePath,
+} from "../api/fileUploadApi";
 import { Spinner } from "./ui/spinner";
 import {
   formatTimeZuluMilitary,
@@ -13,16 +17,6 @@ import {
   formatDisplayDate,
   formatOptionalNumber2dp,
 } from "../utility/utils";
-
-function isExternalUrl(value: string | undefined | null): boolean {
-  return /^https?:\/\//i.test((value ?? "").trim());
-}
-
-function atlStoredFilePath(value: string | undefined | null): string {
-  const v = (value ?? "").trim();
-  if (!v || isExternalUrl(v)) return "";
-  return v;
-}
 
 function getMimeFromFilename(path: string): string | null {
   const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
@@ -415,10 +409,10 @@ export function ViewTechnicalLogbookEntryModal({
         lifeTimeLimitPropeller: formatComponentTime(
           entryData.lifeTimeLimitPropeller
         ),
-        whiteAtlFile: atlStoredFilePath(entryData.whiteAtl),
+        whiteAtlFile: getAtlStoredUploadFilePath(entryData.whiteAtl),
         whiteAtlWebLink: (entryData.whiteAtlWebLink?.trim() ||
           (isExternalUrl(entryData.whiteAtl) ? entryData.whiteAtl?.trim() : "")) as string,
-        dfpFile: atlStoredFilePath(entryData.dfp),
+        dfpFile: getAtlStoredUploadFilePath(entryData.dfp),
         dfpWebLink: (entryData.dfpWebLink?.trim() ||
           (isExternalUrl(entryData.dfp) ? entryData.dfp?.trim() : "")) as string,
       }
