@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getCertificatesMonitoring,
   createCertificateMonitoring,
@@ -490,129 +491,79 @@ export function CertificateMonitoring() {
   };
 
   const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      // Validation
-      if (!formData.certificateName?.trim()) {
+    if (isSaving) return;
+
+    if (!formData.certificateName?.trim()) {
+      Swal.fire({
+        icon: "error",
+        title: "Validation Error",
+        text: "Please enter Certificate Name.",
+      });
+      return;
+    }
+
+    const warningDaysVal =
+      formData.warningDays?.trim() !== ""
+        ? Number(formData.warningDays)
+        : null;
+    const name = formData.certificateName.trim();
+    const payload: Record<string, unknown> = {
+      document_name: name,
+      certificate_name: name,
+      description: formData.description?.trim() || null,
+      issue_date: formData.issueDate || null,
+      expiry_date: formData.expiryDate || null,
+      web_link: formData.webLink?.trim() || null,
+      warning_days:
+        warningDaysVal !== null && !isNaN(warningDaysVal)
+          ? warningDaysVal
+          : null,
+      status: formData.status,
+    };
+
+    const existingFilePath = editingCertificate
+      ? getCertificateFilePath(editingCertificate)
+      : null;
+    if (!uploadFile && existingFilePath) {
+      payload.file_path = existingFilePath;
+    }
+
+    const formDataObj = new FormData();
+    formDataObj.append("json_data", JSON.stringify(payload));
+    if (uploadFile) {
+      formDataObj.append("upload_file", uploadFile);
+    }
+    const requestData = formDataObj;
+    const isUpdate = Boolean(editingCertificate);
+
+    if (isUpdate) {
+      const certificateId = getCertificateId(editingCertificate);
+      if (!certificateId) {
         Swal.fire({
           icon: "error",
           title: "Validation Error",
-          text: "Please enter Certificate Name.",
+          text: "Certificate ID is missing or invalid. Cannot update certificate.",
         });
-        setTimeout(() => setIsSaving(false), 360);
         return;
       }
+    }
 
-      // Build API payload for /api/v1/documents-on-board/
-      const warningDaysVal =
-        formData.warningDays?.trim() !== ""
-          ? Number(formData.warningDays)
-          : null;
-      const name = formData.certificateName.trim();
-      const payload: Record<string, unknown> = {
-        document_name: name,
-        certificate_name: name,
-        description: formData.description?.trim() || null,
-        issue_date: formData.issueDate || null,
-        expiry_date: formData.expiryDate || null,
-        web_link: formData.webLink?.trim() || null,
-        warning_days:
-          warningDaysVal !== null && !isNaN(warningDaysVal)
-            ? warningDaysVal
-            : null,
-        status: formData.status,
-      };
-
-      // When editing and not uploading a new file, send existing file_path (string) so backend keeps it
-      const existingFilePath = editingCertificate
-        ? getCertificateFilePath(editingCertificate)
-        : null;
-      if (!uploadFile && existingFilePath) {
-        payload.file_path = existingFilePath;
-      }
-
-      // FormData carries json_data; API uploads file via document_on_board/upload then sends file_path in JSON
-      const formDataObj = new FormData();
-      formDataObj.append("json_data", JSON.stringify(payload));
-      if (uploadFile) {
-        formDataObj.append("upload_file", uploadFile);
-      }
-      const requestData = formDataObj;
-
-      // Execute create or update
-      if (editingCertificate) {
-        // Ensure we have a valid ID (support both 'id' and 'document_id' from API)
-        const certificateId = getCertificateId(editingCertificate);
-        if (!certificateId) {
-          Swal.fire({
-            icon: "error",
-            title: "Validation Error",
-            text: "Certificate ID is missing or invalid. Cannot update certificate.",
-          });
-          setTimeout(() => setIsSaving(false), 360);
-          return;
+    setIsSaving(true);
+    try {
+      await confirmSaveEntry(isUpdate, async () => {
+        if (isUpdate) {
+          const certificateId = getCertificateId(editingCertificate);
+          await updateCertificateMonitoring(
+            certificateId!,
+            requestData as FormData | CertificateMonitoringUpdate
+          );
+        } else {
+          await createCertificateMonitoring(
+            requestData as FormData | CertificateMonitoringCreate
+          );
         }
-        await updateCertificateMonitoring(
-          certificateId,
-          requestData as FormData | CertificateMonitoringUpdate
-        );
-        Swal.fire({
-          icon: "success",
-          title: "Success!",
-          text: "Certificate updated successfully.",
-          timer: 1500,
-          showConfirmButton: false,
-        });
-      } else {
-        await createCertificateMonitoring(
-          requestData as FormData | CertificateMonitoringCreate
-        );
-        Swal.fire({
-          icon: "success",
-          title: "Success!",
-          text: "Certificate created successfully.",
-          timer: 1500,
-          showConfirmButton: false,
-        });
-      }
-
-      // Reset form and close modals
-      resetForm();
-      // Refresh list with loading spinner
-      await refreshCertificates();
-    } catch (error: any) {
-      console.error("Error saving certificate:", error);
-
-      // Extract error message
-      let errorMessage = "Failed to save certificate. Please try again.";
-      const detail = error.response?.data?.detail;
-
-      if (detail) {
-        if (typeof detail === "string") {
-          errorMessage = detail;
-        } else if (Array.isArray(detail)) {
-          // FastAPI validation errors
-          errorMessage = detail
-            .map((e: any) => {
-              const field = e.loc?.slice(1).join(".") || "field";
-              const msg = e.msg || e.message || "Invalid value";
-              return `${field}: ${msg}`;
-            })
-            .join("\n");
-        } else if (detail.message) {
-          errorMessage = detail.message;
-        }
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      Swal.fire({
-        icon: "error",
-        title: "Error!",
-        text: errorMessage,
-        width: "600px",
+        resetForm();
+        await refreshCertificates();
       });
     } finally {
       setTimeout(() => setIsSaving(false), 360);

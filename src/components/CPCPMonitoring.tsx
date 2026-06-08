@@ -32,6 +32,7 @@ import {
 } from "../api/cpcpMonitoringApi";
 import { computeCpcpRow, getCpcpRemainingAlert } from "../utils/cpcpFormulas";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -406,61 +407,45 @@ export const CPCPMonitoring = forwardRef<
 
   const handleAddSubmit = useCallback(
     async (data: any) => {
+      if (saving) return;
       setSaving(true);
       try {
-        const payload = { ...data };
-        if (aircraftId != null && String(aircraftId).trim() !== "") {
-          const aid =
-            typeof aircraftId === "number"
-              ? aircraftId
-              : parseInt(String(aircraftId), 10);
-          if (!isNaN(aid)) payload.aircraft_id = aid;
-        }
-        await createCpcpMonitoring(payload);
-        Swal.fire({
-          icon: "success",
-          title: "Created!",
-          text: "The CPCP entry has been added.",
-          timer: 1500,
-          showConfirmButton: false,
+        await confirmSaveEntry(false, async () => {
+          const payload = { ...data };
+          if (aircraftId != null && String(aircraftId).trim() !== "") {
+            const aid =
+              typeof aircraftId === "number"
+                ? aircraftId
+                : parseInt(String(aircraftId), 10);
+            if (!isNaN(aid)) payload.aircraft_id = aid;
+          }
+          await createCpcpMonitoring(payload);
+          setShowAddModal(false);
+          fetchList();
         });
-        setShowAddModal(false);
-        fetchList();
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.detail ?? err?.message ?? "Failed to create.";
-        Swal.fire({ icon: "error", title: "Error!", text: msg });
       } finally {
         setTimeout(() => setSaving(false), 360);
       }
     },
-    [fetchList, aircraftId]
+    [fetchList, aircraftId, saving]
   );
 
   const handleEditSubmit = useCallback(
     async (id: number, data: any) => {
+      if (saving) return;
       setSaving(true);
       try {
-        await updateCpcpMonitoring(id, data);
-        Swal.fire({
-          icon: "success",
-          title: "Updated!",
-          text: "The CPCP entry has been updated.",
-          timer: 1500,
-          showConfirmButton: false,
+        await confirmSaveEntry(true, async () => {
+          await updateCpcpMonitoring(id, data);
+          setShowAddModal(false);
+          setEditingEntry(null);
+          fetchList();
         });
-        setShowAddModal(false);
-        setEditingEntry(null);
-        fetchList();
-      } catch (err: any) {
-        const msg =
-          err?.response?.data?.detail ?? err?.message ?? "Failed to update.";
-        Swal.fire({ icon: "error", title: "Error!", text: msg });
       } finally {
         setTimeout(() => setSaving(false), 360);
       }
     },
-    [fetchList]
+    [fetchList, saving]
   );
 
   const openEdit = useCallback((entry: CPCPEntry) => {

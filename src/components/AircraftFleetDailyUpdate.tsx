@@ -13,6 +13,7 @@ import {
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getFleetDailyUpdatePaged,
   updateFleetDailyUpdateRemark,
@@ -303,39 +304,14 @@ export function AircraftFleetDailyUpdate() {
       return;
     }
 
-    const confirm = await Swal.fire({
-      icon: "question",
-      title: "Save updates?",
-      text: "Are you sure you want to save these fleet daily updates?",
-      showCancelButton: true,
-      confirmButtonText: "Save",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#2563eb",
-    });
-    if (!confirm.isConfirmed) return;
+    if (savingBulk) return;
 
     setSavingBulk(true);
     try {
-      await bulkUpdateFleetDailyUpdates({ updates: bulkUpdates });
-      exitBulkEditMode();
-      await fetchData();
-      await Swal.fire({
-        icon: "success",
-        title: "Saved",
-        text: "Fleet daily updates saved successfully.",
-        timer: 2000,
-        showConfirmButton: false,
-      });
-    } catch (err: any) {
-      console.error("Error bulk updating fleet daily update:", err);
-      const msg =
-        err?.response?.data?.detail ??
-        err?.message ??
-        "Failed to save fleet daily updates.";
-      await Swal.fire({
-        icon: "error",
-        title: "Update failed",
-        text: typeof msg === "string" ? msg : JSON.stringify(msg),
+      await confirmSaveEntry(true, async () => {
+        await bulkUpdateFleetDailyUpdates({ updates: bulkUpdates });
+        exitBulkEditMode();
+        await fetchData();
       });
     } finally {
       setSavingBulk(false);
@@ -399,39 +375,25 @@ export function AircraftFleetDailyUpdate() {
 
   const handleSaveRemark = useCallback(async () => {
     if (!editingItem) return;
+    if (savingRemark) return;
+
     setSavingRemark(true);
     try {
-      await updateFleetDailyUpdateRemark(editingItem, {
-        remarks: remarkDraft,
-        status: statusDraft,
-      });
-      setShowRemarkModal(false);
-      setEditingItem(null);
-      setRemarkDraft("");
-      setStatusDraft("");
-      await fetchData();
-      await Swal.fire({
-        icon: "success",
-        title: "Saved",
-        text: "Remark and status updated successfully.",
-        timer: 2000,
-        showConfirmButton: false,
-      });
-    } catch (err: any) {
-      console.error("Error updating remark:", err);
-      const msg =
-        err?.response?.data?.detail ??
-        err?.message ??
-        "Failed to update remark.";
-      await Swal.fire({
-        icon: "error",
-        title: "Update failed",
-        text: typeof msg === "string" ? msg : JSON.stringify(msg),
+      await confirmSaveEntry(true, async () => {
+        await updateFleetDailyUpdateRemark(editingItem, {
+          remarks: remarkDraft,
+          status: statusDraft,
+        });
+        setShowRemarkModal(false);
+        setEditingItem(null);
+        setRemarkDraft("");
+        setStatusDraft("");
+        await fetchData();
       });
     } finally {
       setSavingRemark(false);
     }
-  }, [editingItem, remarkDraft, statusDraft, fetchData]);
+  }, [editingItem, remarkDraft, statusDraft, fetchData, savingRemark]);
 
   const getRowColorClass = (
     rowColor?: string,

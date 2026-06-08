@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getOrganizationalApprovalsPaged,
   createOrganizationalApproval,
@@ -421,7 +422,9 @@ export function OrganizationalApprovals() {
     }
     setFormErrors({});
 
-    setSaving(true);
+    if (saving) return;
+
+    const isUpdate = Boolean(editingApproval);
     const payload = {
       certificate_fk: fk,
       number: formData.number.trim(),
@@ -429,38 +432,17 @@ export function OrganizationalApprovals() {
       web_link: webLink !== undefined && webLink !== "" ? webLink : null,
     };
 
+    setSaving(true);
     try {
-      if (editingApproval) {
-        await updateOrganizationalApproval(editingApproval.id, payload);
-
-        Swal.fire({
-          icon: "success",
-          title: "Updated",
-          text: "The approval has been updated.",
-          timer: 1500,
-          showConfirmButton: false,
-        });
-      } else {
-        await createOrganizationalApproval(payload);
-
-        Swal.fire({
-          icon: "success",
-          title: "Created",
-          text: "The approval has been added.",
-          timer: 1500,
-          showConfirmButton: false,
-        });
-      }
-
-      closeModal();
-      setCurrentPage(1);
-      await fetchApprovals();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to save.";
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: message,
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingApproval) {
+          await updateOrganizationalApproval(editingApproval.id, payload);
+        } else {
+          await createOrganizationalApproval(payload);
+        }
+        closeModal();
+        setCurrentPage(1);
+        await fetchApprovals();
       });
     } finally {
       setSaving(false);

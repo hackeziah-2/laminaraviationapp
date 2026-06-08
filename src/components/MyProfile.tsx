@@ -8,6 +8,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import * as authApi from "../api/authApi";
 import * as accountApi from "../api/accountApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -296,26 +297,17 @@ export function MyProfile() {
       return;
     }
 
+    if (saving) return;
+
     setSaving(true);
     try {
-      await accountApi.patchAccount(id, {
-        username: trimmedUsername,
-        email: trimmedEmail,
-      });
-      localStorage.setItem("auth_username", trimmedUsername);
-      await refetch();
-      await Swal.fire({
-        icon: "success",
-        title: "Profile updated",
-        text: "Your account information has been saved.",
-        confirmButtonColor: "#1f2937",
-      });
-    } catch (err) {
-      await Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: formatApiError(err),
-        confirmButtonColor: "#1f2937",
+      await confirmSaveEntry(true, async () => {
+        await accountApi.patchAccount(id, {
+          username: trimmedUsername,
+          email: trimmedEmail,
+        });
+        localStorage.setItem("auth_username", trimmedUsername);
+        await refetch();
       });
     } finally {
       setSaving(false);

@@ -46,6 +46,7 @@ import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 import { cn } from "./ui/utils";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
@@ -420,46 +421,42 @@ export function ADWorkOrders() {
       });
       return;
     }
+    if (saving) return;
+
+    const isUpdate = Boolean(editingWorkOrder);
     setSaving(true);
     try {
-      if (editingWorkOrder) {
-        await updateWorkOrderAdMonitoring(
-          aircraft_fk,
-          ad_monitoring_fk,
-          editingWorkOrder.id,
-          {
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingWorkOrder) {
+          await updateWorkOrderAdMonitoring(
+            aircraft_fk,
+            ad_monitoring_fk,
+            editingWorkOrder.id,
+            {
+              woNumber,
+              lastDoneActt: formData.lastDoneActt || undefined,
+              lastDoneTach: formData.lastDoneTach || undefined,
+              lastDoneDate: formData.lastDoneDate || undefined,
+              nextDoneActt: formData.nextDoneActt || undefined,
+              nextDueTach: formData.nextDueTach || undefined,
+              atlRef: formData.atlRef || undefined,
+            }
+          );
+        } else {
+          await createWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, {
             woNumber,
-            lastDoneActt: formData.lastDoneActt || undefined,
-            lastDoneTach: formData.lastDoneTach || undefined,
-            lastDoneDate: formData.lastDoneDate || undefined,
-            nextDoneActt: formData.nextDoneActt || undefined,
-            nextDueTach: formData.nextDueTach || undefined,
-            atlRef: formData.atlRef || undefined,
-          }
-        );
-      } else {
-        await createWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, {
-          woNumber,
-          lastDoneActt: formData.lastDoneActt ?? "",
-          lastDoneTach: formData.lastDoneTach ?? "",
-          lastDoneDate: formData.lastDoneDate ?? "",
-          nextDoneActt: formData.nextDoneActt ?? "",
-          nextDueTach: formData.nextDueTach ?? "",
-          atlRef: formData.atlRef ?? "",
-        });
-      }
-      setShowAddModal(false);
-      resetForm();
-      await fetchWorkOrders();
-      await Swal.fire({
-        icon: "success",
-        title: editingWorkOrder ? "Updated!" : "Saved!",
-        text: editingWorkOrder ? "Work order updated." : "Work order added.",
+            lastDoneActt: formData.lastDoneActt ?? "",
+            lastDoneTach: formData.lastDoneTach ?? "",
+            lastDoneDate: formData.lastDoneDate ?? "",
+            nextDoneActt: formData.nextDoneActt ?? "",
+            nextDueTach: formData.nextDueTach ?? "",
+            atlRef: formData.atlRef ?? "",
+          });
+        }
+        setShowAddModal(false);
+        resetForm();
+        await fetchWorkOrders();
       });
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ?? err?.message ?? "Failed to save.";
-      await Swal.fire({ icon: "error", title: "Error", text: msg });
     } finally {
       setSaving(false);
     }
