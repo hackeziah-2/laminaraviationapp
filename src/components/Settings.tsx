@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   Users,
   Shield,
@@ -532,28 +533,31 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    if (submitting) return;
     setSubmitting(true);
     try {
-      await Promise.resolve(onAdd(formData));
-      setFormData({
-        first_name: "",
-        last_name: "",
-        middle_name: "",
-        username: "",
-        email: "",
-        designation: "",
-        license_no: "",
-        role_id: 0,
-        status: true,
-        password: "",
-        confirmPassword: "",
-        auth_initial_doi: null,
-        auth_stamp: "",
+      const success = await confirmSaveEntry(false, async () => {
+        await Promise.resolve(onAdd(formData));
       });
-      setErrors({});
-      onClose();
-    } catch {
-      // Stay open on error
+      if (success) {
+        setFormData({
+          first_name: "",
+          last_name: "",
+          middle_name: "",
+          username: "",
+          email: "",
+          designation: "",
+          license_no: "",
+          role_id: 0,
+          status: true,
+          password: "",
+          confirmPassword: "",
+          auth_initial_doi: null,
+          auth_stamp: "",
+        });
+        setErrors({});
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -947,33 +951,36 @@ function EditUserModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    if (submitting) return;
     setSubmitting(true);
     try {
       const resolvedRole =
         roles.find((r) => r.id === formData.role_id)?.name || user.role;
-      await Promise.resolve(
-        onUpdate({
-          ...user,
-          name: `${formData.first_name} ${formData.middle_name} ${formData.last_name}`
-            .replace(/\s+/g, " ")
-            .trim(),
-          firstName: formData.first_name,
-          lastName: formData.last_name,
-          middleName: formData.middle_name,
-          username: formData.username,
-          email: formData.email,
-          designation: formData.designation,
-          licenseNo: formData.license_no,
-          roleId: formData.role_id,
-          role: resolvedRole,
-          status: formData.status as "active" | "inactive",
-          auth_initial_doi: formData.auth_initial_doi || null,
-          auth_stamp: formData.auth_stamp.trim() || null,
-        })
-      );
-      onClose();
-    } catch {
-      // Stay open on error
+      const success = await confirmSaveEntry(true, async () => {
+        await Promise.resolve(
+          onUpdate({
+            ...user,
+            name: `${formData.first_name} ${formData.middle_name} ${formData.last_name}`
+              .replace(/\s+/g, " ")
+              .trim(),
+            firstName: formData.first_name,
+            lastName: formData.last_name,
+            middleName: formData.middle_name,
+            username: formData.username,
+            email: formData.email,
+            designation: formData.designation,
+            licenseNo: formData.license_no,
+            roleId: formData.role_id,
+            role: resolvedRole,
+            status: formData.status as "active" | "inactive",
+            auth_initial_doi: formData.auth_initial_doi || null,
+            auth_stamp: formData.auth_stamp.trim() || null,
+          })
+        );
+      });
+      if (success) {
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1606,18 +1613,21 @@ function EditRoleModal({
 
   const handleUpdate = async () => {
     if (!validate()) return;
+    if (submitting) return;
     const normalized = {
       name: formData.name.trim(),
       description: formData.description.trim(),
     };
     setSubmitting(true);
     try {
-      await Promise.resolve(
-        onUpdate({ ...role, ...normalized }, rolePermissions)
-      );
-      onClose();
-    } catch {
-      // Stay open on error
+      const success = await confirmSaveEntry(true, async () => {
+        await Promise.resolve(
+          onUpdate({ ...role, ...normalized }, rolePermissions)
+        );
+      });
+      if (success) {
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1867,25 +1877,28 @@ function CreateRoleModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    if (submitting) return;
     setSubmitting(true);
     try {
-      await Promise.resolve(
-        onCreate(
-          {
-            id: Date.now(),
-            name: formData.name,
-            description: formData.description,
-            userCount: 0,
-          },
-          permissions
-        )
-      );
-      setFormData({ name: "", description: "" });
-      setErrors({});
-      setPermissions(defaultPerms);
-      onClose();
-    } catch {
-      // Stay open on error
+      const success = await confirmSaveEntry(false, async () => {
+        await Promise.resolve(
+          onCreate(
+            {
+              id: Date.now(),
+              name: formData.name,
+              description: formData.description,
+              userCount: 0,
+            },
+            permissions
+          )
+        );
+      });
+      if (success) {
+        setFormData({ name: "", description: "" });
+        setErrors({});
+        setPermissions(defaultPerms);
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -3315,41 +3328,24 @@ export function Settings() {
         onClose={() => setShowAddUserModal(false)}
         roles={roles}
         onAdd={async (newUser) => {
-          try {
-            await accountApi.createAccount({
-              firstName: newUser.first_name,
-              lastName: newUser.last_name,
-              middleName: newUser.middle_name,
-              username: newUser.username,
-              email: newUser.email,
-              designation:
-                newUser.designation ||
-                roles.find((r) => r.id === newUser.role_id)?.name ||
-                "",
-              licenseNo: newUser.license_no,
-              roleId: newUser.role_id,
-              status: true,
-              password: newUser.password,
-              auth_initial_doi: newUser.auth_initial_doi?.trim() || undefined,
-              auth_stamp: newUser.auth_stamp?.trim() || undefined,
-            });
-            setShowAddUserModal(false);
-            await fetchUsersList();
-            await Swal.fire({
-              title: "Success!",
-              text: `User ${newUser.first_name} ${newUser.last_name} has been added successfully!`,
-              icon: "success",
-              confirmButtonColor: "#1f2937",
-            });
-          } catch (err: unknown) {
-            const msg =
-              (err as { response?: { data?: { message?: string } } })?.response
-                ?.data?.message ||
-              (err as Error)?.message ||
-              "Failed to add user";
-            await Swal.fire({ icon: "error", title: "Error", text: msg });
-            throw err;
-          }
+          await accountApi.createAccount({
+            firstName: newUser.first_name,
+            lastName: newUser.last_name,
+            middleName: newUser.middle_name,
+            username: newUser.username,
+            email: newUser.email,
+            designation:
+              newUser.designation ||
+              roles.find((r) => r.id === newUser.role_id)?.name ||
+              "",
+            licenseNo: newUser.license_no,
+            roleId: newUser.role_id,
+            status: true,
+            password: newUser.password,
+            auth_initial_doi: newUser.auth_initial_doi?.trim() || undefined,
+            auth_stamp: newUser.auth_stamp?.trim() || undefined,
+          });
+          await fetchUsersList();
         }}
       />
 
@@ -3362,38 +3358,21 @@ export function Settings() {
         user={selectedUser}
         roles={roles}
         onUpdate={async (updatedUser) => {
-          try {
-            await accountApi.updateAccount(updatedUser.id, {
-              firstName: updatedUser.firstName || "",
-              middleName: updatedUser.middleName || "",
-              lastName: updatedUser.lastName || "",
-              username: updatedUser.username || "",
-              email: updatedUser.email,
-              designation: updatedUser.designation || updatedUser.role,
-              licenseNo: updatedUser.licenseNo || "",
-              roleId: updatedUser.roleId,
-              status: updatedUser.status === "active",
-              auth_initial_doi: updatedUser.auth_initial_doi || null,
-              auth_stamp: updatedUser.auth_stamp ?? null,
-            });
-            setShowEditUserModal(false);
-            setSelectedUser(null);
-            await fetchUsersList();
-            await Swal.fire({
-              title: "Success!",
-              text: `User ${updatedUser.name} has been updated successfully!`,
-              icon: "success",
-              confirmButtonColor: "#1f2937",
-            });
-          } catch (err: unknown) {
-            const msg =
-              (err as { response?: { data?: { message?: string } } })?.response
-                ?.data?.message ||
-              (err as Error)?.message ||
-              "Failed to update user";
-            await Swal.fire({ icon: "error", title: "Error", text: msg });
-            throw err;
-          }
+          await accountApi.updateAccount(updatedUser.id, {
+            firstName: updatedUser.firstName || "",
+            middleName: updatedUser.middleName || "",
+            lastName: updatedUser.lastName || "",
+            username: updatedUser.username || "",
+            email: updatedUser.email,
+            designation: updatedUser.designation || updatedUser.role,
+            licenseNo: updatedUser.licenseNo || "",
+            roleId: updatedUser.roleId,
+            status: updatedUser.status === "active",
+            auth_initial_doi: updatedUser.auth_initial_doi || null,
+            auth_stamp: updatedUser.auth_stamp ?? null,
+          });
+          setSelectedUser(null);
+          await fetchUsersList();
         }}
       />
 
@@ -3485,64 +3464,34 @@ export function Settings() {
             : []
         }
         onUpdate={async (updatedRole, updatedPermissions) => {
-          try {
-            const result = await rolesApi.updateRole(
-              updatedRole.id,
-              {
-                name: updatedRole.name.trim(),
-                description: updatedRole.description.trim(),
-              },
-              updatedPermissions
-            );
-            const savedRole: Role = {
-              id: result.id,
-              name: result.name,
-              description: result.description,
-              userCount: result.userCount ?? updatedRole.userCount,
-            };
-            setRoles((prev) =>
-              prev.map((r) => (r.id === savedRole.id ? savedRole : r))
-            );
-            fetchRoles();
-            setCustomPermissions((prev) => {
-              const next = { ...prev };
-              const oldName = selectedRoleForEdit?.name;
-              if (oldName && oldName !== savedRole.name) delete next[oldName];
-              next[savedRole.name] = result.permissions?.length
-                ? result.permissions
-                : updatedPermissions;
-              return next;
-            });
-            setShowEditRoleModal(false);
-            setSelectedRoleForEdit(null);
-            await Swal.fire({
-              title: "Success!",
-              text: `Role ${savedRole.name} has been updated successfully!`,
-              icon: "success",
-              confirmButtonColor: "#1f2937",
-            });
-          } catch (err: unknown) {
-            const data = (
-              err as {
-                response?: {
-                  data?: { message?: string; detail?: string | unknown };
-                };
-              }
-            )?.response?.data;
-            const msg =
-              (typeof data?.message === "string" ? data.message : null) ||
-              (typeof data?.detail === "string" ? data.detail : null) ||
-              (Array.isArray(data?.detail)
-                ? (data.detail as { msg?: string }[])
-                    .map((d) => d.msg ?? "")
-                    .filter(Boolean)
-                    .join(", ") || null
-                : null) ||
-              (err as Error)?.message ||
-              "Failed to update role";
-            await Swal.fire({ icon: "error", title: "Error", text: msg });
-            throw err;
-          }
+          const result = await rolesApi.updateRole(
+            updatedRole.id,
+            {
+              name: updatedRole.name.trim(),
+              description: updatedRole.description.trim(),
+            },
+            updatedPermissions
+          );
+          const savedRole: Role = {
+            id: result.id,
+            name: result.name,
+            description: result.description,
+            userCount: result.userCount ?? updatedRole.userCount,
+          };
+          setRoles((prev) =>
+            prev.map((r) => (r.id === savedRole.id ? savedRole : r))
+          );
+          fetchRoles();
+          setCustomPermissions((prev) => {
+            const next = { ...prev };
+            const oldName = selectedRoleForEdit?.name;
+            if (oldName && oldName !== savedRole.name) delete next[oldName];
+            next[savedRole.name] = result.permissions?.length
+              ? result.permissions
+              : updatedPermissions;
+            return next;
+          });
+          setSelectedRoleForEdit(null);
         }}
       />
 
@@ -3558,57 +3507,27 @@ export function Settings() {
               }))
         }
         onCreate={async (newRole, permissions) => {
-          try {
-            const created = await rolesApi.createRole(
-              {
-                name: newRole.name.trim(),
-                description: newRole.description.trim(),
-              },
-              permissions
-            );
-            const savedRole: Role = {
-              id: created.id,
-              name: created.name,
-              description: created.description,
-              userCount: created.userCount ?? 0,
-            };
-            setRoles((prev) => [...prev, savedRole]);
-            fetchRoles();
-            setCustomPermissions((prev) => ({
-              ...prev,
-              [savedRole.name]: created.permissions?.length
-                ? created.permissions
-                : permissions,
-            }));
-            setShowCreateRoleModal(false);
-            await Swal.fire({
-              title: "Success!",
-              text: `Role ${savedRole.name} has been created successfully!`,
-              icon: "success",
-              confirmButtonColor: "#1f2937",
-            });
-          } catch (err: unknown) {
-            const data = (
-              err as {
-                response?: {
-                  data?: { message?: string; detail?: string | unknown };
-                };
-              }
-            )?.response?.data;
-            const msg =
-              (typeof data?.message === "string" ? data.message : null) ||
-              (typeof data?.detail === "string" ? data.detail : null) ||
-              (Array.isArray(data?.detail)
-                ? (data.detail as { msg?: string }[])
-                    .map((d) => d.msg ?? "")
-                    .filter(Boolean)
-                    .join(", ") || null
-                : null) ||
-              (err as Error)?.message ||
-              "Failed to create role";
-            await Swal.fire({ icon: "error", title: "Error", text: msg });
-            throw err;
-          }
+          const created = await rolesApi.createRole(
+            {
+              name: newRole.name.trim(),
+              description: newRole.description.trim(),
+            },
+            permissions
+          );
+          const savedRole: Role = {
+            id: created.id,
+            name: created.name,
+            description: created.description,
+            userCount: created.userCount ?? 0,
+          };
+          setRoles((prev) => [...prev, savedRole]);
+          fetchRoles();
+          setCustomPermissions((prev) => ({
+            ...prev,
+            [savedRole.name]: created.permissions?.length
+              ? created.permissions
+              : permissions,
+          }));
         }}
       />
     </div>

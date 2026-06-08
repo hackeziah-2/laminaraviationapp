@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   createAtlBatch,
   getAtlBatchById,
@@ -94,44 +95,22 @@ export function AddAtlBatchModal({
     setErrors({});
     if (loadingBatch) return;
 
+    if (submitting) return;
+
     setSubmitting(true);
     try {
-      const batch = isEdit
-        ? await updateAtlBatch(editBatchId!, {
-            name: trimmed,
-            description: description,
-          })
-        : await createAtlBatch({
-            name: trimmed,
-            description: description.trim() || undefined,
-          });
-      if (isEdit) {
-        await Swal.fire({
-          title: "Updated!",
-          text: `ATL batch "${batch.name}" has been updated.`,
-          icon: "success",
-          confirmButtonColor: "#1f2937",
-        });
-      }
-      onSaved(batch);
-      onClose();
-    } catch (err: unknown) {
-      const e = err as {
-        response?: { data?: { detail?: unknown } };
-        message?: string;
-      };
-      const detail = e?.response?.data?.detail;
-      const text =
-        typeof detail === "string"
-          ? detail
-          : Array.isArray(detail)
-          ? detail.map((d) => String(d)).join(" ")
-          : e?.message ?? `Failed to ${isEdit ? "update" : "create"} batch.`;
-      await Swal.fire({
-        icon: "error",
-        title: isEdit ? "Could not update batch" : "Could not create batch",
-        text,
-        confirmButtonColor: "#2563eb",
+      await confirmSaveEntry(isEdit, async () => {
+        const batch = isEdit
+          ? await updateAtlBatch(editBatchId!, {
+              name: trimmed,
+              description: description,
+            })
+          : await createAtlBatch({
+              name: trimmed,
+              description: description.trim() || undefined,
+            });
+        onSaved(batch);
+        onClose();
       });
     } finally {
       setSubmitting(false);

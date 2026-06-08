@@ -60,6 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   importMaintenanceExcel,
@@ -591,58 +592,53 @@ export function Maintenance() {
       return;
     }
     setLdndFormErrors({});
+    if (ldndSaving) return;
+
+    const isUpdate = Boolean(editingLdndEntry);
+    const payload = {
+      type,
+      unit: newEntry.unit,
+      lastDoneTachDue:
+        newEntry.lastDoneTachDue === ""
+          ? null
+          : Number(newEntry.lastDoneTachDue),
+      lastDoneTachDone:
+        newEntry.lastDoneTachDone === ""
+          ? null
+          : Number(newEntry.lastDoneTachDone),
+      nextDueTachHours:
+        newEntry.nextDueTachHours === ""
+          ? null
+          : Number(newEntry.nextDueTachHours),
+      performedDateStart: newEntry.performedDateStart?.trim() || null,
+      performedDateEnd: newEntry.performedDateEnd?.trim() || null,
+    };
+
     setLdndSaving(true);
     try {
-      const payload = {
-        type,
-        unit: newEntry.unit,
-        lastDoneTachDue:
-          newEntry.lastDoneTachDue === ""
-            ? null
-            : Number(newEntry.lastDoneTachDue),
-        lastDoneTachDone:
-          newEntry.lastDoneTachDone === ""
-            ? null
-            : Number(newEntry.lastDoneTachDone),
-        nextDueTachHours:
-          newEntry.nextDueTachHours === ""
-            ? null
-            : Number(newEntry.nextDueTachHours),
-        performedDateStart: newEntry.performedDateStart?.trim() || null,
-        performedDateEnd: newEntry.performedDateEnd?.trim() || null,
-      };
-      if (editingLdndEntry) {
-        await updateAircraftLdndMonitoring(
-          aircraftId,
-          editingLdndEntry.id,
-          payload
-        );
-      } else {
-        await createAircraftLdndMonitoring(aircraftId, payload);
-      }
-      setShowAddModal(false);
-      setEditingLdndEntry(null);
-      setNewEntry({
-        type: "",
-        unit: "HRS",
-        lastDoneTachDue: "",
-        lastDoneTachDone: "",
-        nextDueTachHours: "",
-        performedDateStart: "",
-        performedDateEnd: "",
-      });
-      await fetchLdnd();
-      await fetchLdndLatest();
-      await Swal.fire({
-        icon: "success",
-        title: editingLdndEntry ? "Updated!" : "Saved!",
-        text: "LDND entry saved.",
-      });
-    } catch (err: any) {
-      await Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: err?.response?.data?.detail ?? err?.message ?? "Failed to save.",
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingLdndEntry) {
+          await updateAircraftLdndMonitoring(
+            aircraftId,
+            editingLdndEntry.id,
+            payload
+          );
+        } else {
+          await createAircraftLdndMonitoring(aircraftId, payload);
+        }
+        setShowAddModal(false);
+        setEditingLdndEntry(null);
+        setNewEntry({
+          type: "",
+          unit: "HRS",
+          lastDoneTachDue: "",
+          lastDoneTachDone: "",
+          nextDueTachHours: "",
+          performedDateStart: "",
+          performedDateEnd: "",
+        });
+        await fetchLdnd();
+        await fetchLdndLatest();
       });
     } finally {
       setLdndSaving(false);
@@ -1123,43 +1119,40 @@ export function Maintenance() {
       });
       return;
     }
+    if (adSaving) return;
+
+    const isUpdate = Boolean(editingADEntry);
+    const basePayload = {
+      adNumber,
+      subject,
+      inspectionInterval: String(newADEntry.inspectionInterval ?? "").trim(),
+      compliDate: newADEntry.compliDate ?? "",
+      webLink: normalizeWebLink(newADEntry.webLink),
+    };
+
     setAdSaving(true);
     try {
-      const basePayload = {
-        adNumber,
-        subject,
-        inspectionInterval: String(newADEntry.inspectionInterval ?? "").trim(),
-        compliDate: newADEntry.compliDate ?? "",
-        webLink: normalizeWebLink(newADEntry.webLink),
-      };
-      if (editingADEntry) {
-        await updateAircraftAdMonitoring(
-          aircraftId,
-          editingADEntry.id,
-          basePayload
-        );
-      } else {
-        await createAircraftAdMonitoring(aircraftId, basePayload);
-      }
-      setShowADModal(false);
-      setEditingADEntry(null);
-      setNewADEntry({
-        adNumber: "",
-        subject: "",
-        inspectionInterval: "",
-        compliDate: "",
-        webLink: "",
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingADEntry) {
+          await updateAircraftAdMonitoring(
+            aircraftId,
+            editingADEntry.id,
+            basePayload
+          );
+        } else {
+          await createAircraftAdMonitoring(aircraftId, basePayload);
+        }
+        setShowADModal(false);
+        setEditingADEntry(null);
+        setNewADEntry({
+          adNumber: "",
+          subject: "",
+          inspectionInterval: "",
+          compliDate: "",
+          webLink: "",
+        });
+        await fetchAd();
       });
-      await fetchAd();
-      await Swal.fire({
-        icon: "success",
-        title: editingADEntry ? "Updated!" : "Saved!",
-        text: "Airworthiness Directive saved.",
-      });
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ?? err?.message ?? "Failed to save.";
-      await Swal.fire({ icon: "error", title: "Error", text: msg });
     } finally {
       setAdSaving(false);
     }

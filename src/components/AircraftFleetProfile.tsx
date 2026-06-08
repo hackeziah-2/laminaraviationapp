@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Spinner } from "./ui/spinner";
@@ -459,16 +460,8 @@ export function AircraftFleetProfile() {
     if (propellerARCFile)
       formData.append("propeller_arc_file", propellerARCFile);
 
-    try {
-      const response = await createAircraft(formData);
-
-      Swal.fire({
-        icon: "success",
-        title: "Aircraft Created!",
-        text: "The aircraft has been successfully added to your fleet.",
-        showConfirmButton: false,
-        timer: 550,
-      });
+    await confirmSaveEntry(false, async () => {
+      await createAircraft(formData);
 
       setForm({
         registration: "",
@@ -505,23 +498,7 @@ export function AircraftFleetProfile() {
       setTimeout(() => {
         refresh();
       }, 360);
-    } catch (err: any) {
-      // console.log();
-      if (err.status == 400) {
-        Swal.fire({
-          icon: "warning",
-          title: "Creation Failed",
-          text: err.response.data.detail,
-        });
-      } else {
-        Swal.fire({
-          icon: "error",
-          title: "Creation Failed",
-          text: "System error. Please contact the admin.",
-        });
-      }
-    } finally {
-    }
+    });
   };
 
   const handleGenerateExcel = async () => {

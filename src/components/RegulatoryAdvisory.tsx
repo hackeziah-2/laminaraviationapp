@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   getAdvisoryPaged,
@@ -17,6 +18,7 @@ import {
   renewAdvisory,
   withholdAdvisory,
   advisoryExpiryToDateInputValue,
+  expiryFromAuthIssueDate,
   renewDateFieldOrEmpty,
   renewTextFieldOrEmpty,
   isAuthExpiryAdvisoryType,
@@ -272,56 +274,41 @@ export function RegulatoryAdvisory() {
       return;
     }
     setRenewErrors({});
+    if (renewSubmitting) return;
+
     setRenewSubmitting(true);
     try {
-      const renewIsAuthExpiry = isAuthExpiryAdvisoryType(
-        renewAdvisoryRow?.type,
-        renewUpdate.category_type,
-        renewAdvisoryRow?.item_type
-      );
-      await renewAdvisory(renewUpdate.id, {
-        regulatory_compliance: renewUpdate.regulatory_compliance,
-        expiry_date: renewUpdate.expiry,
-        web_link: renewUpdate.web_link ?? "",
-        include_auth_issue_date: renewIsAuthExpiry,
-        ...(renewIsAuthExpiry
-          ? { auth_issue_date: renewUpdate.auth_issue_date }
-          : {}),
-      });
-      closeRenewModal();
-      await Swal.fire({
-        icon: "success",
-        title: "Renewed",
-        text: "Advisory has been renewed successfully.",
-        timer: 2000,
-        showConfirmButton: false,
-      });
-      // Refetch current page
-      const typeParam = filterType === "all" ? undefined : filterType;
-      getAdvisoryPaged(
-        currentPage,
-        itemsPerPage,
-        searchTerm,
-        typeParam,
-        sortBy,
-        sortOrder
-      )
-        .then((res) => {
-          setItems(res.items);
-          setTotal(res.total);
-          setTotalPages(res.pages);
-        })
-        .catch(() => {});
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ??
-        (err as Error)?.message ??
-        "Failed to renew advisory";
-      await Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: message,
+      await confirmSaveEntry(true, async () => {
+        const renewIsAuthExpiry = isAuthExpiryAdvisoryType(
+          renewAdvisoryRow?.type,
+          renewUpdate.category_type,
+          renewAdvisoryRow?.item_type
+        );
+        await renewAdvisory(renewUpdate.id, {
+          regulatory_compliance: renewUpdate.regulatory_compliance,
+          expiry_date: renewUpdate.expiry,
+          web_link: renewUpdate.web_link ?? "",
+          include_auth_issue_date: renewIsAuthExpiry,
+          ...(renewIsAuthExpiry
+            ? { auth_issue_date: renewUpdate.auth_issue_date }
+            : {}),
+        });
+        closeRenewModal();
+        const typeParam = filterType === "all" ? undefined : filterType;
+        getAdvisoryPaged(
+          currentPage,
+          itemsPerPage,
+          searchTerm,
+          typeParam,
+          sortBy,
+          sortOrder
+        )
+          .then((res) => {
+            setItems(res.items);
+            setTotal(res.total);
+            setTotalPages(res.pages);
+          })
+          .catch(() => {});
       });
     } finally {
       setRenewSubmitting(false);
@@ -813,11 +800,22 @@ export function RegulatoryAdvisory() {
                     </label>
                     <DateInput
                       value={renewUpdate.auth_issue_date}
-                      onChange={(auth_issue_date) =>
+                      onChange={(auth_issue_date) => {
+                        const expiry =
+                          expiryFromAuthIssueDate(auth_issue_date);
                         setRenewUpdate((prev) =>
-                          prev ? { ...prev, auth_issue_date } : null
-                        )
-                      }
+                          prev
+                            ? {
+                                ...prev,
+                                auth_issue_date,
+                                ...(expiry ? { expiry } : {}),
+                              }
+                            : null
+                        );
+                        if (expiry && renewErrors.expiry) {
+                          setRenewErrors((prev) => ({ ...prev, expiry: "" }));
+                        }
+                      }}
                       disabled={renewDetailLoading}
                       className="w-full rounded-lg disabled:opacity-60 border-gray-300 focus:ring-blue-500 focus:border-blue-500"
                     />

@@ -418,6 +418,24 @@ export function renewDateFieldOrEmpty(
   return advisoryExpiryToDateInputValue(value) || "";
 }
 
+/** AUTH_EXPIRY renew: expiration = auth issue date + 1 calendar year (YYYY-MM-DD). */
+export function expiryFromAuthIssueDate(
+  authIssueDate: string | null | undefined
+): string {
+  const issue = renewDateFieldOrEmpty(authIssueDate);
+  if (!issue) return "";
+  const [y, m, d] = issue.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return "";
+  }
+  const date = new Date(y, m - 1, d);
+  date.setFullYear(date.getFullYear() + 1);
+  const y2 = date.getFullYear();
+  const m2 = String(date.getMonth() + 1).padStart(2, "0");
+  const d2 = String(date.getDate()).padStart(2, "0");
+  return `${y2}-${m2}-${d2}`;
+}
+
 /** Renew web_link: no data → ""; otherwise normalized URL. */
 export function renewWebLinkFieldOrEmpty(
   value: string | null | undefined

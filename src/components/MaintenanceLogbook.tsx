@@ -18,6 +18,7 @@ import {
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getAccountsByDesignation,
   getAllAccounts,
@@ -1012,9 +1013,9 @@ export function MaintenanceLogbook() {
     }
 
     setValidationErrors({});
-    setIsSaving(true);
-    try {
-      // Validate file if uploaded
+    if (isSaving) return;
+
+    // Validate file if uploaded
       if (uploadFile) {
         // Check file size (10MB = 10 * 1024 * 1024 bytes)
         const maxSize = 10 * 1024 * 1024; // 10MB
@@ -1273,49 +1274,55 @@ export function MaintenanceLogbook() {
       const formDataObj = new FormData();
       formDataObj.append("json_data", JSON.stringify(apiDataSnake));
 
-      if (editingEntry) {
-        switch (activeCategory) {
-          case "AIRFRAME":
-            await updateAirframeLogbook(editingEntry.id, formDataObj as any);
-            break;
-          case "AVIONICS":
-            await updateAvionicsLogbook(editingEntry.id, formDataObj as any);
-            break;
-          case "ENGINE":
-            await updateEngineLogbook(editingEntry.id, formDataObj as any);
-            break;
-          case "PROPELLER":
-            await updatePropellerLogbook(editingEntry.id, formDataObj as any);
-            break;
+    setIsSaving(true);
+    try {
+      await confirmSaveEntry(Boolean(editingEntry), async () => {
+        if (editingEntry) {
+          switch (activeCategory) {
+            case "AIRFRAME":
+              await updateAirframeLogbook(editingEntry.id, formDataObj as any);
+              break;
+            case "AVIONICS":
+              await updateAvionicsLogbook(editingEntry.id, formDataObj as any);
+              break;
+            case "ENGINE":
+              await updateEngineLogbook(editingEntry.id, formDataObj as any);
+              break;
+            case "PROPELLER":
+              await updatePropellerLogbook(editingEntry.id, formDataObj as any);
+              break;
+          }
+        } else {
+          switch (activeCategory) {
+            case "AIRFRAME":
+              await createAirframeLogbook(formDataObj as any);
+              break;
+            case "AVIONICS":
+              await createAvionicsLogbook(formDataObj as any);
+              break;
+            case "ENGINE":
+              await createEngineLogbook(formDataObj as any);
+              break;
+            case "PROPELLER":
+              await createPropellerLogbook(formDataObj as any);
+              break;
+          }
         }
-        Swal.fire(
-          "Success!",
-          `${activeCategory} logbook entry updated successfully.`,
-          "success"
-        );
-      } else {
-        switch (activeCategory) {
-          case "AIRFRAME":
-            await createAirframeLogbook(formDataObj as any);
-            break;
-          case "AVIONICS":
-            await createAvionicsLogbook(formDataObj as any);
-            break;
-          case "ENGINE":
-            await createEngineLogbook(formDataObj as any);
-            break;
-          case "PROPELLER":
-            await createPropellerLogbook(formDataObj as any);
-            break;
-        }
-        Swal.fire(
-          "Success!",
-          `${activeCategory} logbook entry created successfully.`,
-          "success"
-        );
-      }
 
-      if (uploadFile) {
+        if (uploadFile) {
+          setUploadFile(null);
+          setUploadFileName("");
+          setExistingUploadFile(null);
+          const fileInput = document.getElementById(
+            "upload-file-input"
+          ) as HTMLInputElement;
+          if (fileInput) fileInput.value = "";
+        }
+
+        setShowAddEntryModal(false);
+        setShowEditEntryModal(false);
+        setEditingEntry(null);
+        setComponentRecords([]);
         setUploadFile(null);
         setUploadFileName("");
         setExistingUploadFile(null);
@@ -1323,63 +1330,9 @@ export function MaintenanceLogbook() {
           "upload-file-input"
         ) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
-      }
 
-      // Reset form and close modal after successful save (for all tabs and operations)
-      setShowAddEntryModal(false);
-      setShowEditEntryModal(false);
-      setEditingEntry(null);
-      setComponentRecords([]);
-      setUploadFile(null);
-      setUploadFileName("");
-      setExistingUploadFile(null);
-      const fileInput = document.getElementById(
-        "upload-file-input"
-      ) as HTMLInputElement;
-      if (fileInput) fileInput.value = "";
-
-      // Set loading to true immediately to show spinner during refresh
-      setLoading(true);
-
-      // Reload entries to show updated data using fetchLogbooks callback
-      // This will maintain loading state and show the spinner during refresh
-      // Works for all tabs: AIRFRAME, AVIONICS, ENGINE, PROPELLER
-      await fetchLogbooks();
-    } catch (err: any) {
-      console.error("Error saving entry:", err);
-
-      // Extract error message properly
-      let errorMessage = "Failed to save entry";
-
-      if (err.response?.data) {
-        const errorData = err.response.data;
-
-        // Handle different error response formats
-        if (typeof errorData.detail === "string") {
-          errorMessage = errorData.detail;
-        } else if (Array.isArray(errorData.detail)) {
-          // Handle validation errors array
-          const messages = errorData.detail.map((item: any) => {
-            if (typeof item === "string") return item;
-            if (item.msg) return item.msg;
-            if (item.loc && item.msg)
-              return `${item.loc.join(".")}: ${item.msg}`;
-            return JSON.stringify(item);
-          });
-          errorMessage = messages.join("\n");
-        } else if (errorData.detail && typeof errorData.detail === "object") {
-          errorMessage = JSON.stringify(errorData.detail);
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-
-      Swal.fire({
-        icon: "error",
-        title: "Error!",
-        text: errorMessage,
+        setLoading(true);
+        await fetchLogbooks();
       });
     } finally {
       setIsSaving(false);

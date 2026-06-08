@@ -16,6 +16,7 @@ import {
 import * as XLSX from "xlsx";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getAircraftStatutoryCertificates,
   createAircraftStatutoryCertificate,
@@ -689,53 +690,39 @@ export function AircraftStatutoryCertificates() {
     }
     setSaveFormErrors({});
 
+    if (isSaving) return;
+
+    const isUpdate = Boolean(editingCertificate);
+    const aircraftFk =
+      aircraftId ??
+      editingCertificate?.aircraftId ??
+      (editingCertificate?.aircraft as any)?.id ??
+      null;
+    const expiryForApi = formatDateForApi(formData.expiryDate) || null;
+    const payload: Record<string, unknown> = {
+      certificate_type: certType,
+      category_type: certType,
+      aircraft_fk: aircraftFk != null ? Number(aircraftFk) : null,
+      expiry_date: expiryForApi,
+      date_of_expiration: expiryForApi,
+      web_link: normalizeWebLink(formData.webLink),
+    };
+
+    const formDataObj = new FormData();
+    formDataObj.append("json_data", JSON.stringify(payload));
+
     setIsSaving(true);
     try {
-      const aircraftFk =
-        aircraftId ??
-        editingCertificate?.aircraftId ??
-        (editingCertificate?.aircraft as any)?.id ??
-        null;
-      const expiryForApi = formatDateForApi(formData.expiryDate) || null;
-      const payload: Record<string, unknown> = {
-        certificate_type: certType,
-        category_type: certType,
-        aircraft_fk: aircraftFk != null ? Number(aircraftFk) : null,
-        expiry_date: expiryForApi,
-        date_of_expiration: expiryForApi,
-        web_link: normalizeWebLink(formData.webLink),
-      };
-
-      const formDataObj = new FormData();
-      formDataObj.append("json_data", JSON.stringify(payload));
-      if (editingCertificate) {
-        const certId = getCertId(editingCertificate);
-        if (!certId) throw new Error("Invalid certificate ID");
-        await updateAircraftStatutoryCertificate(certId, formDataObj);
-      } else {
-        await createAircraftStatutoryCertificate(formDataObj);
-      }
-
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: editingCertificate
-          ? "Certificate updated successfully."
-          : "Certificate created successfully.",
-        timer: 1500,
-        showConfirmButton: false,
-      });
-      resetForm();
-      await fetchCertificates();
-    } catch (error: any) {
-      const status = error?.response?.status;
-      const detail = error?.response?.data?.detail;
-      const text =
-        status === 409 ? detail ?? "Failed to save." : "Failed to save.";
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text,
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingCertificate) {
+          const certId = getCertId(editingCertificate);
+          if (!certId) throw new Error("Invalid certificate ID");
+          await updateAircraftStatutoryCertificate(certId, formDataObj);
+        } else {
+          await createAircraftStatutoryCertificate(formDataObj);
+        }
+        resetForm();
+        await fetchCertificates();
       });
     } finally {
       setTimeout(() => setIsSaving(false), 360);

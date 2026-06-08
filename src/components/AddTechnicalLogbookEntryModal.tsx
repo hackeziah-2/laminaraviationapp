@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
 import {
   getAccountsByDesignation,
@@ -1982,24 +1983,25 @@ export function AddTechnicalLogbookEntryModal({
     }
 
     const isUpdate = Boolean(editEntry);
-    const confirmResult = await Swal.fire({
-      title: isUpdate ? "Confirm Update" : "Confirm Creation",
-      text: isUpdate
-        ? "Are you sure you want to update this record?"
-        : "Are you sure you want to create this record?",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonText: "Confirm",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#2563eb",
-      cancelButtonColor: "#6b7280",
-    });
-    if (!confirmResult.isConfirmed) {
+    const aircraftFkValue = aircraftId ?? selectedAircraftId;
+    if (
+      !editEntry &&
+      (aircraftFkValue == null || aircraftFkValue === undefined)
+    ) {
+      await Swal.fire({
+        icon: "error",
+        title: "Aircraft required",
+        text: "Please select an aircraft (A/C Registration) before creating an entry.",
+        confirmButtonColor: "#2563eb",
+      });
       return;
     }
 
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     try {
+      await confirmSaveEntry(isUpdate, async () => {
       // On create: resolve current user's account_information_id for created_by (Fleet Time Monitoring)
       let createdByAccountId: number | undefined;
       if (!editEntry) {
@@ -2027,21 +2029,6 @@ export function AddTechnicalLogbookEntryModal({
       }
 
       // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
-      const aircraftFkValue = aircraftId ?? selectedAircraftId;
-      if (
-        !editEntry &&
-        (aircraftFkValue == null || aircraftFkValue === undefined)
-      ) {
-        setIsSubmitting(false);
-        Swal.fire({
-          icon: "error",
-          title: "Aircraft required",
-          text: "Please select an aircraft (A/C Registration) before creating an entry.",
-          confirmButtonColor: "#2563eb",
-        });
-        return;
-      }
-
       let reportedDate = formData.dateTimeReportedDate;
       let reportedTime = formData.dateTimeReportedTime;
       const dateReportedAlreadySet = hasAtlDateReportedValue(
@@ -2340,47 +2327,22 @@ export function AddTechnicalLogbookEntryModal({
 
       if (editEntry) {
         // Update existing entry
-        const updatedEntry = await updateAircraftTechnicalLog(
+        await updateAircraftTechnicalLog(
           editEntry.id,
           apiDataSnake as AircraftTechnicalLogUpdate,
           files
         );
 
-        await Swal.fire({
-          text: "Record updated successfully.",
-          icon: "success",
-          confirmButtonColor: "#1f2937",
-          confirmButtonText: "OK",
-          timer: 3000,
-          timerProgressBar: true,
-        });
-
-        // Call onSuccess callback if provided (this will refresh the list)
         if (onSuccess) {
           onSuccess();
         }
 
-        // Close modal
         onClose();
         return;
       }
 
-      // Create new entry — payload is snake_case for backend; work_status FOR_REVIEW and createdBy set above
-      const createdEntry = await createAircraftTechnicalLog(
-        apiDataSnake,
-        files
-      );
+      await createAircraftTechnicalLog(apiDataSnake, files);
 
-      await Swal.fire({
-        text: "Record created successfully.",
-        icon: "success",
-        confirmButtonColor: "#1f2937",
-        confirmButtonText: "OK",
-        timer: 3000,
-        timerProgressBar: true,
-      });
-
-      // Call onSuccess callback if provided (this will refresh the list)
       if (onSuccess) {
         onSuccess();
       }
@@ -2470,123 +2432,8 @@ export function AddTechnicalLogbookEntryModal({
       setDfpFileName("");
       setValidationErrors({});
 
-      // Close modal
       onClose();
-    } catch (error: any) {
-      console.error(
-        `Error ${editEntry ? "updating" : "creating"} entry:`,
-        error
-      );
-
-      // Extract error message safely
-      let errorMessage = editEntry
-        ? "Failed to update entry"
-        : "Failed to create entry";
-
-      if (error.response?.data) {
-        // Handle different error response formats
-        if (typeof error.response.data.detail === "string") {
-          errorMessage = error.response.data.detail;
-        } else if (Array.isArray(error.response.data.detail)) {
-          // Handle validation errors array
-          errorMessage = error.response.data.detail
-            .map((err: any) => {
-              if (typeof err === "string") return err;
-              if (err.msg) return err.msg;
-              if (err.message) return err.message;
-              if (err.loc && err.msg) {
-                // Handle Pydantic validation errors
-                return `${err.loc.join(".")}: ${err.msg}`;
-              }
-              return JSON.stringify(err);
-            })
-            .join("\n");
-        } else if (error.response.data.detail) {
-          // Handle object error
-          if (typeof error.response.data.detail === "object") {
-            // Try to extract meaningful message from object
-            if (error.response.data.detail.message) {
-              errorMessage = error.response.data.detail.message;
-            } else {
-              errorMessage = JSON.stringify(error.response.data.detail);
-            }
-          } else {
-            errorMessage = String(error.response.data.detail);
-          }
-        } else if (error.response.data.message) {
-          errorMessage = error.response.data.message;
-        } else if (typeof error.response.data === "string") {
-          errorMessage = error.response.data;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      // Convert to string and check for duplicate sequence number
-      const errorMessageStr = String(errorMessage).toLowerCase();
-
-      // Check if this is a duplicate sequence number error
-      // Look for keywords that indicate duplicate sequence number
-      const hasSequenceKeyword = errorMessageStr.includes("sequence");
-      const hasAlreadyKeyword =
-        errorMessageStr.includes("already exist") ||
-        errorMessageStr.includes("already exists");
-      const hasDuplicateKeyword = errorMessageStr.includes("duplicate");
-      const hasUniqueConstraint =
-        errorMessageStr.includes("unique constraint") ||
-        errorMessageStr.includes("uniqueconstraint");
-
-      const isDuplicateSequence =
-        hasSequenceKeyword &&
-        (hasAlreadyKeyword || hasDuplicateKeyword || hasUniqueConstraint);
-
-      // If it's a duplicate sequence error, show appropriate message
-      if (isDuplicateSequence) {
-        // Try to extract sequence number from error message
-        const sequenceMatch =
-          errorMessage.match(/sequence\s+no\.?\s*([A-Z0-9-]+)/i) ||
-          errorMessage.match(/sequence\s+([A-Z0-9-]+)/i) ||
-          errorMessage.match(/([A-Z0-9-]+)\s+already/i);
-
-        const extractedSeqNo =
-          sequenceMatch && sequenceMatch[1] ? sequenceMatch[1] : formData.seqNo;
-
-        // Use the error message from API if it already contains the sequence number
-        // Otherwise, construct our own message
-        if (extractedSeqNo && errorMessage.includes(extractedSeqNo)) {
-          Swal.fire({
-            title: "Error!",
-            text: errorMessage,
-            icon: "error",
-            confirmButtonColor: "#dc2626",
-          });
-        } else if (extractedSeqNo) {
-          Swal.fire({
-            title: "Error!",
-            text: `Sequence No. ${extractedSeqNo} already exists. Please use a different Sequence No.`,
-            icon: "error",
-            confirmButtonColor: "#dc2626",
-          });
-        } else {
-          // Fallback if we can't extract sequence number
-          Swal.fire({
-            title: "Error!",
-            text:
-              errorMessage ||
-              "Sequence No. already exists. Please use a different Sequence No.",
-            icon: "error",
-            confirmButtonColor: "#dc2626",
-          });
-        }
-      } else {
-        // Show generic error message for other validation errors
-        Swal.fire({
-          title: "Error!",
-          text: errorMessage,
-          icon: "error",
-          confirmButtonColor: "#dc2626",
-        });
-      }
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -5132,6 +4979,43 @@ export function AddTechnicalLogbookEntryModal({
                       <span className="block text-sm font-medium text-gray-800">
                         Date Reported
                       </span>
+
+                      <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
+                        {!hasAtlDateReportedValue(
+                          formData.dateTimeReportedDate,
+                          formData.dateTimeReportedTime,
+                          preservedDateReportedRef.current ??
+                            editEntry?.dateTimeReported
+                        ) ? (
+                          isTechPubRole ? (
+                            <div>
+                              <p className="text-gray-700 tabular-nums">
+                                {/* {philippinesNow} */}
+                              </p>
+                              <p className="mt-1 text-gray-500 text-xs">
+                                Philippines (Asia/Manila) — set automatically on
+                                first attachment upload
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-gray-500">Not set yet.</p>
+                          )
+                        ) : (
+                          <p className="text-gray-700 tabular-nums">
+                            {formatAtlDateReportedManilaFromParts(
+                              formData.dateTimeReportedDate,
+                              formData.dateTimeReportedTime,
+                              preservedDateReportedRef.current ??
+                                editEntry?.dateTimeReported
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {/* <div className="space-y-2">
+                      <span className="block text-sm font-medium text-gray-800">
+                        Date Reported
+                      </span>
                       <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
                         {hasAtlDateReportedValue(
                           formData.dateTimeReportedDate,
@@ -5139,20 +5023,6 @@ export function AddTechnicalLogbookEntryModal({
                           preservedDateReportedRef.current ??
                             editEntry?.dateTimeReported
                         ) ? (
-                          <p className="text-gray-900">
-                            {/* {formatAtlDateReportedManilaFromParts(
-                              formData.dateTimeReportedDate,
-                              formData.dateTimeReportedTime,
-                              preservedDateReportedRef.current ??
-                                editEntry?.dateTimeReported
-                            )} */}
-                            <>
-                              <span className="mt-1 block text-gray-700 tabular-nums">
-                                Set automatically on first attachment upload
-                              </span>
-                            </>
-                          </p>
-                        ) : (
                           <p className="text-gray-500">
                             {isTechPubRole ? (
                               <>
@@ -5166,7 +5036,7 @@ export function AddTechnicalLogbookEntryModal({
                           </p>
                         )}
                       </div>
-                    </div>
+                    </div> */}
                   </div>
                 </div>
               </div>
