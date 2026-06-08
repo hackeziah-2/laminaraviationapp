@@ -34,6 +34,7 @@ import {
 } from "../utility/utils";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import * as XLSX from "xlsx";
 
@@ -442,35 +443,30 @@ export const TCCDetailContent = forwardRef<
     }
     const category = String(payload.category || activeTab || "").trim();
     if (!category) return;
+    if (tccSaving) return;
+
     setTccSaving(true);
     try {
-      await createAircraftTccMonitoring(aircraftIdNum, {
-        category,
-        partNo: payload.partNo,
-        serialNo: payload.serialNo,
-        description: payload.description,
-        limitHours: payload.limitHours ?? payload.hours,
-        limitYears: payload.limitYears ?? payload.years,
-        methodOfCompliance: payload.methodOfCompliance,
-        reference: payload.reference,
-        sequenceNumber: payload.reference,
-        atlId: payload.atlId,
-        lastDoneDate: payload.lastDoneDate,
-        lastDoneYear: payload.lastDoneYear,
-        lastDoneAftt: payload.lastDoneAftt,
-        lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
+      await confirmSaveEntry(false, async () => {
+        await createAircraftTccMonitoring(aircraftIdNum, {
+          category,
+          partNo: payload.partNo,
+          serialNo: payload.serialNo,
+          description: payload.description,
+          limitHours: payload.limitHours ?? payload.hours,
+          limitYears: payload.limitYears ?? payload.years,
+          methodOfCompliance: payload.methodOfCompliance,
+          reference: payload.reference,
+          sequenceNumber: payload.reference,
+          atlId: payload.atlId,
+          lastDoneDate: payload.lastDoneDate,
+          lastDoneYear: payload.lastDoneYear,
+          lastDoneAftt: payload.lastDoneAftt,
+          lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
+        });
+        closeModal();
+        fetchTcc();
       });
-      await Swal.fire({
-        icon: "success",
-        title: "Saved!",
-        text: "TCC entry added successfully.",
-      });
-      closeModal();
-      fetchTcc();
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ?? err?.message ?? "Failed to add entry.";
-      await Swal.fire({ icon: "error", title: "Error", text: msg });
     } finally {
       setTccSaving(false);
     }
@@ -480,38 +476,31 @@ export const TCCDetailContent = forwardRef<
     if (!aircraftIdNum || aircraftIdNum <= 0) return;
     const category = String(payload.category || "").trim();
     if (!category) return;
+    if (tccSaving) return;
+
     setTccSaving(true);
     try {
-      await updateAircraftTccMonitoring(aircraftIdNum, id, {
-        partNo: payload.partNo,
-        serialNo: payload.serialNo,
-        description: payload.description,
-        limitHours: payload.limitHours ?? payload.hours,
-        limitYears: payload.limitYears ?? payload.years,
-        methodOfCompliance: payload.methodOfCompliance,
-        category,
-        reference: payload.reference,
-        sequenceNumber: payload.reference,
-        atlId: payload.atlId,
-        lastDoneDate: payload.lastDoneDate,
-        lastDoneYear: payload.lastDoneYear,
-        lastDoneTach: payload.lastDoneTach ?? payload.lastDoneYear,
-        lastDoneAftt: payload.lastDoneAftt,
-        lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
+      await confirmSaveEntry(true, async () => {
+        await updateAircraftTccMonitoring(aircraftIdNum, id, {
+          partNo: payload.partNo,
+          serialNo: payload.serialNo,
+          description: payload.description,
+          limitHours: payload.limitHours ?? payload.hours,
+          limitYears: payload.limitYears ?? payload.years,
+          methodOfCompliance: payload.methodOfCompliance,
+          category,
+          reference: payload.reference,
+          sequenceNumber: payload.reference,
+          atlId: payload.atlId,
+          lastDoneDate: payload.lastDoneDate,
+          lastDoneYear: payload.lastDoneYear,
+          lastDoneTach: payload.lastDoneTach ?? payload.lastDoneYear,
+          lastDoneAftt: payload.lastDoneAftt,
+          lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
+        });
+        closeModal();
+        fetchTcc();
       });
-      await Swal.fire({
-        icon: "success",
-        title: "Updated!",
-        text: "TCC entry updated successfully.",
-      });
-      closeModal();
-      fetchTcc();
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ??
-        err?.message ??
-        "Failed to update entry.";
-      await Swal.fire({ icon: "error", title: "Error", text: msg });
     } finally {
       setTccSaving(false);
     }

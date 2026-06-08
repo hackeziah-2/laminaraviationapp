@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import * as XLSX from "xlsx";
 import {
   getAuthStampListFromAccountInformation,
@@ -524,57 +525,40 @@ export function PersonnelAuthorization() {
 
   const handleCreateSubmit = async () => {
     if (!validateCreateForm()) return;
+    if (saving) return;
+
+    const isUpdate = Boolean(editingPersonnel);
+    const expiryDate = complianceExpiryDateForItemType(
+      createForm.itemType,
+      createForm
+    );
+    const compliancePayload = {
+      account_information_id: createForm.accountInformationId,
+      item_type: createForm.itemType.trim(),
+      authorization_scope_cessna_id: createForm.scopeCessnaId,
+      authorization_scope_baron_id: createForm.scopeBaronId,
+      authorization_scope_others_id: createForm.scopeOthersId,
+      auth_issue_date: createForm.authIssueDate.trim() || undefined,
+      expiry_date: expiryDate || undefined,
+      others_expiry_date:
+        createForm.itemType === "OTHERS"
+          ? createForm.othersExpiryDate.trim() || undefined
+          : undefined,
+    };
+
     setSaving(true);
     try {
-      const expiryDate = complianceExpiryDateForItemType(
-        createForm.itemType,
-        createForm
-      );
-      const compliancePayload = {
-        account_information_id: createForm.accountInformationId,
-        item_type: createForm.itemType.trim(),
-        authorization_scope_cessna_id: createForm.scopeCessnaId,
-        authorization_scope_baron_id: createForm.scopeBaronId,
-        authorization_scope_others_id: createForm.scopeOthersId,
-        auth_issue_date: createForm.authIssueDate.trim() || undefined,
-        expiry_date: expiryDate || undefined,
-        others_expiry_date:
-          createForm.itemType === "OTHERS"
-            ? createForm.othersExpiryDate.trim() || undefined
-            : undefined,
-      };
-      if (editingPersonnel) {
-        await updatePersonnelAuthorization(
-          editingPersonnel.id,
-          compliancePayload
-        );
-        await Swal.fire({
-          icon: "success",
-          title: "Updated",
-          text: "Personnel authorization has been updated.",
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        await createPersonnelAuthorization(compliancePayload);
-        await Swal.fire({
-          icon: "success",
-          title: "Created",
-          text: "Personnel authorization has been created.",
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      }
-      closeCreateModal();
-      await fetchPersonnel();
-    } catch (err) {
-      await Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: getPersonnelApiErrorMessage(
-          err,
-          "Failed to save personnel authorization."
-        ),
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingPersonnel) {
+          await updatePersonnelAuthorization(
+            editingPersonnel.id,
+            compliancePayload
+          );
+        } else {
+          await createPersonnelAuthorization(compliancePayload);
+        }
+        closeCreateModal();
+        await fetchPersonnel();
       });
     } finally {
       setSaving(false);

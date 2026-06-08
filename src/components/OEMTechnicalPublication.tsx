@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getOemPublicationsPaged,
   createOemPublication,
@@ -184,44 +185,29 @@ export function OEMTechnicalPublication() {
       });
       return;
     }
+    if (saving) return;
+
+    const isUpdate = Boolean(editingPublication);
     setSaving(true);
     try {
-      if (editingPublication) {
-        await updateOemPublication(editingPublication.id, {
-          item: addForm.itemFk,
-          category_type: addForm.categoryType?.trim() || "",
-          date_of_expiration: toApiDate(addForm.expiryDate),
-          web_link: addForm.assignLink?.trim() || "",
-        });
-        await Swal.fire({
-          icon: "success",
-          title: "Updated",
-          text: "The publication has been updated.",
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        await createOemPublication({
-          item: addForm.itemFk,
-          category_type: addForm.categoryType?.trim() || null,
-          date_of_expiration: toApiDate(addForm.expiryDate),
-          web_link: addForm.assignLink?.trim() || null,
-        });
-        await Swal.fire({
-          icon: "success",
-          title: "Created",
-          text: "The publication has been added.",
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      }
-      closeAddModal();
-      await fetchPublications();
-    } catch (err) {
-      await Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: getOemApiErrorMessage(err, "Failed to save publication."),
+      await confirmSaveEntry(isUpdate, async () => {
+        if (editingPublication) {
+          await updateOemPublication(editingPublication.id, {
+            item: addForm.itemFk,
+            category_type: addForm.categoryType?.trim() || "",
+            date_of_expiration: toApiDate(addForm.expiryDate),
+            web_link: addForm.assignLink?.trim() || "",
+          });
+        } else {
+          await createOemPublication({
+            item: addForm.itemFk,
+            category_type: addForm.categoryType?.trim() || null,
+            date_of_expiration: toApiDate(addForm.expiryDate),
+            web_link: addForm.assignLink?.trim() || null,
+          });
+        }
+        closeAddModal();
+        await fetchPublications();
       });
     } finally {
       setSaving(false);

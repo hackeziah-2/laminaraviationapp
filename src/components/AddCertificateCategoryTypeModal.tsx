@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   createCertificateCategoryType,
   getCertificateCategoryTypeById,
@@ -89,39 +90,16 @@ export function AddCertificateCategoryTypeModal({
     setErrors({});
     if (loadingType) return;
 
+    if (submitting) return;
+
     setSubmitting(true);
     try {
-      const type = isEdit
-        ? await updateCertificateCategoryType(editTypeId!, { name: trimmed })
-        : await createCertificateCategoryType({ name: trimmed });
-      if (isEdit) {
-        await Swal.fire({
-          title: "Updated!",
-          text: `Approval type "${type.name}" has been updated.`,
-          icon: "success",
-          confirmButtonColor: "#1f2937",
-        });
-      }
-      onSaved(type);
-      onClose();
-    } catch (err: unknown) {
-      const e = err as {
-        response?: { data?: { detail?: unknown } };
-        message?: string;
-      };
-      const detail = e?.response?.data?.detail;
-      const text =
-        typeof detail === "string"
-          ? detail
-          : Array.isArray(detail)
-            ? detail.map((d) => String(d)).join(" ")
-            : e?.message ??
-              `Failed to ${isEdit ? "update" : "create"} approval type.`;
-      await Swal.fire({
-        icon: "error",
-        title: isEdit ? "Could not update" : "Could not create",
-        text,
-        confirmButtonColor: "#2563eb",
+      await confirmSaveEntry(isEdit, async () => {
+        const type = isEdit
+          ? await updateCertificateCategoryType(editTypeId!, { name: trimmed })
+          : await createCertificateCategoryType({ name: trimmed });
+        onSaved(type);
+        onClose();
       });
     } finally {
       setSubmitting(false);

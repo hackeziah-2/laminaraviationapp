@@ -735,7 +735,7 @@ export function Operation() {
     new Map()
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
-  const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("asc");
+  const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
   const [importLoading, setImportLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);

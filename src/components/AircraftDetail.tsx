@@ -11,6 +11,7 @@ import {
   Eye,
 } from "lucide-react";
 import Swal from "sweetalert2";
+import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getAircraftById, updateAircraft } from "../api/aircraftApi";
@@ -247,7 +248,7 @@ export function AircraftDetail() {
       formData.append("propeller_arc_file", propellerARCFile);
     }
 
-    try {
+    await confirmSaveEntry(true, async () => {
       const response = await updateAircraft(Number(id), formData);
       const updatedAircraft: Aircraft = withEnginePropNumericDefaults(
         response as Aircraft
@@ -272,22 +273,7 @@ export function AircraftDetail() {
       setPropellerARCFileName(
         propellerPath ? stripArcPathPrefix(String(propellerPath)) : ""
       );
-
-      Swal.fire({
-        icon: "success",
-        title: "Aircraft Updated!",
-        text: "The aircraft details have been successfully updated.",
-        showConfirmButton: false,
-        timer: 1500,
-      });
-    } catch (err) {
-      console.error(err);
-      await Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: "Failed to save changes.",
-      });
-    }
+    });
   };
 
   const handleInputChange = (key: string, value: string) => {

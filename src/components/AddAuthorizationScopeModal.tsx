@@ -3,58 +3,57 @@ import { X } from "lucide-react";
 import Swal from "sweetalert2";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
-  createAtlBatch,
-  getAtlBatchById,
-  updateAtlBatch,
-  type AtlBatch,
-} from "../api/aircraftTechnicalLogApi";
+  createAuthorizationScope,
+  getAuthorizationScopeById,
+  updateAuthorizationScope,
+  type AuthorizationScope,
+  type AuthorizationScopeType,
+} from "../api/authorizationScopeApi";
 import { Spinner } from "./ui/spinner";
 
-interface AddAtlBatchModalProps {
+interface AddAuthorizationScopeModalProps {
+  scopeType: AuthorizationScopeType;
+  entityLabel: string;
   isOpen: boolean;
-  /** When set, modal PATCHes `/api/v1/atl-batch/{id}/`; otherwise POST create */
-  editBatchId: number | null;
+  editScopeId: number | null;
   onClose: () => void;
-  onSaved: (batch: AtlBatch) => void;
+  onSaved: (scope: AuthorizationScope) => void;
 }
 
-export function AddAtlBatchModal({
+export function AddAuthorizationScopeModal({
+  scopeType,
+  entityLabel,
   isOpen,
-  editBatchId,
+  editScopeId,
   onClose,
   onSaved,
-}: AddAtlBatchModalProps) {
+}: AddAuthorizationScopeModalProps) {
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [loadingBatch, setLoadingBatch] = useState(false);
+  const [loadingScope, setLoadingScope] = useState(false);
 
-  const isEdit = editBatchId != null && editBatchId > 0;
+  const isEdit = editScopeId != null && editScopeId > 0;
 
   useEffect(() => {
     if (!isOpen) return;
 
-    const editing = editBatchId != null && editBatchId > 0;
+    const editing = editScopeId != null && editScopeId > 0;
 
     if (!editing) {
       setName("");
-      setDescription("");
       setErrors({});
       setSubmitting(false);
-      setLoadingBatch(false);
+      setLoadingScope(false);
       return;
     }
 
     let cancelled = false;
-    setLoadingBatch(true);
+    setLoadingScope(true);
     setSubmitting(false);
-    getAtlBatchById(editBatchId!)
-      .then((b) => {
-        if (!cancelled) {
-          setName(b.name);
-          setDescription(b.description ?? "");
-        }
+    getAuthorizationScopeById(scopeType, editScopeId!)
+      .then((scope) => {
+        if (!cancelled) setName(scope.name);
       })
       .catch(async (err: unknown) => {
         const e = err as {
@@ -65,7 +64,7 @@ export function AddAtlBatchModal({
         const text =
           typeof detail === "string"
             ? detail
-            : e?.message ?? "Could not load batch.";
+            : e?.message ?? `Could not load ${entityLabel}.`;
         await Swal.fire({
           icon: "error",
           title: "Load failed",
@@ -75,13 +74,13 @@ export function AddAtlBatchModal({
         if (!cancelled) onClose();
       })
       .finally(() => {
-        if (!cancelled) setLoadingBatch(false);
+        if (!cancelled) setLoadingScope(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editBatchId]);
+  }, [isOpen, editScopeId, onClose, scopeType, entityLabel]);
 
   if (!isOpen) return null;
 
@@ -89,27 +88,21 @@ export function AddAtlBatchModal({
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      setErrors({ name: "Batch name is required" });
+      setErrors({ name: "Name is required" });
       return;
     }
     setErrors({});
-    if (loadingBatch) return;
-
-    if (submitting) return;
+    if (loadingScope || submitting) return;
 
     setSubmitting(true);
     try {
       await confirmSaveEntry(isEdit, async () => {
-        const batch = isEdit
-          ? await updateAtlBatch(editBatchId!, {
+        const scope = isEdit
+          ? await updateAuthorizationScope(scopeType, editScopeId!, {
               name: trimmed,
-              description: description,
             })
-          : await createAtlBatch({
-              name: trimmed,
-              description: description.trim() || undefined,
-            });
-        onSaved(batch);
+          : await createAuthorizationScope(scopeType, { name: trimmed });
+        onSaved(scope);
         onClose();
       });
     } finally {
@@ -117,12 +110,14 @@ export function AddAtlBatchModal({
     }
   };
 
-  const titleId = isEdit ? "edit-atl-batch-title" : "create-atl-batch-title";
+  const titleId = isEdit
+    ? `edit-auth-scope-${scopeType}-title`
+    : `create-auth-scope-${scopeType}-title`;
 
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
-      onClick={() => !submitting && !loadingBatch && onClose()}
+      onClick={() => !submitting && !loadingScope && onClose()}
       role="presentation"
     >
       <div
@@ -134,11 +129,11 @@ export function AddAtlBatchModal({
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <h3 id={titleId} className="text-lg font-semibold text-gray-900">
-              {isEdit ? "Edit ATL batch" : "Create ATL batch"}
+              {isEdit ? `Edit ${entityLabel}` : `Create ${entityLabel}`}
             </h3>
             <button
               type="button"
-              onClick={() => !submitting && !loadingBatch && onClose()}
+              onClick={() => !submitting && !loadingScope && onClose()}
               className="rounded p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
               aria-label="Close"
             >
@@ -146,20 +141,20 @@ export function AddAtlBatchModal({
             </button>
           </div>
           <div className="relative space-y-4 px-6 py-5">
-            {loadingBatch && (
+            {loadingScope && (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-white/80">
                 <Spinner />
               </div>
             )}
             <div>
               <label
-                htmlFor="atl-batch-name"
+                htmlFor={`auth-scope-${scopeType}-name`}
                 className="mb-1.5 block text-sm font-medium text-gray-700"
               >
                 Name <span className="text-red-500">*</span>
               </label>
               <input
-                id="atl-batch-name"
+                id={`auth-scope-${scopeType}-name`}
                 type="text"
                 value={name}
                 onChange={(ev) => {
@@ -171,51 +166,34 @@ export function AddAtlBatchModal({
                     ? "border-red-500 focus:border-red-500 focus:ring-red-300"
                     : "border-gray-300 focus:border-blue-500"
                 }`}
-                placeholder="Batch name"
-                disabled={submitting || loadingBatch}
+                placeholder="Scope name"
+                disabled={submitting || loadingScope}
                 autoComplete="off"
               />
               {errors.name && (
                 <p className="mt-1 text-xs text-red-600">{errors.name}</p>
               )}
             </div>
-            <div>
-              <label
-                htmlFor="atl-batch-description"
-                className="mb-1.5 block text-sm font-medium text-gray-700"
-              >
-                Description
-              </label>
-              <textarea
-                id="atl-batch-description"
-                value={description}
-                onChange={(ev) => setDescription(ev.target.value)}
-                rows={3}
-                className="w-full resize-y rounded-lg border-2 border-gray-300 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                placeholder="Optional description"
-                disabled={submitting || loadingBatch}
-              />
-            </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-gray-200 px-6 py-4">
             <button
               type="button"
-              onClick={() => !submitting && !loadingBatch && onClose()}
+              onClick={() => !submitting && !loadingScope && onClose()}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-              disabled={submitting || loadingBatch}
+              disabled={submitting || loadingScope}
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={submitting || loadingBatch}
+              disabled={submitting || loadingScope}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
             >
               {submitting
                 ? "Saving…"
                 : isEdit
-                ? "Save changes"
-                : "Create batch"}
+                  ? "Save changes"
+                  : "Create scope"}
             </button>
           </div>
         </form>
