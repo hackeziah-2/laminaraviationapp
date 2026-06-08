@@ -26,6 +26,12 @@ import {
 } from "../../utility/atlEditRbac";
 import { AddAtlBatchModal } from "../AddAtlBatchModal";
 import { AddCertificateCategoryTypeModal } from "../AddCertificateCategoryTypeModal";
+import {
+  AUTH_SCOPE_BARON_CONFIG,
+  AUTH_SCOPE_CESSNA_CONFIG,
+  AUTH_SCOPE_OTHERS_CONFIG,
+  AuthorizationScopeSettingsPanel,
+} from "./AuthorizationScopeSettingsPanel";
 import { DataTablePagination } from "../ui/DataTablePagination";
 
 type ActiveModuleKey = Exclude<ModuleSettingKey, "">;
@@ -618,6 +624,21 @@ export function SettingsModuleSettings({
   }
   if (moduleKey === "oa-approval-type-settings") {
     return <OaApprovalTypeSettingsPanel />;
+  }
+  if (moduleKey === "auth-scope-cessna") {
+    return (
+      <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_CESSNA_CONFIG} />
+    );
+  }
+  if (moduleKey === "auth-scope-baron") {
+    return (
+      <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_BARON_CONFIG} />
+    );
+  }
+  if (moduleKey === "auth-scope-others") {
+    return (
+      <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_OTHERS_CONFIG} />
+    );
   }
   return <AtlBatchSettingsPanel />;
 }
