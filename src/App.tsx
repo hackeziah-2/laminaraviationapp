@@ -36,6 +36,14 @@ import { NotificationsProvider, useNotifications } from './context/Notifications
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { SpinnerIcon } from './components/ui/spinner';
 
+/** Legacy `/settings/audit-trail` → `/settings?tab=audit-trail` (preserves `user`, etc.) */
+function RedirectLegacyAuditTrail() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  params.set("tab", "audit-trail");
+  return <Navigate to={`/settings?${params.toString()}`} replace />;
+}
+
 function RedirectToMaintenanceLdnd() {
   const { id } = useParams<{ id: string }>();
   return <Navigate to={`/profile/${id ?? ""}/maintenance-ldnd`} replace />;
@@ -236,6 +244,10 @@ function AuthenticatedShell({
           <Route path="/regulatory-compliance/oem-technical-publication" element={<ProtectedRoute moduleCode="regulatory-compliance"><OEMTechnicalPublication /></ProtectedRoute>} />
           <Route path="/regulatory-compliance/personnel-authorization" element={<ProtectedRoute moduleCode="regulatory-compliance"><PersonnelAuthorization /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute moduleCode="settings"><Settings /></ProtectedRoute>} />
+          <Route
+            path="/settings/audit-trail"
+            element={<RedirectLegacyAuditTrail />}
+          />
         </Routes>
       </div>
     </div>
