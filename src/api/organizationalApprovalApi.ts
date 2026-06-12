@@ -483,12 +483,12 @@ export async function getCertificateCategoryTypesList(): Promise<
 }
 
 /**
- * GET api/v1/certificate-category-types/{id}/
+ * GET api/v1/certificate-category-types/{id}
  */
 export async function getCertificateCategoryTypeById(
   id: number
 ): Promise<CertificateTypeOption> {
-  const res = await apiClient.get(`${CERTIFICATE_CATEGORY_BASE}/${id}/`, {
+  const res = await apiClient.get(`${CERTIFICATE_CATEGORY_BASE}/${id}`, {
     headers: { Accept: "application/json" },
   });
   const raw = res.data?.data ?? res.data;
@@ -518,14 +518,15 @@ export async function createCertificateCategoryType(payload: {
 
 /**
  * Update a certificate category type.
- * PATCH api/v1/certificate-category-types/{id}/
+ * PUT api/v1/certificate-category-types/{id}
+ * (Backend only exposes PUT for updates; PATCH returns 405.)
  */
 export async function updateCertificateCategoryType(
   id: number,
   payload: { name: string }
 ): Promise<CertificateTypeOption> {
-  const res = await apiClient.patch(
-    `${CERTIFICATE_CATEGORY_BASE}/${id}/`,
+  const res = await apiClient.put(
+    `${CERTIFICATE_CATEGORY_BASE}/${id}`,
     { name: payload.name.trim() },
     {
       headers: {
@@ -540,10 +541,10 @@ export async function updateCertificateCategoryType(
 
 /**
  * Delete a certificate category type.
- * DELETE api/v1/certificate-category-types/{id}/
+ * DELETE api/v1/certificate-category-types/{id}
  */
 export async function deleteCertificateCategoryType(id: number): Promise<void> {
-  await apiClient.delete(`${CERTIFICATE_CATEGORY_BASE}/${id}/`, {
+  await apiClient.delete(`${CERTIFICATE_CATEGORY_BASE}/${id}`, {
     headers: { Accept: "application/json" },
   });
 }

@@ -197,10 +197,10 @@ export async function getOemItemTypesPaged(
 
 /**
  * GET single OEM item type by id.
- * API: /v1/oem-item-types/{id}/
+ * API: /v1/oem-item-types/{id}
  */
 export async function getOemItemTypeById(id: number): Promise<OemItemTypeOption> {
-  const res = await apiClient.get(`${ITEM_TYPES_BASE}/${id}/`, {
+  const res = await apiClient.get(`${ITEM_TYPES_BASE}/${id}`, {
     headers: { Accept: "application/json" },
   });
   const raw = res.data?.data ?? res.data;
@@ -223,14 +223,15 @@ export async function createOemItemType(payload: {
 }
 
 /**
- * PATCH update OEM item type. /v1/oem-item-types/{id}/
+ * PUT update OEM item type. /v1/oem-item-types/{id}
+ * (Backend only exposes PUT for updates; PATCH returns 405.)
  */
 export async function updateOemItemType(
   id: number,
   payload: { name: string }
 ): Promise<OemItemTypeOption> {
-  const res = await apiClient.patch(
-    `${ITEM_TYPES_BASE}/${id}/`,
+  const res = await apiClient.put(
+    `${ITEM_TYPES_BASE}/${id}`,
     { name: payload.name.trim() },
     { headers: { "Content-Type": "application/json", Accept: "application/json" } }
   );
@@ -239,10 +240,10 @@ export async function updateOemItemType(
 }
 
 /**
- * DELETE OEM item type. /v1/oem-item-types/{id}/
+ * DELETE OEM item type. /v1/oem-item-types/{id}
  */
 export async function deleteOemItemType(id: number): Promise<void> {
-  await apiClient.delete(`${ITEM_TYPES_BASE}/${id}/`, {
+  await apiClient.delete(`${ITEM_TYPES_BASE}/${id}`, {
     headers: { Accept: "application/json" },
   });
 }
