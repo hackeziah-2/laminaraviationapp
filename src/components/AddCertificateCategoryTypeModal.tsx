@@ -12,7 +12,7 @@ import { Spinner } from "./ui/spinner";
 
 interface AddCertificateCategoryTypeModalProps {
   isOpen: boolean;
-  /** When set, modal PATCHes `/api/v1/certificate-category-types/{id}/`; otherwise POST create */
+  /** When set, modal PUTs `/api/v1/certificate-category-types/{id}`; otherwise POST create */
   editTypeId: number | null;
   onClose: () => void;
   onSaved: (type: CertificateTypeOption) => void;
