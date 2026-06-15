@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import Swal from "sweetalert2";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
@@ -28,6 +29,8 @@ import {
   type ModuleSettingKey,
 } from "../constants/moduleSettingsOptions";
 import { SettingsModuleSettings } from "./settings/SettingsModuleSettings";
+import { AuditTrail } from "./settings/AuditTrail";
+import { SettingsNav, type SettingsTab } from "./settings/SettingsNav";
 import * as authApi from "../api/authApi";
 import * as rolesApi from "../api/rolesApi";
 import type { Permission } from "../api/rolesApi";
@@ -2064,9 +2067,13 @@ function CreateRoleModal({
 
 export function Settings() {
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
-  const [activeSection, setActiveSection] = useState<
-    "users" | "roles" | "matrix"
-  >("users");
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab") || "users";
+  const activeSection = (
+    ["users", "roles", "matrix", "audit-trail"].includes(tabParam)
+      ? tabParam
+      : "users"
+  ) as SettingsTab;
   const [moduleSettingKey, setModuleSettingKey] =
     useState<ModuleSettingKey>("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -2619,82 +2626,17 @@ export function Settings() {
       </div>
 
       <div className="p-6">
-        {/* Section Navigation */}
-        <div className="bg-white rounded-lg border border-gray-200 p-2 mb-6 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => {
-              setModuleSettingKey("");
-              setActiveSection("users");
-            }}
-            type="button"
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              !moduleSettingKey && activeSection === "users"
-                ? "bg-blue-600 text-white"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            User Accounts
-          </button>
-          <button
-            onClick={() => {
-              setModuleSettingKey("");
-              setActiveSection("roles");
-            }}
-            type="button"
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              !moduleSettingKey && activeSection === "roles"
-                ? "bg-blue-600 text-white"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Shield className="w-4 h-4" />
-            Roles & Permissions
-          </button>
-          <button
-            onClick={() => {
-              setModuleSettingKey("");
-              setActiveSection("matrix");
-            }}
-            type="button"
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-colors ${
-              !moduleSettingKey && activeSection === "matrix"
-                ? "bg-blue-600 text-white"
-                : "text-gray-700 hover:bg-gray-100"
-            }`}
-          >
-            <Grid3x3 className="w-4 h-4" />
-            Access Matrix
-          </button>
-
-          <div className="ml-auto flex min-w-[220px] items-center gap-2 pl-2">
-            <SlidersHorizontal className="h-4 w-4 shrink-0 text-gray-500" />
-            <label htmlFor="settings-module-select" className="sr-only">
-              {/* Module Settings */}
-            </label>
-            <select
-              id="settings-module-select"
-              value={moduleSettingKey}
-              onChange={(e) =>
-                setModuleSettingKey(e.target.value as ModuleSettingKey)
-              }
-              className={`${SELECT_BASE_CLASS} h-10 min-w-[200px] rounded-lg border-gray-300 bg-white px-3 text-sm text-slate-800 focus:ring-2 focus:ring-blue-100`}
-              aria-label="Module Settings"
-            >
-              <option value="">Module Settings</option>
-              {MODULE_SETTING_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+        <SettingsNav
+          moduleSettingKey={moduleSettingKey}
+          onModuleSettingChange={setModuleSettingKey}
+        />
 
         {moduleSettingKey ? (
           <SettingsModuleSettings
             moduleKey={moduleSettingKey as Exclude<ModuleSettingKey, "">}
           />
+        ) : activeSection === "audit-trail" ? (
+          <AuditTrail />
         ) : (
           <>
             {/* User Accounts Section */}
@@ -2958,12 +2900,17 @@ export function Settings() {
                                   >
                                     <div className="space-y-3">
                                       <div className="flex gap-3">
-                                        <button
-                                          type="button"
-                                          className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                                        <Link
+                                          to={`/settings?tab=audit-trail&search=${encodeURIComponent(
+                                            [user.firstName, user.lastName]
+                                              .filter(Boolean)
+                                              .join(" ")
+                                              .trim() || user.name
+                                          )}`}
+                                          className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50"
                                         >
                                           View Audit Trail
-                                        </button>
+                                        </Link>
                                       </div>
                                     </div>
                                   </td>

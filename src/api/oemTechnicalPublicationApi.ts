@@ -25,6 +25,29 @@ export interface OemItemTypeOption {
   name: string;
 }
 
+export interface OemItemTypesPagedResponse {
+  items: OemItemTypeOption[];
+  total: number;
+  page: number;
+  pages: number;
+}
+
+function parseOemItemType(
+  raw: Record<string, unknown> | null | undefined
+): OemItemTypeOption {
+  if (raw == null || typeof raw !== "object") {
+    throw new Error("Invalid OEM item type payload");
+  }
+  const id = Number(raw.id ?? (raw as any).pk ?? 0);
+  const name = String(
+    raw.name ?? (raw as any).item_name ?? (raw as any).title ?? ""
+  ).trim();
+  if (!id || !name) {
+    throw new Error("Invalid OEM item type payload");
+  }
+  return { id, name };
+}
+
 export type OemPublicationSortBy = "date_of_expiration" | "item__name";
 export type SortOrder = "asc" | "desc";
 
@@ -136,6 +159,55 @@ export async function getOemItemTypesList(): Promise<OemItemTypeOption[]> {
 }
 
 /**
+ * GET paged OEM item types.
+ * API: /v1/oem-item-types/paged?limit=10&page=1
+ */
+export async function getOemItemTypesPaged(
+  page = 1,
+  limit = 10
+): Promise<OemItemTypesPagedResponse> {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  const res = await apiClient.get(
+    `${ITEM_TYPES_BASE}/paged?${params.toString()}`,
+    { headers: { Accept: "application/json" } }
+  );
+  const raw = res.data?.data ?? res.data ?? {};
+  const data = raw.results ?? raw.items ?? raw.data ?? [];
+  const list = Array.isArray(data) ? data : [];
+  const items = list
+    .map((row: Record<string, unknown>) => {
+      try {
+        return parseOemItemType(row);
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is OemItemTypeOption => x != null);
+  const total = raw.total ?? raw.count ?? items.length;
+  const pages = raw.pages ?? Math.max(1, Math.ceil(Number(total) / limit));
+  return {
+    items,
+    total: Number(total),
+    page: Number(raw.page ?? page),
+    pages: Number(pages),
+  };
+}
+
+/**
+ * GET single OEM item type by id.
+ * API: /v1/oem-item-types/{id}
+ */
+export async function getOemItemTypeById(id: number): Promise<OemItemTypeOption> {
+  const res = await apiClient.get(`${ITEM_TYPES_BASE}/${id}`, {
+    headers: { Accept: "application/json" },
+  });
+  const raw = res.data?.data ?? res.data;
+  return parseOemItemType(raw as Record<string, unknown>);
+}
+
+/**
  * POST create new OEM item type. /v1/oem-item-types/
  */
 export async function createOemItemType(payload: {
@@ -143,18 +215,37 @@ export async function createOemItemType(payload: {
 }): Promise<OemItemTypeOption> {
   const res = await apiClient.post(
     `${ITEM_TYPES_BASE}/`,
-    typeof payload === "object" && payload !== null ? payload : { name: String(payload) },
+    { name: payload.name.trim() },
     { headers: { "Content-Type": "application/json", Accept: "application/json" } }
   );
   const raw = res.data?.data ?? res.data;
-  if (raw != null && typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    return {
-      id: Number(obj.id ?? 0),
-      name: String((obj as any).name ?? payload.name ?? ""),
-    };
-  }
-  return { id: 0, name: payload.name };
+  return parseOemItemType(raw as Record<string, unknown>);
+}
+
+/**
+ * PUT update OEM item type. /v1/oem-item-types/{id}
+ * (Backend only exposes PUT for updates; PATCH returns 405.)
+ */
+export async function updateOemItemType(
+  id: number,
+  payload: { name: string }
+): Promise<OemItemTypeOption> {
+  const res = await apiClient.put(
+    `${ITEM_TYPES_BASE}/${id}`,
+    { name: payload.name.trim() },
+    { headers: { "Content-Type": "application/json", Accept: "application/json" } }
+  );
+  const raw = res.data?.data ?? res.data;
+  return parseOemItemType(raw as Record<string, unknown>);
+}
+
+/**
+ * DELETE OEM item type. /v1/oem-item-types/{id}
+ */
+export async function deleteOemItemType(id: number): Promise<void> {
+  await apiClient.delete(`${ITEM_TYPES_BASE}/${id}`, {
+    headers: { Accept: "application/json" },
+  });
 }
 
 /**

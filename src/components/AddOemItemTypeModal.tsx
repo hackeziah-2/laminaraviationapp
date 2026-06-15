@@ -3,27 +3,27 @@ import { X } from "lucide-react";
 import Swal from "sweetalert2";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
-  createCertificateCategoryType,
-  getCertificateCategoryTypeById,
-  updateCertificateCategoryType,
-  type CertificateTypeOption,
-} from "../api/organizationalApprovalApi";
+  createOemItemType,
+  getOemItemTypeById,
+  updateOemItemType,
+  type OemItemTypeOption,
+} from "../api/oemTechnicalPublicationApi";
 import { Spinner } from "./ui/spinner";
 
-interface AddCertificateCategoryTypeModalProps {
+interface AddOemItemTypeModalProps {
   isOpen: boolean;
-  /** When set, modal PUTs `/api/v1/certificate-category-types/{id}`; otherwise POST create */
+  /** When set, modal PUTs `/api/v1/oem-item-types/{id}`; otherwise POST create */
   editTypeId: number | null;
   onClose: () => void;
-  onSaved: (type: CertificateTypeOption) => void;
+  onSaved: (type: OemItemTypeOption) => void;
 }
 
-export function AddCertificateCategoryTypeModal({
+export function AddOemItemTypeModal({
   isOpen,
   editTypeId,
   onClose,
   onSaved,
-}: AddCertificateCategoryTypeModalProps) {
+}: AddOemItemTypeModalProps) {
   const [name, setName] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -47,7 +47,7 @@ export function AddCertificateCategoryTypeModal({
     let cancelled = false;
     setLoadingType(true);
     setSubmitting(false);
-    getCertificateCategoryTypeById(editTypeId!)
+    getOemItemTypeById(editTypeId!)
       .then((t) => {
         if (!cancelled) setName(t.name);
       })
@@ -60,7 +60,7 @@ export function AddCertificateCategoryTypeModal({
         const text =
           typeof detail === "string"
             ? detail
-            : e?.message ?? "Could not load approval type.";
+            : e?.message ?? "Could not load OEM item type.";
         await Swal.fire({
           icon: "error",
           title: "Load failed",
@@ -84,20 +84,18 @@ export function AddCertificateCategoryTypeModal({
     e.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      setErrors({ name: "Approval type name is required" });
+      setErrors({ name: "Item type name is required" });
       return;
     }
     setErrors({});
-    if (loadingType) return;
-
-    if (submitting) return;
+    if (loadingType || submitting) return;
 
     setSubmitting(true);
     try {
       await confirmSaveEntry(isEdit, async () => {
         const type = isEdit
-          ? await updateCertificateCategoryType(editTypeId!, { name: trimmed })
-          : await createCertificateCategoryType({ name: trimmed });
+          ? await updateOemItemType(editTypeId!, { name: trimmed })
+          : await createOemItemType({ name: trimmed });
         onSaved(type);
         onClose();
       });
@@ -107,8 +105,8 @@ export function AddCertificateCategoryTypeModal({
   };
 
   const titleId = isEdit
-    ? "edit-oa-approval-type-title"
-    : "create-oa-approval-type-title";
+    ? "edit-oem-item-type-title"
+    : "create-oem-item-type-title";
 
   return (
     <div
@@ -125,7 +123,7 @@ export function AddCertificateCategoryTypeModal({
         <form onSubmit={handleSubmit}>
           <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <h3 id={titleId} className="text-lg font-semibold text-gray-900">
-              {isEdit ? "Edit approval type" : "Create approval type"}
+              {isEdit ? "Edit OEM item type" : "Create OEM item type"}
             </h3>
             <button
               type="button"
@@ -144,13 +142,13 @@ export function AddCertificateCategoryTypeModal({
             )}
             <div>
               <label
-                htmlFor="oa-approval-type-name"
+                htmlFor="oem-item-type-name"
                 className="mb-1.5 block text-sm font-medium text-gray-700"
               >
                 Name <span className="text-red-500">*</span>
               </label>
               <input
-                id="oa-approval-type-name"
+                id="oem-item-type-name"
                 type="text"
                 value={name}
                 onChange={(ev) => {
@@ -162,7 +160,7 @@ export function AddCertificateCategoryTypeModal({
                     ? "border-red-500 focus:border-red-500 focus:ring-red-300"
                     : "border-gray-300 focus:border-blue-500"
                 }`}
-                placeholder="Approval type name"
+                placeholder="Item type name"
                 disabled={submitting || loadingType}
                 autoComplete="off"
               />
