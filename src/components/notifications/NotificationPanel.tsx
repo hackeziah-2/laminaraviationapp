@@ -61,7 +61,7 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
     <div className="fixed inset-0 z-[100000] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside
-        className="relative right-0 top-0 z-10 flex h-full w-[min(420px,100vw)] flex-col border-l border-gray-100 bg-white shadow-2xl"
+        className="relative right-0 top-0 z-10 flex h-full w-[680px] max-w-[90vw] flex-col border-l border-gray-100 bg-white shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="notifications-panel-title"

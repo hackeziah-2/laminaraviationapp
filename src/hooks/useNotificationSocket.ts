@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { connectNotificationSocket } from "../services/notificationApi";
+import { formatNotificationMessage } from "../utility/notificationMessage";
 import { unreadCountQueryKey } from "./useUnreadCount";
 
 export function useNotificationSocket(
@@ -24,7 +25,9 @@ export function useNotificationSocket(
           unread_count: payload.data.unread_count,
         });
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
-        toast(payload.data.title, { description: payload.data.message });
+        toast(payload.data.title, {
+          description: formatNotificationMessage(payload.data.message),
+        });
       },
       onUnreadCountUpdated: (unreadCount) => {
         queryClient.setQueryData([...unreadCountQueryKey, recipientKey], {
