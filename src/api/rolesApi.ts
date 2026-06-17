@@ -1,6 +1,7 @@
 import type { AxiosRequestConfig } from "axios";
 import apiClient from "./index";
 import { getAccountsPaged } from "./accountApi";
+import { getModuleLabel } from "../constants/modulePermissions";
 
 export interface Role {
   id: number;
@@ -197,8 +198,27 @@ export const getRole = async (roleId: number): Promise<RoleWithPermissions> => {
   return normalizeRoleWithPermissions({ ...(data as Record<string, unknown>), id: roleId });
 };
 
+function resolvePermissionModuleName(raw: Record<string, unknown>): string {
+  const moduleRaw = raw.module;
+  let value = "";
+  if (typeof moduleRaw === "object" && moduleRaw !== null) {
+    const mobj = moduleRaw as Record<string, unknown>;
+    value = String(mobj.name ?? mobj.code ?? mobj.id ?? "");
+  } else {
+    value = String(
+      raw.module ??
+        raw.module_name ??
+        raw.moduleName ??
+        raw.module_code ??
+        raw.moduleCode ??
+        ""
+    );
+  }
+  return getModuleLabel(value) ?? value;
+}
+
 function normalizePermission(raw: Record<string, unknown>): Permission {
-  const module = String(raw.module ?? "");
+  const module = resolvePermissionModuleName(raw);
   const read = Boolean(raw.read);
   const del = Boolean(
     raw.delete ?? raw.can_delete ?? raw.canDelete ?? false

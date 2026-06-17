@@ -36,7 +36,11 @@ import * as rolesApi from "../api/rolesApi";
 import type { Permission } from "../api/rolesApi";
 import * as accountApi from "../api/accountApi";
 import * as modulesApi from "../api/modulesApi";
-import { MODULE_PERMISSIONS_LIST } from "../constants/modulePermissions";
+import {
+  MODULE_PERMISSIONS_LIST,
+  getModuleCode,
+  getModuleLabel,
+} from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
@@ -1527,6 +1531,25 @@ function ResetPasswordModal({
   );
 }
 
+function permissionMatchesModule(
+  permission: Permission,
+  module: { id?: number; name: string; code?: string }
+): boolean {
+  const moduleName = module.name || module.code || String(module.id ?? "");
+  if (permission.module === moduleName || permission.module === module.name) {
+    return true;
+  }
+  if (module.code && permission.module === module.code) return true;
+  const moduleLabel = module.code ? getModuleLabel(module.code) : undefined;
+  if (moduleLabel && permission.module === moduleLabel) return true;
+  const permCode = getModuleCode(permission.module);
+  if (permCode && module.code && permCode === module.code) return true;
+  if (permCode && module.name && getModuleLabel(permCode) === module.name) {
+    return true;
+  }
+  return false;
+}
+
 /** Merge API module list with role's existing permissions (match by module name/code). */
 function mergePermissionsWithModuleList(
   moduleList: Array<{ id?: number; name: string; code?: string }>,
@@ -1535,12 +1558,7 @@ function mergePermissionsWithModuleList(
   if (!moduleList?.length) return permissions;
   return moduleList.map((m) => {
     const moduleName = m.name || m.code || String(m.id ?? "");
-    const existing = permissions.find(
-      (p) =>
-        p.module === moduleName ||
-        p.module === m.name ||
-        (m.code && p.module === m.code)
-    );
+    const existing = permissions.find((p) => permissionMatchesModule(p, m));
     return {
       module: moduleName,
       read: existing?.read ?? false,
@@ -1549,6 +1567,17 @@ function mergePermissionsWithModuleList(
       delete: existing?.delete ?? false,
     };
   });
+}
+
+function getMatrixModuleRows(
+  apiModules: modulesApi.Module[]
+): Array<{ id?: number; name: string; code?: string }> {
+  if (apiModules.length > 0) return apiModules;
+  return MODULE_PERMISSIONS_LIST.map(({ code, label }) => ({
+    id: 0,
+    name: label,
+    code,
+  }));
 }
 
 // Edit Role Modal
@@ -2100,6 +2129,8 @@ export function Settings() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [rolesLoading, setRolesLoading] = useState(true);
   const [modulesList, setModulesList] = useState<modulesApi.Module[]>([]);
+  const [matrixPermissions, setMatrixPermissions] = useState<Permission[]>([]);
+  const [matrixPermissionsLoading, setMatrixPermissionsLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -2307,12 +2338,76 @@ export function Settings() {
   }, [fetchRoles]);
 
   useEffect(() => {
+    if (!roles.length) return;
+    const roleExists = roles.some((role) => role.name === selectedRole);
+    if (!roleExists) {
+      setSelectedRole(roles[0].name);
+    }
+  }, [roles, selectedRole]);
+
+  useEffect(() => {
     // GET /api/v1/modules/module-list — for Create/Edit Role permission matrix
     modulesApi
       .getModulesList()
       .then((data) => setModulesList(Array.isArray(data) ? data : []))
       .catch(() => setModulesList([]));
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== "matrix") return;
+
+    const role = roles.find((item) => item.name === selectedRole);
+    const moduleRows = getMatrixModuleRows(modulesList);
+
+    if (!role) {
+      setMatrixPermissions([]);
+      setMatrixPermissionsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setMatrixPermissionsLoading(true);
+
+    const fallback =
+      customPermissions[selectedRole] ??
+      permissionsByRole[selectedRole] ??
+      getDefaultModulePermissions(modulesList);
+
+    void (async () => {
+      try {
+        const perms = await rolesApi.getRolePermissions(role.id);
+        const source =
+          customPermissions[selectedRole]?.length
+            ? customPermissions[selectedRole]
+            : perms.length > 0
+              ? perms
+              : fallback;
+        if (!cancelled) {
+          setMatrixPermissions(
+            mergePermissionsWithModuleList(moduleRows, source)
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setMatrixPermissions(
+            mergePermissionsWithModuleList(moduleRows, fallback)
+          );
+        }
+      } finally {
+        if (!cancelled) setMatrixPermissionsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSection,
+    selectedRole,
+    roles,
+    modulesList,
+    customPermissions,
+  ]);
 
   const permissionsByRole: Record<string, Permission[]> = {
     Admin: MODULE_PERMISSIONS_LIST.map(({ label }) => ({
@@ -2555,9 +2650,6 @@ export function Settings() {
       },
     ],
   };
-
-  const matrixPermissions =
-    customPermissions[selectedRole] ?? permissionsByRole[selectedRole] ?? [];
 
   const filteredUsers = users;
   const activeRoleLabel =
@@ -3183,7 +3275,23 @@ export function Settings() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {matrixPermissions.map((permission, index) => (
+                      {matrixPermissionsLoading ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-12 text-center">
+                            <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto" />
+                          </td>
+                        </tr>
+                      ) : matrixPermissions.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-6 py-8 text-center text-sm text-gray-500"
+                          >
+                            No permissions found for this role.
+                          </td>
+                        </tr>
+                      ) : (
+                        matrixPermissions.map((permission, index) => (
                         <tr
                           key={index}
                           className="hover:bg-gray-50 transition-colors"
@@ -3236,7 +3344,8 @@ export function Settings() {
                             )}
                           </td>
                         </tr>
-                      ))}
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
