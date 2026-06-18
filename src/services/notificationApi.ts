@@ -6,23 +6,13 @@ import type {
   UnreadCountResponse,
   WebSocketNotificationEvent,
 } from "../types/notification";
+import { getApiOrigin } from "../utility/apiOrigin";
 import {
   buildTechnicalLogbookAtlRoute,
   normalizeTechnicalLogbookNavigatePath,
 } from "../utility/technicalLogbookRoute";
 
-function resolveApiBase(): string {
-  const raw = (
-    import.meta.env.VITE_API_URL || "http://localhost:8000"
-  ).replace(/\/$/, "");
-  return /\/api\/v1$/i.test(raw) ? raw : `${raw}/api/v1`;
-}
-
-const API_BASE = resolveApiBase();
-const WS_BASE = (import.meta.env.VITE_WS_URL || "ws://localhost:8000").replace(
-  /\/$/,
-  ""
-);
+const { httpBase: API_BASE, wsBase: WS_BASE } = getApiOrigin();
 
 function authHeaders(token: string) {
   return {
@@ -250,7 +240,7 @@ export function connectNotificationSocket(
   }
 ) {
   const ws = new WebSocket(
-    `${WS_BASE}/api/v1/notifications/ws?token=${encodeURIComponent(token)}`
+    `${WS_BASE}/notifications/ws?token=${encodeURIComponent(token)}`
   );
 
   ws.onopen = () => handlers.onOpen?.();

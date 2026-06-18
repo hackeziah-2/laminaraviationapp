@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getApiOrigin } from "../utility/apiOrigin";
 
 declare module "axios" {
   interface AxiosRequestConfig {
@@ -8,38 +9,7 @@ declare module "axios" {
   }
 }
 
-const rawViteApiUrl = import.meta.env.VITE_API_URL as string | undefined;
-
-function resolveBaseURL(): string {
-  const fromEnv = rawViteApiUrl?.replace(/\/?$/, "/");
-  const isBrowser = typeof window !== "undefined";
-  const isProdHost =
-    isBrowser && !["localhost", "127.0.0.1"].includes(window.location.hostname);
-  const sameOriginApi = isProdHost
-    ? `${window.location.origin}/api/v1/`
-    : undefined;
-
-  // Prod builds must not call a developer localhost backend (stale/wrong VITE_API_URL at build time).
-  if (
-    import.meta.env.PROD &&
-    isProdHost &&
-    fromEnv &&
-    /localhost|127\.0\.0\.1/i.test(fromEnv)
-  ) {
-    return sameOriginApi!;
-  }
-
-  const candidate = fromEnv || sameOriginApi || "http://localhost:8000/api/v1/";
-
-  // Relative paths (e.g. /api/v1/) need an absolute origin for axios and URL construction.
-  if (isBrowser && candidate.startsWith("/")) {
-    return `${window.location.origin}${candidate}`;
-  }
-
-  return candidate;
-}
-
-const baseURL = resolveBaseURL();
+const baseURL = getApiOrigin().httpBaseWithSlash;
 
 const api = axios.create({
   baseURL,
