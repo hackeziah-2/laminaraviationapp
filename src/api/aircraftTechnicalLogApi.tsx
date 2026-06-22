@@ -553,7 +553,7 @@ const fetchAircraftTechnicalLogs = async (
   try {
     const params = new URLSearchParams();
 
-    // Query order: atl_batch* first, then page, limit, aircraft_fk, sort, search, work_status
+    // Query order: atl_batch* first, then page, limit, aircraft_id/aircraft_fk, sort, search, work_status
     // e.g. .../paged?...&sort=sequence_no (asc) or sort=-created_at (desc)
     if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
       const idStr = String(atlBatchFk);
@@ -566,6 +566,7 @@ const fetchAircraftTechnicalLogs = async (
 
     const aircraftIdNum = aircraftFk != null ? Number(aircraftFk) : NaN;
     if (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0) {
+      params.append("aircraft_id", String(aircraftIdNum));
       params.append("aircraft_fk", String(aircraftIdNum));
     }
 
@@ -632,8 +633,8 @@ const fetchAircraftTechnicalLogs = async (
 
 /**
  * Get paginated list of Aircraft Technical Log entries for operation views.
- * `GET /api/v1/aircraft-technical-log/paged` — when `atlBatchFk` is set, `atl_batch` / `atl_batch_fk` are first in the
- * query string, then `page`, `limit`, `aircraft_fk`, `sort`, and optional `search` / `work_status`.
+ * `GET /api/v1/aircraft-technical-log/manage/paged` — e.g.
+ * `?atl_batch={id}&atl_batch_fk={id}&page=1&limit={n}&aircraft_id={id}&sort=-created_at&search={sequence_no}`
  */
 export const getAircraftTechnicalLogs = async (
   page = 1,

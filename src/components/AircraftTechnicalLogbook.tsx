@@ -14,6 +14,11 @@ import {
   Filter,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useLocation } from "react-router-dom";
+import {
+  hasTechnicalLogbookAtlFilters,
+  parseTechnicalLogbookAtlFilters,
+} from "../utility/technicalLogbookRoute";
 import Swal from "sweetalert2";
 import { Spinner } from "../components/ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
@@ -101,6 +106,7 @@ function formatLogbookSequenceNoCell(
 
 export function AircraftTechnicalLogbook() {
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [selectedAircraftId, setSelectedAircraftId] = useState("");
@@ -133,21 +139,31 @@ export function AircraftTechnicalLogbook() {
   );
   const [showBulkStatusModal, setShowBulkStatusModal] = useState(false);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const lastAppliedAtlQueryRef = useRef<string | null>(null);
 
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
   const showAtlBatchFilter = canManageAtlBatchFilter(user?.role);
   const selectedAtlBatchFk = useMemo(() => {
-    if (!showAtlBatchFilter) return undefined;
     const n =
       selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
     return Number.isFinite(n) && n > 0 ? n : undefined;
-  }, [showAtlBatchFilter, selectedAtlBatchId]);
+  }, [selectedAtlBatchId]);
   const selectedWorkStatusFilter = useMemo(() => {
     const normalized = normalizeAtlWorkStatus(selectedWorkStatus);
     return normalized || undefined;
   }, [selectedWorkStatus]);
   const showSeqWithBatchName = selectedAtlBatchFk == null;
+
+  const atlRouteFilters = useMemo(
+    () => parseTechnicalLogbookAtlFilters(location.pathname, location.search),
+    [location.pathname, location.search]
+  );
+
+  const isAtlDeepLinkRoute = useMemo(
+    () => hasTechnicalLogbookAtlFilters(atlRouteFilters),
+    [atlRouteFilters]
+  );
 
   /** Role from GET /auth/me — aligns ATL edit RBAC with login session (same as Operation). */
   const [sessionRoleName, setSessionRoleName] = useState<string | undefined>(
@@ -245,27 +261,27 @@ export function AircraftTechnicalLogbook() {
     setLoading(true);
     setError(null);
     try {
-      // Maintenance Planner: use fleet paged endpoint so REJECTED_* rows are included
-      // (manage/paged may omit them for this role).
-      const response = isMaintenancePlanner
-        ? await getAircraftTechnicalLogs(
-            currentPage,
-            itemsPerPage,
-            debouncedSearchTerm,
-            selectedAircraftFk,
-            sortBy,
-            selectedWorkStatusFilter,
-            selectedAtlBatchFk
-          )
-        : await getManagedAircraftTechnicalLogs(
-            currentPage,
-            itemsPerPage,
-            debouncedSearchTerm,
-            selectedAircraftFk,
-            sortBy,
-            selectedWorkStatusFilter,
-            selectedAtlBatchFk
-          );
+      // Notification deep-link: always use manage/paged with atl_batch, search, etc.
+      const response =
+        !isMaintenancePlanner || isAtlDeepLinkRoute
+          ? await getManagedAircraftTechnicalLogs(
+              currentPage,
+              itemsPerPage,
+              debouncedSearchTerm,
+              selectedAircraftFk,
+              sortBy,
+              selectedWorkStatusFilter,
+              selectedAtlBatchFk
+            )
+          : await getAircraftTechnicalLogs(
+              currentPage,
+              itemsPerPage,
+              debouncedSearchTerm,
+              selectedAircraftFk,
+              sortBy,
+              selectedWorkStatusFilter,
+              selectedAtlBatchFk
+            );
 
       const mappedEntries = response.items.map((entry, index) =>
         mapToLogbookEntry(entry, index)
@@ -331,6 +347,7 @@ export function AircraftTechnicalLogbook() {
     selectedWorkStatusFilter,
     sortBy,
     isMaintenancePlanner,
+    isAtlDeepLinkRoute,
   ]);
 
   // Reset to page 1 when sort changes
@@ -392,13 +409,6 @@ export function AircraftTechnicalLogbook() {
   }, [showAtlBatchFilter]);
 
   useEffect(() => {
-    if (!showAtlBatchFilter && selectedAtlBatchId !== "") {
-      setSelectedAtlBatchId("");
-      atlBatchFilterTouchedRef.current = false;
-    }
-  }, [showAtlBatchFilter, selectedAtlBatchId]);
-
-  useEffect(() => {
     let isMounted = true;
 
     const loadAircraftOptions = async () => {
@@ -438,6 +448,69 @@ export function AircraftTechnicalLogbook() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    const { sequenceNo, aircraftId, atlBatchFk } = atlRouteFilters;
+    const sequenceNoParam = sequenceNo;
+    const aircraftIdParam = aircraftId;
+    const atlBatchParam = atlBatchFk;
+
+    const queryKey = `${location.pathname}${location.search}`;
+    if (lastAppliedAtlQueryRef.current === queryKey) return;
+
+    if (!aircraftIdParam && !atlBatchParam && !sequenceNoParam) {
+      lastAppliedAtlQueryRef.current = queryKey;
+      return;
+    }
+
+    if (atlBatchParam) {
+      const batchAsNumber = Number(atlBatchParam);
+      const isNumericBatch = Number.isFinite(batchAsNumber) && batchAsNumber > 0;
+      if (!isNumericBatch && atlBatchFilterOptions.length === 0) {
+        return;
+      }
+    }
+
+    atlBatchFilterTouchedRef.current = true;
+
+    if (aircraftIdParam) {
+      setSelectedAircraftId(aircraftIdParam);
+    }
+
+    if (atlBatchParam) {
+      const batchAsNumber = Number(atlBatchParam);
+      const isNumericBatch = Number.isFinite(batchAsNumber) && batchAsNumber > 0;
+      const matchedBatchId = isNumericBatch
+        ? String(batchAsNumber)
+        : (
+            atlBatchFilterOptions.find(
+              (option) =>
+                option.name.trim().toLowerCase() === atlBatchParam.toLowerCase()
+            )?.id ?? ""
+          ).toString();
+      if (matchedBatchId) {
+        setSelectedAtlBatchId(matchedBatchId);
+      }
+    } else {
+      // Deep link without batch — search across all batches (not latest default).
+      setSelectedAtlBatchId("");
+    }
+
+    if (sequenceNoParam) {
+      setSearchTerm(sequenceNoParam);
+      setDebouncedSearchTerm(sequenceNoParam);
+    }
+
+    setSortBy("-created_at");
+    setCurrentPage(1);
+    lastAppliedAtlQueryRef.current = queryKey;
+  }, [
+    atlRouteFilters,
+    location.pathname,
+    location.search,
+    showAtlBatchFilter,
+    atlBatchFilterOptions,
+  ]);
 
   // Calculate statistics from current page entries
   const totalFlightHours = entries
