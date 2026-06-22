@@ -8,8 +8,8 @@ import type {
 } from "../types/notification";
 import { getApiOrigin } from "../utility/apiOrigin";
 import {
-  buildTechnicalLogbookAtlRoute,
   normalizeTechnicalLogbookNavigatePath,
+  resolveTechnicalLogbookAtlRoute,
 } from "../utility/technicalLogbookRoute";
 
 const { httpBase: API_BASE, wsBase: WS_BASE } = getApiOrigin();
@@ -170,6 +170,38 @@ function normalizeNotificationNavigatePath(url: string): string | null {
   return `/${trimmed.replace(/^\/+/, "")}`;
 }
 
+function extractTechnicalLogbookAtlRouteArgs(notification: Notification) {
+  const metadata = getNotificationMetadata(notification);
+
+  return {
+    sequenceNo:
+      notification.sequence_no ??
+      metadata?.sequence_no ??
+      (metadata?.sequenceNo as string | number | undefined),
+    aircraftId:
+      notification.aircraft_id ??
+      metadata?.aircraft_id ??
+      metadata?.aircraft_fk,
+    atlBatchFk:
+      notification.atl_batch ??
+      metadata?.atl_batch_fk ??
+      metadata?.atl_batch ??
+      (notification.reference_type === "ATL"
+        ? notification.reference_id
+        : undefined),
+  };
+}
+
+function isTechnicalLogbookNotificationModule(
+  moduleName: string | undefined
+): boolean {
+  return (
+    moduleName === "atl" ||
+    moduleName === "alt" ||
+    moduleName === "logbook"
+  );
+}
+
 export function getNotificationRoute(
   notification: Notification
 ): string | null {
@@ -179,43 +211,31 @@ export function getNotificationRoute(
   if (moduleName === "daily-update") return "/daily-update";
 
   const metadata = getNotificationMetadata(notification);
-  const metadataUrl = metadata?.url;
-  if (typeof metadataUrl === "string") {
+  const metadataUrl =
+    typeof metadata?.url === "string" ? metadata.url.trim() : "";
+  const atlRouteArgs = extractTechnicalLogbookAtlRouteArgs(notification);
+  const targetsTechnicalLogbook =
+    isTechnicalLogbookNotificationModule(moduleName) ||
+    notification.reference_type === "ATL" ||
+    metadataUrl.includes("/technical-logbook");
+
+  if (targetsTechnicalLogbook) {
+    return resolveTechnicalLogbookAtlRoute(
+      metadataUrl.includes("/technical-logbook") ? metadataUrl : undefined,
+      atlRouteArgs
+    );
+  }
+
+  if (metadataUrl) {
     const path = normalizeNotificationNavigatePath(metadataUrl);
     if (path) return path;
   }
 
-  if (moduleName === "atl" || moduleName === "alt") {
-    const aircraftId =
-      notification.aircraft_id ??
-      metadata?.aircraft_id ??
-      metadata?.aircraft_fk;
-    const atlBatchFk =
-      notification.atl_batch ??
-      metadata?.atl_batch_fk ??
-      metadata?.atl_batch ??
-      notification.reference_id;
-    const sequenceNo =
-      notification.sequence_no ??
-      metadata?.sequence_no ??
-      (metadata?.sequenceNo as string | number | undefined);
-
-    return buildTechnicalLogbookAtlRoute({
-      sequenceNo,
-      aircraftId,
-      atlBatchFk,
-    });
-  }
-
-  if (notification.reference_type === "ATL" && notification.reference_id) {
-    return `/atl/${notification.reference_id}`;
-  }
   if (notification.reference_type === "AIRCRAFT" && notification.reference_id) {
     return `/profile/${notification.reference_id}`;
   }
 
   // Fallback route map by module name when reference metadata is incomplete.
-  if (moduleName === "logbook") return "/technical-logbook";
   if (moduleName === "profile" || moduleName === "aircraft") return "/profile";
   if (moduleName === "dashboard") return "/dashboard";
   if (moduleName === "operation") return "/profile";
