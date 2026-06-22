@@ -107,3 +107,70 @@ export function hasTechnicalLogbookAtlFilters(
     filters.sequenceNo || filters.aircraftId || filters.atlBatchFk
   );
 }
+
+function pickAtlFilterValue(...candidates: Array<string | undefined>): string {
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+/** Merge URL filters with explicit overrides (overrides fill missing URL values). */
+export function mergeTechnicalLogbookAtlFilters(
+  fromUrl: TechnicalLogbookAtlFilters,
+  overrides: {
+    sequenceNo?: string | number | null;
+    aircraftId?: string | number | null;
+    atlBatchFk?: string | number | null;
+  }
+): TechnicalLogbookAtlFilters {
+  return {
+    sequenceNo: pickAtlFilterValue(
+      overrides.sequenceNo != null ? String(overrides.sequenceNo) : undefined,
+      fromUrl.sequenceNo
+    ),
+    aircraftId: pickAtlFilterValue(
+      overrides.aircraftId != null ? String(overrides.aircraftId) : undefined,
+      fromUrl.aircraftId
+    ),
+    atlBatchFk: pickAtlFilterValue(
+      overrides.atlBatchFk != null ? String(overrides.atlBatchFk) : undefined,
+      fromUrl.atlBatchFk
+    ),
+  };
+}
+
+/** Build technical-logbook route from an optional metadata URL plus ATL filter overrides. */
+export function resolveTechnicalLogbookAtlRoute(
+  metadataUrl: string | null | undefined,
+  overrides: {
+    sequenceNo?: string | number | null;
+    aircraftId?: string | number | null;
+    atlBatchFk?: string | number | null;
+  }
+): string {
+  const trimmedUrl = metadataUrl?.trim() ?? "";
+  const fromUrl = trimmedUrl.includes("/technical-logbook")
+    ? (() => {
+        const [pathname, rawSearch = ""] = trimmedUrl.split("?");
+        return parseTechnicalLogbookAtlFilters(
+          pathname,
+          rawSearch ? `?${rawSearch}` : ""
+        );
+      })()
+    : { sequenceNo: "", aircraftId: "", atlBatchFk: "" };
+
+  const filters = mergeTechnicalLogbookAtlFilters(fromUrl, overrides);
+
+  if (hasTechnicalLogbookAtlFilters(filters)) {
+    return buildTechnicalLogbookAtlRoute(filters);
+  }
+
+  if (trimmedUrl) {
+    const normalized = normalizeTechnicalLogbookNavigatePath(trimmedUrl);
+    if (normalized) return normalized;
+  }
+
+  return "/technical-logbook";
+}

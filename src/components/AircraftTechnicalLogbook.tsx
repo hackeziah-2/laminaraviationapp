@@ -455,7 +455,7 @@ export function AircraftTechnicalLogbook() {
     const aircraftIdParam = aircraftId;
     const atlBatchParam = atlBatchFk;
 
-    const queryKey = [sequenceNoParam, aircraftIdParam, atlBatchParam].join("|");
+    const queryKey = `${location.pathname}${location.search}`;
     if (lastAppliedAtlQueryRef.current === queryKey) return;
 
     if (!aircraftIdParam && !atlBatchParam && !sequenceNoParam) {
@@ -470,6 +470,8 @@ export function AircraftTechnicalLogbook() {
         return;
       }
     }
+
+    atlBatchFilterTouchedRef.current = true;
 
     if (aircraftIdParam) {
       setSelectedAircraftId(aircraftIdParam);
@@ -487,9 +489,11 @@ export function AircraftTechnicalLogbook() {
             )?.id ?? ""
           ).toString();
       if (matchedBatchId) {
-        atlBatchFilterTouchedRef.current = true;
         setSelectedAtlBatchId(matchedBatchId);
       }
+    } else {
+      // Deep link without batch — search across all batches (not latest default).
+      setSelectedAtlBatchId("");
     }
 
     if (sequenceNoParam) {
@@ -502,6 +506,8 @@ export function AircraftTechnicalLogbook() {
     lastAppliedAtlQueryRef.current = queryKey;
   }, [
     atlRouteFilters,
+    location.pathname,
+    location.search,
     showAtlBatchFilter,
     atlBatchFilterOptions,
   ]);
