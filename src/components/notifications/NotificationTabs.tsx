@@ -14,8 +14,8 @@ const tabs: Array<{ id: NotificationListStatus; label: string }> = [
 
 export function NotificationTabs({ tab, onTabChange, counts }: Props) {
   return (
-    <div className="shrink-0 border-b border-gray-100 bg-white px-5 pt-1 sm:px-6">
-      <div className="flex gap-0.5 sm:gap-1">
+    <div className="overflow-hidden border-b border-gray-200/80 pt-1">
+      <div className="flex min-w-0 gap-1">
         {tabs.map(({ id, label }) => {
           const active = tab === id;
           return (
@@ -23,7 +23,7 @@ export function NotificationTabs({ tab, onTabChange, counts }: Props) {
               key={id}
               type="button"
               onClick={() => onTabChange(id)}
-              className={`relative flex-1 px-2 pb-3 pt-3 text-sm ${
+              className={`relative min-w-0 flex-1 truncate px-1.5 pb-3 pt-2.5 text-sm transition-colors ${
                 active
                   ? "font-semibold text-gray-900"
                   : "font-medium text-gray-500 hover:text-gray-800"
@@ -34,7 +34,7 @@ export function NotificationTabs({ tab, onTabChange, counts }: Props) {
                 ({counts[id]})
               </span>
               {active && (
-                <span className="absolute bottom-0 left-3 right-3 h-[3px] rounded-full bg-gray-900" />
+                <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-gray-900" />
               )}
             </button>
           );

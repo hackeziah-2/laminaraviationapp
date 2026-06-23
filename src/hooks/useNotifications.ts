@@ -26,10 +26,44 @@ export function useNotificationsQuery(
   return useQuery({
     queryKey: notificationsQueryKey(recipientKey, status, page, limit),
     queryFn: async () => {
+      // #region agent log
+      fetch("http://127.0.0.1:7356/ingest/06a46138-4048-4848-9c8e-520fa90eebbe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "489cc5" },
+        body: JSON.stringify({
+          sessionId: "489cc5",
+          location: "useNotifications.ts:queryFn",
+          message: "fetchNotifications invoked",
+          data: { status, page, limit, hasToken: Boolean(token) },
+          timestamp: Date.now(),
+          hypothesisId: "D",
+        }),
+      }).catch(() => {});
+      // #endregion
       if (!token) {
         return { items: [], page: 1, limit, total: 0, total_pages: 1, unread_count: 0 };
       }
-      return fetchNotifications(token, { status, page, limit });
+      const result = await fetchNotifications(token, { status, page, limit });
+      // #region agent log
+      fetch("http://127.0.0.1:7356/ingest/06a46138-4048-4848-9c8e-520fa90eebbe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "489cc5" },
+        body: JSON.stringify({
+          sessionId: "489cc5",
+          location: "useNotifications.ts:queryFn:result",
+          message: "fetchNotifications result",
+          data: {
+            status,
+            itemCount: result.items.length,
+            total: result.total,
+            unread_count: result.unread_count,
+          },
+          timestamp: Date.now(),
+          hypothesisId: "D",
+        }),
+      }).catch(() => {});
+      // #endregion
+      return result;
     },
     enabled: Boolean(token),
   });

@@ -33,6 +33,7 @@ import { ADWorkOrders } from './components/ADWorkOrders';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Menu } from 'lucide-react';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
+import { AppLayoutProvider, useAppLayout } from './context/AppLayoutContext';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { SpinnerIcon } from './components/ui/spinner';
 import { NotificationBell } from './components/notifications/NotificationBell';
@@ -85,16 +86,13 @@ function AppContent() {
   const location = useLocation();
   const isLoginPage = location.pathname === "/login";
 
+  let content;
   if (!isAuthenticated && !isLoginPage) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (isLoginPage && isAuthenticated) {
-    return <PostLoginRedirect />;
-  }
-
-  if (isLoginPage) {
-    return (
+    content = <Navigate to="/login" replace />;
+  } else if (isLoginPage && isAuthenticated) {
+    content = <PostLoginRedirect />;
+  } else if (isLoginPage) {
+    content = (
       <Login
         onLogin={(username) => {
           localStorage.setItem("auth_username", username);
@@ -102,10 +100,17 @@ function AppContent() {
         }}
       />
     );
+  } else {
+    content = <AuthenticatedShell setIsAuthenticated={setIsAuthenticated} />;
   }
 
   return (
-    <AuthenticatedShell setIsAuthenticated={setIsAuthenticated} />
+    <AppLayoutProvider>
+      <NotificationsProvider>
+        {content}
+        <NotificationsPanel />
+      </NotificationsProvider>
+    </AppLayoutProvider>
   );
 }
 
@@ -119,7 +124,7 @@ function AuthenticatedShell({
     isOpen: isNotificationsOpen,
     unreadCount,
   } = useNotifications();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const { sidebarCollapsed, toggleSidebarCollapsed } = useAppLayout();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const isSpecialPage =
@@ -137,8 +142,8 @@ function AuthenticatedShell({
       )}
 
       <Sidebar 
-        isCollapsed={isSidebarCollapsed}
-        onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        isCollapsed={sidebarCollapsed}
+        onToggle={toggleSidebarCollapsed}
         onLogout={() => {
           localStorage.removeItem("access_token");
           localStorage.removeItem("refresh_token");
@@ -152,7 +157,7 @@ function AuthenticatedShell({
       {/* Top Header - Hidden for special pages */}
       {!isSpecialPage && (
         <header
-          className={`z-30 border-b border-gray-200/80 bg-white/90 shadow-sm backdrop-blur-md ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'} transition-all duration-300`}
+          className={`z-30 border-b border-gray-200/80 bg-white/90 shadow-sm backdrop-blur-md ${sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'} transition-all duration-300`}
         >
           <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
@@ -193,7 +198,7 @@ function AuthenticatedShell({
 
       {/* Main Content */}
       <div 
-        className={`min-w-0 ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'} ${isSpecialPage ? 'min-h-screen' : 'p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-[calc(100vh-65px)] lg:min-h-[calc(100vh-73px)]'} transition-all duration-300`}
+        className={`min-w-0 ${sidebarCollapsed ? 'lg:ml-20' : 'lg:ml-64'} ${isSpecialPage ? 'min-h-screen' : 'p-4 sm:p-6 lg:p-8 bg-gray-50 min-h-[calc(100vh-65px)] lg:min-h-[calc(100vh-73px)]'} transition-all duration-300`}
       >
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -235,10 +240,7 @@ function AuthenticatedShell({
 export default function App() {
   return (
     <Router>
-      <NotificationsProvider>
-        <AppContent />
-        <NotificationsPanel />
-      </NotificationsProvider>
+      <AppContent />
     </Router>
   );
 }
