@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bell, Check, ChevronLeft, ChevronRight, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +8,14 @@ import { NotificationTabs } from "./NotificationTabs";
 import { useNotificationMutations, useNotificationsQuery } from "../../hooks/useNotifications";
 import type { Notification, NotificationListStatus } from "../../types/notification";
 import { getNotificationRoute } from "../../services/notificationApi";
+import {
+  getNotificationDrawerStyle,
+  getNotificationOverlayStyle,
+  NOTIFICATION_CONTENT_PADDING_CLASS,
+  NOTIFICATION_DRAWER_PADDING_CLASS,
+} from "../../constants/notificationCenterLayout";
+import { useOptionalAppLayout } from "../../context/AppLayoutContext";
+import { useIsLgUp } from "../../hooks/useIsLgUp";
 
 type Props = {
   isOpen: boolean;
@@ -23,6 +31,18 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
   const [tab, setTab] = useState<NotificationListStatus>("all");
   const [page, setPage] = useState(1);
   const navigate = useNavigate();
+  const { sidebarCollapsed } = useOptionalAppLayout();
+  const isLgUp = useIsLgUp();
+
+  const overlayStyle = useMemo(
+    () => getNotificationOverlayStyle(sidebarCollapsed, isLgUp),
+    [isLgUp, sidebarCollapsed]
+  );
+
+  const drawerStyle = useMemo(
+    () => getNotificationDrawerStyle(sidebarCollapsed, isLgUp),
+    [isLgUp, sidebarCollapsed]
+  );
 
   const { data, isLoading } = useNotificationsQuery(token, tab, page, 20);
   const { markRead, markAllRead, clearAll, archiveOne } = useNotificationMutations(token);
@@ -57,111 +77,132 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
 
   if (!isOpen || typeof document === "undefined") return null;
 
+  const headerClass = `w-full min-w-0 ${NOTIFICATION_DRAWER_PADDING_CLASS}`;
+
   return createPortal(
-    <div className="fixed inset-0 z-[100000] flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+    <>
+      <div
+        className="notification-panel-overlay fixed top-0 z-[60] h-screen overflow-hidden bg-black/40 backdrop-blur-[2px] transition-[left,width] duration-300"
+        style={overlayStyle}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
       <aside
-        className="relative right-0 top-0 z-10 flex h-full w-[680px] max-w-[90vw] flex-col border-l border-gray-100 bg-white shadow-2xl"
+        className="notification-panel fixed top-0 z-[61] flex h-screen min-h-0 flex-col overflow-hidden border-l border-gray-200 bg-white shadow-[-4px_0_12px_rgba(0,0,0,0.12)] transition-[width,max-width] duration-300"
+        style={drawerStyle}
         role="dialog"
         aria-modal="true"
         aria-labelledby="notifications-panel-title"
       >
-        <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/80 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 ring-1 ring-rose-100">
-              <Bell className="h-5 w-5 text-rose-600" />
+        <header className={`${headerClass} shrink-0 border-b border-gray-200 py-4`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100">
+                <Bell className="h-4 w-4 text-gray-700" />
+              </div>
+              <div className="min-w-0">
+                <h2
+                  id="notifications-panel-title"
+                  className="notification-title truncate text-sm font-semibold text-gray-900"
+                >
+                  Notifications
+                </h2>
+                <p className="truncate text-xs text-gray-500">
+                  {unreadCount} unread{unreadCount === 1 ? "" : "s"}
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 id="notifications-panel-title" className="text-base font-semibold text-gray-900">
-                Notifications
-              </h2>
-              <p className="text-xs text-gray-500">
-                {unreadCount} unread{unreadCount === 1 ? "" : "s"}
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Close notifications"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-            aria-label="Close notifications"
-          >
-            <X className="h-5 w-5" />
-          </button>
+        </header>
+
+        <div className={`${headerClass} shrink-0 border-b border-gray-200`}>
+          <NotificationTabs tab={tab} onTabChange={setTab} counts={tabCounts} />
         </div>
 
-        <NotificationTabs tab={tab} onTabChange={setTab} counts={tabCounts} />
-
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-gray-50/50 px-5 py-5 sm:px-6">
-          {isLoading ? (
-            <p className="text-sm text-gray-500">Loading notifications...</p>
-          ) : (data?.items.length ?? 0) === 0 ? (
-            <NotificationEmptyState tabLabel={tab} />
-          ) : (
-            <ul className="space-y-3">
-              {data?.items.map((notification) => (
-                <li key={notification.id}>
-                  <NotificationCard
-                    notification={notification}
-                    onClick={() => void handleClickNotification(notification)}
-                    onArchive={() => archiveOne.mutate(notification.id)}
-                    archivePending={archiveOne.isPending}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="notification-content min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-gray-50/50">
+          <div className={`${NOTIFICATION_CONTENT_PADDING_CLASS} w-full min-w-0`}>
+            {isLoading ? (
+              <p className="py-8 text-center text-sm text-gray-500">Loading notifications...</p>
+            ) : (data?.items.length ?? 0) === 0 ? (
+              <NotificationEmptyState tabLabel={tab} />
+            ) : (
+              <ul className="w-full min-w-0 space-y-2">
+                {data?.items.map((notification) => (
+                  <li key={notification.id} className="w-full min-w-0">
+                    <NotificationCard
+                      notification={notification}
+                      onClick={() => void handleClickNotification(notification)}
+                      onArchive={() => archiveOne.mutate(notification.id)}
+                      archivePending={archiveOne.isPending}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
-        <div className="border-t border-gray-100 bg-white px-6 py-4">
-          <div className="flex gap-3">
+        <footer
+          className={`${headerClass} shrink-0 border-t border-gray-200 bg-white py-4 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]`}
+        >
+          <div className="flex w-full min-w-0 gap-2">
             <button
               type="button"
               onClick={() => markAllRead.mutate()}
               disabled={markAllRead.isPending}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Check className="h-4 w-4" />
-              Mark all read
+              <Check className="h-4 w-4 shrink-0" />
+              <span className="truncate">Mark all read</span>
             </button>
             <button
               type="button"
               onClick={() => clearAll.mutate()}
               disabled={clearAll.isPending}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Trash2 className="h-4 w-4" />
-              Clear all
+              <Trash2 className="h-4 w-4 shrink-0" />
+              <span className="truncate">Clear all</span>
             </button>
           </div>
+
           {(data?.total_pages ?? 1) > 1 && (
-            <div className="mt-3 flex items-center justify-between text-sm text-gray-600">
+            <div className="mt-2.5 flex min-w-0 items-center justify-between gap-2 text-xs text-gray-600">
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
+                className="inline-flex shrink-0 items-center gap-1 rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-3.5 w-3.5" />
                 Prev
               </button>
-              <span>
+              <span className="truncate tabular-nums">
                 Page {data?.page ?? 1} of {data?.total_pages ?? 1}
               </span>
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(data?.total_pages ?? p, p + 1))}
                 disabled={page >= (data?.total_pages ?? 1)}
-                className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
+                className="inline-flex shrink-0 items-center gap-1 rounded border border-gray-200 px-2 py-1 disabled:opacity-40"
               >
                 Next
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
-        </div>
+        </footer>
       </aside>
-    </div>,
+    </>,
     getPortalContainer()
   );
 }

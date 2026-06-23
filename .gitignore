@@ -1,5 +1,8 @@
 node_modules
 
+# Cursor IDE local debug logs
+.cursor/debug*.log
+
 # Environment files (secrets / per-environment config)
 .env
 .env.dev
