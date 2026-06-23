@@ -32,7 +32,7 @@ function buildNotification(overrides: Partial<Notification> = {}): Notification 
 }
 
 describe("NotificationCard", () => {
-  it("renders full-width card with truncated title and clamped message", () => {
+  it("renders full-width card with truncated title and message", () => {
     const { container } = render(
       <NotificationCard
         notification={buildNotification({
@@ -53,7 +53,7 @@ describe("NotificationCard", () => {
     expect(card.className).toContain("w-full");
     expect(card.className).toContain("overflow-hidden");
     expect(title.className).toContain("truncate");
-    expect(message.className).toContain("line-clamp-2");
+    expect(message.className).toContain("truncate");
     expect(screen.getByText("6 min ago")).toBeInTheDocument();
   });
 
@@ -73,6 +73,7 @@ describe("NotificationCard", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/RP-C9380/)).not.toBeInTheDocument();
     expect(screen.getByText("6 min ago").className).toContain("shrink-0");
+    expect(screen.getByText("Archive").className).toContain("shrink-0");
   });
 
   it("renders twenty-plus aircraft notifications in compact form without layout overflow", () => {
