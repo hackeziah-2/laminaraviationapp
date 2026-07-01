@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   extractApiValidationLines,
   formatApiErrorForSwal,
+  formatAtlExcelImportErrorForSwal,
+  formatAtlExcelImportValidationLine,
   formatMaintenanceImportErrorForSwal,
   formatValidationErrorForSwal,
   getMaintenanceImportErrorMessage,
+  isAtlExcelImportFailureStatus,
   isNotValidDataInputMessage,
   maintenanceImportResponseIndicatesFailure,
 } from "./utils";
@@ -75,12 +78,74 @@ describe("extractApiValidationLines", () => {
     expect(lines).toEqual(["Row 2 — base — Base is required"]);
   });
 
+  it("extracts row/column/value messages from ATL import errors", () => {
+    const lines = extractApiValidationLines([
+      {
+        row: 3,
+        column: "Number Of Landings",
+        value: "ABC",
+        error: "Must be a numeric value.",
+        expected: "Whole number.",
+      },
+    ]);
+    expect(lines).toEqual([
+      "Row 3 — Number Of Landings — value ABC — Must be a numeric value. Expected: Whole number..",
+    ]);
+  });
+
   it("includes row errors when detail is a summary string", () => {
     const lines = extractApiValidationLines("Not valid data input", {
       errors: [{ row: 3, field: "unit", message: "Unit is required" }],
     });
     expect(lines).toContain("Not valid data input");
     expect(lines).toContain("Row 3 — unit — Unit is required");
+  });
+});
+
+describe("formatAtlExcelImportErrorForSwal", () => {
+  it("treats VALIDATION_FAILED as Validation Error with structured rows", () => {
+    const content = formatAtlExcelImportErrorForSwal({
+      status: "VALIDATION_FAILED",
+      message: "The file contains validation errors. No records were imported.",
+      errors: [
+        {
+          row: 2,
+          column: "Origin Date",
+          value: "(blank)",
+          error: "Invalid date.",
+        },
+        {
+          row: 3,
+          column: "Number Of Landings",
+          value: "ABC",
+          error: "Must be a numeric value.",
+        },
+      ],
+    });
+    expect(content.title).toBe("Validation Error");
+    expect(content.html).toContain("Row 2");
+    expect(content.html).toContain("Origin Date");
+    expect(content.html).toContain("Row 3");
+  });
+
+  it("formats a single structured ATL import error as text", () => {
+    const line = formatAtlExcelImportValidationLine({
+      row: 4,
+      column: "Sequence No",
+      value: "(blank)",
+      error: "This field is required.",
+    });
+    expect(line).toBe(
+      "Row 4 — Sequence No — value (blank) — This field is required."
+    );
+  });
+});
+
+describe("isAtlExcelImportFailureStatus", () => {
+  it("includes VALIDATION_FAILED and FAILED", () => {
+    expect(isAtlExcelImportFailureStatus("VALIDATION_FAILED")).toBe(true);
+    expect(isAtlExcelImportFailureStatus("FAILED")).toBe(true);
+    expect(isAtlExcelImportFailureStatus("COMPLETED")).toBe(false);
   });
 });
 

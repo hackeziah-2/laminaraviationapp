@@ -60,6 +60,8 @@ import { Aircraft } from "../types/Aircraft";
 import {
   toCamelDeep,
   formatApiErrorForSwal,
+  formatAtlExcelImportErrorForSwal,
+  isAtlExcelImportFailureStatus,
   formatTimeZulu,
   formatAtlDateTimeUtc,
   formatAtlDateReportedManila,
@@ -1920,33 +1922,15 @@ export function Operation() {
         return;
       }
 
-      const importFailed = (() => {
-        const s = finalProgress.status.toUpperCase().replace(/\s+/g, "_");
-        return (
-          s === "FAILED" ||
-          s === "ERROR" ||
-          s === "CANCELLED" ||
-          s === "ABORTED"
-        );
-      })();
+      const importFailed = isAtlExcelImportFailureStatus(finalProgress.status);
       if (importFailed) {
         Swal.close();
-        const swalContent = formatApiErrorForSwal(
-          {
-            response: {
-              data: {
-                detail: finalProgress.errors ?? finalProgress.message,
-                message: finalProgress.message,
-                errors: finalProgress.errors,
-              },
-            },
-          },
-          {
-            defaultTitle: "Import failed",
-            validationTitle: "Validation Error",
-            fallbackMessage: finalProgress.message?.trim() || "Import failed.",
-          }
-        );
+        const swalContent = formatAtlExcelImportErrorForSwal(finalProgress, {
+          defaultTitle: "Import failed",
+          validationTitle: "Validation Error",
+          fallbackMessage:
+            finalProgress.message?.trim() || "Import failed.",
+        });
         await Swal.fire({
           ...swalContent,
           confirmButtonColor: "#2563eb",
