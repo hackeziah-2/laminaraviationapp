@@ -915,6 +915,7 @@ export interface AtlExcelImportProgress {
   processedRows?: number;
   failedRows?: number;
   errors?: unknown;
+  errorReport?: string;
 }
 
 function parseAtlExcelImportStart(raw: unknown): AtlExcelImportStartResponse {
@@ -984,6 +985,12 @@ function parseAtlExcelImportProgress(raw: unknown): AtlExcelImportProgress {
       o.errorRows
     ),
     errors: o.errors,
+    errorReport:
+      o.error_report != null && String(o.error_report).trim() !== ""
+        ? String(o.error_report)
+        : o.errorReport != null && String(o.errorReport).trim() !== ""
+          ? String(o.errorReport)
+          : undefined,
   };
 }
 
@@ -1057,7 +1064,7 @@ export function getAtlExcelImportProcessPercent(
   if (st === "COMPLETED" || st === "COMPLETE" || st === "SUCCESS") {
     return 100;
   }
-  if (st === "FAILED" || st === "ERROR" || st === "CANCELLED") {
+  if (st === "FAILED" || st === "ERROR" || st === "CANCELLED" || st === "VALIDATION_FAILED") {
     const fromRows = percentFromRowCounts(data, true);
     if (fromRows != null) return fromRows;
     const fromProg = normalizeProgressField(data.progress);
@@ -1092,6 +1099,7 @@ function isTerminalImportStatus(st: string): boolean {
     u === "COMPLETE" ||
     u === "SUCCESS" ||
     u === "FAILED" ||
+    u === "VALIDATION_FAILED" ||
     u === "ERROR" ||
     u === "CANCELLED"
   );
@@ -1183,6 +1191,7 @@ export async function pollAtlExcelImportUntilDone(
       s === "COMPLETE" ||
       s === "SUCCESS" ||
       s === "FAILED" ||
+      s === "VALIDATION_FAILED" ||
       s === "ERROR" ||
       s === "CANCELLED"
     ) {
