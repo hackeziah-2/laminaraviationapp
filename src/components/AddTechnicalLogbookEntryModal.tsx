@@ -777,6 +777,7 @@ export function AddTechnicalLogbookEntryModal({
       setLatestSequenceNo(null); // No format validation when editing
       const comp = resolveAtlEditComponentSources(editEntry);
       skipAtlComponentAutoComputeRef.current = true;
+      resetRuntimeUserEdited();
       const tachStart = Number(editEntry.tachometerStart) || 0;
       const tachEnd = Number(editEntry.tachometerEnd) || 0;
       const run = tachEnd - tachStart;
@@ -1717,12 +1718,10 @@ export function AddTechnicalLogbookEntryModal({
           tachometerTotal
         ),
       };
-      if (!editEntry) {
-        const edited = userEditedRuntimeRef.current;
-        if (!edited.airframeRunTime) next.airframeRunTime = tachometerTotal;
-        if (!edited.engineRunTime) next.engineRunTime = tachometerTotal;
-        if (!edited.propellerRunTime) next.propellerRunTime = tachometerTotal;
-      }
+      const edited = userEditedRuntimeRef.current;
+      if (!edited.airframeRunTime) next.airframeRunTime = tachometerTotal;
+      if (!edited.engineRunTime) next.engineRunTime = tachometerTotal;
+      if (!edited.propellerRunTime) next.propellerRunTime = tachometerTotal;
       return next;
     });
   }, [
@@ -1734,9 +1733,8 @@ export function AddTechnicalLogbookEntryModal({
     formData.propellerPrevTime,
   ]);
 
-  // Create entry: whenever Tachometer Total changes, mirror it into all runtime fields.
+  // Whenever Tachometer Total changes, mirror it into all runtime fields.
   useEffect(() => {
-    if (editEntry) return;
     const runtimeValue = formData.tachometerTotal ?? "";
     setFormData((prev) => {
       if (
@@ -1753,7 +1751,7 @@ export function AddTechnicalLogbookEntryModal({
         propellerRunTime: runtimeValue,
       };
     });
-  }, [editEntry, formData.tachometerTotal]);
+  }, [formData.tachometerTotal]);
 
   // ATL table auto-compute: Engine/Propeller TSN, TSO, TBO; Propeller Run from tach delta.
   // Skipped once after edit hydration so persisted API values are not overwritten on load.
@@ -2244,18 +2242,14 @@ export function AddTechnicalLogbookEntryModal({
             ? parseFloat(formData.propellerTotalTime)
             : undefined,
           airframeRunTime: editEntry
-            ? parseFiniteFloatField(formData.airframeRunTime) ??
-              parseFiniteFloatField(formData.airframeTotalTime) ??
-              undefined
+            ? parseFiniteFloatField(formData.airframeRunTime) ?? undefined
             : resolveAtlCreateRuntimeForPayload(
                 formData.airframeRunTime,
                 formData.tachometerTotal
               ),
           airframeAftt: parseFiniteFloatField(formData.airframeAftt) ?? undefined,
           engineRunTime: editEntry
-            ? parseFiniteFloatField(formData.engineRunTime) ??
-              parseFiniteFloatField(formData.engineTotalTime) ??
-              undefined
+            ? parseFiniteFloatField(formData.engineRunTime) ?? undefined
             : resolveAtlCreateRuntimeForPayload(
                 formData.engineRunTime,
                 formData.tachometerTotal
@@ -2266,9 +2260,7 @@ export function AddTechnicalLogbookEntryModal({
             ? resolveTboForApi(formData.engineTbo)
             : parseFiniteFloatField(formData.engineTbo) ?? undefined,
           propellerRunTime: editEntry
-            ? parseFiniteFloatField(formData.propellerRunTime) ??
-              parseFiniteFloatField(formData.propellerTotalTime) ??
-              undefined
+            ? parseFiniteFloatField(formData.propellerRunTime) ?? undefined
             : resolveAtlCreateRuntimeForPayload(
                 formData.propellerRunTime,
                 formData.tachometerTotal
