@@ -1,4 +1,5 @@
 import type { Aircraft } from "../types/Aircraft";
+import { formatAtlTboDisplay1dp } from "./utils";
 
 export const ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE = "Aircraft Details Required";
 
@@ -196,6 +197,7 @@ export function buildAtlInitialValuesFromAircraftFallback(
   propellerTbo: string;
   lifeTimeLimitEngine: string;
   lifeTimeLimitPropeller: string;
+  previousAirframeAftt: number;
   previousEngineTsn: number;
   previousEngineTso: number;
   previousPropellerTsn: number;
@@ -227,16 +229,13 @@ export function buildAtlInitialValuesFromAircraftFallback(
     airframeAftt: formatAtlInitialHourValue(airframeAftt),
     engineTsn: formatAtlInitialHourValue(engineTsn),
     engineTso: formatAtlInitialHourValue(engineTso),
-    engineTbo:
-      engineTbo != null && Number.isFinite(engineTbo) ? String(engineTbo) : "",
+    engineTbo: formatAtlTboDisplay1dp(engineTbo, ""),
     propellerTsn: formatAtlInitialHourValue(propellerTsn),
     propellerTso: formatAtlInitialHourValue(propellerTso),
-    propellerTbo:
-      propellerTbo != null && Number.isFinite(propellerTbo)
-        ? String(propellerTbo)
-        : "",
+    propellerTbo: formatAtlTboDisplay1dp(propellerTbo, ""),
     lifeTimeLimitEngine: formatAtlInitialHourValue(engineLimit),
     lifeTimeLimitPropeller: formatAtlInitialHourValue(propellerLimit),
+    previousAirframeAftt: parseAtlBaselineHour(airframeAftt),
     previousEngineTsn: parseAtlBaselineHour(engineTsn),
     previousEngineTso: parseAtlBaselineHour(engineTso),
     previousPropellerTsn: parseAtlBaselineHour(propellerTsn),

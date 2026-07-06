@@ -475,6 +475,16 @@ export function formatOptionalNumber2dp(
   return Number.isFinite(n) ? n.toFixed(2) : fallback;
 }
 
+/** Engine/propeller TBO display in ATL create & edit forms (1 decimal place). */
+export function formatAtlTboDisplay1dp(
+  value: unknown,
+  fallback = ""
+): string {
+  if (value == null || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(1) : fallback;
+}
+
 /**
  * Format time from API to HH:MM format (24-hour)
  * @param timeStr - Time string in HHMM format (4 digits) or HH:MM format
