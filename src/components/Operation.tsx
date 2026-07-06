@@ -42,12 +42,11 @@ import {
   formatAtlExcelImportProgressLabel,
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
+  formatAtlPersistedComponentMetric2dp,
   type AtlExcelImportProgress,
   AircraftTechnicalLog,
   type AtlBatch,
-  type AtlListViewComputedComponentTimes,
   type ComponentPartsRecord,
-  resolveAtlComponentMetric,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
@@ -66,8 +65,6 @@ import {
   formatAtlDateTimeUtc,
   formatAtlDateReportedManila,
   formatDisplayDate,
-  computeTotalBlockTimeFromUtc,
-  computeTotalFlightHoursDecimalFromUtc,
 } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
@@ -267,12 +264,7 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
       {
         id: "propeller",
         label: "Propeller",
-        keys: [
-          "propellerRun",
-          "propellerTsn",
-          "propellerTso",
-          "propellerTbo",
-        ],
+        keys: ["propellerRun", "propellerTsn", "propellerTso", "propellerTbo"],
         defaultCollapsed: true,
       },
     ],
@@ -312,11 +304,7 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
       {
         id: "oil",
         label: "Oil",
-        keys: [
-          "oilQtyUpliftQty",
-          "oilQtyPriorDeparture",
-          "oilQtyAfterOnBlks",
-        ],
+        keys: ["oilQtyUpliftQty", "oilQtyPriorDeparture", "oilQtyAfterOnBlks"],
       },
     ],
     keys: [
@@ -452,17 +440,28 @@ function subGroupKey(categoryId: string, subGroupId: string): string {
   return `${categoryId}:${subGroupId}`;
 }
 
-function toNullableMetricNumber(value: unknown): number | null {
-  if (value == null || value === "") return null;
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : null;
-}
-
 /** Hobbs / tach / tach due: API may send numbers as strings; avoids `.toFixed` runtime errors. */
 function formatOptionalNumber1dp(value: unknown): string {
   if (value == null || value === "") return "-";
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(1) : "-";
+}
+
+/** Format backend ATL metric for list display (presentation only; no computation). */
+function formatAtlListMetric2dp(value: unknown): string {
+  if (value == null || value === "") return "-";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : "-";
+}
+
+function formatAtlListTotalFlightHours(record: AircraftTechnicalLog): string {
+  const raw = record.totalFlightHours;
+  if (raw == null || raw === "") return "-";
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed || "-";
+  }
+  return formatAtlListMetric2dp(raw);
 }
 
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
@@ -799,96 +798,6 @@ export function Operation() {
     sequenceFromQuery,
   ]);
 
-  const getAirframeDisplay = (r: AircraftTechnicalLog) => {
-    const run =
-      resolveAtlComponentMetric(r, "airframeRunTime") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeRunTime")))
-        : "-";
-    const aftt =
-      resolveAtlComponentMetric(r, "airframeAftt") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeAftt")))
-        : "-";
-    return `${run} / ${aftt}`;
-  };
-  const getEngineDisplay = (r: AircraftTechnicalLog) => {
-    const run =
-      resolveAtlComponentMetric(r, "engineRunTime") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineRunTime")))
-        : "-";
-    const tsn =
-      resolveAtlComponentMetric(r, "engineTsn") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTsn")))
-        : "-";
-    const tso =
-      resolveAtlComponentMetric(r, "engineTso") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTso")))
-        : "-";
-    const tbo =
-      resolveAtlComponentMetric(r, "engineTbo") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTbo")))
-        : "-";
-    return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
-  };
-  const getPropellerDisplay = (r: AircraftTechnicalLog) => {
-    const run =
-      resolveAtlComponentMetric(r, "propellerRunTime") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerRunTime")))
-        : "-";
-    const tsn =
-      resolveAtlComponentMetric(r, "propellerTsn") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTsn")))
-        : "-";
-    const tso =
-      resolveAtlComponentMetric(r, "propellerTso") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTso")))
-        : "-";
-    const tbo =
-      resolveAtlComponentMetric(r, "propellerTbo") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTbo")))
-        : "-";
-    return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
-  };
-
-  const editListComputedTimes =
-    useMemo<AtlListViewComputedComponentTimes | null>(
-      () =>
-        selectedEntry
-          ? {
-              airframeRunTime: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "airframeRunTime")
-              ),
-              airframeAftt: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "airframeAftt")
-              ),
-              engineRunTime: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineRunTime")
-              ),
-              engineTsn: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineTsn")
-              ),
-              engineTso: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineTso")
-              ),
-              engineTbo: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineTbo")
-              ),
-              propellerRunTime: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerRunTime")
-              ),
-              propellerTsn: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerTsn")
-              ),
-              propellerTso: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerTso")
-              ),
-              propellerTbo: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerTbo")
-              ),
-            }
-          : null,
-      [selectedEntry]
-    );
-
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
@@ -1011,11 +920,6 @@ export function Operation() {
 
   const paginatedRecords = fleetTimeRecords;
 
-  /** Format ATL component values from the API with 2 decimal places. */
-  const toFormat2 = (v: unknown): string => {
-    const n = v != null && v !== "" ? Number(v) : null;
-    return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
-  };
   /** `date_time_reported` — Philippines (Asia/Manila) locale display */
   const formatAtlDateReportedListCell = (raw?: string | null) =>
     formatAtlDateReportedManila(raw);
@@ -1156,13 +1060,7 @@ export function Operation() {
       {
         key: "totalFlightHours",
         label: "Total Flight Hours",
-        getValue: (record) =>
-          computeTotalBlockTimeFromUtc(
-            record.originDate,
-            record.originTime,
-            record.destinationDate,
-            record.destinationTime
-          ),
+        getValue: (record) => formatAtlListTotalFlightHours(record),
       },
       {
         key: "numberOfLandings",
@@ -1182,19 +1080,7 @@ export function Operation() {
       {
         key: "hobbsMeterTotal",
         label: "Hobbs Total",
-        getValue: (record) => {
-          const start = Number(record.hobbsMeterStart);
-          const end = Number(record.hobbsMeterEnd);
-          if (
-            record.hobbsMeterStart != null &&
-            record.hobbsMeterEnd != null &&
-            Number.isFinite(start) &&
-            Number.isFinite(end)
-          ) {
-            return (end - start).toFixed(1);
-          }
-          return formatOptionalNumber1dp(record.hobbsMeterTotal);
-        },
+        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterTotal),
       },
       {
         key: "tachometerStart",
@@ -1210,61 +1096,61 @@ export function Operation() {
         key: "airframeRun",
         label: "Airframe Hrs Run",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "airframeRunTime")),
+          formatAtlPersistedComponentMetric2dp(record, "airframeRunTime"),
       },
       {
         key: "airframeAftt",
         label: "Airframe AFTT",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "airframeAftt")),
+          formatAtlPersistedComponentMetric2dp(record, "airframeAftt"),
       },
       {
         key: "engineRun",
         label: "Engine Hrs Run",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineRunTime")),
+          formatAtlPersistedComponentMetric2dp(record, "engineRunTime"),
       },
       {
         key: "engineTsn",
         label: "Engine TSN",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineTsn")),
+          formatAtlPersistedComponentMetric2dp(record, "engineTsn"),
       },
       {
         key: "engineTso",
         label: "Engine TSO",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineTso")),
+          formatAtlPersistedComponentMetric2dp(record, "engineTso"),
       },
       {
         key: "engineTbo",
         label: "Engine TBO",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineTbo")),
+          formatAtlPersistedComponentMetric2dp(record, "engineTbo"),
       },
       {
         key: "propellerRun",
         label: "Propeller Hrs Run",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerRunTime")),
+          formatAtlPersistedComponentMetric2dp(record, "propellerRunTime"),
       },
       {
         key: "propellerTsn",
         label: "Propeller TSN",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerTsn")),
+          formatAtlPersistedComponentMetric2dp(record, "propellerTsn"),
       },
       {
         key: "propellerTso",
         label: "Propeller TSO",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerTso")),
+          formatAtlPersistedComponentMetric2dp(record, "propellerTso"),
       },
       {
         key: "propellerTbo",
         label: "Propeller TBO",
         getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerTbo")),
+          formatAtlPersistedComponentMetric2dp(record, "propellerTbo"),
       },
       {
         key: "fuelQtyLeftUpliftQty",
@@ -1928,8 +1814,7 @@ export function Operation() {
         const swalContent = formatAtlExcelImportErrorForSwal(finalProgress, {
           defaultTitle: "Import failed",
           validationTitle: "Validation Error",
-          fallbackMessage:
-            finalProgress.message?.trim() || "Import failed.",
+          fallbackMessage: finalProgress.message?.trim() || "Import failed.",
         });
         await Swal.fire({
           ...swalContent,
@@ -2090,29 +1975,31 @@ export function Operation() {
                   </span>
                   <span>
                     Airframe AFTT:{" "}
-                    {toFormat2(resolveAircraftAirframeAftt(aircraft))}
+                    {formatAtlListMetric2dp(
+                      resolveAircraftAirframeAftt(aircraft)
+                    )}
                   </span>
                   <span>
                     Engine TSO:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "engineTso")
                     )}
                   </span>
                   <span>
                     Engine TSN:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "engineTsn")
                     )}
                   </span>
                   <span>
                     Propeller TSO:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "propellerTso")
                     )}
                   </span>
                   <span>
                     Propeller TSN:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "propellerTsn")
                     )}
                   </span>
@@ -2340,7 +2227,9 @@ export function Operation() {
                     </select>
                   </div>
                   {atlBatchFilterError && (
-                    <p className="text-xs text-red-600">{atlBatchFilterError}</p>
+                    <p className="text-xs text-red-600">
+                      {atlBatchFilterError}
+                    </p>
                   )}
                 </div>
               )}
@@ -2810,23 +2699,23 @@ export function Operation() {
                                       {(canUpdateOperationAtl ||
                                         operationTechPubCanEditAtl(record)) &&
                                         canOpenAtlEditForRecord(record) && (
-                                        <>
-                                          <span className="text-gray-400">
-                                            |
-                                          </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedEntry(record);
-                                              setShowEditModal(true);
-                                            }}
-                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                            title={atlEditButtonTitle(record)}
-                                          >
-                                            Edit
-                                          </button>
-                                        </>
-                                      )}
+                                          <>
+                                            <span className="text-gray-400">
+                                              |
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedEntry(record);
+                                                setShowEditModal(true);
+                                              }}
+                                              className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                              title={atlEditButtonTitle(record)}
+                                            >
+                                              Edit
+                                            </button>
+                                          </>
+                                        )}
                                       {canDeleteOperationAtl && (
                                         <>
                                           <span className="text-gray-400">
@@ -2879,12 +2768,7 @@ export function Operation() {
                                   {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {computeTotalBlockTimeFromUtc(
-                                    record.originDate,
-                                    record.originTime,
-                                    record.destinationDate,
-                                    record.destinationTime
-                                  )}
+                                  {formatAtlListTotalFlightHours(record)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -2902,23 +2786,9 @@ export function Operation() {
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {(() => {
-                                    const start = Number(
-                                      record.hobbsMeterStart
-                                    );
-                                    const end = Number(record.hobbsMeterEnd);
-                                    if (
-                                      record.hobbsMeterStart != null &&
-                                      record.hobbsMeterEnd != null &&
-                                      Number.isFinite(start) &&
-                                      Number.isFinite(end)
-                                    ) {
-                                      return (end - start).toFixed(1);
-                                    }
-                                    return formatOptionalNumber1dp(
-                                      record.hobbsMeterTotal
-                                    );
-                                  })()}
+                                  {formatOptionalNumber1dp(
+                                    record.hobbsMeterTotal
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatOptionalNumber1dp(
@@ -2931,83 +2801,63 @@ export function Operation() {
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "airframeRunTime"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "airframeRunTime"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "airframeAftt"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "airframeAftt"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineRunTime"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineRunTime"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineTsn"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineTsn"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineTso"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineTso"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineTbo"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineTbo"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerRunTime"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerRunTime"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerTsn"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerTsn"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerTso"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerTso"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerTbo"
-                                    )
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerTbo"
                                   )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -3254,9 +3104,10 @@ export function Operation() {
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {(() => {
-                                    const whiteAtlFile = getAtlStoredUploadFilePath(
-                                      record.whiteAtl
-                                    );
+                                    const whiteAtlFile =
+                                      getAtlStoredUploadFilePath(
+                                        record.whiteAtl
+                                      );
                                     return whiteAtlFile ? (
                                       <div className="flex flex-col gap-1">
                                         <button
@@ -3468,21 +3319,23 @@ export function Operation() {
                                     {(canUpdateOperationAtl ||
                                       operationTechPubCanEditAtl(record)) &&
                                       canOpenAtlEditForRecord(record) && (
-                                      <>
-                                        <span className="text-gray-400">|</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedEntry(record);
-                                            setShowEditModal(true);
-                                          }}
-                                          className="hover:underline text-xs"
-                                          title={atlEditButtonTitle(record)}
-                                        >
-                                          Edit
-                                        </button>
-                                      </>
-                                    )}
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs"
+                                            title={atlEditButtonTitle(record)}
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
                                     {canDeleteOperationAtl && (
                                       <>
                                         <span className="text-gray-400">|</span>
@@ -3519,12 +3372,7 @@ export function Operation() {
                                   : ""}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTimeFromUtc(
-                                  record.originDate,
-                                  record.originTime,
-                                  record.destinationDate,
-                                  record.destinationTime
-                                )}
+                                {formatAtlListTotalFlightHours(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.fuelQtyLeftUpliftQty ?? "-"}
@@ -3721,54 +3569,64 @@ export function Operation() {
                                     : ""}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getAirframeDisplay(record)?.split(
-                                    " / "
-                                  )?.[0] ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "airframeRunTime"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getAirframeDisplay(record)?.split(
-                                    " / "
-                                  )?.[1] ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "airframeAftt"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[0]
-                                    ?.replace("RUN ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineRunTime"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[1]
-                                    ?.replace("TSN ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineTsn"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[2]
-                                    ?.replace("TSO ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineTso"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[3]
-                                    ?.replace("TBO ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "engineTbo"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[0]
-                                    ?.replace("RUN ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerRunTime"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[1]
-                                    ?.replace("TSN ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerTsn"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[2]
-                                    ?.replace("TSO ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerTso"
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[3]
-                                    ?.replace("TBO ", "") ?? "-"}
+                                  {formatAtlPersistedComponentMetric2dp(
+                                    record,
+                                    "propellerTbo"
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -3852,21 +3710,23 @@ export function Operation() {
                                     {(canUpdateOperationAtl ||
                                       operationTechPubCanEditAtl(record)) &&
                                       canOpenAtlEditForRecord(record) && (
-                                      <>
-                                        <span className="text-gray-400">|</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedEntry(record);
-                                            setShowEditModal(true);
-                                          }}
-                                          className="hover:underline text-xs"
-                                          title={atlEditButtonTitle(record)}
-                                        >
-                                          Edit
-                                        </button>
-                                      </>
-                                    )}
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs"
+                                            title={atlEditButtonTitle(record)}
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
                                     {canDeleteOperationAtl && (
                                       <>
                                         <span className="text-gray-400">|</span>
@@ -3901,22 +3761,19 @@ export function Operation() {
                                 )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)?.split(
-                                  " / "
-                                )?.[0] ?? "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)?.split(
-                                  " / "
-                                )?.[1] ?? "-"}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTimeFromUtc(
-                                  record.originDate,
-                                  record.originTime,
-                                  record.destinationDate,
-                                  record.destinationTime
+                                {formatAtlPersistedComponentMetric2dp(
+                                  record,
+                                  "airframeRunTime"
                                 )}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {formatAtlPersistedComponentMetric2dp(
+                                  record,
+                                  "airframeAftt"
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                {formatAtlListTotalFlightHours(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {record.numberOfLandings ?? "-"}
@@ -4103,9 +3960,7 @@ export function Operation() {
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={effectiveAircraftId}
         permissionModuleCode={operationAtlPermissionModuleCode}
-        defaultAtlBatchFk={
-          showAtlBatchFilter ? selectedAtlBatchFk : undefined
-        }
+        defaultAtlBatchFk={showAtlBatchFilter ? selectedAtlBatchFk : undefined}
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -4128,7 +3983,6 @@ export function Operation() {
             operationAtlRole,
             selectedEntry.workStatus
           )}
-          listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
@@ -4155,12 +4009,10 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: `${computeTotalFlightHoursDecimalFromUtc(
-              selectedEntry.originDate,
-              selectedEntry.originTime,
-              selectedEntry.destinationDate,
-              selectedEntry.destinationTime
-            ).toFixed(2)}h`,
+            fltTime: (() => {
+              const raw = formatAtlListTotalFlightHours(selectedEntry);
+              return raw === "-" ? "—" : `${raw}h`;
+            })(),
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
             status: "Serviceable",
           }}
@@ -4168,698 +4020,714 @@ export function Operation() {
         />
       )}
 
-      {showExportModal && canExportOperationAtl && (() => {
-        const totalAvailable = activeExportColumnDefinitions.length;
-        const totalSelected = selectedExportColumns.length;
-        const progressPct =
-          totalAvailable === 0
-            ? 0
-            : Math.round((totalSelected / totalAvailable) * 100);
+      {showExportModal &&
+        canExportOperationAtl &&
+        (() => {
+          const totalAvailable = activeExportColumnDefinitions.length;
+          const totalSelected = selectedExportColumns.length;
+          const progressPct =
+            totalAvailable === 0
+              ? 0
+              : Math.round((totalSelected / totalAvailable) * 100);
 
-        const sections = activeExportCategoryView;
-        const sectionsCount = sections.length;
-        const activeIdx = sections.findIndex(
-          (s) => s.id === activeExportCategoryId
-        );
-        const activeSection = activeIdx >= 0 ? sections[activeIdx] : null;
-        const columnByKey = new Map(
-          activeExportColumnDefinitions.map((c) => [c.key, c])
-        );
-
-        // Portaled to document.body so the fixed overlay isn't trapped by any
-        // ancestor with `transform` / `filter` / `contain` that would otherwise
-        // create a new containing block and break `position: fixed`.
-
-        const countSelected = (keys: string[]) =>
-          keys.filter((k) => selectedExportColumns.includes(k)).length;
-
-        const setSelectionForKeys = (keys: string[], select: boolean) => {
-          if (keys.length === 0) return;
-          setSelectedExportColumns((current) => {
-            const set = new Set(current);
-            for (const k of keys) {
-              if (select) set.add(k);
-              else set.delete(k);
-            }
-            return Array.from(set);
-          });
-        };
-
-        const isSubGroupExpanded = (
-          categoryId: string,
-          sg: ExportColumnSubGroup
-        ): boolean => {
-          const key = subGroupKey(categoryId, sg.id);
-          if (key in exportSubGroupOverrides) {
-            return exportSubGroupOverrides[key];
-          }
-          return !sg.defaultCollapsed;
-        };
-
-        const toggleSubGroup = (
-          categoryId: string,
-          sg: ExportColumnSubGroup
-        ) => {
-          const key = subGroupKey(categoryId, sg.id);
-          setExportSubGroupOverrides((current) => ({
-            ...current,
-            [key]: !isSubGroupExpanded(categoryId, sg),
-          }));
-        };
-
-        const renderColumnTile = (column: ExportColumnDefinition) => {
-          const isSelected = selectedExportColumns.includes(column.key);
-          return (
-            <label
-              key={column.key}
-              className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 transition-all ${
-                isSelected
-                  ? "border-blue-400 bg-blue-50/70"
-                  : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
-              }`}
-            >
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={() => toggleExportColumn(column.key)}
-                className="border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
-              />
-              <span
-                className={`flex-1 truncate text-sm leading-tight ${
-                  isSelected
-                    ? "font-medium text-gray-900"
-                    : "text-gray-700 group-hover:text-gray-900"
-                }`}
-                title={column.label}
-              >
-                {column.label}
-              </span>
-            </label>
+          const sections = activeExportCategoryView;
+          const sectionsCount = sections.length;
+          const activeIdx = sections.findIndex(
+            (s) => s.id === activeExportCategoryId
           );
-        };
+          const activeSection = activeIdx >= 0 ? sections[activeIdx] : null;
+          const columnByKey = new Map(
+            activeExportColumnDefinitions.map((c) => [c.key, c])
+          );
 
-        return createPortal(
-          <div
-            className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 py-0 sm:items-center sm:px-4 sm:py-6"
-            onClick={() => !exportLoading && setShowExportModal(false)}
-            role="presentation"
-            style={{ position: "fixed", inset: 0 }}
-          >
-            <div
-              className="flex max-h-[100vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="export-columns-title"
-            >
-              {/* Header — inline-styled so the gradient/colors render even when
-                  the bundled Tailwind CSS strips opacity/gradient utilities. */}
-              <div
-                className="relative flex-shrink-0"
-                style={{
-                  background:
-                    "linear-gradient(90deg, #2563eb 0%, #2563eb 50%, #4f46e5 100%)",
-                  color: "#ffffff",
-                  borderBottom: "1px solid rgba(29, 78, 216, 0.4)",
-                }}
+          // Portaled to document.body so the fixed overlay isn't trapped by any
+          // ancestor with `transform` / `filter` / `contain` that would otherwise
+          // create a new containing block and break `position: fixed`.
+
+          const countSelected = (keys: string[]) =>
+            keys.filter((k) => selectedExportColumns.includes(k)).length;
+
+          const setSelectionForKeys = (keys: string[], select: boolean) => {
+            if (keys.length === 0) return;
+            setSelectedExportColumns((current) => {
+              const set = new Set(current);
+              for (const k of keys) {
+                if (select) set.add(k);
+                else set.delete(k);
+              }
+              return Array.from(set);
+            });
+          };
+
+          const isSubGroupExpanded = (
+            categoryId: string,
+            sg: ExportColumnSubGroup
+          ): boolean => {
+            const key = subGroupKey(categoryId, sg.id);
+            if (key in exportSubGroupOverrides) {
+              return exportSubGroupOverrides[key];
+            }
+            return !sg.defaultCollapsed;
+          };
+
+          const toggleSubGroup = (
+            categoryId: string,
+            sg: ExportColumnSubGroup
+          ) => {
+            const key = subGroupKey(categoryId, sg.id);
+            setExportSubGroupOverrides((current) => ({
+              ...current,
+              [key]: !isSubGroupExpanded(categoryId, sg),
+            }));
+          };
+
+          const renderColumnTile = (column: ExportColumnDefinition) => {
+            const isSelected = selectedExportColumns.includes(column.key);
+            return (
+              <label
+                key={column.key}
+                className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 transition-all ${
+                  isSelected
+                    ? "border-blue-400 bg-blue-50/70"
+                    : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
+                }`}
               >
-                <div className="flex items-start gap-3 px-5 py-4">
-                  {/* Leading icon badge */}
-                  <div
-                    className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
-                    style={{
-                      backgroundColor: "rgba(255,255,255,0.2)",
-                      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)",
-                    }}
-                    aria-hidden
-                  >
-                    <Download
-                      className="h-5 w-5"
-                      style={{ color: "#ffffff" }}
-                    />
-                  </div>
-                  {/* Title + view chip + subtitle */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                      <h3
-                        id="export-columns-title"
-                        className="text-xl font-bold leading-tight"
-                        style={{ color: "#ffffff" }}
-                      >
-                        Export Columns
-                      </h3>
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-                        style={{
-                          backgroundColor: "rgba(255,255,255,0.22)",
-                          color: "#ffffff",
-                          boxShadow:
-                            "inset 0 0 0 1px rgba(255,255,255,0.4), 0 1px 2px 0 rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: "#ffffff" }}
-                        />
-                        {groupBy === "allColumns"
-                          ? "All Columns"
-                          : groupBy === "fuelAndOilData"
-                          ? "Fuel and Oil"
-                          : groupBy === "maintenancePlanning"
-                          ? "Maintenance Planning"
-                          : "Reliability Monitoring"}
-                      </span>
-                    </div>
-                    <p
-                      className="mt-1.5 text-sm font-medium"
-                      style={{ color: "#dbeafe" }}
-                    >
-                      Fleet Time Monitoring{" "}
-                      <span style={{ color: "#93c5fd" }}>·</span> Pick columns
-                      to include in the export
-                    </p>
-                  </div>
-                  {/* Selected counter — always visible */}
-                  <div
-                    className="hidden flex-shrink-0 flex-col items-end leading-tight sm:flex"
-                    aria-live="polite"
-                  >
-                    <span
-                      className="text-lg font-bold"
-                      style={{ color: "#ffffff" }}
-                    >
-                      {totalSelected}
-                      <span style={{ color: "#bfdbfe" }}>
-                        /{totalAvailable}
-                      </span>
-                    </span>
-                    <span
-                      className="text-[10px] font-semibold uppercase tracking-wider"
-                      style={{ color: "#dbeafe" }}
-                    >
-                      Columns
-                    </span>
-                  </div>
-                  {/* Close */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !exportLoading && setShowExportModal(false)
-                    }
-                    disabled={exportLoading}
-                    className="flex-shrink-0 rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    style={{ color: "#eff6ff" }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor =
-                        "rgba(255,255,255,0.18)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }}
-                    aria-label="Close export dialog"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                {/* Progress bar — flush to bottom edge */}
-                <div
-                  className="h-1 w-full overflow-hidden"
-                  style={{ backgroundColor: "rgba(255,255,255,0.18)" }}
-                  role="progressbar"
-                  aria-valuenow={progressPct}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Columns selected"
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => toggleExportColumn(column.key)}
+                  className="border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
+                />
+                <span
+                  className={`flex-1 truncate text-sm leading-tight ${
+                    isSelected
+                      ? "font-medium text-gray-900"
+                      : "text-gray-700 group-hover:text-gray-900"
+                  }`}
+                  title={column.label}
                 >
-                  <div
-                    className="h-full transition-[width] duration-300 ease-out"
-                    style={{
-                      width: `${progressPct}%`,
-                      backgroundColor: "#ffffff",
-                    }}
-                  />
-                </div>
-              </div>
+                  {column.label}
+                </span>
+              </label>
+            );
+          };
 
-              {/* Toolbar — refined search + global actions */}
-              <div className="flex flex-shrink-0 flex-col gap-2.5 border-b border-gray-200 bg-white px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3 sm:px-5">
-                {/* Search input */}
-                <div className="relative flex-1">
-                  <Search
-                    className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${
-                      exportColumnSearch ? "text-blue-500" : "text-gray-400"
-                    }`}
-                    aria-hidden
-                  />
-                  <input
-                    type="text"
-                    value={exportColumnSearch}
-                    onChange={(e) => setExportColumnSearch(e.target.value)}
-                    placeholder="Search across all sections…"
-                    aria-label="Search columns"
-                    className={`peer w-full rounded-lg border bg-gray-50 py-2 pl-9 pr-9 text-sm text-gray-800 placeholder:text-gray-400 transition-shadow focus:bg-white focus:outline-none ${
-                      exportColumnSearch
-                        ? "border-blue-400 ring-2 ring-blue-500/20"
-                        : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    }`}
-                  />
-                  {exportColumnSearch ? (
-                    <button
-                      type="button"
-                      onClick={() => setExportColumnSearch("")}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                      aria-label="Clear search"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : (
-                    <kbd
-                      className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 select-none rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400 sm:inline-block"
+          return createPortal(
+            <div
+              className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 py-0 sm:items-center sm:px-4 sm:py-6"
+              onClick={() => !exportLoading && setShowExportModal(false)}
+              role="presentation"
+              style={{ position: "fixed", inset: 0 }}
+            >
+              <div
+                className="flex max-h-[100vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="export-columns-title"
+              >
+                {/* Header — inline-styled so the gradient/colors render even when
+                  the bundled Tailwind CSS strips opacity/gradient utilities. */}
+                <div
+                  className="relative flex-shrink-0"
+                  style={{
+                    background:
+                      "linear-gradient(90deg, #2563eb 0%, #2563eb 50%, #4f46e5 100%)",
+                    color: "#ffffff",
+                    borderBottom: "1px solid rgba(29, 78, 216, 0.4)",
+                  }}
+                >
+                  <div className="flex items-start gap-3 px-5 py-4">
+                    {/* Leading icon badge */}
+                    <div
+                      className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.2)",
+                        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)",
+                      }}
                       aria-hidden
                     >
-                      Search
-                    </kbd>
-                  )}
-                </div>
-                {/* Match counter + bulk actions */}
-                <div className="flex flex-shrink-0 items-center gap-1.5">
-                  {exportColumnSearch && (
-                    <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                      <Filter className="h-3 w-3" />
-                      {sections.reduce(
-                        (sum, s) => sum + s.keys.length,
-                        0
-                      )}{" "}
-                      match
-                      {sections.reduce(
-                        (sum, s) => sum + s.keys.length,
-                        0
-                      ) === 1
-                        ? ""
-                        : "es"}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedExportColumns(
-                        activeExportColumnDefinitions.map(
-                          (column) => column.key
-                        )
-                      )
-                    }
-                    disabled={totalSelected === totalAvailable}
-                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedExportColumns([])}
-                    disabled={totalSelected === 0}
-                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              {/* Body — sidebar tabs + content */}
-              {sectionsCount === 0 ? (
-                <div className="flex-1 overflow-y-auto px-6 py-16">
-                  <div className="flex flex-col items-center justify-center gap-2 text-center">
-                    <Search className="h-10 w-10 text-gray-300" />
-                    <p className="text-sm font-medium text-gray-700">
-                      No columns match "{exportColumnSearch}"
-                    </p>
+                      <Download
+                        className="h-5 w-5"
+                        style={{ color: "#ffffff" }}
+                      />
+                    </div>
+                    {/* Title + view chip + subtitle */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <h3
+                          id="export-columns-title"
+                          className="text-xl font-bold leading-tight"
+                          style={{ color: "#ffffff" }}
+                        >
+                          Export Columns
+                        </h3>
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                          style={{
+                            backgroundColor: "rgba(255,255,255,0.22)",
+                            color: "#ffffff",
+                            boxShadow:
+                              "inset 0 0 0 1px rgba(255,255,255,0.4), 0 1px 2px 0 rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: "#ffffff" }}
+                          />
+                          {groupBy === "allColumns"
+                            ? "All Columns"
+                            : groupBy === "fuelAndOilData"
+                            ? "Fuel and Oil"
+                            : groupBy === "maintenancePlanning"
+                            ? "Maintenance Planning"
+                            : "Reliability Monitoring"}
+                        </span>
+                      </div>
+                      <p
+                        className="mt-1.5 text-sm font-medium"
+                        style={{ color: "#dbeafe" }}
+                      >
+                        Fleet Time Monitoring{" "}
+                        <span style={{ color: "#93c5fd" }}>·</span> Pick columns
+                        to include in the export
+                      </p>
+                    </div>
+                    {/* Selected counter — always visible */}
+                    <div
+                      className="hidden flex-shrink-0 flex-col items-end leading-tight sm:flex"
+                      aria-live="polite"
+                    >
+                      <span
+                        className="text-lg font-bold"
+                        style={{ color: "#ffffff" }}
+                      >
+                        {totalSelected}
+                        <span style={{ color: "#bfdbfe" }}>
+                          /{totalAvailable}
+                        </span>
+                      </span>
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-wider"
+                        style={{ color: "#dbeafe" }}
+                      >
+                        Columns
+                      </span>
+                    </div>
+                    {/* Close */}
                     <button
                       type="button"
-                      onClick={() => setExportColumnSearch("")}
-                      className="text-sm font-medium text-blue-600 hover:underline"
+                      onClick={() =>
+                        !exportLoading && setShowExportModal(false)
+                      }
+                      disabled={exportLoading}
+                      className="flex-shrink-0 rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ color: "#eff6ff" }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                          "rgba(255,255,255,0.18)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }}
+                      aria-label="Close export dialog"
                     >
-                      Clear search
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  {/* Progress bar — flush to bottom edge */}
+                  <div
+                    className="h-1 w-full overflow-hidden"
+                    style={{ backgroundColor: "rgba(255,255,255,0.18)" }}
+                    role="progressbar"
+                    aria-valuenow={progressPct}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Columns selected"
+                  >
+                    <div
+                      className="h-full transition-[width] duration-300 ease-out"
+                      style={{
+                        width: `${progressPct}%`,
+                        backgroundColor: "#ffffff",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Toolbar — refined search + global actions */}
+                <div className="flex flex-shrink-0 flex-col gap-2.5 border-b border-gray-200 bg-white px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3 sm:px-5">
+                  {/* Search input */}
+                  <div className="relative flex-1">
+                    <Search
+                      className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${
+                        exportColumnSearch ? "text-blue-500" : "text-gray-400"
+                      }`}
+                      aria-hidden
+                    />
+                    <input
+                      type="text"
+                      value={exportColumnSearch}
+                      onChange={(e) => setExportColumnSearch(e.target.value)}
+                      placeholder="Search across all sections…"
+                      aria-label="Search columns"
+                      className={`peer w-full rounded-lg border bg-gray-50 py-2 pl-9 pr-9 text-sm text-gray-800 placeholder:text-gray-400 transition-shadow focus:bg-white focus:outline-none ${
+                        exportColumnSearch
+                          ? "border-blue-400 ring-2 ring-blue-500/20"
+                          : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      }`}
+                    />
+                    {exportColumnSearch ? (
+                      <button
+                        type="button"
+                        onClick={() => setExportColumnSearch("")}
+                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <kbd
+                        className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 select-none rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400 sm:inline-block"
+                        aria-hidden
+                      >
+                        Search
+                      </kbd>
+                    )}
+                  </div>
+                  {/* Match counter + bulk actions */}
+                  <div className="flex flex-shrink-0 items-center gap-1.5">
+                    {exportColumnSearch && (
+                      <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
+                        <Filter className="h-3 w-3" />
+                        {sections.reduce(
+                          (sum, s) => sum + s.keys.length,
+                          0
+                        )}{" "}
+                        match
+                        {sections.reduce((sum, s) => sum + s.keys.length, 0) ===
+                        1
+                          ? ""
+                          : "es"}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedExportColumns(
+                          activeExportColumnDefinitions.map(
+                            (column) => column.key
+                          )
+                        )
+                      }
+                      disabled={totalSelected === totalAvailable}
+                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExportColumns([])}
+                      disabled={totalSelected === 0}
+                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
+                    >
+                      Clear
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  {/* Stepper tab strip — horizontal pills, scrollable */}
-                  <nav
-                    aria-label="Export sections"
-                    className="flex-shrink-0 overflow-x-auto border-b border-gray-200 bg-white px-3 py-2"
-                  >
-                    <ul className="flex w-max items-center gap-1.5">
-                      {sections.map((section, idx) => {
-                        const selected = countSelected(section.keys);
-                        const total = section.keys.length;
-                        const isActive = section.id === activeExportCategoryId;
-                        const isComplete = selected === total && total > 0;
-                        const isPartial = selected > 0 && selected < total;
-                        return (
-                          <li key={section.id}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveExportCategoryId(section.id)
-                              }
-                              className={`group relative flex items-center gap-2 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
-                                isActive
-                                  ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm"
-                                  : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-                              }`}
-                              aria-current={isActive ? "page" : undefined}
-                            >
-                              <span
-                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
-                                  isComplete
-                                    ? "bg-emerald-500 text-white"
-                                    : isActive
-                                    ? `${section.accent} text-white`
-                                    : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
-                                }`}
-                                aria-hidden
-                              >
-                                {isComplete ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                  idx + 1
-                                )}
-                              </span>
-                              <span>{section.shortLabel}</span>
-                              {isPartial && (
-                                <span
-                                  className="rounded-full bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700"
-                                  title={`${selected} of ${total} selected`}
-                                >
-                                  {selected}/{total}
-                                </span>
-                              )}
-                              {isActive && (
-                                <span
-                                  className={`absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full ${section.accent}`}
-                                  aria-hidden
-                                />
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </nav>
 
-                  {/* Active section content (scrollable) */}
-                  <div className="flex-1 overflow-y-auto bg-gray-50/40 px-4 py-4 sm:px-5 sm:py-4">
-                    {activeSection && (() => {
-                      const sectionSelected = countSelected(activeSection.keys);
-                      const sectionTotal = activeSection.keys.length;
-                      const sectionComplete =
-                        sectionSelected === sectionTotal && sectionTotal > 0;
-                      return (
-                      <div className="space-y-3">
-                        {/* Section header card — compact, no redundant count */}
-                        <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <span
-                                className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${activeSection.accent}`}
-                                aria-hidden
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="truncate text-sm font-semibold text-gray-900">
-                                    {activeSection.label}
-                                  </h4>
-                                  {sectionComplete ? (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                      <CheckCircle2 className="h-2.5 w-2.5" />
-                                      Complete
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className={`text-[11px] font-semibold ${activeSection.accentText}`}
-                                    >
-                                      {sectionSelected}/{sectionTotal}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="truncate text-[11px] text-gray-500">
-                                  {activeSection.description}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectionForKeys(activeSection.keys, true)
-                                }
-                                disabled={sectionComplete}
-                                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Select all
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectionForKeys(activeSection.keys, false)
-                                }
-                                disabled={sectionSelected === 0}
-                                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Clear
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Section body: subGroups accordion OR flat grid */}
-                        {activeSection.subGroups &&
-                        activeSection.subGroups.length > 0 ? (
-                          <div className="space-y-3">
-                            {activeSection.subGroups
-                              .filter((sg) => sg.keys.length > 0)
-                              .map((sg) => {
-                                const expanded = isSubGroupExpanded(
-                                  activeSection.id,
-                                  sg
-                                );
-                                const sgSelected = countSelected(sg.keys);
-                                const sgTotal = sg.keys.length;
-                                const sgAll = sgSelected === sgTotal;
-                                return (
-                                  <section
-                                    key={sg.id}
-                                    className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-                                  >
-                                    <div
-                                      className={`flex items-center justify-between gap-2 border-gray-100 px-3 py-2 transition-colors ${
-                                        expanded
-                                          ? "border-b bg-gray-50/70"
-                                          : "bg-white hover:bg-gray-50/70"
-                                      }`}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          toggleSubGroup(activeSection.id, sg)
-                                        }
-                                        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left"
-                                        aria-expanded={expanded}
-                                        aria-controls={`subgroup-${activeSection.id}-${sg.id}`}
-                                      >
-                                        <span
-                                          className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md ${
-                                            expanded
-                                              ? "bg-gray-200/70 text-gray-700"
-                                              : "text-gray-500"
-                                          }`}
-                                          aria-hidden
-                                        >
-                                          <ChevronDown
-                                            className={`h-3.5 w-3.5 transition-transform ${
-                                              expanded ? "" : "-rotate-90"
-                                            }`}
-                                          />
-                                        </span>
-                                        <h5 className="truncate text-sm font-semibold text-gray-800">
-                                          {sg.label}
-                                        </h5>
-                                        <span
-                                          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                            sgSelected === 0
-                                              ? "bg-gray-100 text-gray-500"
-                                              : sgAll
-                                              ? "bg-emerald-100 text-emerald-700"
-                                              : "bg-blue-100 text-blue-700"
-                                          }`}
-                                        >
-                                          {sgAll && (
-                                            <CheckCircle2 className="h-2.5 w-2.5" />
-                                          )}
-                                          {sgSelected}/{sgTotal}
-                                        </span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectionForKeys(sg.keys, !sgAll)
-                                        }
-                                        className="flex-shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-                                      >
-                                        {sgAll ? "Deselect" : "Select"}
-                                      </button>
-                                    </div>
-                                    {expanded && (
-                                      <div
-                                        id={`subgroup-${activeSection.id}-${sg.id}`}
-                                        className="grid grid-cols-1 gap-1.5 p-2.5 sm:grid-cols-2"
-                                      >
-                                        {sg.keys
-                                          .map((k) => columnByKey.get(k))
-                                          .filter(
-                                            (
-                                              col
-                                            ): col is ExportColumnDefinition =>
-                                              col != null
-                                          )
-                                          .map(renderColumnTile)}
-                                      </div>
-                                    )}
-                                  </section>
-                                );
-                              })}
-                          </div>
-                        ) : (
-                          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-2.5 shadow-sm">
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {activeSection.keys
-                                .map((k) => columnByKey.get(k))
-                                .filter(
-                                  (col): col is ExportColumnDefinition =>
-                                    col != null
-                                )
-                                .map(renderColumnTile)}
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {/* Sticky footer — stepper nav + status + actions */}
-              <div className="flex flex-shrink-0 flex-col gap-2 border-t border-gray-200 bg-white px-4 py-2.5 sm:px-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {/* Stepper navigation (Previous / Section X of Y / Next) */}
-                  {sectionsCount > 0 && (
-                    <div className="flex items-center gap-1.5">
+                {/* Body — sidebar tabs + content */}
+                {sectionsCount === 0 ? (
+                  <div className="flex-1 overflow-y-auto px-6 py-16">
+                    <div className="flex flex-col items-center justify-center gap-2 text-center">
+                      <Search className="h-10 w-10 text-gray-300" />
+                      <p className="text-sm font-medium text-gray-700">
+                        No columns match "{exportColumnSearch}"
+                      </p>
                       <button
                         type="button"
-                        onClick={() => {
-                          const prev = sections[activeIdx - 1];
-                          if (prev) setActiveExportCategoryId(prev.id);
-                        }}
-                        disabled={activeIdx <= 0}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Previous section"
+                        onClick={() => setExportColumnSearch("")}
+                        className="text-sm font-medium text-blue-600 hover:underline"
                       >
-                        <ChevronUp className="h-3.5 w-3.5 -rotate-90" />
-                      </button>
-                      <span className="whitespace-nowrap text-[11px] font-medium text-gray-600">
-                        Section{" "}
-                        <span className="font-semibold text-gray-900">
-                          {activeIdx + 1}
-                        </span>{" "}
-                        of{" "}
-                        <span className="font-semibold text-gray-900">
-                          {sectionsCount}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = sections[activeIdx + 1];
-                          if (next) setActiveExportCategoryId(next.id);
-                        }}
-                        disabled={activeIdx >= sectionsCount - 1}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Next section"
-                      >
-                        <ChevronUp className="h-3.5 w-3.5 rotate-90" />
+                        Clear search
                       </button>
                     </div>
-                  )}
-                  <p className="text-[11px] text-gray-600">
-                    {totalSelected === 0 ? (
-                      <span className="text-gray-500">
-                        Select at least one column to export
-                      </span>
-                    ) : (
-                      <>
-                        <span className="font-semibold text-gray-900">
-                          {totalSelected}
-                        </span>{" "}
-                        column{totalSelected === 1 ? "" : "s"} ready
-                      </>
+                  </div>
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {/* Stepper tab strip — horizontal pills, scrollable */}
+                    <nav
+                      aria-label="Export sections"
+                      className="flex-shrink-0 overflow-x-auto border-b border-gray-200 bg-white px-3 py-2"
+                    >
+                      <ul className="flex w-max items-center gap-1.5">
+                        {sections.map((section, idx) => {
+                          const selected = countSelected(section.keys);
+                          const total = section.keys.length;
+                          const isActive =
+                            section.id === activeExportCategoryId;
+                          const isComplete = selected === total && total > 0;
+                          const isPartial = selected > 0 && selected < total;
+                          return (
+                            <li key={section.id}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActiveExportCategoryId(section.id)
+                                }
+                                className={`group relative flex items-center gap-2 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
+                                  isActive
+                                    ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm"
+                                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                                }`}
+                                aria-current={isActive ? "page" : undefined}
+                              >
+                                <span
+                                  className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
+                                    isComplete
+                                      ? "bg-emerald-500 text-white"
+                                      : isActive
+                                      ? `${section.accent} text-white`
+                                      : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
+                                  }`}
+                                  aria-hidden
+                                >
+                                  {isComplete ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                  ) : (
+                                    idx + 1
+                                  )}
+                                </span>
+                                <span>{section.shortLabel}</span>
+                                {isPartial && (
+                                  <span
+                                    className="rounded-full bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700"
+                                    title={`${selected} of ${total} selected`}
+                                  >
+                                    {selected}/{total}
+                                  </span>
+                                )}
+                                {isActive && (
+                                  <span
+                                    className={`absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full ${section.accent}`}
+                                    aria-hidden
+                                  />
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </nav>
+
+                    {/* Active section content (scrollable) */}
+                    <div className="flex-1 overflow-y-auto bg-gray-50/40 px-4 py-4 sm:px-5 sm:py-4">
+                      {activeSection &&
+                        (() => {
+                          const sectionSelected = countSelected(
+                            activeSection.keys
+                          );
+                          const sectionTotal = activeSection.keys.length;
+                          const sectionComplete =
+                            sectionSelected === sectionTotal &&
+                            sectionTotal > 0;
+                          return (
+                            <div className="space-y-3">
+                              {/* Section header card — compact, no redundant count */}
+                              <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex min-w-0 items-center gap-2.5">
+                                    <span
+                                      className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${activeSection.accent}`}
+                                      aria-hidden
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="truncate text-sm font-semibold text-gray-900">
+                                          {activeSection.label}
+                                        </h4>
+                                        {sectionComplete ? (
+                                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                            <CheckCircle2 className="h-2.5 w-2.5" />
+                                            Complete
+                                          </span>
+                                        ) : (
+                                          <span
+                                            className={`text-[11px] font-semibold ${activeSection.accentText}`}
+                                          >
+                                            {sectionSelected}/{sectionTotal}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="truncate text-[11px] text-gray-500">
+                                        {activeSection.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectionForKeys(
+                                          activeSection.keys,
+                                          true
+                                        )
+                                      }
+                                      disabled={sectionComplete}
+                                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      Select all
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectionForKeys(
+                                          activeSection.keys,
+                                          false
+                                        )
+                                      }
+                                      disabled={sectionSelected === 0}
+                                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Section body: subGroups accordion OR flat grid */}
+                              {activeSection.subGroups &&
+                              activeSection.subGroups.length > 0 ? (
+                                <div className="space-y-3">
+                                  {activeSection.subGroups
+                                    .filter((sg) => sg.keys.length > 0)
+                                    .map((sg) => {
+                                      const expanded = isSubGroupExpanded(
+                                        activeSection.id,
+                                        sg
+                                      );
+                                      const sgSelected = countSelected(sg.keys);
+                                      const sgTotal = sg.keys.length;
+                                      const sgAll = sgSelected === sgTotal;
+                                      return (
+                                        <section
+                                          key={sg.id}
+                                          className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                                        >
+                                          <div
+                                            className={`flex items-center justify-between gap-2 border-gray-100 px-3 py-2 transition-colors ${
+                                              expanded
+                                                ? "border-b bg-gray-50/70"
+                                                : "bg-white hover:bg-gray-50/70"
+                                            }`}
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                toggleSubGroup(
+                                                  activeSection.id,
+                                                  sg
+                                                )
+                                              }
+                                              className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left"
+                                              aria-expanded={expanded}
+                                              aria-controls={`subgroup-${activeSection.id}-${sg.id}`}
+                                            >
+                                              <span
+                                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md ${
+                                                  expanded
+                                                    ? "bg-gray-200/70 text-gray-700"
+                                                    : "text-gray-500"
+                                                }`}
+                                                aria-hidden
+                                              >
+                                                <ChevronDown
+                                                  className={`h-3.5 w-3.5 transition-transform ${
+                                                    expanded ? "" : "-rotate-90"
+                                                  }`}
+                                                />
+                                              </span>
+                                              <h5 className="truncate text-sm font-semibold text-gray-800">
+                                                {sg.label}
+                                              </h5>
+                                              <span
+                                                className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                                  sgSelected === 0
+                                                    ? "bg-gray-100 text-gray-500"
+                                                    : sgAll
+                                                    ? "bg-emerald-100 text-emerald-700"
+                                                    : "bg-blue-100 text-blue-700"
+                                                }`}
+                                              >
+                                                {sgAll && (
+                                                  <CheckCircle2 className="h-2.5 w-2.5" />
+                                                )}
+                                                {sgSelected}/{sgTotal}
+                                              </span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setSelectionForKeys(
+                                                  sg.keys,
+                                                  !sgAll
+                                                )
+                                              }
+                                              className="flex-shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                                            >
+                                              {sgAll ? "Deselect" : "Select"}
+                                            </button>
+                                          </div>
+                                          {expanded && (
+                                            <div
+                                              id={`subgroup-${activeSection.id}-${sg.id}`}
+                                              className="grid grid-cols-1 gap-1.5 p-2.5 sm:grid-cols-2"
+                                            >
+                                              {sg.keys
+                                                .map((k) => columnByKey.get(k))
+                                                .filter(
+                                                  (
+                                                    col
+                                                  ): col is ExportColumnDefinition =>
+                                                    col != null
+                                                )
+                                                .map(renderColumnTile)}
+                                            </div>
+                                          )}
+                                        </section>
+                                      );
+                                    })}
+                                </div>
+                              ) : (
+                                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-2.5 shadow-sm">
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    {activeSection.keys
+                                      .map((k) => columnByKey.get(k))
+                                      .filter(
+                                        (col): col is ExportColumnDefinition =>
+                                          col != null
+                                      )
+                                      .map(renderColumnTile)}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sticky footer — stepper nav + status + actions */}
+                <div className="flex flex-shrink-0 flex-col gap-2 border-t border-gray-200 bg-white px-4 py-2.5 sm:px-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {/* Stepper navigation (Previous / Section X of Y / Next) */}
+                    {sectionsCount > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prev = sections[activeIdx - 1];
+                            if (prev) setActiveExportCategoryId(prev.id);
+                          }}
+                          disabled={activeIdx <= 0}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous section"
+                        >
+                          <ChevronUp className="h-3.5 w-3.5 -rotate-90" />
+                        </button>
+                        <span className="whitespace-nowrap text-[11px] font-medium text-gray-600">
+                          Section{" "}
+                          <span className="font-semibold text-gray-900">
+                            {activeIdx + 1}
+                          </span>{" "}
+                          of{" "}
+                          <span className="font-semibold text-gray-900">
+                            {sectionsCount}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = sections[activeIdx + 1];
+                            if (next) setActiveExportCategoryId(next.id);
+                          }}
+                          disabled={activeIdx >= sectionsCount - 1}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next section"
+                        >
+                          <ChevronUp className="h-3.5 w-3.5 rotate-90" />
+                        </button>
+                      </div>
                     )}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowExportModal(false)}
-                    disabled={exportLoading}
-                    className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleExport("csv")}
-                    disabled={
-                      exportLoading || selectedExportColumns.length === 0
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-white px-3.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {exportLoading ? (
-                      <SpinnerIcon
-                        size="sm"
-                        className="h-3.5 w-3.5 text-blue-600"
-                        aria-hidden
-                      />
-                    ) : (
-                      <FileText className="h-3.5 w-3.5" />
-                    )}
-                    Export CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleExport("xlsx")}
-                    disabled={
-                      exportLoading || selectedExportColumns.length === 0
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {exportLoading ? (
-                      <SpinnerIcon
-                        size="sm"
-                        className="h-3.5 w-3.5 text-white"
-                        aria-hidden
-                      />
-                    ) : (
-                      <Download className="h-3.5 w-3.5" />
-                    )}
-                    Export XLSX
-                  </button>
+                    <p className="text-[11px] text-gray-600">
+                      {totalSelected === 0 ? (
+                        <span className="text-gray-500">
+                          Select at least one column to export
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-semibold text-gray-900">
+                            {totalSelected}
+                          </span>{" "}
+                          column{totalSelected === 1 ? "" : "s"} ready
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowExportModal(false)}
+                      disabled={exportLoading}
+                      className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleExport("csv")}
+                      disabled={
+                        exportLoading || selectedExportColumns.length === 0
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-white px-3.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {exportLoading ? (
+                        <SpinnerIcon
+                          size="sm"
+                          className="h-3.5 w-3.5 text-blue-600"
+                          aria-hidden
+                        />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5" />
+                      )}
+                      Export CSV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleExport("xlsx")}
+                      disabled={
+                        exportLoading || selectedExportColumns.length === 0
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {exportLoading ? (
+                        <SpinnerIcon
+                          size="sm"
+                          className="h-3.5 w-3.5 text-white"
+                          aria-hidden
+                        />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      Export XLSX
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>,
-          document.body
-        );
-      })()}
+            </div>,
+            document.body
+          );
+        })()}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}
       {showFileViewModal && (

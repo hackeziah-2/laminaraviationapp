@@ -3,7 +3,6 @@ import { getMe } from "../api/authApi";
 import {
   getAircraftTechnicalLogById,
   AircraftTechnicalLog,
-  type AtlListViewComputedComponentTimes,
 } from "../api/aircraftTechnicalLogApi";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
@@ -26,8 +25,6 @@ interface EditTechnicalLogbookEntryModalProps {
   viewerRole?: string;
   /** Operation: Technical Publication may only change White ATL / DFP uploads in this modal. */
   editRestrictedToWhiteAtlDfpOnly?: boolean;
-  /** Operation: per-row list computed component times when API omits cumulative values. */
-  listViewComputedTimes?: AtlListViewComputedComponentTimes | null;
 }
 
 /**
@@ -44,7 +41,6 @@ export function EditTechnicalLogbookEntryModal({
   permissionModuleCode,
   viewerRole,
   editRestrictedToWhiteAtlDfpOnly = false,
-  listViewComputedTimes = null,
 }: EditTechnicalLogbookEntryModalProps) {
   const { user: permUser } = useUserPermissions();
   const [meRole, setMeRole] = useState<string | undefined>(undefined);
@@ -181,7 +177,6 @@ export function EditTechnicalLogbookEntryModal({
           applyTechPubAttachmentOnlyRestriction
         }
         forceReadOnly={readOnlyEntry}
-        listViewComputedTimes={listViewComputedTimes}
       />
     );
   }
