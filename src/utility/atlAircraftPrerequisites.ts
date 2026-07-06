@@ -148,6 +148,102 @@ function formatAircraftDetailAlertValue(value: unknown): string {
   return Number.isFinite(n) ? n.toFixed(2) : "—";
 }
 
+function formatAtlInitialHourValue(value: unknown): string {
+  if (value == null || value === "") return "";
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "";
+}
+
+function parseAtlBaselineHour(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function resolveAircraftEngineLifeTimeLimit(
+  aircraft: Aircraft | null | undefined
+): unknown {
+  const a = (aircraft ?? {}) as Record<string, unknown>;
+  return (
+    aircraft?.engineLifeTimeLimit ??
+    a.engineLifeTimeLimit ??
+    a.engine_life_time_limit ??
+    a.life_time_limit_engine
+  );
+}
+
+function resolveAircraftPropellerLifeTimeLimit(
+  aircraft: Aircraft | null | undefined
+): unknown {
+  const a = (aircraft ?? {}) as Record<string, unknown>;
+  return (
+    aircraft?.propellerLifeTimeLimit ??
+    a.propellerLifeTimeLimit ??
+    a.propeller_life_time_limit ??
+    a.life_time_limit_propeller
+  );
+}
+
+/** Initial ATL form component values when no previous ATL exists (aircraft master data). */
+export function buildAtlInitialValuesFromAircraftFallback(
+  aircraft: Aircraft | null | undefined
+): {
+  airframeAftt: string;
+  engineTsn: string;
+  engineTso: string;
+  engineTbo: string;
+  propellerTsn: string;
+  propellerTso: string;
+  propellerTbo: string;
+  lifeTimeLimitEngine: string;
+  lifeTimeLimitPropeller: string;
+  previousEngineTsn: number;
+  previousEngineTso: number;
+  previousPropellerTsn: number;
+  previousPropellerTso: number;
+} {
+  const airframeAftt = resolveAircraftAirframeAftt(aircraft);
+  const engineTsn = resolveAircraftEnginePropHour(aircraft, "engineTsn");
+  const engineTso = resolveAircraftEnginePropHour(aircraft, "engineTso");
+  const propellerTsn = resolveAircraftEnginePropHour(aircraft, "propellerTsn");
+  const propellerTso = resolveAircraftEnginePropHour(aircraft, "propellerTso");
+  const engineLimit = resolveAircraftEngineLifeTimeLimit(aircraft);
+  const propellerLimit = resolveAircraftPropellerLifeTimeLimit(aircraft);
+
+  const engineTsoNum = Number(engineTso);
+  const engineLimitNum = Number(engineLimit);
+  const engineTbo =
+    Number.isFinite(engineLimitNum) && Number.isFinite(engineTsoNum)
+      ? engineLimitNum - engineTsoNum
+      : null;
+
+  const propellerTsoNum = Number(propellerTso);
+  const propellerLimitNum = Number(propellerLimit);
+  const propellerTbo =
+    Number.isFinite(propellerLimitNum) && Number.isFinite(propellerTsoNum)
+      ? propellerLimitNum - propellerTsoNum
+      : null;
+
+  return {
+    airframeAftt: formatAtlInitialHourValue(airframeAftt),
+    engineTsn: formatAtlInitialHourValue(engineTsn),
+    engineTso: formatAtlInitialHourValue(engineTso),
+    engineTbo:
+      engineTbo != null && Number.isFinite(engineTbo) ? String(engineTbo) : "",
+    propellerTsn: formatAtlInitialHourValue(propellerTsn),
+    propellerTso: formatAtlInitialHourValue(propellerTso),
+    propellerTbo:
+      propellerTbo != null && Number.isFinite(propellerTbo)
+        ? String(propellerTbo)
+        : "",
+    lifeTimeLimitEngine: formatAtlInitialHourValue(engineLimit),
+    lifeTimeLimitPropeller: formatAtlInitialHourValue(propellerLimit),
+    previousEngineTsn: parseAtlBaselineHour(engineTsn),
+    previousEngineTso: parseAtlBaselineHour(engineTso),
+    previousPropellerTsn: parseAtlBaselineHour(propellerTsn),
+    previousPropellerTso: parseAtlBaselineHour(propellerTso),
+  };
+}
+
 export function buildAircraftDetailsRequiredForAtlHtml(
   aircraft: Aircraft | null | undefined
 ): string {

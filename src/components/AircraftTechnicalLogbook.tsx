@@ -8,7 +8,6 @@ import {
   Download,
   Plus,
   FileText,
-  Clock,
   Trash2,
   RefreshCw,
   Filter,
@@ -205,33 +204,18 @@ export function AircraftTechnicalLogbook() {
 
   const selectedCount = selectedEntryIds.size;
 
-  // Map backend data to frontend format
-  const mapToLogbookEntry = (
-    apiEntry: AircraftTechnicalLog,
-    index: number
-  ): LogbookEntry => {
-    // Format route from stations
+  // Map backend data to frontend format (presentation only — no derived values)
+  const mapToLogbookEntry = (apiEntry: AircraftTechnicalLog): LogbookEntry => {
     const route = `${apiEntry.originStation || ""} → ${
       apiEntry.destinationStation || ""
     }`;
 
-    // Format flight time from hobbs meter total or tachometer total
-    const fltTime = `${(
-      apiEntry.hobbsMeterTotal ||
-      apiEntry.tachometerTotal ||
-      0
-    ).toFixed(2)}h`;
+    const fltTimeRaw = apiEntry.totalFlightHours;
+    const fltTime =
+      fltTimeRaw != null && String(fltTimeRaw).trim() !== ""
+        ? `${String(fltTimeRaw).trim()}h`
+        : "—";
 
-    // Determine status based on actions taken or remarks
-    // If there are actions taken or remarks indicating maintenance, mark as "Under Maintenance"
-    // const status: "Serviceable" | "Under Maintenance" =
-    //   (apiEntry.actionsTaken && apiEntry.actionsTaken.trim() !== "") ||
-    //   (apiEntry.remarks && apiEntry.remarks.trim() !== "" &&
-    //    apiEntry.remarks.toLowerCase().includes("maintenance"))
-    //     ? "Under Maintenance"
-    //     : "Serviceable";
-
-    // Extract pilot info from remarks or use "N/A"
     const pilotName = apiEntry.remarks
       ? apiEntry.remarks.split("\n")[0].substring(0, 30)
       : "N/A";
@@ -252,7 +236,6 @@ export function AircraftTechnicalLogbook() {
       pilot: pilotName,
       workStatus: apiEntry.workStatus,
       atlBatchName: apiEntry.atlBatch?.name?.trim() || "—",
-      // status: status,
     };
   };
 
@@ -283,8 +266,8 @@ export function AircraftTechnicalLogbook() {
               selectedAtlBatchFk
             );
 
-      const mappedEntries = response.items.map((entry, index) =>
-        mapToLogbookEntry(entry, index)
+      const mappedEntries = response.items.map((entry) =>
+        mapToLogbookEntry(entry)
       );
 
       setEntries(mappedEntries);
@@ -511,14 +494,6 @@ export function AircraftTechnicalLogbook() {
     showAtlBatchFilter,
     atlBatchFilterOptions,
   ]);
-
-  // Calculate statistics from current page entries
-  const totalFlightHours = entries
-    .reduce((sum, e) => {
-      const hours = parseFloat(e.fltTime.replace("h", "")) || 0;
-      return sum + hours;
-    }, 0)
-    .toFixed(1);
 
   const paginatedEntries = entries;
 
@@ -991,18 +966,6 @@ export function AircraftTechnicalLogbook() {
           </div>
           <p className="text-gray-900 text-2xl sm:text-3xl">
             {totalEntries || 0}
-          </p>
-        </div>
-
-        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 rounded-xl p-5 border border-purple-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-gray-600 text-sm">Total Flight Hours</span>
-            <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
-              <Clock className="w-5 h-5 text-purple-600" />
-            </div>
-          </div>
-          <p className="text-gray-900 text-2xl sm:text-3xl">
-            {totalFlightHours}
           </p>
         </div>
       </div>
