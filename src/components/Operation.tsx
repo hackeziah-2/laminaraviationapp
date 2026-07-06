@@ -42,7 +42,9 @@ import {
   formatAtlExcelImportProgressLabel,
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
-  formatAtlPersistedComponentMetric2dp,
+  formatAtlListCell,
+  formatAtlListOffBlocks,
+  formatAtlListOnBlocks,
   type AtlExcelImportProgress,
   AircraftTechnicalLog,
   type AtlBatch,
@@ -61,10 +63,6 @@ import {
   formatApiErrorForSwal,
   formatAtlExcelImportErrorForSwal,
   isAtlExcelImportFailureStatus,
-  formatTimeZulu,
-  formatAtlDateTimeUtc,
-  formatAtlDateReportedManila,
-  formatDisplayDate,
 } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
@@ -88,7 +86,6 @@ import {
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
 } from "../utility/atlEditRbac";
-import { getAllAccounts, Account } from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import * as XLSX from "xlsx";
@@ -440,28 +437,11 @@ function subGroupKey(categoryId: string, subGroupId: string): string {
   return `${categoryId}:${subGroupId}`;
 }
 
-/** Hobbs / tach / tach due: API may send numbers as strings; avoids `.toFixed` runtime errors. */
-function formatOptionalNumber1dp(value: unknown): string {
-  if (value == null || value === "") return "-";
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : "-";
-}
-
-/** Format backend ATL metric for list display (presentation only; no computation). */
+/** Aircraft summary header (not list rows): 2dp display for aircraft profile metrics. */
 function formatAtlListMetric2dp(value: unknown): string {
   if (value == null || value === "") return "-";
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(2) : "-";
-}
-
-function formatAtlListTotalFlightHours(record: AircraftTechnicalLog): string {
-  const raw = record.totalFlightHours;
-  if (raw == null || raw === "") return "-";
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    return trimmed || "-";
-  }
-  return formatAtlListMetric2dp(raw);
 }
 
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
@@ -732,9 +712,6 @@ export function Operation() {
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
-  const [accountsMap, setAccountsMap] = useState<Map<number, Account>>(
-    new Map()
-  );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
   const [importLoading, setImportLoading] = useState(false);
@@ -811,24 +788,6 @@ export function Operation() {
     };
     fetchAircraft();
   }, [effectiveAircraftId]);
-
-  // Fetch all accounts for lookup
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      try {
-        const accountsList = await getAllAccounts();
-        // Create a map for quick lookup
-        const map = new Map<number, Account>();
-        accountsList.forEach((account) => {
-          map.set(account.id, account);
-        });
-        setAccountsMap(map);
-      } catch (err) {
-        console.error("Error fetching accounts:", err);
-      }
-    };
-    fetchAccounts();
-  }, []);
 
   useEffect(() => {
     if (!showAtlBatchFilter) {
@@ -920,63 +879,6 @@ export function Operation() {
 
   const paginatedRecords = fleetTimeRecords;
 
-  /** `date_time_reported` — Philippines (Asia/Manila) locale display */
-  const formatAtlDateReportedListCell = (raw?: string | null) =>
-    formatAtlDateReportedManila(raw);
-  /** `date_time_released` — UTC */
-  const formatAtlDateTimeListCell = (raw?: string | null) =>
-    formatAtlDateTimeUtc(raw);
-
-  const partRemainingRemoved = (part: AtlComponentPartRow) =>
-    part.partRemovedRemainingTime ?? part.part_removed_remaining_time ?? "-";
-  const partRemainingInstalled = (part: AtlComponentPartRow) =>
-    part.partInstalledRemainingTime ??
-    part.part_installed_remaining_time ??
-    "-";
-  const partRemarkCell = (part: AtlComponentPartRow) =>
-    part.partRemark ?? part.part_remark ?? "-";
-
-  const getAccountDisplay = (accountId?: number | null) => {
-    if (!accountId || !accountsMap.has(accountId)) return "-";
-    const account = accountsMap.get(accountId)!;
-    return [account.fullName, account.licenseNo].filter(Boolean).join(" - ");
-  };
-
-  /** Matches Fleet Time table: `Full Name-LicenseNo` (no spaces around hyphen). */
-  const formatMaintenanceLicenseDisplay = (accountId?: number | null) => {
-    if (!accountId || !accountsMap.has(accountId)) return "-";
-    const account = accountsMap.get(accountId)!;
-    const name = account.fullName?.trim() ?? "";
-    const license = account.licenseNo?.trim() ?? "";
-    if (name && license) return `${name}-${license}`;
-    return name || license || "-";
-  };
-
-  const formatOffBlocksExport = (record: AircraftTechnicalLog) => {
-    const date =
-      record.originDate != null && String(record.originDate).trim() !== ""
-        ? formatDisplayDate(record.originDate)
-        : "";
-    const time = record.originTime?.trim()
-      ? formatTimeZulu(record.originTime)
-      : "";
-    if (!date && !time) return "-";
-    return [date, time].filter(Boolean).join(" ").trim();
-  };
-
-  const formatOnBlocksExport = (record: AircraftTechnicalLog) => {
-    const date =
-      record.destinationDate != null &&
-      String(record.destinationDate).trim() !== ""
-        ? formatDisplayDate(record.destinationDate)
-        : "";
-    const time = record.destinationTime?.trim()
-      ? formatTimeZulu(record.destinationTime)
-      : "";
-    if (!date && !time) return "-";
-    return [date, time].filter(Boolean).join(" ").trim();
-  };
-
   const formatComponentPartsField = (
     record: AircraftTechnicalLog,
     picker: (part: AtlComponentPartRow) => unknown
@@ -984,16 +886,8 @@ export function Operation() {
     const parts = record.componentParts;
     if (!parts?.length) return "-";
     return parts
-      .map((part) => {
-        const v = picker(part as AtlComponentPartRow);
-        return v != null && String(v).trim() !== "" ? String(v).trim() : "-";
-      })
+      .map((part) => formatAtlListCell(picker(part as AtlComponentPartRow)))
       .join(" ; ");
-  };
-
-  const getPilotDisplay = (record: AircraftTechnicalLog) => {
-    const pilotId = record.pilotAcceptedBy ?? record.pilotFk;
-    return getAccountDisplay(pilotId);
   };
 
   const exportColumnDefinitions = useMemo<ExportColumnDefinition[]>(
@@ -1001,229 +895,214 @@ export function Operation() {
       {
         key: "sequenceNo",
         label: "Sequence No",
-        getValue: (record) =>
-          formatOperationSequenceNoCell(record, showSeqNoWithBatchName),
+        getValue: (record) => formatAtlListCell(record.sequenceNo),
       },
       {
         key: "workStatus",
         label: "Work Status",
-        getValue: (record) => formatFleetWorkStatus(record.workStatus),
+        getValue: (record) => formatAtlListCell(record.workStatus),
       },
       {
         key: "natureOfFlight",
         label: "Nature of Flight",
-        getValue: (record) =>
-          record.natureOfFlight === "VOID"
-            ? "VOID"
-            : record.natureOfFlight?.trim() || "-",
+        getValue: (record) => formatAtlListCell(record.natureOfFlight),
       },
       {
         key: "nextInspectionDue",
         label: "Next Insp. Date",
-        getValue: (record) => record.nextInspectionDue || "-",
+        getValue: (record) => formatAtlListCell(record.nextInspectionDue),
       },
       {
         key: "tachTimeDue",
         label: "Tach Time",
-        getValue: (record) => formatOptionalNumber1dp(record.tachTimeDue),
+        getValue: (record) => formatAtlListCell(record.tachTimeDue),
       },
       {
         key: "originDate",
         label: "Off Blocks Date",
-        getValue: (record) => formatDisplayDate(record.originDate),
+        getValue: (record) => formatAtlListCell(record.originDate),
       },
       {
         key: "originTime",
         label: "Off Blocks Time (Zulu)",
-        getValue: (record) => formatTimeZulu(record.originTime),
+        getValue: (record) => formatAtlListCell(record.originTime),
       },
       {
         key: "destinationDate",
         label: "On Blocks Date",
-        getValue: (record) => formatDisplayDate(record.destinationDate),
+        getValue: (record) => formatAtlListCell(record.destinationDate),
       },
       {
         key: "destinationTime",
         label: "On Blocks Time (Zulu)",
-        getValue: (record) => formatTimeZulu(record.destinationTime),
+        getValue: (record) => formatAtlListCell(record.destinationTime),
       },
       {
         key: "offBlocks",
         label: "Off Blocks",
-        getValue: (record) => formatOffBlocksExport(record),
+        getValue: (record) => formatAtlListOffBlocks(record),
       },
       {
         key: "onBlocks",
         label: "On Blocks",
-        getValue: (record) => formatOnBlocksExport(record),
+        getValue: (record) => formatAtlListOnBlocks(record),
       },
       {
         key: "totalFlightHours",
         label: "Total Flight Hours",
-        getValue: (record) => formatAtlListTotalFlightHours(record),
+        getValue: (record) => formatAtlListCell(record.totalFlightHours),
       },
       {
         key: "numberOfLandings",
         label: "No. of Landings",
-        getValue: (record) => String(record.numberOfLandings ?? "-"),
+        getValue: (record) => formatAtlListCell(record.numberOfLandings),
       },
       {
         key: "hobbsMeterStart",
         label: "Hobbs Start",
-        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterStart),
+        getValue: (record) => formatAtlListCell(record.hobbsMeterStart),
       },
       {
         key: "hobbsMeterEnd",
         label: "Hobbs End",
-        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterEnd),
+        getValue: (record) => formatAtlListCell(record.hobbsMeterEnd),
       },
       {
         key: "hobbsMeterTotal",
         label: "Hobbs Total",
-        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterTotal),
+        getValue: (record) => formatAtlListCell(record.hobbsMeterTotal),
       },
       {
         key: "tachometerStart",
         label: "Tachometer Start",
-        getValue: (record) => formatOptionalNumber1dp(record.tachometerStart),
+        getValue: (record) => formatAtlListCell(record.tachometerStart),
       },
       {
         key: "tachometerEnd",
         label: "Tachometer End",
-        getValue: (record) => formatOptionalNumber1dp(record.tachometerEnd),
+        getValue: (record) => formatAtlListCell(record.tachometerEnd),
       },
       {
         key: "airframeRun",
         label: "Airframe Hrs Run",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "airframeRunTime"),
+        getValue: (record) => formatAtlListCell(record.airframeRunTime),
       },
       {
         key: "airframeAftt",
         label: "Airframe AFTT",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "airframeAftt"),
+        getValue: (record) => formatAtlListCell(record.airframeAftt),
       },
       {
         key: "engineRun",
         label: "Engine Hrs Run",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "engineRunTime"),
+        getValue: (record) => formatAtlListCell(record.engineRunTime),
       },
       {
         key: "engineTsn",
         label: "Engine TSN",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "engineTsn"),
+        getValue: (record) => formatAtlListCell(record.engineTsn),
       },
       {
         key: "engineTso",
         label: "Engine TSO",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "engineTso"),
+        getValue: (record) => formatAtlListCell(record.engineTso),
       },
       {
         key: "engineTbo",
         label: "Engine TBO",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "engineTbo"),
+        getValue: (record) => formatAtlListCell(record.engineTbo),
       },
       {
         key: "propellerRun",
         label: "Propeller Hrs Run",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "propellerRunTime"),
+        getValue: (record) => formatAtlListCell(record.propellerRunTime),
       },
       {
         key: "propellerTsn",
         label: "Propeller TSN",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "propellerTsn"),
+        getValue: (record) => formatAtlListCell(record.propellerTsn),
       },
       {
         key: "propellerTso",
         label: "Propeller TSO",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "propellerTso"),
+        getValue: (record) => formatAtlListCell(record.propellerTso),
       },
       {
         key: "propellerTbo",
         label: "Propeller TBO",
-        getValue: (record) =>
-          formatAtlPersistedComponentMetric2dp(record, "propellerTbo"),
+        getValue: (record) => formatAtlListCell(record.propellerTbo),
       },
       {
         key: "fuelQtyLeftUpliftQty",
         label: "Fuel Uplift Qty Left",
-        getValue: (record) => String(record.fuelQtyLeftUpliftQty ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyLeftUpliftQty),
       },
       {
         key: "fuelQtyRightUpliftQty",
         label: "Fuel Uplift Qty Right",
-        getValue: (record) => String(record.fuelQtyRightUpliftQty ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyRightUpliftQty),
       },
       {
         key: "fuelQtyLeftPriorDeparture",
         label: "Fuel Prior Dep. Left",
-        getValue: (record) => String(record.fuelQtyLeftPriorDeparture ?? "-"),
+        getValue: (record) =>
+          formatAtlListCell(record.fuelQtyLeftPriorDeparture),
       },
       {
         key: "fuelQtyRightPriorDeparture",
         label: "Fuel Prior Dep. Right",
-        getValue: (record) => String(record.fuelQtyRightPriorDeparture ?? "-"),
+        getValue: (record) =>
+          formatAtlListCell(record.fuelQtyRightPriorDeparture),
       },
       {
         key: "fuelQtyLeftAfterOnBlks",
         label: "Fuel After On-Blks Left",
-        getValue: (record) => String(record.fuelQtyLeftAfterOnBlks ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyLeftAfterOnBlks),
       },
       {
         key: "fuelQtyRightAfterOnBlks",
         label: "Fuel After On-Blks Right",
-        getValue: (record) => String(record.fuelQtyRightAfterOnBlks ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyRightAfterOnBlks),
       },
       {
         key: "oilQtyUpliftQty",
         label: "Oil Uplift Qty",
-        getValue: (record) => String(record.oilQtyUpliftQty ?? "-"),
+        getValue: (record) => formatAtlListCell(record.oilQtyUpliftQty),
       },
       {
         key: "oilQtyPriorDeparture",
         label: "Oil Prior Dep. QRE",
-        getValue: (record) => String(record.oilQtyPriorDeparture ?? "-"),
+        getValue: (record) => formatAtlListCell(record.oilQtyPriorDeparture),
       },
       {
         key: "oilQtyAfterOnBlks",
         label: "Oil After On-Blks",
-        getValue: (record) => String(record.oilQtyAfterOnBlks ?? "-"),
+        getValue: (record) => formatAtlListCell(record.oilQtyAfterOnBlks),
       },
       {
         key: "remarks",
         label: "Remarks",
-        getValue: (record) => record.remarks || "-",
+        getValue: (record) => formatAtlListCell(record.remarks),
       },
       {
         key: "remarkPerson",
         label: "Remark Person",
-        getValue: (record) =>
-          formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) => formatAtlListCell(record.maintenanceFk),
       },
       {
         key: "maintenanceNameLicense",
         label: "Name and License",
-        getValue: (record) =>
-          formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) => formatAtlListCell(record.maintenanceFk),
       },
       {
         key: "actionsTaken",
         label: "Actions Taken",
-        getValue: (record) => record.actionsTaken || "-",
+        getValue: (record) => formatAtlListCell(record.actionsTaken),
       },
       {
         key: "actionTakenPerson",
         label: "Action Taken Person",
-        getValue: (record) =>
-          formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) => formatAtlListCell(record.maintenanceFk),
       },
       {
         key: "componentRemovedPn",
@@ -1241,7 +1120,10 @@ export function Operation() {
         key: "componentRemovedRemTime",
         label: "Removed Rem. Time",
         getValue: (record) =>
-          formatComponentPartsField(record, (p) => partRemainingRemoved(p)),
+          formatComponentPartsField(
+            record,
+            (p) => p.partRemovedRemainingTime
+          ),
       },
       {
         key: "componentInstalledPn",
@@ -1259,7 +1141,10 @@ export function Operation() {
         key: "componentInstalledRemTime",
         label: "Inst. Rem. Time",
         getValue: (record) =>
-          formatComponentPartsField(record, (p) => partRemainingInstalled(p)),
+          formatComponentPartsField(
+            record,
+            (p) => p.partInstalledRemainingTime
+          ),
       },
       {
         key: "componentNomenclature",
@@ -1271,64 +1156,56 @@ export function Operation() {
         key: "componentAtaChapter",
         label: "ATA Chapter",
         getValue: (record) =>
-          formatComponentPartsField(
-            record,
-            (p) => p.ataChapter ?? p.ata_chapter
-          ),
+          formatComponentPartsField(record, (p) => p.ataChapter),
       },
       {
         key: "componentPartRemarks",
         label: "Part Remarks",
         getValue: (record) =>
-          formatComponentPartsField(record, (p) => partRemarkCell(p)),
+          formatComponentPartsField(record, (p) => p.partRemark),
       },
       {
         key: "dateTimeReported",
         label: "Reported Date",
-        getValue: (record) =>
-          formatAtlDateReportedListCell(record.dateTimeReported ?? null),
+        getValue: (record) => formatAtlListCell(record.dateTimeReported),
       },
       {
         key: "dateTimeReleased",
         label: "Released Date",
-        getValue: (record) =>
-          formatAtlDateTimeListCell(record.dateTimeReleased ?? null),
+        getValue: (record) => formatAtlListCell(record.dateTimeReleased),
       },
       {
         key: "rtsSignedBy",
         label: "Return To Service Name",
-        getValue: (record) => getAccountDisplay(record.rtsSignedBy),
+        getValue: (record) => formatAtlListCell(record.rtsSignedBy),
       },
       {
         key: "rtsDate",
         label: "Return To Service Date",
-        getValue: (record) => record.rtsDate || "-",
+        getValue: (record) => formatAtlListCell(record.rtsDate),
       },
       {
         key: "rtsTime",
         label: "Return To Service Time (Zulu)",
-        getValue: (record) => formatTimeZulu(record.rtsTime),
+        getValue: (record) => formatAtlListCell(record.rtsTime),
       },
       {
         key: "pilotAcceptedBy",
         label: "Pilot Acceptance Name",
-        getValue: (record) => getPilotDisplay(record),
+        getValue: (record) => formatAtlListCell(record.pilotAcceptedBy),
       },
       {
         key: "pilotAcceptDate",
         label: "Pilot Acceptance Date",
-        getValue: (record) => record.pilotAcceptDate?.trim() || "-",
+        getValue: (record) => formatAtlListCell(record.pilotAcceptDate),
       },
       {
         key: "pilotAcceptTime",
         label: "Pilot Acceptance Time (Zulu)",
-        getValue: (record) =>
-          record.pilotAcceptTime?.trim()
-            ? formatTimeZulu(record.pilotAcceptTime)
-            : "-",
+        getValue: (record) => formatAtlListCell(record.pilotAcceptTime),
       },
     ],
-    [accountsMap, aircraft, showSeqNoWithBatchName]
+    []
   );
 
   const activeExportColumnDefinitions = useMemo<
@@ -2096,12 +1973,7 @@ export function Operation() {
               <p className="text-gray-500 text-sm mb-2">Current Tach</p>
               <p className="text-gray-900 text-2xl">
                 {fleetTimeRecords.length > 0
-                  ? (() => {
-                      const s = formatOptionalNumber1dp(
-                        fleetTimeRecords[0].tachometerEnd
-                      );
-                      return s === "-" ? "-" : `${s} Hrs`;
-                    })()
+                  ? formatAtlListCell(fleetTimeRecords[0].tachometerEnd)
                   : "-"}
               </p>
             </div>
@@ -2112,8 +1984,8 @@ export function Operation() {
             <div className="bg-white rounded-lg border border-gray-200 p-5">
               <p className="text-gray-500 text-sm mb-2">Last Updated</p>
               <p className="text-gray-900 text-sm">
-                {fleetTimeRecords.length > 0 && fleetTimeRecords[0].updatedAt
-                  ? formatDisplayDate(fleetTimeRecords[0].updatedAt)
+                {fleetTimeRecords.length > 0
+                  ? formatAtlListCell(fleetTimeRecords[0].updatedAt)
                   : "-"}
               </p>
             </div>
@@ -2680,10 +2552,7 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {formatOperationSequenceNoCell(
-                                        record,
-                                        showSeqNoWithBatchName
-                                      )}
+                                      {formatAtlListCell(record.sequenceNo)}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -2740,182 +2609,120 @@ export function Operation() {
                                     record.workStatus
                                   )}
                                 >
-                                  {formatFleetWorkStatus(record.workStatus)}
+                                  {formatAtlListCell(record.workStatus)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.natureOfFlight === "VOID"
-                                    ? "VOID"
-                                    : record.natureOfFlight?.trim()
-                                    ? record.natureOfFlight
-                                    : "-"}
+                                  {formatAtlListCell(record.natureOfFlight)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.nextInspectionDue || "-"}
+                                  {formatAtlListCell(record.nextInspectionDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatOptionalNumber1dp(record.tachTimeDue)}
+                                  {formatAtlListCell(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatDisplayDate(record.originDate)}
+                                  {formatAtlListCell(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.originTime)}
+                                  {formatAtlListCell(record.originTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatDisplayDate(record.destinationDate)}
+                                  {formatAtlListCell(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.destinationTime)}
+                                  {formatAtlListCell(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListTotalFlightHours(record)}
+                                  {formatAtlListCell(record.totalFlightHours)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.numberOfLandings ?? "-"}
+                                  {formatAtlListCell(record.numberOfLandings)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.hobbsMeterStart
-                                  )}
+                                  {formatAtlListCell(record.hobbsMeterStart)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.hobbsMeterEnd
-                                  )}
+                                  {formatAtlListCell(record.hobbsMeterEnd)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.hobbsMeterTotal
-                                  )}
+                                  {formatAtlListCell(record.hobbsMeterTotal)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.tachometerStart
-                                  )}
+                                  {formatAtlListCell(record.tachometerStart)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.tachometerEnd
-                                  )}
+                                  {formatAtlListCell(record.tachometerEnd)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "airframeRunTime"
-                                  )}
+                                  {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "airframeAftt"
-                                  )}
+                                  {formatAtlListCell(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineRunTime"
-                                  )}
+                                  {formatAtlListCell(record.engineRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineTsn"
-                                  )}
+                                  {formatAtlListCell(record.engineTsn)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineTso"
-                                  )}
+                                  {formatAtlListCell(record.engineTso)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineTbo"
-                                  )}
+                                  {formatAtlListCell(record.engineTbo)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerRunTime"
-                                  )}
+                                  {formatAtlListCell(record.propellerRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerTsn"
-                                  )}
+                                  {formatAtlListCell(record.propellerTsn)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerTso"
-                                  )}
+                                  {formatAtlListCell(record.propellerTso)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerTbo"
-                                  )}
+                                  {formatAtlListCell(record.propellerTbo)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftUpliftQty ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyLeftUpliftQty)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightUpliftQty ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyRightUpliftQty)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftPriorDeparture ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyLeftPriorDeparture)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightPriorDeparture ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyRightPriorDeparture)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftAfterOnBlks ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyLeftAfterOnBlks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightAfterOnBlks ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyRightAfterOnBlks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyUpliftQty ?? "-"}
+                                  {formatAtlListCell(record.oilQtyUpliftQty)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyPriorDeparture ?? "-"}
+                                  {formatAtlListCell(record.oilQtyPriorDeparture)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyAfterOnBlks ?? "-"}
+                                  {formatAtlListCell(record.oilQtyAfterOnBlks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.remarks || "-"}
+                                  {formatAtlListCell(record.remarks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.maintenanceFk &&
-                                  accountsMap.has(record.maintenanceFk)
-                                    ? `${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .fullName
-                                      }-${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .licenseNo
-                                      }`
-                                    : "-"}
+                                  {formatAtlListCell(record.maintenanceFk)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.actionsTaken || "-"}
+                                  {formatAtlListCell(record.actionsTaken)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.maintenanceFk &&
-                                  accountsMap.has(record.maintenanceFk)
-                                    ? `${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .fullName
-                                      }-${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .licenseNo
-                                      }`
-                                    : "-"}
+                                  {formatAtlListCell(record.maintenanceFk)}
                                 </td>
                                 <td
                                   colSpan={9}
@@ -2994,37 +2801,35 @@ export function Operation() {
                                               }
                                             >
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.removedPartNo ?? "-"}
+                                                {formatAtlListCell(part.removedPartNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.removedSerialNo ?? "-"}
+                                                {formatAtlListCell(part.removedSerialNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {String(
-                                                  partRemainingRemoved(part)
+                                                {formatAtlListCell(
+                                                  part.partRemovedRemainingTime
                                                 )}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.installedPartNo ?? "-"}
+                                                {formatAtlListCell(part.installedPartNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.installedSerialNo ?? "-"}
+                                                {formatAtlListCell(part.installedSerialNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {String(
-                                                  partRemainingInstalled(part)
+                                                {formatAtlListCell(
+                                                  part.partInstalledRemainingTime
                                                 )}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.nomenclature ?? "-"}
+                                                {formatAtlListCell(part.nomenclature)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.ataChapter ??
-                                                  part.ata_chapter ??
-                                                  "-"}
+                                                {formatAtlListCell(part.ataChapter)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {partRemarkCell(part)}
+                                                {formatAtlListCell(part.partRemark)}
                                               </td>
                                             </tr>
                                           )
@@ -3043,64 +2848,28 @@ export function Operation() {
                                   </table>
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlDateReportedListCell(
-                                    record.dateTimeReported ?? null
-                                  )}
+                                  {formatAtlListCell(record.dateTimeReported)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlDateTimeListCell(
-                                    record.dateTimeReleased ?? null
-                                  )}
+                                  {formatAtlListCell(record.dateTimeReleased)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.rtsSignedBy &&
-                                  accountsMap.has(record.rtsSignedBy) ? (
-                                    <>
-                                      {
-                                        accountsMap.get(record.rtsSignedBy)!
-                                          .fullName
-                                      }
-                                      <br />
-                                      {
-                                        accountsMap.get(record.rtsSignedBy)!
-                                          .licenseNo
-                                      }
-                                    </>
-                                  ) : (
-                                    "-"
-                                  )}
+                                  {formatAtlListCell(record.rtsSignedBy)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.rtsDate || "-"}
+                                  {formatAtlListCell(record.rtsDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.rtsTime)}
+                                  {formatAtlListCell(record.rtsTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {(() => {
-                                    const pilotId =
-                                      record.pilotAcceptedBy ?? record.pilotFk;
-                                    return pilotId &&
-                                      accountsMap.has(pilotId) ? (
-                                      <>
-                                        {accountsMap.get(pilotId)!.fullName}
-                                        <br />
-                                        {accountsMap.get(pilotId)!.licenseNo}
-                                      </>
-                                    ) : (
-                                      "-"
-                                    );
-                                  })()}
+                                  {formatAtlListCell(record.pilotAcceptedBy)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.pilotAcceptDate?.trim()
-                                    ? record.pilotAcceptDate
-                                    : "-"}
+                                  {formatAtlListCell(record.pilotAcceptDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.pilotAcceptTime?.trim()
-                                    ? formatTimeZulu(record.pilotAcceptTime)
-                                    : "-"}
+                                  {formatAtlListCell(record.pilotAcceptTime)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {(() => {
@@ -3301,10 +3070,7 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {formatOperationSequenceNoCell(
-                                      record,
-                                      showSeqNoWithBatchName
-                                    )}
+                                    {formatAtlListCell(record.sequenceNo)}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -3353,68 +3119,49 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
+                                {formatAtlListCell(record.natureOfFlight)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatDisplayDate(record.originDate)}
-                                {record.originTime
-                                  ? ` ${formatTimeZulu(record.originTime)}`
-                                  : ""}
+                                {formatAtlListOffBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatDisplayDate(record.destinationDate)}
-                                {record.destinationTime
-                                  ? ` ${formatTimeZulu(record.destinationTime)}`
-                                  : ""}
+                                {formatAtlListOnBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListTotalFlightHours(record)}
+                                {formatAtlListCell(record.totalFlightHours)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftUpliftQty ?? "-"}
+                                {formatAtlListCell(record.fuelQtyLeftUpliftQty)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyRightUpliftQty ?? "-"}
+                                {formatAtlListCell(record.fuelQtyRightUpliftQty)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftPriorDeparture ?? "-"}
+                                {formatAtlListCell(record.fuelQtyLeftPriorDeparture)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyRightPriorDeparture ?? "-"}
+                                {formatAtlListCell(record.fuelQtyRightPriorDeparture)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftAfterOnBlks ?? "-"}
+                                {formatAtlListCell(record.fuelQtyLeftAfterOnBlks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyRightAfterOnBlks ?? "-"}
+                                {formatAtlListCell(record.fuelQtyRightAfterOnBlks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.oilQtyUpliftQty ?? "-"}
+                                {formatAtlListCell(record.oilQtyUpliftQty)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.oilQtyPriorDeparture ?? "-"}
+                                {formatAtlListCell(record.oilQtyPriorDeparture)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.oilQtyAfterOnBlks ?? "-"}
+                                {formatAtlListCell(record.oilQtyAfterOnBlks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.remarks || "-"}
+                                {formatAtlListCell(record.remarks)}
                               </td>
                               <td className="px-3 py-2 text-sm">
-                                {record.maintenanceFk &&
-                                accountsMap.has(record.maintenanceFk)
-                                  ? `${
-                                      accountsMap.get(record.maintenanceFk)!
-                                        .fullName
-                                    } - ${
-                                      accountsMap.get(record.maintenanceFk)!
-                                        .licenseNo
-                                    }`
-                                  : "-"}
+                                {formatAtlListCell(record.maintenanceFk)}
                               </td>
                             </tr>
                           ))
@@ -3492,10 +3239,7 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {formatOperationSequenceNoCell(
-                                        record,
-                                        showSeqNoWithBatchName
-                                      )}
+                                      {formatAtlListCell(record.sequenceNo)}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -3548,85 +3292,43 @@ export function Operation() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {record.natureOfFlight === "VOID"
-                                    ? "VOID"
-                                    : record.natureOfFlight?.trim()
-                                    ? record.natureOfFlight
-                                    : "-"}
+                                  {formatAtlListCell(record.natureOfFlight)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {formatDisplayDate(record.originDate)}
-                                  {record.originTime
-                                    ? ` ${formatTimeZulu(record.originTime)}`
-                                    : ""}
+                                  {formatAtlListOffBlocks(record)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {formatDisplayDate(record.destinationDate)}
-                                  {record.destinationTime
-                                    ? ` ${formatTimeZulu(
-                                        record.destinationTime
-                                      )}`
-                                    : ""}
+                                  {formatAtlListOnBlocks(record)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "airframeRunTime"
-                                  )}
+                                  {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "airframeAftt"
-                                  )}
+                                  {formatAtlListCell(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineRunTime"
-                                  )}
+                                  {formatAtlListCell(record.engineRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineTsn"
-                                  )}
+                                  {formatAtlListCell(record.engineTsn)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineTso"
-                                  )}
+                                  {formatAtlListCell(record.engineTso)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "engineTbo"
-                                  )}
+                                  {formatAtlListCell(record.engineTbo)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerRunTime"
-                                  )}
+                                  {formatAtlListCell(record.propellerRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerTsn"
-                                  )}
+                                  {formatAtlListCell(record.propellerTsn)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerTso"
-                                  )}
+                                  {formatAtlListCell(record.propellerTso)}
                                 </td>
                                 <td className="px-3 py-2 text-sm">
-                                  {formatAtlPersistedComponentMetric2dp(
-                                    record,
-                                    "propellerTbo"
-                                  )}
+                                  {formatAtlListCell(record.propellerTbo)}
                                 </td>
                               </tr>
                             );
@@ -3692,10 +3394,7 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {formatOperationSequenceNoCell(
-                                      record,
-                                      showSeqNoWithBatchName
-                                    )}
+                                    {formatAtlListCell(record.sequenceNo)}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -3744,45 +3443,31 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
+                                {formatAtlListCell(record.natureOfFlight)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlDateReportedListCell(
-                                  record.dateTimeReported ?? null
-                                )}
+                                {formatAtlListCell(record.dateTimeReported)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlDateTimeListCell(
-                                  record.dateTimeReleased ?? null
-                                )}
+                                {formatAtlListCell(record.dateTimeReleased)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlPersistedComponentMetric2dp(
-                                  record,
-                                  "airframeRunTime"
-                                )}
+                                {formatAtlListCell(record.airframeRunTime)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlPersistedComponentMetric2dp(
-                                  record,
-                                  "airframeAftt"
-                                )}
+                                {formatAtlListCell(record.airframeAftt)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListTotalFlightHours(record)}
+                                {formatAtlListCell(record.totalFlightHours)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.numberOfLandings ?? "-"}
+                                {formatAtlListCell(record.numberOfLandings)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.remarks || "-"}
+                                {formatAtlListCell(record.remarks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.actionsTaken || "-"}
+                                {formatAtlListCell(record.actionsTaken)}
                               </td>
                               <td className="px-0 py-0 align-top border-r border-gray-200">
                                 <table className="w-full border-collapse min-w-full">
@@ -3858,37 +3543,35 @@ export function Operation() {
                                             }
                                           >
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.removedPartNo ?? "-"}
+                                              {formatAtlListCell(part.removedPartNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.removedSerialNo ?? "-"}
+                                              {formatAtlListCell(part.removedSerialNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {String(
-                                                partRemainingRemoved(part)
+                                              {formatAtlListCell(
+                                                part.partRemovedRemainingTime
                                               )}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.installedPartNo ?? "-"}
+                                              {formatAtlListCell(part.installedPartNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.installedSerialNo ?? "-"}
+                                              {formatAtlListCell(part.installedSerialNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {String(
-                                                partRemainingInstalled(part)
+                                              {formatAtlListCell(
+                                                part.partInstalledRemainingTime
                                               )}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.nomenclature ?? "-"}
+                                              {formatAtlListCell(part.nomenclature)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.ataChapter ??
-                                                part.ata_chapter ??
-                                                "-"}
+                                              {formatAtlListCell(part.ataChapter)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {partRemarkCell(part)}
+                                              {formatAtlListCell(part.partRemark)}
                                             </td>
                                           </tr>
                                         )
@@ -4009,10 +3692,7 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: (() => {
-              const raw = formatAtlListTotalFlightHours(selectedEntry);
-              return raw === "-" ? "—" : `${raw}h`;
-            })(),
+            fltTime: formatAtlListCell(selectedEntry.totalFlightHours, "—"),
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
             status: "Serviceable",
           }}

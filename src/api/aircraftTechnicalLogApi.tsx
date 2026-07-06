@@ -360,6 +360,35 @@ export function resolveAtlComponentMetric(
   return resolveAtlPersistedComponentMetric(entry, metric);
 }
 
+/** Operation ATL list view: render API scalar as-is (null/empty → emptyLabel only). */
+export function formatAtlListCell(
+  value: unknown,
+  emptyLabel = "-"
+): string {
+  if (value == null || value === "") return emptyLabel;
+  return String(value);
+}
+
+/** Join off-blocks date and time from API without formatting. */
+export function formatAtlListOffBlocks(
+  record: AircraftTechnicalLog
+): string {
+  const parts = [record.originDate, record.originTime].filter(
+    (v) => v != null && v !== ""
+  );
+  return parts.length === 0 ? "-" : parts.map(String).join(" ");
+}
+
+/** Join on-blocks date and time from API without formatting. */
+export function formatAtlListOnBlocks(
+  record: AircraftTechnicalLog
+): string {
+  const parts = [record.destinationDate, record.destinationTime].filter(
+    (v) => v != null && v !== ""
+  );
+  return parts.length === 0 ? "-" : parts.map(String).join(" ");
+}
+
 /** Normalize rows from GET /aircraft-technical-log/paged (and manage/paged) across common response shapes. */
 function extractPagedLogRows(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
