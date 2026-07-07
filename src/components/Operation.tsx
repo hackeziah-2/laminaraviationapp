@@ -62,6 +62,7 @@ import {
   toCamelDeep,
   formatApiErrorForSwal,
   formatAtlExcelImportErrorForSwal,
+  formatAtlUtcTimestampManila,
   isAtlExcelImportFailureStatus,
 } from "../utility/utils";
 import {
@@ -1985,7 +1986,7 @@ export function Operation() {
               <p className="text-gray-500 text-sm mb-2">Last Updated</p>
               <p className="text-gray-900 text-sm">
                 {fleetTimeRecords.length > 0
-                  ? formatAtlListCell(fleetTimeRecords[0].updatedAt)
+                  ? formatAtlUtcTimestampManila(fleetTimeRecords[0].updatedAt)
                   : "-"}
               </p>
             </div>

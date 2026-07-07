@@ -430,6 +430,20 @@ export function formatAtlDateReportedManilaFromParts(
 }
 
 /**
+ * ATL API UTC timestamp display (Philippines / Asia-Manila), e.g. "06/03/2024, 22:30:45".
+ * Use for `updatedAt` / `createdAt` and other Zulu API datetimes.
+ */
+export function formatAtlUtcTimestampManila(raw?: string | null): string {
+  if (raw == null || String(raw).trim() === "") return "-";
+  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  if (!d) return String(raw).trim();
+  return d.toLocaleString(
+    ATL_DATE_REPORTED_LOCALE,
+    PHILIPPINES_DATETIME_FORMAT_OPTIONS
+  );
+}
+
+/**
  * ATL Date Reported display, e.g. "29/02/2024 12:00 AM UTC".
  */
 export function formatAtlDateTimeUtc(raw?: string | null): string {
