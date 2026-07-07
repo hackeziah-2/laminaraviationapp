@@ -818,6 +818,23 @@ export const getLatestAircraftTechnicalLog = async (
   }
 };
 
+/**
+ * Resolve previous ATL data for a new entry:
+ * 1. Latest ATL in the selected batch (when batch is set)
+ * 2. Latest ATL for the aircraft (when batch has no ATL or no batch selected)
+ * 3. Caller falls back to aircraft master data when this returns null
+ */
+export const resolvePreviousAtlForNewEntry = async (
+  aircraftFk: number,
+  batchId?: number | null
+): Promise<AircraftTechnicalLog | null> => {
+  if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
+    const batchLatest = await getLatestAircraftTechnicalLog(aircraftFk, batchId);
+    if (batchLatest) return batchLatest;
+  }
+  return getLatestAircraftTechnicalLog(aircraftFk);
+};
+
 /** POST /api/v1/import-excel — async job accepted (e.g. 202). */
 export interface AtlExcelImportStartResponse {
   jobId: string;

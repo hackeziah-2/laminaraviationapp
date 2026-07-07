@@ -20,7 +20,7 @@ import {
 } from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import {
-  getLatestAircraftTechnicalLog,
+  resolvePreviousAtlForNewEntry,
   AircraftTechnicalLog,
   createAircraftTechnicalLog,
   AircraftTechnicalLogCreate,
@@ -245,6 +245,36 @@ type AtlComponentMetricsContext = {
   previousPropellerTso: number;
 };
 
+function computeAtlTboFromLifeLimitAndTso(
+  lifeLimit: string | number | undefined | null,
+  tso: string | number | undefined | null
+): number {
+  const life = parseFloat(String(lifeLimit ?? "")) || 0;
+  const tsoNum = parseFloat(String(tso ?? "")) || 0;
+  return life > 0 ? Math.max(0, life - tsoNum) : 0;
+}
+
+function formatAtlTboFromLifeLimitAndTso(
+  lifeLimit: string | number | undefined | null,
+  tso: string | number | undefined | null
+): string {
+  return formatAtlTboDisplay1dp(
+    computeAtlTboFromLifeLimitAndTso(lifeLimit, tso)
+  );
+}
+
+/** TSO onChange: recompute TBO only when life limit and TSO are valid; else keep current TBO. */
+function recomputeAtlTboOnTsoChange(
+  lifeLimit: string,
+  tso: string,
+  currentTbo: string
+): string {
+  const life = parseFiniteFloatField(lifeLimit);
+  const tsoNum = parseFiniteFloatField(tso);
+  if (life == null || life <= 0 || tsoNum == null) return currentTbo;
+  return formatAtlTboDisplay1dp(Math.max(0, life - tsoNum));
+}
+
 /** Auto-compute AFTT, TSN, TSO, TBO from current form runtimes (after tachometerTotal sync). */
 function computeAtlComponentMetricsPatch(
   form: {
@@ -264,7 +294,8 @@ function computeAtlComponentMetricsPatch(
     propellerTso: string;
     propellerTbo: string;
   },
-  ctx: AtlComponentMetricsContext
+  ctx: AtlComponentMetricsContext,
+  options?: { recomputeTbo?: boolean }
 ): Partial<typeof form> {
   const tachStart = parseFloat(form.tachometerStart) || 0;
   const tachEnd = parseFloat(form.tachometerEnd) || 0;
@@ -284,8 +315,6 @@ function computeAtlComponentMetricsPatch(
   const engineTsnVal = prevEngineTsn + engineRunTime;
   const prevEngineTso = ctx.previousEngineTso || 0;
   const engineTso = prevEngineTso + engineRunTime;
-  const lifeEngine = parseFloat(form.lifeTimeLimitEngine) || 0;
-  const engineTbo = lifeEngine > 0 ? Math.max(0, lifeEngine - engineTso) : 0;
   const propellerRunTime = resolveAtlRuntimeForCompute(
     form.propellerRunTime,
     form.tachometerTotal,
@@ -295,37 +324,172 @@ function computeAtlComponentMetricsPatch(
   const propellerTsn = prevPropTsn + propellerRunTime;
   const prevPropTso = ctx.previousPropellerTso || 0;
   const propellerTso = prevPropTso + propellerRunTime;
-  const lifeProp = parseFloat(form.lifeTimeLimitPropeller) || 0;
-  const propellerTbo =
-    lifeProp > 0 ? Math.max(0, lifeProp - propellerTso) : 0;
 
-  const hasPrevAirframeAftt = ctx.previousAirframeAftt > 0;
-  const hasPrevEngineTsn = ctx.previousEngineTsn > 0;
-  const hasPrevEngineTso = ctx.previousEngineTso > 0;
-  const hasPrevPropTsn = ctx.previousPropellerTsn > 0;
-  const hasPrevPropTso = ctx.previousPropellerTso > 0;
+  const patch: Partial<typeof form> = {
+    airframeRunTime: airframeRunTime.toFixed(2),
+    airframeAftt: airframeAfttVal.toFixed(2),
+    engineRunTime: engineRunTime.toFixed(2),
+    engineTsn: engineTsnVal.toFixed(2),
+    engineTso: engineTso.toFixed(2),
+    propellerRunTime: propellerRunTime.toFixed(2),
+    propellerTsn: propellerTsn.toFixed(2),
+    propellerTso: propellerTso.toFixed(2),
+  };
+
+  if (options?.recomputeTbo !== false) {
+    const engineLife =
+      parseFiniteFloatField(form.lifeTimeLimitEngine) != null
+        ? form.lifeTimeLimitEngine
+        : "";
+    const propLife =
+      parseFiniteFloatField(form.lifeTimeLimitPropeller) != null
+        ? form.lifeTimeLimitPropeller
+        : "";
+    patch.engineTbo = recomputeAtlTboOnTsoChange(
+      engineLife,
+      engineTso.toFixed(2),
+      form.engineTbo
+    );
+    patch.propellerTbo = recomputeAtlTboOnTsoChange(
+      propLife,
+      propellerTso.toFixed(2),
+      form.propellerTbo
+    );
+  }
+
+  return patch;
+}
+
+function applyAtlTboOnTsoUserChange(
+  component: "engine" | "propeller",
+  tso: string,
+  prev: {
+    lifeTimeLimitEngine: string;
+    lifeTimeLimitPropeller: string;
+    engineTbo: string;
+    propellerTbo: string;
+  },
+  aircraftLifeLimits?: { engine: string; propeller: string }
+): Partial<Pick<typeof prev, "engineTbo" | "propellerTbo">> {
+  if (component === "engine") {
+    const lifeLimit =
+      aircraftLifeLimits?.engine || prev.lifeTimeLimitEngine || "";
+    return {
+      engineTbo: recomputeAtlTboOnTsoChange(
+        lifeLimit,
+        tso,
+        prev.engineTbo
+      ),
+    };
+  }
+  const lifeLimit =
+    aircraftLifeLimits?.propeller || prev.lifeTimeLimitPropeller || "";
+  return {
+    propellerTbo: recomputeAtlTboOnTsoChange(
+      lifeLimit,
+      tso,
+      prev.propellerTbo
+    ),
+  };
+}
+
+function resolveAtlPersistedOrComputedTbo(
+  entry: AircraftTechnicalLog,
+  metric: "engineTbo" | "propellerTbo",
+  lifeLimit: string,
+  tso: string
+): string {
+  const persisted = resolveAtlPersistedComponentMetric(entry, metric);
+  if (persisted != null && String(persisted).trim() !== "") {
+    return formatAtlTboDisplay1dp(persisted, "");
+  }
+  return formatAtlTboFromLifeLimitAndTso(lifeLimit, tso);
+}
+
+type AtlComponentFormSlice = Parameters<typeof computeAtlComponentMetricsPatch>[0];
+
+function syncAtlComponentFlightTimesFromTachTotal(
+  prev: {
+    airframePrevTime: string;
+    enginePrevTime: string;
+    propellerPrevTime: string;
+  },
+  tachometerTotal: string
+) {
+  const syncTotalTime = (prevTime: string, flightTime: string): string => {
+    const p = parseFloat(prevTime) || 0;
+    const flight = parseFloat(flightTime) || 0;
+    const sum = p + flight;
+    return sum > 0 ? sum.toFixed(2) : "";
+  };
+  return {
+    tachometerTotal,
+    airframeFlightTime: tachometerTotal,
+    engineFlightTime: tachometerTotal,
+    propellerFlightTime: tachometerTotal,
+    airframeTotalTime: syncTotalTime(prev.airframePrevTime, tachometerTotal),
+    engineTotalTime: syncTotalTime(prev.enginePrevTime, tachometerTotal),
+    propellerTotalTime: syncTotalTime(prev.propellerPrevTime, tachometerTotal),
+  };
+}
+
+/** tachometerTotal change — sync runtimes, then recompute dependent metrics (incl. TSO/TBO). */
+function applyAtlTachometerTotalUserChange(
+  form: AtlComponentFormSlice & {
+    airframePrevTime: string;
+    enginePrevTime: string;
+    propellerPrevTime: string;
+  },
+  tachometerTotal: string,
+  ctx: AtlComponentMetricsContext,
+  aircraftLifeLimits?: { engine: string; propeller: string }
+): Partial<typeof form> {
+  const flightSync = syncAtlComponentFlightTimesFromTachTotal(
+    form,
+    tachometerTotal
+  );
+
+  const runtimeSync = assignAtlRuntimesFromTachometerTotal(tachometerTotal);
+  const formAfterRuntimeSync = {
+    ...form,
+    ...flightSync,
+    ...runtimeSync,
+    lifeTimeLimitEngine:
+      aircraftLifeLimits?.engine || form.lifeTimeLimitEngine || "",
+    lifeTimeLimitPropeller:
+      aircraftLifeLimits?.propeller || form.lifeTimeLimitPropeller || "",
+  };
+
+  const computedMetrics = computeAtlComponentMetricsPatch(
+    formAfterRuntimeSync,
+    ctx,
+    { recomputeTbo: true }
+  );
 
   return {
-    airframeRunTime: airframeRunTime.toFixed(2),
-    airframeAftt: hasPrevAirframeAftt
-      ? airframeAfttVal.toFixed(2)
-      : form.airframeAftt || airframeRunTime.toFixed(2),
-    engineRunTime: engineRunTime.toFixed(2),
-    engineTsn: hasPrevEngineTsn
-      ? engineTsnVal.toFixed(2)
-      : form.engineTsn || engineRunTime.toFixed(2),
-    engineTso: hasPrevEngineTso
-      ? engineTso.toFixed(2)
-      : form.engineTso || engineRunTime.toFixed(2),
-    engineTbo: formatAtlTboDisplay1dp(engineTbo),
-    propellerRunTime: propellerRunTime.toFixed(2),
-    propellerTsn: hasPrevPropTsn
-      ? propellerTsn.toFixed(2)
-      : form.propellerTsn || propellerRunTime.toFixed(2),
-    propellerTso: hasPrevPropTso
-      ? propellerTso.toFixed(2)
-      : form.propellerTso || propellerRunTime.toFixed(2),
-    propellerTbo: formatAtlTboDisplay1dp(propellerTbo),
+    ...flightSync,
+    ...runtimeSync,
+    ...computedMetrics,
+  };
+}
+
+/** Edit mode: user changed a runtime field — recompute derived metrics from current runtimes. */
+function applyAtlEditRuntimeUserChange(
+  form: AtlComponentFormSlice,
+  runtimePatch: Partial<
+    Pick<
+      AtlComponentFormSlice,
+      "airframeRunTime" | "engineRunTime" | "propellerRunTime"
+    >
+  >,
+  ctx: AtlComponentMetricsContext
+): Partial<typeof form> {
+  const withRuntimes = { ...form, ...runtimePatch };
+  return {
+    ...runtimePatch,
+    ...computeAtlComponentMetricsPatch(withRuntimes, ctx, {
+      recomputeTbo: false,
+    }),
   };
 }
 
@@ -452,12 +616,31 @@ export function AddTechnicalLogbookEntryModal({
   const preservedDateReportedRef = useRef<string | null>(null);
   /** Skip one auto-compute cycle after hydrating edit form from READ API (not on user edits). */
   const skipAtlComponentAutoComputeRef = useRef(false);
+  /** Blocks tachometerTotal onChange sync/compute while edit form is hydrating from GET API. */
+  const editAtlInitialHydrationRef = useRef(false);
 
   /** Baseline web links when edit form loads — used to detect Tech Pub updates. */
   const initialTechPubLinksRef = useRef({
     whiteAtlWebLink: "",
     dfpWebLink: "",
   });
+  /** Aircraft life limits from GET /aircraft/{id} — source for TBO on TSO change. */
+  const atlAircraftLifeLimitsRef = useRef({
+    engine: "",
+    propeller: "",
+  });
+
+  const syncAtlAircraftLifeLimitsRef = (limits: {
+    engine?: string;
+    propeller?: string;
+  }) => {
+    if (limits.engine != null) {
+      atlAircraftLifeLimitsRef.current.engine = limits.engine;
+    }
+    if (limits.propeller != null) {
+      atlAircraftLifeLimitsRef.current.propeller = limits.propeller;
+    }
+  };
 
   const canEditWhiteAtlDfpSection = useMemo(
     () =>
@@ -776,7 +959,7 @@ export function AddTechnicalLogbookEntryModal({
 
   // Latest entry sequence number (for format validation: must match same digit length as latest, e.g. 00013)
   const [latestSequenceNo, setLatestSequenceNo] = useState<string | null>(null);
-  /** Create entry: no prior ATL for this aircraft — skip TSN/TSO/TBO/AFTT auto-compute. */
+  /** Create entry baseline source marker for previous values. */
   const [isFirstAtlCreate, setIsFirstAtlCreate] = useState(false);
 
   /** Baseline cumulative times before this leg for auto-calculations. */
@@ -788,8 +971,8 @@ export function AddTechnicalLogbookEntryModal({
 
   const isEditEntry = Boolean(editEntry);
   const isFirstATL = isFirstAtlCreate;
-  /** Succeeding Create ATL and all Edit Entry: auto-compute component metrics from ATL formulas. */
-  const shouldEnableAutoCompute = !isFirstATL;
+  /** Create/Edit: auto-compute component metrics from ATL formulas. */
+  const shouldEnableAutoCompute = true;
 
   // Fetch aircrafts when modal opens
   useEffect(() => {
@@ -903,6 +1086,7 @@ export function AddTechnicalLogbookEntryModal({
       setLatestSequenceNo(null); // No format validation when editing
       setIsFirstAtlCreate(false);
       const comp = resolveAtlEditComponentSources(editEntry);
+      editAtlInitialHydrationRef.current = true;
       skipAtlComponentAutoComputeRef.current = true;
       const tachStart = Number(editEntry.tachometerStart) || 0;
       const tachEnd = Number(editEntry.tachometerEnd) || 0;
@@ -1048,14 +1232,52 @@ export function AddTechnicalLogbookEntryModal({
         propellerTsn: comp.propellerTsn,
         propellerTso: comp.propellerTso,
         propellerTbo: comp.propellerTbo,
-        lifeTimeLimitEngine: editEntry.lifeTimeLimitEngine?.toString() || "",
-        lifeTimeLimitPropeller:
-          editEntry.lifeTimeLimitPropeller?.toString() || "",
+        lifeTimeLimitEngine: "",
+        lifeTimeLimitPropeller: "",
       });
 
-      // Set selected aircraft ID
       if (editEntry.aircraftFk) {
         setSelectedAircraftId(editEntry.aircraftFk);
+        void (async () => {
+          try {
+            const res = await getAircraftById(editEntry.aircraftFk!);
+            const aircraftFallback = buildAtlInitialValuesFromAircraftFallback(
+              toCamel(res.data) as Aircraft
+            );
+            setFormData((prev) => ({
+              ...prev,
+              lifeTimeLimitEngine: aircraftFallback.lifeTimeLimitEngine,
+              lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
+              engineTbo:
+                prev.engineTbo.trim() !== ""
+                  ? prev.engineTbo
+                  : resolveAtlPersistedOrComputedTbo(
+                      editEntry,
+                      "engineTbo",
+                      aircraftFallback.lifeTimeLimitEngine,
+                      prev.engineTso
+                    ),
+              propellerTbo:
+                prev.propellerTbo.trim() !== ""
+                  ? prev.propellerTbo
+                  : resolveAtlPersistedOrComputedTbo(
+                      editEntry,
+                      "propellerTbo",
+                      aircraftFallback.lifeTimeLimitPropeller,
+                      prev.propellerTso
+                    ),
+            }));
+            syncAtlAircraftLifeLimitsRef({
+              engine: aircraftFallback.lifeTimeLimitEngine,
+              propeller: aircraftFallback.lifeTimeLimitPropeller,
+            });
+          } catch (err) {
+            console.error(
+              "Could not load aircraft life limits for ATL edit:",
+              err
+            );
+          }
+        })();
       }
 
       // Populate component parts
@@ -1098,7 +1320,12 @@ export function AddTechnicalLogbookEntryModal({
       } else {
         setComponentRecords([]);
       }
+
+      queueMicrotask(() => {
+        editAtlInitialHydrationRef.current = false;
+      });
     } else if (!editEntry && isOpen) {
+      editAtlInitialHydrationRef.current = false;
       preservedDateReportedRef.current = null;
       skipAtlComponentAutoComputeRef.current = false;
       setIsFirstAtlCreate(false);
@@ -1207,11 +1434,29 @@ export function AddTechnicalLogbookEntryModal({
     if (editEntry) return;
 
     try {
-      const latestEntry = await getLatestAircraftTechnicalLog(
+      const latestEntry = await resolvePreviousAtlForNewEntry(
         aircraftFk,
         batchFk
       );
       const prevTimes = getPrevTimesFromLatestAtl(latestEntry);
+
+      let aircraftFallback = buildAtlInitialValuesFromAircraftFallback(null);
+      try {
+        const res = await getAircraftById(aircraftFk);
+        aircraftFallback = buildAtlInitialValuesFromAircraftFallback(
+          toCamel(res.data) as Aircraft
+        );
+      } catch (aircraftErr) {
+        console.error(
+          "Could not load aircraft for ATL initial values:",
+          aircraftErr
+        );
+      }
+
+      syncAtlAircraftLifeLimitsRef({
+        engine: aircraftFallback.lifeTimeLimitEngine,
+        propeller: aircraftFallback.lifeTimeLimitPropeller,
+      });
 
       if (latestEntry) {
         setIsFirstAtlCreate(false);
@@ -1265,10 +1510,10 @@ export function AddTechnicalLogbookEntryModal({
             propellerTso: comp.propellerTso,
             propellerTbo: comp.propellerTbo,
             lifeTimeLimitEngine:
-              latestEntry.lifeTimeLimitEngine?.toString() ??
+              aircraftFallback.lifeTimeLimitEngine ||
               prev.lifeTimeLimitEngine,
             lifeTimeLimitPropeller:
-              latestEntry.lifeTimeLimitPropeller?.toString() ??
+              aircraftFallback.lifeTimeLimitPropeller ||
               prev.lifeTimeLimitPropeller,
           };
         });
@@ -1282,19 +1527,6 @@ export function AddTechnicalLogbookEntryModal({
       setPreviousEngineTso(0);
       setPreviousPropellerTsn(0);
       setPreviousPropellerTso(0);
-
-      let aircraftFallback = buildAtlInitialValuesFromAircraftFallback(null);
-      try {
-        const res = await getAircraftById(aircraftFk);
-        aircraftFallback = buildAtlInitialValuesFromAircraftFallback(
-          toCamel(res.data) as Aircraft
-        );
-      } catch (aircraftErr) {
-        console.error(
-          "Could not load aircraft for ATL initial values:",
-          aircraftErr
-        );
-      }
 
       setPreviousAirframeAftt(aircraftFallback.previousAirframeAftt);
       setPreviousEngineTsn(aircraftFallback.previousEngineTsn);
@@ -1829,42 +2061,61 @@ export function AddTechnicalLogbookEntryModal({
     }));
   }, [formData.hobbsMeterStart, formData.hobbsMeterEnd]);
 
-  // tachometerTotal = tachometerEnd - tachometerStart (accepts negative)
+  // Create only: tachometerTotal = tachometerEnd - tachometerStart; sync runtimes + TSO/TBO.
+  // Edit: persisted API values on load; total is recomputed in the start/end onChange handlers.
   useEffect(() => {
+    if (isEditEntry) return;
+    if (skipAtlComponentAutoComputeRef.current) {
+      skipAtlComponentAutoComputeRef.current = false;
+      return;
+    }
     const start = parseFloat(formData.tachometerStart) || 0;
     const end = parseFloat(formData.tachometerEnd) || 0;
-    const total = end - start;
-    const tachometerTotal = total.toFixed(2);
-    const syncTotalTime = (prevTime: string, flightTime: string): string => {
-      const prev = parseFloat(prevTime) || 0;
-      const flight = parseFloat(flightTime) || 0;
-      const sum = prev + flight;
-      return sum > 0 ? sum.toFixed(2) : "";
+    const tachometerTotal = (end - start).toFixed(2);
+
+    const metricsCtx: AtlComponentMetricsContext = {
+      previousAirframeAftt,
+      previousEngineTsn,
+      previousEngineTso,
+      previousPropellerTsn,
+      previousPropellerTso,
     };
+
     setFormData((prev) => ({
       ...prev,
-      tachometerTotal,
-      airframeFlightTime: tachometerTotal,
-      engineFlightTime: tachometerTotal,
-      propellerFlightTime: tachometerTotal,
-      airframeTotalTime: syncTotalTime(prev.airframePrevTime, tachometerTotal),
-      engineTotalTime: syncTotalTime(prev.enginePrevTime, tachometerTotal),
-      propellerTotalTime: syncTotalTime(
-        prev.propellerPrevTime,
-        tachometerTotal
+      ...applyAtlTachometerTotalUserChange(
+        prev,
+        tachometerTotal,
+        metricsCtx,
+        atlAircraftLifeLimitsRef.current
       ),
     }));
   }, [
+    isEditEntry,
     formData.tachometerStart,
     formData.tachometerEnd,
     formData.airframePrevTime,
     formData.enginePrevTime,
     formData.propellerPrevTime,
+    previousAirframeAftt,
+    previousEngineTsn,
+    previousEngineTso,
+    previousPropellerTsn,
+    previousPropellerTso,
   ]);
 
-  // Add + Edit: mirror tachometerTotal into runtimes, then auto-compute derived metrics.
+  // Create only: auto-compute derived metrics when runtime fields are edited manually.
+  // tachometerTotal-driven sync is handled by the tach start/end effect above.
+  // Edit: persisted API values on load; auto-fill/compute only via user onChange handlers.
   useEffect(() => {
-    if (!hasAtlTachometerTotalValue(formData.tachometerTotal)) return;
+    if (isEditEntry) return;
+    const hasAnyRuntimeInput =
+      parseFiniteFloatField(formData.airframeRunTime) != null ||
+      parseFiniteFloatField(formData.engineRunTime) != null ||
+      parseFiniteFloatField(formData.propellerRunTime) != null;
+    if (!hasAnyRuntimeInput) {
+      return;
+    }
 
     const metricsCtx: AtlComponentMetricsContext = {
       previousAirframeAftt,
@@ -1876,29 +2127,22 @@ export function AddTechnicalLogbookEntryModal({
 
     if (skipAtlComponentAutoComputeRef.current) {
       skipAtlComponentAutoComputeRef.current = false;
-      setFormData((prev) => ({
-        ...prev,
-        ...assignAtlRuntimesFromTachometerTotal(prev.tachometerTotal),
-      }));
       return;
     }
 
     setFormData((prev) => {
-      const withRuntimes = {
-        ...prev,
-        ...assignAtlRuntimesFromTachometerTotal(prev.tachometerTotal),
-      };
-      if (!shouldEnableAutoCompute) return withRuntimes;
+      if (!shouldEnableAutoCompute) return prev;
       return {
-        ...withRuntimes,
-        ...computeAtlComponentMetricsPatch(withRuntimes, metricsCtx),
+        ...prev,
+        ...computeAtlComponentMetricsPatch(prev, metricsCtx),
       };
     });
   }, [
+    isEditEntry,
     shouldEnableAutoCompute,
-    formData.tachometerTotal,
-    formData.tachometerStart,
-    formData.tachometerEnd,
+    formData.airframeRunTime,
+    formData.engineRunTime,
+    formData.propellerRunTime,
     formData.lifeTimeLimitEngine,
     formData.lifeTimeLimitPropeller,
     previousAirframeAftt,
@@ -1907,6 +2151,79 @@ export function AddTechnicalLogbookEntryModal({
     previousPropellerTsn,
     previousPropellerTso,
   ]);
+
+  const atlComponentMetricsCtx = useMemo<AtlComponentMetricsContext>(
+    () => ({
+      previousAirframeAftt,
+      previousEngineTsn,
+      previousEngineTso,
+      previousPropellerTsn,
+      previousPropellerTso,
+    }),
+    [
+      previousAirframeAftt,
+      previousEngineTsn,
+      previousEngineTso,
+      previousPropellerTsn,
+      previousPropellerTso,
+    ]
+  );
+
+  const handleEditTachometerTotalChange = (tachometerTotal: string) => {
+    if (editAtlInitialHydrationRef.current) return;
+
+    setFormData((prev) => ({
+      ...prev,
+      ...applyAtlTachometerTotalUserChange(
+        prev,
+        tachometerTotal,
+        atlComponentMetricsCtx,
+        atlAircraftLifeLimitsRef.current
+      ),
+    }));
+  };
+
+  /**
+   * Edit mode, user typed tachometer start/end:
+   * 1) tachometerTotal = tachometerEnd − tachometerStart
+   * 2) runtimes = tachometerTotal
+   * 3) recompute AFTT / TSN / TSO / TBO from the synced runtimes
+   */
+  const handleEditTachometerStartEndChange = (
+    patch: Partial<{ tachometerStart: string; tachometerEnd: string }>
+  ) => {
+    if (editAtlInitialHydrationRef.current) return;
+
+    setFormData((prev) => {
+      const next = { ...prev, ...patch };
+      const start = parseFloat(next.tachometerStart) || 0;
+      const end = parseFloat(next.tachometerEnd) || 0;
+      const tachometerTotal = (end - start).toFixed(2);
+      return {
+        ...next,
+        ...applyAtlTachometerTotalUserChange(
+          next,
+          tachometerTotal,
+          atlComponentMetricsCtx,
+          atlAircraftLifeLimitsRef.current
+        ),
+      };
+    });
+  };
+
+  const handleEditRuntimeChange = (
+    field: "airframeRunTime" | "engineRunTime" | "propellerRunTime",
+    value: string
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      ...applyAtlEditRuntimeUserChange(
+        prev,
+        { [field]: value },
+        atlComponentMetricsCtx
+      ),
+    }));
+  };
 
   if (!isOpen) return null;
 
@@ -3487,12 +3804,19 @@ export function AddTechnicalLogbookEntryModal({
                         <input
                           type="text"
                           value={formData.tachometerStart}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              tachometerStart: e.target.value,
-                            })
-                          }
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (isEditEntry) {
+                              handleEditTachometerStartEndChange({
+                                tachometerStart: value,
+                              });
+                            } else {
+                              setFormData({
+                                ...formData,
+                                tachometerStart: value,
+                              });
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </div>
@@ -3503,12 +3827,19 @@ export function AddTechnicalLogbookEntryModal({
                         <input
                           type="text"
                           value={formData.tachometerEnd}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              tachometerEnd: e.target.value,
-                            })
-                          }
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (isEditEntry) {
+                              handleEditTachometerStartEndChange({
+                                tachometerEnd: value,
+                              });
+                            } else {
+                              setFormData({
+                                ...formData,
+                                tachometerEnd: value,
+                              });
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </div>
@@ -3519,13 +3850,32 @@ export function AddTechnicalLogbookEntryModal({
                       </label>
                       <input
                         type="text"
-                        value={formatOptionalNumber2dp(
-                          formData.tachometerTotal,
-                          "0.00"
-                        )}
-                        readOnly
-                        disabled
-                        className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                        value={
+                          isEditEntry
+                            ? formData.tachometerTotal
+                            : formatOptionalNumber2dp(
+                                formData.tachometerTotal,
+                                "0.00"
+                              )
+                        }
+                        readOnly={!isEditEntry}
+                        disabled={!isEditEntry}
+                        onChange={
+                          isEditEntry
+                            ? (e) =>
+                                handleEditTachometerTotalChange(e.target.value)
+                            : undefined
+                        }
+                        className={`w-full px-3 py-2 border border-gray-300 rounded text-gray-900 ${
+                          isEditEntry
+                            ? "bg-white focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            : "bg-gray-100 cursor-not-allowed"
+                        }`}
+                        title={
+                          isEditEntry
+                            ? "Edit: updates airframe/engine/propeller runtimes and derived metrics"
+                            : undefined
+                        }
                       />
                     </div>
                   </div>
@@ -4180,10 +4530,15 @@ export function AddTechnicalLogbookEntryModal({
                             type="text"
                             value={formData.airframeRunTime}
                             onChange={(e) => {
-                              setFormData({
-                                ...formData,
-                                airframeRunTime: e.target.value,
-                              });
+                              const value = e.target.value;
+                              if (isEditEntry) {
+                                handleEditRuntimeChange("airframeRunTime", value);
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  airframeRunTime: value,
+                                });
+                              }
                             }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="0"
@@ -4210,10 +4565,15 @@ export function AddTechnicalLogbookEntryModal({
                             type="text"
                             value={formData.engineRunTime}
                             onChange={(e) => {
-                              setFormData({
-                                ...formData,
-                                engineRunTime: e.target.value,
-                              });
+                              const value = e.target.value;
+                              if (isEditEntry) {
+                                handleEditRuntimeChange("engineRunTime", value);
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  engineRunTime: value,
+                                });
+                              }
                             }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="0"
@@ -4244,15 +4604,22 @@ export function AddTechnicalLogbookEntryModal({
                           <input
                             type="text"
                             value={formData.engineTso}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                engineTso: e.target.value,
-                              })
-                            }
+                            onChange={(e) => {
+                              const engineTso = e.target.value;
+                              setFormData((prev) => ({
+                                ...prev,
+                                engineTso,
+                                ...applyAtlTboOnTsoUserChange(
+                                  "engine",
+                                  engineTso,
+                                  prev,
+                                  atlAircraftLifeLimitsRef.current
+                                ),
+                              }));
+                            }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="TSO"
-                            title="Auto: Prev TSO + Engine Run"
+                            title="TBO auto-updates: life limit − TSO"
                           />
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white">
@@ -4275,10 +4642,18 @@ export function AddTechnicalLogbookEntryModal({
                             type="text"
                             value={formData.propellerRunTime}
                             onChange={(e) => {
-                              setFormData({
-                                ...formData,
-                                propellerRunTime: e.target.value,
-                              });
+                              const value = e.target.value;
+                              if (isEditEntry) {
+                                handleEditRuntimeChange(
+                                  "propellerRunTime",
+                                  value
+                                );
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  propellerRunTime: value,
+                                });
+                              }
                             }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="0"
@@ -4309,15 +4684,22 @@ export function AddTechnicalLogbookEntryModal({
                           <input
                             type="text"
                             value={formData.propellerTso}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                propellerTso: e.target.value,
-                              })
-                            }
+                            onChange={(e) => {
+                              const propellerTso = e.target.value;
+                              setFormData((prev) => ({
+                                ...prev,
+                                propellerTso,
+                                ...applyAtlTboOnTsoUserChange(
+                                  "propeller",
+                                  propellerTso,
+                                  prev,
+                                  atlAircraftLifeLimitsRef.current
+                                ),
+                              }));
+                            }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="TSO"
-                            title=""
+                            title="TBO auto-updates: life limit − TSO"
                           />
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white">
