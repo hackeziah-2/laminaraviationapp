@@ -45,6 +45,7 @@ import {
   formatAtlListCell,
   formatAtlListOffBlocks,
   formatAtlListOnBlocks,
+  resolvePreviousAtlForNewEntry,
   type AtlExcelImportProgress,
   AircraftTechnicalLog,
   type AtlBatch,
@@ -67,6 +68,7 @@ import {
 } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
+  getMissingAircraftFieldsForNewAtlWhenNoPrevious,
   buildAircraftDetailsRequiredForAtlHtml,
   ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
   resolveAircraftAirframeAftt,
@@ -1946,18 +1948,42 @@ export function Operation() {
               )}
               {canCreateOperationAtl && (
                 <button
-                  onClick={() => {
-                    const missing = getMissingAircraftFieldsForNewAtl(aircraft);
-                    if (missing.length > 0) {
+                  onClick={async () => {
+                    if (!effectiveAircraftId) return;
+                    try {
+                      const previousAtl = await resolvePreviousAtlForNewEntry(
+                        effectiveAircraftId,
+                        selectedAtlBatchFk
+                      );
+                      const missing =
+                        getMissingAircraftFieldsForNewAtlWhenNoPrevious(
+                          previousAtl,
+                          aircraft
+                        );
+                      if (missing.length > 0) {
+                        Swal.fire({
+                          icon: "warning",
+                          title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                          html: buildAircraftDetailsRequiredForAtlHtml(
+                            aircraft
+                          ),
+                          confirmButtonColor: "#2563eb",
+                        });
+                        return;
+                      }
+                      setShowAddRecordModal(true);
+                    } catch (err) {
+                      console.error(
+                        "Failed to resolve previous ATL before add:",
+                        err
+                      );
                       Swal.fire({
-                        icon: "warning",
-                        title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-                        html: buildAircraftDetailsRequiredForAtlHtml(aircraft),
+                        icon: "error",
+                        title: "Validation error",
+                        text: "Could not check previous ATL. Please try again.",
                         confirmButtonColor: "#2563eb",
                       });
-                      return;
                     }
-                    setShowAddRecordModal(true);
                   }}
                   className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 text-sm"
                 >
