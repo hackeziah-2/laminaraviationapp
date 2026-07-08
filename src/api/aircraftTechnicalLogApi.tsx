@@ -820,8 +820,8 @@ export const getLatestAircraftTechnicalLog = async (
 
 /**
  * Resolve previous ATL data for a new entry:
- * 1. Latest ATL in the selected batch (when batch is set)
- * 2. Latest ATL for the aircraft (when batch has no ATL or no batch selected)
+ * 1. When batch is selected: latest ATL in that batch only
+ * 2. When no batch is selected: latest ATL for the aircraft
  * 3. Caller falls back to aircraft master data when this returns null
  */
 export const resolvePreviousAtlForNewEntry = async (
@@ -829,8 +829,7 @@ export const resolvePreviousAtlForNewEntry = async (
   batchId?: number | null
 ): Promise<AircraftTechnicalLog | null> => {
   if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
-    const batchLatest = await getLatestAircraftTechnicalLog(aircraftFk, batchId);
-    if (batchLatest) return batchLatest;
+    return getLatestAircraftTechnicalLog(aircraftFk, batchId);
   }
   return getLatestAircraftTechnicalLog(aircraftFk);
 };
