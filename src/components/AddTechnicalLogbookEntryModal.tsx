@@ -47,7 +47,7 @@ import {
 } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 import {
-  getMissingAircraftFieldsForNewAtl,
+  getMissingAircraftFieldsForNewAtlWhenNoPrevious,
   buildAircraftDetailsRequiredForAtlHtml,
   buildAtlInitialValuesFromAircraftFallback,
   ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
@@ -103,6 +103,13 @@ function formatAtlComputedDisplay1dp(
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(1) : fallback;
+}
+
+/** Life limits from a previous ATL row (empty when missing/invalid). */
+function formatAtlLifeLimitFromPrevious(value: unknown): string {
+  if (value == null || value === "") return "";
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "";
 }
 
 function getPrevTimesFromLatestAtl(latestEntry: AircraftTechnicalLog | null): {
@@ -574,12 +581,21 @@ export function AddTechnicalLogbookEntryModal({
    * (matches logged-in user’s role from the session).
    */
   const [atlAuthRole, setAtlAuthRole] = useState<string | undefined>(undefined);
+  /** Add Entry: true while Previous ATL / Aircraft Details init is in flight. */
+  const [isInitializing, setIsInitializing] = useState(false);
+  /** Increments on each Previous ATL init fetch so stale responses cannot unlock/overwrite. */
+  const atlInitRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) {
       setAtlAuthRole(undefined);
       skipInitialEditBaseRefreshRef.current = true;
+      atlInitRequestIdRef.current += 1;
+      setIsInitializing(false);
       return;
+    }
+    if (!editEntry) {
+      setIsInitializing(true);
     }
     let cancelled = false;
     getMe()
@@ -592,7 +608,7 @@ export function AddTechnicalLogbookEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, editEntry]);
 
   /** Prefer /me (login), then permissions hook, then parent prop — all should match after load. */
   const atlRoleForWorkStatus = useMemo(
@@ -636,7 +652,7 @@ export function AddTechnicalLogbookEntryModal({
     whiteAtlWebLink: "",
     dfpWebLink: "",
   });
-  /** Aircraft life limits from GET /aircraft/{id} — source for TBO on TSO change. */
+  /** Aircraft life limits from previous ATL, or Aircraft Details when no ATL exists. */
   const atlAircraftLifeLimitsRef = useRef({
     engine: "",
     propeller: "",
@@ -688,7 +704,8 @@ export function AddTechnicalLogbookEntryModal({
         isAtlWhiteAtlDfpOnlyEdit(atlRoleForWorkStatus, editEntry.workStatus))
   );
 
-  const mainFormLocked = atlFormReadOnly || attachmentsOnlyLocked;
+  const mainFormLocked =
+    atlFormReadOnly || attachmentsOnlyLocked || isInitializing;
   const canUploadAtlInCurrentMode =
     canEditWhiteAtlDfpSection &&
     (attachmentsOnlyLocked || canEditWhiteAtlDfpSection);
@@ -810,6 +827,7 @@ export function AddTechnicalLogbookEntryModal({
   }, [attachmentsOnlyLocked, canUploadAtlInCurrentMode]);
 
   const allowSubmit = useMemo(() => {
+    if (isInitializing) return false;
     if (atlFormReadOnly) return false;
     if (!editEntry && (!mod || canCreate(mod))) return true;
     if (!editEntry) return false;
@@ -825,6 +843,7 @@ export function AddTechnicalLogbookEntryModal({
     }
     return Boolean(mod) && canUpdate(mod as string);
   }, [
+    isInitializing,
     atlFormReadOnly,
     editEntry,
     mod,
@@ -1025,15 +1044,37 @@ export function AddTechnicalLogbookEntryModal({
   // Auto-select aircraft when aircraftId prop is provided (from useParams)
   useEffect(() => {
     if (aircraftId && isOpen && !editEntry && !selectedAircraftId) {
-      // Find the aircraft in the list and auto-select it
       const findAndSelectAircraft = async () => {
         try {
-          // First, try to fetch aircraft by ID directly
+          const batchId =
+            parseAtlBatchFkForLatest(formData.atlBatchFk) ?? defaultAtlBatchFk;
+          const previousAtl = await resolvePreviousAtlForNewEntry(
+            aircraftId,
+            batchId
+          );
+
+          if (previousAtl != null) {
+            const registration =
+              previousAtl.aircraft?.registration ||
+              aircrafts.find((ac) => ac.id === aircraftId)?.registration ||
+              "";
+            setFormData((prev) => ({
+              ...prev,
+              acReg: registration,
+            }));
+            setSelectedAircraftId(aircraftId);
+            return;
+          }
+
+          // No previous ATL — validate and load registration from Aircraft Details
           try {
             const response = await getAircraftById(aircraftId);
             const aircraftData = response.data;
             const aircraftCamel = toCamel(aircraftData) as Aircraft;
-            const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
+            const missing = getMissingAircraftFieldsForNewAtlWhenNoPrevious(
+              previousAtl,
+              aircraftCamel
+            );
             if (missing.length > 0) {
               await Swal.fire({
                 icon: "warning",
@@ -1051,37 +1092,33 @@ export function AddTechnicalLogbookEntryModal({
             setSelectedAircraftId(aircraftId);
           } catch (error) {
             console.error("Error fetching aircraft by ID:", error);
-            // Fallback: try to find in aircrafts list
-            if (aircrafts.length > 0) {
-              const aircraft = aircrafts.find((ac) => ac.id === aircraftId);
-              if (aircraft) {
-                try {
-                  const fullRes = await getAircraftById(aircraftId);
-                  const aircraftCamel = toCamel(fullRes.data) as Aircraft;
-                  const missing =
-                    getMissingAircraftFieldsForNewAtl(aircraftCamel);
-                  if (missing.length > 0) {
-                    await Swal.fire({
-                      icon: "warning",
-                      title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-                      html: buildAircraftDetailsRequiredForAtlHtml(
-                        aircraftCamel
-                      ),
-                      confirmButtonColor: "#2563eb",
-                    });
-                    onClose();
-                    return;
-                  }
-                } catch {
-                  return;
-                }
-                setFormData((prev) => ({
-                  ...prev,
-                  acReg: aircraft.registration,
-                }));
-                setSelectedAircraftId(aircraftId);
+            const aircraft = aircrafts.find((ac) => ac.id === aircraftId);
+            if (!aircraft) return;
+            try {
+              const fullRes = await getAircraftById(aircraftId);
+              const aircraftCamel = toCamel(fullRes.data) as Aircraft;
+              const missing = getMissingAircraftFieldsForNewAtlWhenNoPrevious(
+                previousAtl,
+                aircraftCamel
+              );
+              if (missing.length > 0) {
+                await Swal.fire({
+                  icon: "warning",
+                  title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+                  html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+                  confirmButtonColor: "#2563eb",
+                });
+                onClose();
+                return;
               }
+            } catch {
+              return;
             }
+            setFormData((prev) => ({
+              ...prev,
+              acReg: aircraft.registration,
+            }));
+            setSelectedAircraftId(aircraftId);
           }
         } catch (error) {
           console.error("Error in auto-select aircraft:", error);
@@ -1339,8 +1376,10 @@ export function AddTechnicalLogbookEntryModal({
     } else if (!editEntry && isOpen) {
       editAtlInitialHydrationRef.current = false;
       preservedDateReportedRef.current = null;
-      skipAtlComponentAutoComputeRef.current = false;
+      skipAtlComponentAutoComputeRef.current = true;
       setIsFirstAtlCreate(false);
+      setIsInitializing(true);
+      atlAircraftLifeLimitsRef.current = { engine: "", propeller: "" };
       initialTechPubLinksRef.current = {
         whiteAtlWebLink: "",
         dfpWebLink: "",
@@ -1438,21 +1477,144 @@ export function AddTechnicalLogbookEntryModal({
     }
   }, [editEntry, isOpen, defaultAtlBatchFk]);
 
-  // Fetch latest technical log entry to populate start values (only for new entries)
+  // Previous ATL first (latest API); Aircraft Details only when none exists.
   const fetchLatestTechnicalLog = async (
     aircraftFk: number,
     batchFk?: number
   ) => {
+    const requestId = ++atlInitRequestIdRef.current;
+    const isAddEntry = !editEntry;
+    if (isAddEntry) {
+      setIsInitializing(true);
+      skipAtlComponentAutoComputeRef.current = true;
+    }
+
+    const finishInit = () => {
+      if (atlInitRequestIdRef.current !== requestId) return;
+      if (isAddEntry) {
+        // Values + computed metrics are already assigned; unlock after paint.
+        skipAtlComponentAutoComputeRef.current = true;
+        queueMicrotask(() => {
+          if (atlInitRequestIdRef.current !== requestId) return;
+          setIsInitializing(false);
+        });
+      }
+    };
+
     try {
       const latestEntry = await resolvePreviousAtlForNewEntry(
         aircraftFk,
         batchFk
       );
+      if (atlInitRequestIdRef.current !== requestId) return;
+
       const prevTimes = getPrevTimesFromLatestAtl(latestEntry);
 
+      if (latestEntry) {
+        const lifeTimeLimitEngine = formatAtlLifeLimitFromPrevious(
+          latestEntry.lifeTimeLimitEngine
+        );
+        const lifeTimeLimitPropeller = formatAtlLifeLimitFromPrevious(
+          latestEntry.lifeTimeLimitPropeller
+        );
+        syncAtlAircraftLifeLimitsRef({
+          engine: lifeTimeLimitEngine,
+          propeller: lifeTimeLimitPropeller,
+        });
+
+        setIsFirstAtlCreate(false);
+        const comp = resolveAtlEditComponentSources(latestEntry);
+        const previousEngineTsnValue =
+          parseFloat(
+            String(
+              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
+                ? latestEntry.engineTsn
+                : 0
+            )
+          ) || 0;
+        const previousEngineTsoValue = Number(latestEntry.engineTso) || 0;
+        const previousPropellerTsnValue =
+          parseFloat(String(latestEntry.propellerTsn)) || 0;
+        const previousPropellerTsoValue = Number(latestEntry.propellerTso) || 0;
+        const previousAirframeAfttValue =
+          parseFloat(String(comp.airframeAftt)) || 0;
+
+        setLatestSequenceNo(latestEntry.sequenceNo ?? null);
+        setPreviousEngineTsn(previousEngineTsnValue);
+        setPreviousEngineTso(previousEngineTsoValue);
+        setPreviousPropellerTsn(previousPropellerTsnValue);
+        setPreviousPropellerTso(previousPropellerTsoValue);
+        setPreviousAirframeAftt(previousAirframeAfttValue);
+        skipAtlComponentAutoComputeRef.current = true;
+
+        const hobbsStartFromPrevious =
+          latestEntry.hobbsMeterEnd != null && latestEntry.hobbsMeterEnd !== 0
+            ? latestEntry.hobbsMeterEnd.toString()
+            : "0";
+        const tachStartFromPrevious =
+          latestEntry.tachometerEnd != null && latestEntry.tachometerEnd !== 0
+            ? latestEntry.tachometerEnd.toString()
+            : "0";
+
+        setFormData((prev) => {
+          if (editEntry) {
+            const baseCtx: AtlComponentMetricsContext = {
+              previousAirframeAftt: previousAirframeAfttValue,
+              previousEngineTsn: previousEngineTsnValue,
+              previousEngineTso: previousEngineTsoValue,
+              previousPropellerTsn: previousPropellerTsnValue,
+              previousPropellerTso: previousPropellerTsoValue,
+            };
+            const withBase = {
+              ...prev,
+              ...prevTimes,
+              lifeTimeLimitEngine:
+                lifeTimeLimitEngine || prev.lifeTimeLimitEngine,
+              lifeTimeLimitPropeller:
+                lifeTimeLimitPropeller || prev.lifeTimeLimitPropeller,
+            };
+            return {
+              ...withBase,
+              ...computeAtlComponentMetricsPatch(withBase, baseCtx),
+            };
+          }
+
+          // Add Entry: assign only from latest Previous ATL response (no stale form cache).
+          const withBase = {
+            ...prev,
+            ...prevTimes,
+            hobbsMeterStart: hobbsStartFromPrevious,
+            tachometerStart: tachStartFromPrevious,
+            airframeAftt: comp.airframeAftt,
+            engineTsn: comp.engineTsn,
+            engineTso: comp.engineTso,
+            engineTbo: comp.engineTbo,
+            propellerTsn: comp.propellerTsn,
+            propellerTso: comp.propellerTso,
+            propellerTbo: comp.propellerTbo,
+            lifeTimeLimitEngine,
+            lifeTimeLimitPropeller,
+          };
+          return {
+            ...withBase,
+            ...computeAtlComponentMetricsPatch(withBase, {
+              previousAirframeAftt: previousAirframeAfttValue,
+              previousEngineTsn: previousEngineTsnValue,
+              previousEngineTso: previousEngineTsoValue,
+              previousPropellerTsn: previousPropellerTsnValue,
+              previousPropellerTso: previousPropellerTsoValue,
+            }),
+          };
+        });
+        finishInit();
+        return;
+      }
+
+      // No previous ATL — initial values from Aircraft Details
       let aircraftFallback = buildAtlInitialValuesFromAircraftFallback(null);
       try {
         const res = await getAircraftById(aircraftFk);
+        if (atlInitRequestIdRef.current !== requestId) return;
         aircraftFallback = buildAtlInitialValuesFromAircraftFallback(
           toCamel(res.data) as Aircraft
         );
@@ -1462,109 +1624,15 @@ export function AddTechnicalLogbookEntryModal({
           aircraftErr
         );
       }
+      if (atlInitRequestIdRef.current !== requestId) return;
 
       syncAtlAircraftLifeLimitsRef({
         engine: aircraftFallback.lifeTimeLimitEngine,
         propeller: aircraftFallback.lifeTimeLimitPropeller,
       });
 
-      if (latestEntry) {
-        setIsFirstAtlCreate(false);
-        const comp = resolveAtlEditComponentSources(latestEntry);
-        setLatestSequenceNo(latestEntry.sequenceNo ?? null);
-        setPreviousEngineTsn(
-          parseFloat(
-            String(
-              latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
-                ? latestEntry.engineTsn
-                : 0
-            )
-          ) || 0
-        );
-        setPreviousEngineTso(Number(latestEntry.engineTso) || 0);
-        setPreviousPropellerTsn(
-          parseFloat(String(latestEntry.propellerTsn)) || 0
-        );
-        setPreviousPropellerTso(Number(latestEntry.propellerTso) || 0);
-        setPreviousAirframeAftt(
-          parseFloat(String(comp.airframeAftt)) || 0
-        );
-        skipAtlComponentAutoComputeRef.current = true;
-        setFormData((prev) => {
-          if (editEntry) {
-            const baseCtx: AtlComponentMetricsContext = {
-              previousAirframeAftt: parseFloat(String(comp.airframeAftt)) || 0,
-              previousEngineTsn:
-                parseFloat(
-                  String(
-                    latestEntry.engineTsn != null && latestEntry.engineTsn !== ""
-                      ? latestEntry.engineTsn
-                      : 0
-                  )
-                ) || 0,
-              previousEngineTso: Number(latestEntry.engineTso) || 0,
-              previousPropellerTsn:
-                parseFloat(String(latestEntry.propellerTsn)) || 0,
-              previousPropellerTso: Number(latestEntry.propellerTso) || 0,
-            };
-            const withBase = {
-              ...prev,
-              ...prevTimes,
-              lifeTimeLimitEngine:
-                aircraftFallback.lifeTimeLimitEngine || prev.lifeTimeLimitEngine,
-              lifeTimeLimitPropeller:
-                aircraftFallback.lifeTimeLimitPropeller ||
-                prev.lifeTimeLimitPropeller,
-            };
-            return {
-              ...withBase,
-              ...computeAtlComponentMetricsPatch(withBase, baseCtx),
-            };
-          }
-
-          const isNewEntry =
-            (prev.hobbsMeterStart === "" || prev.hobbsMeterStart === "0") &&
-            (prev.tachometerStart === "" || prev.tachometerStart === "0");
-
-          return {
-            ...prev,
-            ...prevTimes,
-            hobbsMeterStart: isNewEntry
-              ? latestEntry.hobbsMeterEnd != null && latestEntry.hobbsMeterEnd !== 0
-                ? latestEntry.hobbsMeterEnd.toString()
-                : prev.hobbsMeterStart
-              : prev.hobbsMeterStart,
-            tachometerStart: isNewEntry
-              ? latestEntry.tachometerEnd != null && latestEntry.tachometerEnd !== 0
-                ? latestEntry.tachometerEnd.toString()
-                : prev.tachometerStart
-              : prev.tachometerStart,
-            airframeAftt: comp.airframeAftt,
-            engineTsn: comp.engineTsn,
-            engineTso: comp.engineTso,
-            engineTbo: comp.engineTbo,
-            propellerTsn: comp.propellerTsn,
-            propellerTso: comp.propellerTso,
-            propellerTbo: comp.propellerTbo,
-            lifeTimeLimitEngine:
-              aircraftFallback.lifeTimeLimitEngine ||
-              prev.lifeTimeLimitEngine,
-            lifeTimeLimitPropeller:
-              aircraftFallback.lifeTimeLimitPropeller ||
-              prev.lifeTimeLimitPropeller,
-          };
-        });
-        return;
-      }
-
       setLatestSequenceNo(null);
       setIsFirstAtlCreate(true);
-      setPreviousAirframeAftt(0);
-      setPreviousEngineTsn(0);
-      setPreviousEngineTso(0);
-      setPreviousPropellerTsn(0);
-      setPreviousPropellerTso(0);
-
       setPreviousAirframeAftt(aircraftFallback.previousAirframeAftt);
       setPreviousEngineTsn(aircraftFallback.previousEngineTsn);
       setPreviousEngineTso(aircraftFallback.previousEngineTso);
@@ -1596,15 +1664,11 @@ export function AddTechnicalLogbookEntryModal({
           };
         }
 
-        const isNewEntry =
-          (prev.hobbsMeterStart === "" || prev.hobbsMeterStart === "0") &&
-          (prev.tachometerStart === "" || prev.tachometerStart === "0");
-
-        return {
+        const withBase = {
           ...prev,
           ...prevTimes,
-          hobbsMeterStart: isNewEntry ? "0" : prev.hobbsMeterStart,
-          tachometerStart: isNewEntry ? "0" : prev.tachometerStart,
+          hobbsMeterStart: "0",
+          tachometerStart: "0",
           airframeAftt: aircraftFallback.airframeAftt,
           engineTsn: aircraftFallback.engineTsn,
           engineTso: aircraftFallback.engineTso,
@@ -1615,18 +1679,36 @@ export function AddTechnicalLogbookEntryModal({
           lifeTimeLimitEngine: aircraftFallback.lifeTimeLimitEngine,
           lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
         };
+        return {
+          ...withBase,
+          ...computeAtlComponentMetricsPatch(withBase, {
+            previousAirframeAftt: aircraftFallback.previousAirframeAftt,
+            previousEngineTsn: aircraftFallback.previousEngineTsn,
+            previousEngineTso: aircraftFallback.previousEngineTso,
+            previousPropellerTsn: aircraftFallback.previousPropellerTsn,
+            previousPropellerTso: aircraftFallback.previousPropellerTso,
+          }),
+        };
       });
+      finishInit();
     } catch (error) {
       console.error("Error fetching latest technical log:", error);
       setIsFirstAtlCreate(false);
+      finishInit();
     }
   };
 
   useEffect(() => {
-    if (!isOpen || editEntry || !selectedAircraftId) return;
+    if (!isOpen || editEntry) return;
+    if (!selectedAircraftId) {
+      // Operation: keep locked while aircraftId auto-select is pending.
+      // Technical Logbook: unlock so the user can pick A/C Registration.
+      setIsInitializing(Boolean(aircraftId));
+      return;
+    }
     const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
     void fetchLatestTechnicalLog(selectedAircraftId, batchId);
-  }, [isOpen, editEntry, selectedAircraftId, formData.atlBatchFk]);
+  }, [isOpen, editEntry, selectedAircraftId, formData.atlBatchFk, aircraftId]);
 
   useEffect(() => {
     if (!isOpen || !editEntry || !selectedAircraftId) return;
@@ -1782,24 +1864,31 @@ export function AddTechnicalLogbookEntryModal({
   const handleAircraftSelect = async (id: number, registration: string) => {
     if (!editEntry) {
       try {
-        const res = await getAircraftById(id);
-        const aircraftCamel = toCamel(res.data) as Aircraft;
-        const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
-        if (missing.length > 0) {
-          await Swal.fire({
-            icon: "warning",
-            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-            html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
-            confirmButtonColor: "#2563eb",
-          });
-          return;
+        const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
+        const previousAtl = await resolvePreviousAtlForNewEntry(id, batchId);
+        if (previousAtl == null) {
+          const res = await getAircraftById(id);
+          const aircraftCamel = toCamel(res.data) as Aircraft;
+          const missing = getMissingAircraftFieldsForNewAtlWhenNoPrevious(
+            previousAtl,
+            aircraftCamel
+          );
+          if (missing.length > 0) {
+            await Swal.fire({
+              icon: "warning",
+              title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+              html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+              confirmButtonColor: "#2563eb",
+            });
+            return;
+          }
         }
       } catch (err) {
         console.error("Could not verify aircraft for ATL:", err);
         await Swal.fire({
           icon: "error",
           title: "Validation error",
-          text: "Could not load aircraft information. Please try again.",
+          text: "Could not load previous ATL or aircraft information. Please try again.",
           confirmButtonColor: "#2563eb",
         });
         return;
@@ -2140,7 +2229,7 @@ export function AddTechnicalLogbookEntryModal({
   // Create only: tachometerTotal = tachometerEnd - tachometerStart; sync runtimes + TSO/TBO.
   // Edit: persisted API values on load; total is recomputed in the start/end onChange handlers.
   useEffect(() => {
-    if (isEditEntry) return;
+    if (isEditEntry || isInitializing) return;
     if (skipAtlComponentAutoComputeRef.current) {
       skipAtlComponentAutoComputeRef.current = false;
       return;
@@ -2168,6 +2257,7 @@ export function AddTechnicalLogbookEntryModal({
     }));
   }, [
     isEditEntry,
+    isInitializing,
     formData.tachometerStart,
     formData.tachometerEnd,
     formData.airframePrevTime,
@@ -2184,7 +2274,7 @@ export function AddTechnicalLogbookEntryModal({
   // tachometerTotal-driven sync is handled by the tach start/end effect above.
   // Edit: persisted API values on load; auto-fill/compute only via user onChange handlers.
   useEffect(() => {
-    if (isEditEntry) return;
+    if (isEditEntry || isInitializing) return;
     const hasAnyRuntimeInput =
       parseFiniteFloatField(formData.airframeRunTime) != null ||
       parseFiniteFloatField(formData.engineRunTime) != null ||
@@ -2215,6 +2305,7 @@ export function AddTechnicalLogbookEntryModal({
     });
   }, [
     isEditEntry,
+    isInitializing,
     shouldEnableAutoCompute,
     formData.airframeRunTime,
     formData.engineRunTime,
@@ -2510,28 +2601,36 @@ export function AddTechnicalLogbookEntryModal({
       }
     }
 
-    // Before creating/editing ATL: engine/propeller limits + AFTT + Engine/Prop TSN + TSO on aircraft master
+    // Before creating ATL with no previous record: require Aircraft Details fields.
+    // Edits and creates that already have a previous ATL skip this Aircraft Details gate.
     const aid = aircraftId ?? selectedAircraftId ?? null;
-    if (aid != null && !attachmentsOnlyLocked) {
+    if (aid != null && !attachmentsOnlyLocked && !editEntry) {
       try {
-        const res = await getAircraftById(aid);
-        const aircraftCamel = toCamel(res.data) as Aircraft;
-        const missing = getMissingAircraftFieldsForNewAtl(aircraftCamel);
-        if (missing.length > 0) {
-          await Swal.fire({
-            icon: "warning",
-            title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
-            html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
-            confirmButtonColor: "#2563eb",
-          });
-          return;
+        const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
+        const previousAtl = await resolvePreviousAtlForNewEntry(aid, batchId);
+        if (previousAtl == null) {
+          const res = await getAircraftById(aid);
+          const aircraftCamel = toCamel(res.data) as Aircraft;
+          const missing = getMissingAircraftFieldsForNewAtlWhenNoPrevious(
+            previousAtl,
+            aircraftCamel
+          );
+          if (missing.length > 0) {
+            await Swal.fire({
+              icon: "warning",
+              title: ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE,
+              html: buildAircraftDetailsRequiredForAtlHtml(aircraftCamel),
+              confirmButtonColor: "#2563eb",
+            });
+            return;
+          }
         }
       } catch (err) {
         console.error("Failed to validate aircraft prerequisites:", err);
         await Swal.fire({
           icon: "error",
           title: "Validation error",
-          text: "Could not load aircraft information. Please try again.",
+          text: "Could not load previous ATL or aircraft information. Please try again.",
           confirmButtonColor: "#2563eb",
         });
         return;
@@ -3274,8 +3373,19 @@ export function AddTechnicalLogbookEntryModal({
             </div>
           </div>
         )}
+        {/* Add Entry: Previous ATL / Aircraft Details initialization */}
+        {!editEntry && isInitializing && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+              <p className="text-sm font-medium text-gray-700">
+                Loading previous ATL…
+              </p>
+            </div>
+          </div>
+        )}
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="relative z-[60] flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
           <h2 className="text-lg font-semibold text-gray-900">
             {editEntry
               ? atlFormReadOnly
@@ -3284,6 +3394,7 @@ export function AddTechnicalLogbookEntryModal({
               : "Add New Entry"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
             className="p-1 hover:bg-gray-100 rounded transition-colors"
           >
@@ -5671,20 +5782,21 @@ export function AddTechnicalLogbookEntryModal({
           </div>
 
           {/* Footer Actions */}
-          <div className="px-6 py-4 border-t border-gray-200">
+          <div className="relative z-[60] px-6 py-4 border-t border-gray-200 bg-white">
             <div className="flex justify-end gap-3">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+                disabled={isSubmitting}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={!allowSubmit}
+                disabled={!allowSubmit || isInitializing || isSubmitting}
                 className={`px-4 py-2 text-white rounded-lg transition-colors ${
-                  allowSubmit
+                  allowSubmit && !isInitializing
                     ? "bg-blue-600 hover:bg-blue-700"
                     : "bg-gray-400 cursor-not-allowed"
                 }`}
