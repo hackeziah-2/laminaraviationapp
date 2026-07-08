@@ -792,6 +792,7 @@ export const deleteAircraftTechnicalLog = async (
  * Get the latest Aircraft Technical Log entry for a specific aircraft.
  * With `batchId`: GET /aircraft-technical-log/latest/batch/{batch_id}?aircraft_id=
  * Without batch: GET /aircraft-technical-log/latest?aircraft_id=
+ * Prefer `resolvePreviousAtlForNewEntry` for Add Record (batch → latest → Aircraft Details).
  * Backend compares sequence_no numerically and ignores soft-deleted rows.
  */
 export const getLatestAircraftTechnicalLog = async (
@@ -819,17 +820,19 @@ export const getLatestAircraftTechnicalLog = async (
 };
 
 /**
- * Resolve previous ATL data for a new entry:
- * 1. When batch is selected: latest ATL in that batch only
- * 2. When no batch is selected: latest ATL for the aircraft
- * 3. Caller falls back to aircraft master data when this returns null
+ * Resolve previous ATL data for a new entry (shared by Operation ATL & Technical Logbook):
+ * 1. When batch_id is assigned: GET .../latest/batch/{batch_id}?aircraft_id=
+ * 2. If batch returns nothing (or no batch): GET .../latest?aircraft_id=
+ *    — always the last ATL fallback before Aircraft Details
+ * 3. Caller falls back to Aircraft Details (GET /aircraft/{id}) only when this returns null
  */
 export const resolvePreviousAtlForNewEntry = async (
   aircraftFk: number,
   batchId?: number | null
 ): Promise<AircraftTechnicalLog | null> => {
   if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
-    return getLatestAircraftTechnicalLog(aircraftFk, batchId);
+    const fromBatch = await getLatestAircraftTechnicalLog(aircraftFk, batchId);
+    if (fromBatch != null) return fromBatch;
   }
   return getLatestAircraftTechnicalLog(aircraftFk);
 };

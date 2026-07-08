@@ -279,3 +279,15 @@ export function buildAircraftDetailsRequiredForAtlHtml(
     "</div>"
   );
 }
+
+/**
+ * Add-record gate: skip Aircraft Details validation when a previous ATL exists.
+ * Returns missing field labels only when no previous ATL and aircraft master data is incomplete.
+ */
+export function getMissingAircraftFieldsForNewAtlWhenNoPrevious(
+  previousAtl: unknown,
+  aircraft: Aircraft | null | undefined
+): string[] {
+  if (previousAtl != null) return [];
+  return getMissingAircraftFieldsForNewAtl(aircraft);
+}
