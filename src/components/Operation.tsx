@@ -42,12 +42,13 @@ import {
   formatAtlExcelImportProgressLabel,
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
+  formatAtlListCell,
+  formatAtlListOffBlocks,
+  formatAtlListOnBlocks,
   type AtlExcelImportProgress,
   AircraftTechnicalLog,
   type AtlBatch,
-  type AtlListViewComputedComponentTimes,
   type ComponentPartsRecord,
-  resolveAtlComponentMetric,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
@@ -60,12 +61,9 @@ import { Aircraft } from "../types/Aircraft";
 import {
   toCamelDeep,
   formatApiErrorForSwal,
-  formatTimeZulu,
-  formatAtlDateTimeUtc,
-  formatAtlDateReportedManila,
-  formatDisplayDate,
-  computeTotalBlockTimeFromUtc,
-  computeTotalFlightHoursDecimalFromUtc,
+  formatAtlExcelImportErrorForSwal,
+  formatAtlUtcTimestampManila,
+  isAtlExcelImportFailureStatus,
 } from "../utility/utils";
 import {
   getMissingAircraftFieldsForNewAtl,
@@ -89,7 +87,6 @@ import {
   normalizeAtlWorkStatus,
   type AtlWorkStatusKey,
 } from "../utility/atlEditRbac";
-import { getAllAccounts, Account } from "../api/accountApi";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import * as XLSX from "xlsx";
@@ -265,12 +262,7 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
       {
         id: "propeller",
         label: "Propeller",
-        keys: [
-          "propellerRun",
-          "propellerTsn",
-          "propellerTso",
-          "propellerTbo",
-        ],
+        keys: ["propellerRun", "propellerTsn", "propellerTso", "propellerTbo"],
         defaultCollapsed: true,
       },
     ],
@@ -310,11 +302,7 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
       {
         id: "oil",
         label: "Oil",
-        keys: [
-          "oilQtyUpliftQty",
-          "oilQtyPriorDeparture",
-          "oilQtyAfterOnBlks",
-        ],
+        keys: ["oilQtyUpliftQty", "oilQtyPriorDeparture", "oilQtyAfterOnBlks"],
       },
     ],
     keys: [
@@ -450,17 +438,11 @@ function subGroupKey(categoryId: string, subGroupId: string): string {
   return `${categoryId}:${subGroupId}`;
 }
 
-function toNullableMetricNumber(value: unknown): number | null {
-  if (value == null || value === "") return null;
-  const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : null;
-}
-
-/** Hobbs / tach / tach due: API may send numbers as strings; avoids `.toFixed` runtime errors. */
-function formatOptionalNumber1dp(value: unknown): string {
+/** Aircraft summary header (not list rows): 2dp display for aircraft profile metrics. */
+function formatAtlListMetric2dp(value: unknown): string {
   if (value == null || value === "") return "-";
   const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : "-";
+  return Number.isFinite(n) ? n.toFixed(2) : "-";
 }
 
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
@@ -731,9 +713,6 @@ export function Operation() {
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
-  const [accountsMap, setAccountsMap] = useState<Map<number, Account>>(
-    new Map()
-  );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
   const [importLoading, setImportLoading] = useState(false);
@@ -797,96 +776,6 @@ export function Operation() {
     sequenceFromQuery,
   ]);
 
-  const getAirframeDisplay = (r: AircraftTechnicalLog) => {
-    const run =
-      resolveAtlComponentMetric(r, "airframeRunTime") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeRunTime")))
-        : "-";
-    const aftt =
-      resolveAtlComponentMetric(r, "airframeAftt") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "airframeAftt")))
-        : "-";
-    return `${run} / ${aftt}`;
-  };
-  const getEngineDisplay = (r: AircraftTechnicalLog) => {
-    const run =
-      resolveAtlComponentMetric(r, "engineRunTime") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineRunTime")))
-        : "-";
-    const tsn =
-      resolveAtlComponentMetric(r, "engineTsn") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTsn")))
-        : "-";
-    const tso =
-      resolveAtlComponentMetric(r, "engineTso") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTso")))
-        : "-";
-    const tbo =
-      resolveAtlComponentMetric(r, "engineTbo") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "engineTbo")))
-        : "-";
-    return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
-  };
-  const getPropellerDisplay = (r: AircraftTechnicalLog) => {
-    const run =
-      resolveAtlComponentMetric(r, "propellerRunTime") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerRunTime")))
-        : "-";
-    const tsn =
-      resolveAtlComponentMetric(r, "propellerTsn") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTsn")))
-        : "-";
-    const tso =
-      resolveAtlComponentMetric(r, "propellerTso") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTso")))
-        : "-";
-    const tbo =
-      resolveAtlComponentMetric(r, "propellerTbo") != null
-        ? toFormat2(Number(resolveAtlComponentMetric(r, "propellerTbo")))
-        : "-";
-    return `RUN ${run} / TSN ${tsn} / TSO ${tso} / TBO ${tbo}`;
-  };
-
-  const editListComputedTimes =
-    useMemo<AtlListViewComputedComponentTimes | null>(
-      () =>
-        selectedEntry
-          ? {
-              airframeRunTime: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "airframeRunTime")
-              ),
-              airframeAftt: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "airframeAftt")
-              ),
-              engineRunTime: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineRunTime")
-              ),
-              engineTsn: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineTsn")
-              ),
-              engineTso: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineTso")
-              ),
-              engineTbo: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "engineTbo")
-              ),
-              propellerRunTime: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerRunTime")
-              ),
-              propellerTsn: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerTsn")
-              ),
-              propellerTso: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerTso")
-              ),
-              propellerTbo: toNullableMetricNumber(
-                resolveAtlComponentMetric(selectedEntry, "propellerTbo")
-              ),
-            }
-          : null,
-      [selectedEntry]
-    );
-
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
@@ -900,24 +789,6 @@ export function Operation() {
     };
     fetchAircraft();
   }, [effectiveAircraftId]);
-
-  // Fetch all accounts for lookup
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      try {
-        const accountsList = await getAllAccounts();
-        // Create a map for quick lookup
-        const map = new Map<number, Account>();
-        accountsList.forEach((account) => {
-          map.set(account.id, account);
-        });
-        setAccountsMap(map);
-      } catch (err) {
-        console.error("Error fetching accounts:", err);
-      }
-    };
-    fetchAccounts();
-  }, []);
 
   useEffect(() => {
     if (!showAtlBatchFilter) {
@@ -1009,68 +880,6 @@ export function Operation() {
 
   const paginatedRecords = fleetTimeRecords;
 
-  /** Format ATL component values from the API with 2 decimal places. */
-  const toFormat2 = (v: unknown): string => {
-    const n = v != null && v !== "" ? Number(v) : null;
-    return n != null && Number.isFinite(n) ? n.toFixed(2) : "-";
-  };
-  /** `date_time_reported` — Philippines (Asia/Manila) locale display */
-  const formatAtlDateReportedListCell = (raw?: string | null) =>
-    formatAtlDateReportedManila(raw);
-  /** `date_time_released` — UTC */
-  const formatAtlDateTimeListCell = (raw?: string | null) =>
-    formatAtlDateTimeUtc(raw);
-
-  const partRemainingRemoved = (part: AtlComponentPartRow) =>
-    part.partRemovedRemainingTime ?? part.part_removed_remaining_time ?? "-";
-  const partRemainingInstalled = (part: AtlComponentPartRow) =>
-    part.partInstalledRemainingTime ??
-    part.part_installed_remaining_time ??
-    "-";
-  const partRemarkCell = (part: AtlComponentPartRow) =>
-    part.partRemark ?? part.part_remark ?? "-";
-
-  const getAccountDisplay = (accountId?: number | null) => {
-    if (!accountId || !accountsMap.has(accountId)) return "-";
-    const account = accountsMap.get(accountId)!;
-    return [account.fullName, account.licenseNo].filter(Boolean).join(" - ");
-  };
-
-  /** Matches Fleet Time table: `Full Name-LicenseNo` (no spaces around hyphen). */
-  const formatMaintenanceLicenseDisplay = (accountId?: number | null) => {
-    if (!accountId || !accountsMap.has(accountId)) return "-";
-    const account = accountsMap.get(accountId)!;
-    const name = account.fullName?.trim() ?? "";
-    const license = account.licenseNo?.trim() ?? "";
-    if (name && license) return `${name}-${license}`;
-    return name || license || "-";
-  };
-
-  const formatOffBlocksExport = (record: AircraftTechnicalLog) => {
-    const date =
-      record.originDate != null && String(record.originDate).trim() !== ""
-        ? formatDisplayDate(record.originDate)
-        : "";
-    const time = record.originTime?.trim()
-      ? formatTimeZulu(record.originTime)
-      : "";
-    if (!date && !time) return "-";
-    return [date, time].filter(Boolean).join(" ").trim();
-  };
-
-  const formatOnBlocksExport = (record: AircraftTechnicalLog) => {
-    const date =
-      record.destinationDate != null &&
-      String(record.destinationDate).trim() !== ""
-        ? formatDisplayDate(record.destinationDate)
-        : "";
-    const time = record.destinationTime?.trim()
-      ? formatTimeZulu(record.destinationTime)
-      : "";
-    if (!date && !time) return "-";
-    return [date, time].filter(Boolean).join(" ").trim();
-  };
-
   const formatComponentPartsField = (
     record: AircraftTechnicalLog,
     picker: (part: AtlComponentPartRow) => unknown
@@ -1078,16 +887,8 @@ export function Operation() {
     const parts = record.componentParts;
     if (!parts?.length) return "-";
     return parts
-      .map((part) => {
-        const v = picker(part as AtlComponentPartRow);
-        return v != null && String(v).trim() !== "" ? String(v).trim() : "-";
-      })
+      .map((part) => formatAtlListCell(picker(part as AtlComponentPartRow)))
       .join(" ; ");
-  };
-
-  const getPilotDisplay = (record: AircraftTechnicalLog) => {
-    const pilotId = record.pilotAcceptedBy ?? record.pilotFk;
-    return getAccountDisplay(pilotId);
   };
 
   const exportColumnDefinitions = useMemo<ExportColumnDefinition[]>(
@@ -1095,247 +896,214 @@ export function Operation() {
       {
         key: "sequenceNo",
         label: "Sequence No",
-        getValue: (record) =>
-          formatOperationSequenceNoCell(record, showSeqNoWithBatchName),
+        getValue: (record) => formatAtlListCell(record.sequenceNo),
       },
       {
         key: "workStatus",
         label: "Work Status",
-        getValue: (record) => formatFleetWorkStatus(record.workStatus),
+        getValue: (record) => formatAtlListCell(record.workStatus),
       },
       {
         key: "natureOfFlight",
         label: "Nature of Flight",
-        getValue: (record) =>
-          record.natureOfFlight === "VOID"
-            ? "VOID"
-            : record.natureOfFlight?.trim() || "-",
+        getValue: (record) => formatAtlListCell(record.natureOfFlight),
       },
       {
         key: "nextInspectionDue",
         label: "Next Insp. Date",
-        getValue: (record) => record.nextInspectionDue || "-",
+        getValue: (record) => formatAtlListCell(record.nextInspectionDue),
       },
       {
         key: "tachTimeDue",
         label: "Tach Time",
-        getValue: (record) => formatOptionalNumber1dp(record.tachTimeDue),
+        getValue: (record) => formatAtlListCell(record.tachTimeDue),
       },
       {
         key: "originDate",
         label: "Off Blocks Date",
-        getValue: (record) => formatDisplayDate(record.originDate),
+        getValue: (record) => formatAtlListCell(record.originDate),
       },
       {
         key: "originTime",
         label: "Off Blocks Time (Zulu)",
-        getValue: (record) => formatTimeZulu(record.originTime),
+        getValue: (record) => formatAtlListCell(record.originTime),
       },
       {
         key: "destinationDate",
         label: "On Blocks Date",
-        getValue: (record) => formatDisplayDate(record.destinationDate),
+        getValue: (record) => formatAtlListCell(record.destinationDate),
       },
       {
         key: "destinationTime",
         label: "On Blocks Time (Zulu)",
-        getValue: (record) => formatTimeZulu(record.destinationTime),
+        getValue: (record) => formatAtlListCell(record.destinationTime),
       },
       {
         key: "offBlocks",
         label: "Off Blocks",
-        getValue: (record) => formatOffBlocksExport(record),
+        getValue: (record) => formatAtlListOffBlocks(record),
       },
       {
         key: "onBlocks",
         label: "On Blocks",
-        getValue: (record) => formatOnBlocksExport(record),
+        getValue: (record) => formatAtlListOnBlocks(record),
       },
       {
         key: "totalFlightHours",
         label: "Total Flight Hours",
-        getValue: (record) =>
-          computeTotalBlockTimeFromUtc(
-            record.originDate,
-            record.originTime,
-            record.destinationDate,
-            record.destinationTime
-          ),
+        getValue: (record) => formatAtlListCell(record.totalFlightHours),
       },
       {
         key: "numberOfLandings",
         label: "No. of Landings",
-        getValue: (record) => String(record.numberOfLandings ?? "-"),
+        getValue: (record) => formatAtlListCell(record.numberOfLandings),
       },
       {
         key: "hobbsMeterStart",
         label: "Hobbs Start",
-        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterStart),
+        getValue: (record) => formatAtlListCell(record.hobbsMeterStart),
       },
       {
         key: "hobbsMeterEnd",
         label: "Hobbs End",
-        getValue: (record) => formatOptionalNumber1dp(record.hobbsMeterEnd),
+        getValue: (record) => formatAtlListCell(record.hobbsMeterEnd),
       },
       {
         key: "hobbsMeterTotal",
         label: "Hobbs Total",
-        getValue: (record) => {
-          const start = Number(record.hobbsMeterStart);
-          const end = Number(record.hobbsMeterEnd);
-          if (
-            record.hobbsMeterStart != null &&
-            record.hobbsMeterEnd != null &&
-            Number.isFinite(start) &&
-            Number.isFinite(end)
-          ) {
-            return (end - start).toFixed(1);
-          }
-          return formatOptionalNumber1dp(record.hobbsMeterTotal);
-        },
+        getValue: (record) => formatAtlListCell(record.hobbsMeterTotal),
       },
       {
         key: "tachometerStart",
         label: "Tachometer Start",
-        getValue: (record) => formatOptionalNumber1dp(record.tachometerStart),
+        getValue: (record) => formatAtlListCell(record.tachometerStart),
       },
       {
         key: "tachometerEnd",
         label: "Tachometer End",
-        getValue: (record) => formatOptionalNumber1dp(record.tachometerEnd),
+        getValue: (record) => formatAtlListCell(record.tachometerEnd),
       },
       {
         key: "airframeRun",
         label: "Airframe Hrs Run",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "airframeRunTime")),
+        getValue: (record) => formatAtlListCell(record.airframeRunTime),
       },
       {
         key: "airframeAftt",
         label: "Airframe AFTT",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "airframeAftt")),
+        getValue: (record) => formatAtlListCell(record.airframeAftt),
       },
       {
         key: "engineRun",
         label: "Engine Hrs Run",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineRunTime")),
+        getValue: (record) => formatAtlListCell(record.engineRunTime),
       },
       {
         key: "engineTsn",
         label: "Engine TSN",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineTsn")),
+        getValue: (record) => formatAtlListCell(record.engineTsn),
       },
       {
         key: "engineTso",
         label: "Engine TSO",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineTso")),
+        getValue: (record) => formatAtlListCell(record.engineTso),
       },
       {
         key: "engineTbo",
         label: "Engine TBO",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "engineTbo")),
+        getValue: (record) => formatAtlListCell(record.engineTbo),
       },
       {
         key: "propellerRun",
         label: "Propeller Hrs Run",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerRunTime")),
+        getValue: (record) => formatAtlListCell(record.propellerRunTime),
       },
       {
         key: "propellerTsn",
         label: "Propeller TSN",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerTsn")),
+        getValue: (record) => formatAtlListCell(record.propellerTsn),
       },
       {
         key: "propellerTso",
         label: "Propeller TSO",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerTso")),
+        getValue: (record) => formatAtlListCell(record.propellerTso),
       },
       {
         key: "propellerTbo",
         label: "Propeller TBO",
-        getValue: (record) =>
-          toFormat2(resolveAtlComponentMetric(record, "propellerTbo")),
+        getValue: (record) => formatAtlListCell(record.propellerTbo),
       },
       {
         key: "fuelQtyLeftUpliftQty",
         label: "Fuel Uplift Qty Left",
-        getValue: (record) => String(record.fuelQtyLeftUpliftQty ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyLeftUpliftQty),
       },
       {
         key: "fuelQtyRightUpliftQty",
         label: "Fuel Uplift Qty Right",
-        getValue: (record) => String(record.fuelQtyRightUpliftQty ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyRightUpliftQty),
       },
       {
         key: "fuelQtyLeftPriorDeparture",
         label: "Fuel Prior Dep. Left",
-        getValue: (record) => String(record.fuelQtyLeftPriorDeparture ?? "-"),
+        getValue: (record) =>
+          formatAtlListCell(record.fuelQtyLeftPriorDeparture),
       },
       {
         key: "fuelQtyRightPriorDeparture",
         label: "Fuel Prior Dep. Right",
-        getValue: (record) => String(record.fuelQtyRightPriorDeparture ?? "-"),
+        getValue: (record) =>
+          formatAtlListCell(record.fuelQtyRightPriorDeparture),
       },
       {
         key: "fuelQtyLeftAfterOnBlks",
         label: "Fuel After On-Blks Left",
-        getValue: (record) => String(record.fuelQtyLeftAfterOnBlks ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyLeftAfterOnBlks),
       },
       {
         key: "fuelQtyRightAfterOnBlks",
         label: "Fuel After On-Blks Right",
-        getValue: (record) => String(record.fuelQtyRightAfterOnBlks ?? "-"),
+        getValue: (record) => formatAtlListCell(record.fuelQtyRightAfterOnBlks),
       },
       {
         key: "oilQtyUpliftQty",
         label: "Oil Uplift Qty",
-        getValue: (record) => String(record.oilQtyUpliftQty ?? "-"),
+        getValue: (record) => formatAtlListCell(record.oilQtyUpliftQty),
       },
       {
         key: "oilQtyPriorDeparture",
         label: "Oil Prior Dep. QRE",
-        getValue: (record) => String(record.oilQtyPriorDeparture ?? "-"),
+        getValue: (record) => formatAtlListCell(record.oilQtyPriorDeparture),
       },
       {
         key: "oilQtyAfterOnBlks",
         label: "Oil After On-Blks",
-        getValue: (record) => String(record.oilQtyAfterOnBlks ?? "-"),
+        getValue: (record) => formatAtlListCell(record.oilQtyAfterOnBlks),
       },
       {
         key: "remarks",
         label: "Remarks",
-        getValue: (record) => record.remarks || "-",
+        getValue: (record) => formatAtlListCell(record.remarks),
       },
       {
         key: "remarkPerson",
         label: "Remark Person",
-        getValue: (record) =>
-          formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) => formatAtlListCell(record.maintenanceFk),
       },
       {
         key: "maintenanceNameLicense",
         label: "Name and License",
-        getValue: (record) =>
-          formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) => formatAtlListCell(record.maintenanceFk),
       },
       {
         key: "actionsTaken",
         label: "Actions Taken",
-        getValue: (record) => record.actionsTaken || "-",
+        getValue: (record) => formatAtlListCell(record.actionsTaken),
       },
       {
         key: "actionTakenPerson",
         label: "Action Taken Person",
-        getValue: (record) =>
-          formatMaintenanceLicenseDisplay(record.maintenanceFk),
+        getValue: (record) => formatAtlListCell(record.maintenanceFk),
       },
       {
         key: "componentRemovedPn",
@@ -1353,7 +1121,10 @@ export function Operation() {
         key: "componentRemovedRemTime",
         label: "Removed Rem. Time",
         getValue: (record) =>
-          formatComponentPartsField(record, (p) => partRemainingRemoved(p)),
+          formatComponentPartsField(
+            record,
+            (p) => p.partRemovedRemainingTime
+          ),
       },
       {
         key: "componentInstalledPn",
@@ -1371,7 +1142,10 @@ export function Operation() {
         key: "componentInstalledRemTime",
         label: "Inst. Rem. Time",
         getValue: (record) =>
-          formatComponentPartsField(record, (p) => partRemainingInstalled(p)),
+          formatComponentPartsField(
+            record,
+            (p) => p.partInstalledRemainingTime
+          ),
       },
       {
         key: "componentNomenclature",
@@ -1383,64 +1157,56 @@ export function Operation() {
         key: "componentAtaChapter",
         label: "ATA Chapter",
         getValue: (record) =>
-          formatComponentPartsField(
-            record,
-            (p) => p.ataChapter ?? p.ata_chapter
-          ),
+          formatComponentPartsField(record, (p) => p.ataChapter),
       },
       {
         key: "componentPartRemarks",
         label: "Part Remarks",
         getValue: (record) =>
-          formatComponentPartsField(record, (p) => partRemarkCell(p)),
+          formatComponentPartsField(record, (p) => p.partRemark),
       },
       {
         key: "dateTimeReported",
         label: "Reported Date",
-        getValue: (record) =>
-          formatAtlDateReportedListCell(record.dateTimeReported ?? null),
+        getValue: (record) => formatAtlListCell(record.dateTimeReported),
       },
       {
         key: "dateTimeReleased",
         label: "Released Date",
-        getValue: (record) =>
-          formatAtlDateTimeListCell(record.dateTimeReleased ?? null),
+        getValue: (record) => formatAtlListCell(record.dateTimeReleased),
       },
       {
         key: "rtsSignedBy",
         label: "Return To Service Name",
-        getValue: (record) => getAccountDisplay(record.rtsSignedBy),
+        getValue: (record) => formatAtlListCell(record.rtsSignedBy),
       },
       {
         key: "rtsDate",
         label: "Return To Service Date",
-        getValue: (record) => record.rtsDate || "-",
+        getValue: (record) => formatAtlListCell(record.rtsDate),
       },
       {
         key: "rtsTime",
         label: "Return To Service Time (Zulu)",
-        getValue: (record) => formatTimeZulu(record.rtsTime),
+        getValue: (record) => formatAtlListCell(record.rtsTime),
       },
       {
         key: "pilotAcceptedBy",
         label: "Pilot Acceptance Name",
-        getValue: (record) => getPilotDisplay(record),
+        getValue: (record) => formatAtlListCell(record.pilotAcceptedBy),
       },
       {
         key: "pilotAcceptDate",
         label: "Pilot Acceptance Date",
-        getValue: (record) => record.pilotAcceptDate?.trim() || "-",
+        getValue: (record) => formatAtlListCell(record.pilotAcceptDate),
       },
       {
         key: "pilotAcceptTime",
         label: "Pilot Acceptance Time (Zulu)",
-        getValue: (record) =>
-          record.pilotAcceptTime?.trim()
-            ? formatTimeZulu(record.pilotAcceptTime)
-            : "-",
+        getValue: (record) => formatAtlListCell(record.pilotAcceptTime),
       },
     ],
-    [accountsMap, aircraft, showSeqNoWithBatchName]
+    []
   );
 
   const activeExportColumnDefinitions = useMemo<
@@ -1920,33 +1686,14 @@ export function Operation() {
         return;
       }
 
-      const importFailed = (() => {
-        const s = finalProgress.status.toUpperCase().replace(/\s+/g, "_");
-        return (
-          s === "FAILED" ||
-          s === "ERROR" ||
-          s === "CANCELLED" ||
-          s === "ABORTED"
-        );
-      })();
+      const importFailed = isAtlExcelImportFailureStatus(finalProgress.status);
       if (importFailed) {
         Swal.close();
-        const swalContent = formatApiErrorForSwal(
-          {
-            response: {
-              data: {
-                detail: finalProgress.errors ?? finalProgress.message,
-                message: finalProgress.message,
-                errors: finalProgress.errors,
-              },
-            },
-          },
-          {
-            defaultTitle: "Import failed",
-            validationTitle: "Validation Error",
-            fallbackMessage: finalProgress.message?.trim() || "Import failed.",
-          }
-        );
+        const swalContent = formatAtlExcelImportErrorForSwal(finalProgress, {
+          defaultTitle: "Import failed",
+          validationTitle: "Validation Error",
+          fallbackMessage: finalProgress.message?.trim() || "Import failed.",
+        });
         await Swal.fire({
           ...swalContent,
           confirmButtonColor: "#2563eb",
@@ -2106,29 +1853,31 @@ export function Operation() {
                   </span>
                   <span>
                     Airframe AFTT:{" "}
-                    {toFormat2(resolveAircraftAirframeAftt(aircraft))}
+                    {formatAtlListMetric2dp(
+                      resolveAircraftAirframeAftt(aircraft)
+                    )}
                   </span>
                   <span>
                     Engine TSO:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "engineTso")
                     )}
                   </span>
                   <span>
                     Engine TSN:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "engineTsn")
                     )}
                   </span>
                   <span>
                     Propeller TSO:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "propellerTso")
                     )}
                   </span>
                   <span>
                     Propeller TSN:{" "}
-                    {toFormat2(
+                    {formatAtlListMetric2dp(
                       resolveAircraftEnginePropHour(aircraft, "propellerTsn")
                     )}
                   </span>
@@ -2225,12 +1974,7 @@ export function Operation() {
               <p className="text-gray-500 text-sm mb-2">Current Tach</p>
               <p className="text-gray-900 text-2xl">
                 {fleetTimeRecords.length > 0
-                  ? (() => {
-                      const s = formatOptionalNumber1dp(
-                        fleetTimeRecords[0].tachometerEnd
-                      );
-                      return s === "-" ? "-" : `${s} Hrs`;
-                    })()
+                  ? formatAtlListCell(fleetTimeRecords[0].tachometerEnd)
                   : "-"}
               </p>
             </div>
@@ -2241,8 +1985,8 @@ export function Operation() {
             <div className="bg-white rounded-lg border border-gray-200 p-5">
               <p className="text-gray-500 text-sm mb-2">Last Updated</p>
               <p className="text-gray-900 text-sm">
-                {fleetTimeRecords.length > 0 && fleetTimeRecords[0].updatedAt
-                  ? formatDisplayDate(fleetTimeRecords[0].updatedAt)
+                {fleetTimeRecords.length > 0
+                  ? formatAtlUtcTimestampManila(fleetTimeRecords[0].updatedAt)
                   : "-"}
               </p>
             </div>
@@ -2356,7 +2100,9 @@ export function Operation() {
                     </select>
                   </div>
                   {atlBatchFilterError && (
-                    <p className="text-xs text-red-600">{atlBatchFilterError}</p>
+                    <p className="text-xs text-red-600">
+                      {atlBatchFilterError}
+                    </p>
                   )}
                 </div>
               )}
@@ -2807,10 +2553,7 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {formatOperationSequenceNoCell(
-                                        record,
-                                        showSeqNoWithBatchName
-                                      )}
+                                      {formatAtlListCell(record.sequenceNo)}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -2826,23 +2569,23 @@ export function Operation() {
                                       {(canUpdateOperationAtl ||
                                         operationTechPubCanEditAtl(record)) &&
                                         canOpenAtlEditForRecord(record) && (
-                                        <>
-                                          <span className="text-gray-400">
-                                            |
-                                          </span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedEntry(record);
-                                              setShowEditModal(true);
-                                            }}
-                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                            title={atlEditButtonTitle(record)}
-                                          >
-                                            Edit
-                                          </button>
-                                        </>
-                                      )}
+                                          <>
+                                            <span className="text-gray-400">
+                                              |
+                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSelectedEntry(record);
+                                                setShowEditModal(true);
+                                              }}
+                                              className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                              title={atlEditButtonTitle(record)}
+                                            >
+                                              Edit
+                                            </button>
+                                          </>
+                                        )}
                                       {canDeleteOperationAtl && (
                                         <>
                                           <span className="text-gray-400">
@@ -2867,221 +2610,120 @@ export function Operation() {
                                     record.workStatus
                                   )}
                                 >
-                                  {formatFleetWorkStatus(record.workStatus)}
+                                  {formatAtlListCell(record.workStatus)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.natureOfFlight === "VOID"
-                                    ? "VOID"
-                                    : record.natureOfFlight?.trim()
-                                    ? record.natureOfFlight
-                                    : "-"}
+                                  {formatAtlListCell(record.natureOfFlight)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {record.nextInspectionDue || "-"}
+                                  {formatAtlListCell(record.nextInspectionDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatOptionalNumber1dp(record.tachTimeDue)}
+                                  {formatAtlListCell(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatDisplayDate(record.originDate)}
+                                  {formatAtlListCell(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.originTime)}
+                                  {formatAtlListCell(record.originTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatDisplayDate(record.destinationDate)}
+                                  {formatAtlListCell(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.destinationTime)}
+                                  {formatAtlListCell(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {computeTotalBlockTimeFromUtc(
-                                    record.originDate,
-                                    record.originTime,
-                                    record.destinationDate,
-                                    record.destinationTime
-                                  )}
+                                  {formatAtlListCell(record.totalFlightHours)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.numberOfLandings ?? "-"}
+                                  {formatAtlListCell(record.numberOfLandings)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.hobbsMeterStart
-                                  )}
+                                  {formatAtlListCell(record.hobbsMeterStart)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.hobbsMeterEnd
-                                  )}
+                                  {formatAtlListCell(record.hobbsMeterEnd)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {(() => {
-                                    const start = Number(
-                                      record.hobbsMeterStart
-                                    );
-                                    const end = Number(record.hobbsMeterEnd);
-                                    if (
-                                      record.hobbsMeterStart != null &&
-                                      record.hobbsMeterEnd != null &&
-                                      Number.isFinite(start) &&
-                                      Number.isFinite(end)
-                                    ) {
-                                      return (end - start).toFixed(1);
-                                    }
-                                    return formatOptionalNumber1dp(
-                                      record.hobbsMeterTotal
-                                    );
-                                  })()}
+                                  {formatAtlListCell(record.hobbsMeterTotal)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.tachometerStart
-                                  )}
+                                  {formatAtlListCell(record.tachometerStart)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatOptionalNumber1dp(
-                                    record.tachometerEnd
-                                  )}
+                                  {formatAtlListCell(record.tachometerEnd)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "airframeRunTime"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "airframeAftt"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineRunTime"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.engineRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineTsn"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.engineTsn)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineTso"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.engineTso)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "engineTbo"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.engineTbo)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerRunTime"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.propellerRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerTsn"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.propellerTsn)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerTso"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.propellerTso)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {toFormat2(
-                                    resolveAtlComponentMetric(
-                                      record,
-                                      "propellerTbo"
-                                    )
-                                  )}
+                                  {formatAtlListCell(record.propellerTbo)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftUpliftQty ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyLeftUpliftQty)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightUpliftQty ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyRightUpliftQty)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftPriorDeparture ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyLeftPriorDeparture)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightPriorDeparture ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyRightPriorDeparture)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyLeftAfterOnBlks ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyLeftAfterOnBlks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.fuelQtyRightAfterOnBlks ?? "-"}
+                                  {formatAtlListCell(record.fuelQtyRightAfterOnBlks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyUpliftQty ?? "-"}
+                                  {formatAtlListCell(record.oilQtyUpliftQty)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyPriorDeparture ?? "-"}
+                                  {formatAtlListCell(record.oilQtyPriorDeparture)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.oilQtyAfterOnBlks ?? "-"}
+                                  {formatAtlListCell(record.oilQtyAfterOnBlks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.remarks || "-"}
+                                  {formatAtlListCell(record.remarks)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.maintenanceFk &&
-                                  accountsMap.has(record.maintenanceFk)
-                                    ? `${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .fullName
-                                      }-${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .licenseNo
-                                      }`
-                                    : "-"}
+                                  {formatAtlListCell(record.maintenanceFk)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.actionsTaken || "-"}
+                                  {formatAtlListCell(record.actionsTaken)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.maintenanceFk &&
-                                  accountsMap.has(record.maintenanceFk)
-                                    ? `${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .fullName
-                                      }-${
-                                        accountsMap.get(record.maintenanceFk)!
-                                          .licenseNo
-                                      }`
-                                    : "-"}
+                                  {formatAtlListCell(record.maintenanceFk)}
                                 </td>
                                 <td
                                   colSpan={9}
@@ -3160,37 +2802,35 @@ export function Operation() {
                                               }
                                             >
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.removedPartNo ?? "-"}
+                                                {formatAtlListCell(part.removedPartNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.removedSerialNo ?? "-"}
+                                                {formatAtlListCell(part.removedSerialNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {String(
-                                                  partRemainingRemoved(part)
+                                                {formatAtlListCell(
+                                                  part.partRemovedRemainingTime
                                                 )}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.installedPartNo ?? "-"}
+                                                {formatAtlListCell(part.installedPartNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.installedSerialNo ?? "-"}
+                                                {formatAtlListCell(part.installedSerialNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {String(
-                                                  partRemainingInstalled(part)
+                                                {formatAtlListCell(
+                                                  part.partInstalledRemainingTime
                                                 )}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.nomenclature ?? "-"}
+                                                {formatAtlListCell(part.nomenclature)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {part.ataChapter ??
-                                                  part.ata_chapter ??
-                                                  "-"}
+                                                {formatAtlListCell(part.ataChapter)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {partRemarkCell(part)}
+                                                {formatAtlListCell(part.partRemark)}
                                               </td>
                                             </tr>
                                           )
@@ -3209,70 +2849,35 @@ export function Operation() {
                                   </table>
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlDateReportedListCell(
-                                    record.dateTimeReported ?? null
-                                  )}
+                                  {formatAtlListCell(record.dateTimeReported)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlDateTimeListCell(
-                                    record.dateTimeReleased ?? null
-                                  )}
+                                  {formatAtlListCell(record.dateTimeReleased)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {record.rtsSignedBy &&
-                                  accountsMap.has(record.rtsSignedBy) ? (
-                                    <>
-                                      {
-                                        accountsMap.get(record.rtsSignedBy)!
-                                          .fullName
-                                      }
-                                      <br />
-                                      {
-                                        accountsMap.get(record.rtsSignedBy)!
-                                          .licenseNo
-                                      }
-                                    </>
-                                  ) : (
-                                    "-"
-                                  )}
+                                  {formatAtlListCell(record.rtsSignedBy)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.rtsDate || "-"}
+                                  {formatAtlListCell(record.rtsDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.rtsTime)}
+                                  {formatAtlListCell(record.rtsTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {(() => {
-                                    const pilotId =
-                                      record.pilotAcceptedBy ?? record.pilotFk;
-                                    return pilotId &&
-                                      accountsMap.has(pilotId) ? (
-                                      <>
-                                        {accountsMap.get(pilotId)!.fullName}
-                                        <br />
-                                        {accountsMap.get(pilotId)!.licenseNo}
-                                      </>
-                                    ) : (
-                                      "-"
-                                    );
-                                  })()}
+                                  {formatAtlListCell(record.pilotAcceptedBy)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.pilotAcceptDate?.trim()
-                                    ? record.pilotAcceptDate
-                                    : "-"}
+                                  {formatAtlListCell(record.pilotAcceptDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {record.pilotAcceptTime?.trim()
-                                    ? formatTimeZulu(record.pilotAcceptTime)
-                                    : "-"}
+                                  {formatAtlListCell(record.pilotAcceptTime)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {(() => {
-                                    const whiteAtlFile = getAtlStoredUploadFilePath(
-                                      record.whiteAtl
-                                    );
+                                    const whiteAtlFile =
+                                      getAtlStoredUploadFilePath(
+                                        record.whiteAtl
+                                      );
                                     return whiteAtlFile ? (
                                       <div className="flex flex-col gap-1">
                                         <button
@@ -3466,10 +3071,7 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {formatOperationSequenceNoCell(
-                                      record,
-                                      showSeqNoWithBatchName
-                                    )}
+                                    {formatAtlListCell(record.sequenceNo)}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -3484,21 +3086,23 @@ export function Operation() {
                                     {(canUpdateOperationAtl ||
                                       operationTechPubCanEditAtl(record)) &&
                                       canOpenAtlEditForRecord(record) && (
-                                      <>
-                                        <span className="text-gray-400">|</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedEntry(record);
-                                            setShowEditModal(true);
-                                          }}
-                                          className="hover:underline text-xs"
-                                          title={atlEditButtonTitle(record)}
-                                        >
-                                          Edit
-                                        </button>
-                                      </>
-                                    )}
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs"
+                                            title={atlEditButtonTitle(record)}
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
                                     {canDeleteOperationAtl && (
                                       <>
                                         <span className="text-gray-400">|</span>
@@ -3516,73 +3120,49 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
+                                {formatAtlListCell(record.natureOfFlight)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatDisplayDate(record.originDate)}
-                                {record.originTime
-                                  ? ` ${formatTimeZulu(record.originTime)}`
-                                  : ""}
+                                {formatAtlListOffBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatDisplayDate(record.destinationDate)}
-                                {record.destinationTime
-                                  ? ` ${formatTimeZulu(record.destinationTime)}`
-                                  : ""}
+                                {formatAtlListOnBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTimeFromUtc(
-                                  record.originDate,
-                                  record.originTime,
-                                  record.destinationDate,
-                                  record.destinationTime
-                                )}
+                                {formatAtlListCell(record.totalFlightHours)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftUpliftQty ?? "-"}
+                                {formatAtlListCell(record.fuelQtyLeftUpliftQty)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyRightUpliftQty ?? "-"}
+                                {formatAtlListCell(record.fuelQtyRightUpliftQty)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftPriorDeparture ?? "-"}
+                                {formatAtlListCell(record.fuelQtyLeftPriorDeparture)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyRightPriorDeparture ?? "-"}
+                                {formatAtlListCell(record.fuelQtyRightPriorDeparture)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyLeftAfterOnBlks ?? "-"}
+                                {formatAtlListCell(record.fuelQtyLeftAfterOnBlks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.fuelQtyRightAfterOnBlks ?? "-"}
+                                {formatAtlListCell(record.fuelQtyRightAfterOnBlks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.oilQtyUpliftQty ?? "-"}
+                                {formatAtlListCell(record.oilQtyUpliftQty)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.oilQtyPriorDeparture ?? "-"}
+                                {formatAtlListCell(record.oilQtyPriorDeparture)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.oilQtyAfterOnBlks ?? "-"}
+                                {formatAtlListCell(record.oilQtyAfterOnBlks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.remarks || "-"}
+                                {formatAtlListCell(record.remarks)}
                               </td>
                               <td className="px-3 py-2 text-sm">
-                                {record.maintenanceFk &&
-                                accountsMap.has(record.maintenanceFk)
-                                  ? `${
-                                      accountsMap.get(record.maintenanceFk)!
-                                        .fullName
-                                    } - ${
-                                      accountsMap.get(record.maintenanceFk)!
-                                        .licenseNo
-                                    }`
-                                  : "-"}
+                                {formatAtlListCell(record.maintenanceFk)}
                               </td>
                             </tr>
                           ))
@@ -3660,10 +3240,7 @@ export function Operation() {
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
-                                      {formatOperationSequenceNoCell(
-                                        record,
-                                        showSeqNoWithBatchName
-                                      )}
+                                      {formatAtlListCell(record.sequenceNo)}
                                     </span>
                                     <div className="flex items-center gap-1 text-blue-600 mt-1">
                                       <button
@@ -3716,75 +3293,43 @@ export function Operation() {
                                   </div>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {record.natureOfFlight === "VOID"
-                                    ? "VOID"
-                                    : record.natureOfFlight?.trim()
-                                    ? record.natureOfFlight
-                                    : "-"}
+                                  {formatAtlListCell(record.natureOfFlight)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {formatDisplayDate(record.originDate)}
-                                  {record.originTime
-                                    ? ` ${formatTimeZulu(record.originTime)}`
-                                    : ""}
+                                  {formatAtlListOffBlocks(record)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                  {formatDisplayDate(record.destinationDate)}
-                                  {record.destinationTime
-                                    ? ` ${formatTimeZulu(
-                                        record.destinationTime
-                                      )}`
-                                    : ""}
+                                  {formatAtlListOnBlocks(record)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getAirframeDisplay(record)?.split(
-                                    " / "
-                                  )?.[0] ?? "-"}
+                                  {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getAirframeDisplay(record)?.split(
-                                    " / "
-                                  )?.[1] ?? "-"}
+                                  {formatAtlListCell(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[0]
-                                    ?.replace("RUN ", "") ?? "-"}
+                                  {formatAtlListCell(record.engineRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[1]
-                                    ?.replace("TSN ", "") ?? "-"}
+                                  {formatAtlListCell(record.engineTsn)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[2]
-                                    ?.replace("TSO ", "") ?? "-"}
+                                  {formatAtlListCell(record.engineTso)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getEngineDisplay(record)
-                                    ?.split(" / ")?.[3]
-                                    ?.replace("TBO ", "") ?? "-"}
+                                  {formatAtlListCell(record.engineTbo)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[0]
-                                    ?.replace("RUN ", "") ?? "-"}
+                                  {formatAtlListCell(record.propellerRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[1]
-                                    ?.replace("TSN ", "") ?? "-"}
+                                  {formatAtlListCell(record.propellerTsn)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[2]
-                                    ?.replace("TSO ", "") ?? "-"}
+                                  {formatAtlListCell(record.propellerTso)}
                                 </td>
                                 <td className="px-3 py-2 text-sm">
-                                  {getPropellerDisplay(record)
-                                    ?.split(" / ")?.[3]
-                                    ?.replace("TBO ", "") ?? "-"}
+                                  {formatAtlListCell(record.propellerTbo)}
                                 </td>
                               </tr>
                             );
@@ -3850,10 +3395,7 @@ export function Operation() {
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {formatOperationSequenceNoCell(
-                                      record,
-                                      showSeqNoWithBatchName
-                                    )}
+                                    {formatAtlListCell(record.sequenceNo)}
                                   </span>
                                   <div className="flex items-center gap-1 text-blue-600 mt-1">
                                     <button
@@ -3868,21 +3410,23 @@ export function Operation() {
                                     {(canUpdateOperationAtl ||
                                       operationTechPubCanEditAtl(record)) &&
                                       canOpenAtlEditForRecord(record) && (
-                                      <>
-                                        <span className="text-gray-400">|</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setSelectedEntry(record);
-                                            setShowEditModal(true);
-                                          }}
-                                          className="hover:underline text-xs"
-                                          title={atlEditButtonTitle(record)}
-                                        >
-                                          Edit
-                                        </button>
-                                      </>
-                                    )}
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedEntry(record);
+                                              setShowEditModal(true);
+                                            }}
+                                            className="hover:underline text-xs"
+                                            title={atlEditButtonTitle(record)}
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
                                     {canDeleteOperationAtl && (
                                       <>
                                         <span className="text-gray-400">|</span>
@@ -3900,48 +3444,31 @@ export function Operation() {
                                 </div>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.natureOfFlight === "VOID"
-                                  ? "VOID"
-                                  : record.natureOfFlight?.trim()
-                                  ? record.natureOfFlight
-                                  : "-"}
+                                {formatAtlListCell(record.natureOfFlight)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlDateReportedListCell(
-                                  record.dateTimeReported ?? null
-                                )}
+                                {formatAtlListCell(record.dateTimeReported)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlDateTimeListCell(
-                                  record.dateTimeReleased ?? null
-                                )}
+                                {formatAtlListCell(record.dateTimeReleased)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)?.split(
-                                  " / "
-                                )?.[0] ?? "-"}
+                                {formatAtlListCell(record.airframeRunTime)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {getAirframeDisplay(record)?.split(
-                                  " / "
-                                )?.[1] ?? "-"}
+                                {formatAtlListCell(record.airframeAftt)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {computeTotalBlockTimeFromUtc(
-                                  record.originDate,
-                                  record.originTime,
-                                  record.destinationDate,
-                                  record.destinationTime
-                                )}
+                                {formatAtlListCell(record.totalFlightHours)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.numberOfLandings ?? "-"}
+                                {formatAtlListCell(record.numberOfLandings)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.remarks || "-"}
+                                {formatAtlListCell(record.remarks)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {record.actionsTaken || "-"}
+                                {formatAtlListCell(record.actionsTaken)}
                               </td>
                               <td className="px-0 py-0 align-top border-r border-gray-200">
                                 <table className="w-full border-collapse min-w-full">
@@ -4017,37 +3544,35 @@ export function Operation() {
                                             }
                                           >
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.removedPartNo ?? "-"}
+                                              {formatAtlListCell(part.removedPartNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.removedSerialNo ?? "-"}
+                                              {formatAtlListCell(part.removedSerialNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {String(
-                                                partRemainingRemoved(part)
+                                              {formatAtlListCell(
+                                                part.partRemovedRemainingTime
                                               )}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.installedPartNo ?? "-"}
+                                              {formatAtlListCell(part.installedPartNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.installedSerialNo ?? "-"}
+                                              {formatAtlListCell(part.installedSerialNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {String(
-                                                partRemainingInstalled(part)
+                                              {formatAtlListCell(
+                                                part.partInstalledRemainingTime
                                               )}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.nomenclature ?? "-"}
+                                              {formatAtlListCell(part.nomenclature)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {part.ataChapter ??
-                                                part.ata_chapter ??
-                                                "-"}
+                                              {formatAtlListCell(part.ataChapter)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {partRemarkCell(part)}
+                                              {formatAtlListCell(part.partRemark)}
                                             </td>
                                           </tr>
                                         )
@@ -4119,9 +3644,7 @@ export function Operation() {
         onClose={() => setShowAddRecordModal(false)}
         aircraftId={effectiveAircraftId}
         permissionModuleCode={operationAtlPermissionModuleCode}
-        defaultAtlBatchFk={
-          showAtlBatchFilter ? selectedAtlBatchFk : undefined
-        }
+        defaultAtlBatchFk={showAtlBatchFilter ? selectedAtlBatchFk : undefined}
         onSuccess={() => {
           setShowAddRecordModal(false);
           refreshPage();
@@ -4144,7 +3667,6 @@ export function Operation() {
             operationAtlRole,
             selectedEntry.workStatus
           )}
-          listViewComputedTimes={editListComputedTimes}
           onSuccess={() => {
             setShowEditModal(false);
             setSelectedEntry(null);
@@ -4171,12 +3693,7 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: `${computeTotalFlightHoursDecimalFromUtc(
-              selectedEntry.originDate,
-              selectedEntry.originTime,
-              selectedEntry.destinationDate,
-              selectedEntry.destinationTime
-            ).toFixed(2)}h`,
+            fltTime: formatAtlListCell(selectedEntry.totalFlightHours, "—"),
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
             status: "Serviceable",
           }}
@@ -4184,698 +3701,714 @@ export function Operation() {
         />
       )}
 
-      {showExportModal && canExportOperationAtl && (() => {
-        const totalAvailable = activeExportColumnDefinitions.length;
-        const totalSelected = selectedExportColumns.length;
-        const progressPct =
-          totalAvailable === 0
-            ? 0
-            : Math.round((totalSelected / totalAvailable) * 100);
+      {showExportModal &&
+        canExportOperationAtl &&
+        (() => {
+          const totalAvailable = activeExportColumnDefinitions.length;
+          const totalSelected = selectedExportColumns.length;
+          const progressPct =
+            totalAvailable === 0
+              ? 0
+              : Math.round((totalSelected / totalAvailable) * 100);
 
-        const sections = activeExportCategoryView;
-        const sectionsCount = sections.length;
-        const activeIdx = sections.findIndex(
-          (s) => s.id === activeExportCategoryId
-        );
-        const activeSection = activeIdx >= 0 ? sections[activeIdx] : null;
-        const columnByKey = new Map(
-          activeExportColumnDefinitions.map((c) => [c.key, c])
-        );
-
-        // Portaled to document.body so the fixed overlay isn't trapped by any
-        // ancestor with `transform` / `filter` / `contain` that would otherwise
-        // create a new containing block and break `position: fixed`.
-
-        const countSelected = (keys: string[]) =>
-          keys.filter((k) => selectedExportColumns.includes(k)).length;
-
-        const setSelectionForKeys = (keys: string[], select: boolean) => {
-          if (keys.length === 0) return;
-          setSelectedExportColumns((current) => {
-            const set = new Set(current);
-            for (const k of keys) {
-              if (select) set.add(k);
-              else set.delete(k);
-            }
-            return Array.from(set);
-          });
-        };
-
-        const isSubGroupExpanded = (
-          categoryId: string,
-          sg: ExportColumnSubGroup
-        ): boolean => {
-          const key = subGroupKey(categoryId, sg.id);
-          if (key in exportSubGroupOverrides) {
-            return exportSubGroupOverrides[key];
-          }
-          return !sg.defaultCollapsed;
-        };
-
-        const toggleSubGroup = (
-          categoryId: string,
-          sg: ExportColumnSubGroup
-        ) => {
-          const key = subGroupKey(categoryId, sg.id);
-          setExportSubGroupOverrides((current) => ({
-            ...current,
-            [key]: !isSubGroupExpanded(categoryId, sg),
-          }));
-        };
-
-        const renderColumnTile = (column: ExportColumnDefinition) => {
-          const isSelected = selectedExportColumns.includes(column.key);
-          return (
-            <label
-              key={column.key}
-              className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 transition-all ${
-                isSelected
-                  ? "border-blue-400 bg-blue-50/70"
-                  : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
-              }`}
-            >
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={() => toggleExportColumn(column.key)}
-                className="border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
-              />
-              <span
-                className={`flex-1 truncate text-sm leading-tight ${
-                  isSelected
-                    ? "font-medium text-gray-900"
-                    : "text-gray-700 group-hover:text-gray-900"
-                }`}
-                title={column.label}
-              >
-                {column.label}
-              </span>
-            </label>
+          const sections = activeExportCategoryView;
+          const sectionsCount = sections.length;
+          const activeIdx = sections.findIndex(
+            (s) => s.id === activeExportCategoryId
           );
-        };
+          const activeSection = activeIdx >= 0 ? sections[activeIdx] : null;
+          const columnByKey = new Map(
+            activeExportColumnDefinitions.map((c) => [c.key, c])
+          );
 
-        return createPortal(
-          <div
-            className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 py-0 sm:items-center sm:px-4 sm:py-6"
-            onClick={() => !exportLoading && setShowExportModal(false)}
-            role="presentation"
-            style={{ position: "fixed", inset: 0 }}
-          >
-            <div
-              className="flex max-h-[100vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="export-columns-title"
-            >
-              {/* Header — inline-styled so the gradient/colors render even when
-                  the bundled Tailwind CSS strips opacity/gradient utilities. */}
-              <div
-                className="relative flex-shrink-0"
-                style={{
-                  background:
-                    "linear-gradient(90deg, #2563eb 0%, #2563eb 50%, #4f46e5 100%)",
-                  color: "#ffffff",
-                  borderBottom: "1px solid rgba(29, 78, 216, 0.4)",
-                }}
+          // Portaled to document.body so the fixed overlay isn't trapped by any
+          // ancestor with `transform` / `filter` / `contain` that would otherwise
+          // create a new containing block and break `position: fixed`.
+
+          const countSelected = (keys: string[]) =>
+            keys.filter((k) => selectedExportColumns.includes(k)).length;
+
+          const setSelectionForKeys = (keys: string[], select: boolean) => {
+            if (keys.length === 0) return;
+            setSelectedExportColumns((current) => {
+              const set = new Set(current);
+              for (const k of keys) {
+                if (select) set.add(k);
+                else set.delete(k);
+              }
+              return Array.from(set);
+            });
+          };
+
+          const isSubGroupExpanded = (
+            categoryId: string,
+            sg: ExportColumnSubGroup
+          ): boolean => {
+            const key = subGroupKey(categoryId, sg.id);
+            if (key in exportSubGroupOverrides) {
+              return exportSubGroupOverrides[key];
+            }
+            return !sg.defaultCollapsed;
+          };
+
+          const toggleSubGroup = (
+            categoryId: string,
+            sg: ExportColumnSubGroup
+          ) => {
+            const key = subGroupKey(categoryId, sg.id);
+            setExportSubGroupOverrides((current) => ({
+              ...current,
+              [key]: !isSubGroupExpanded(categoryId, sg),
+            }));
+          };
+
+          const renderColumnTile = (column: ExportColumnDefinition) => {
+            const isSelected = selectedExportColumns.includes(column.key);
+            return (
+              <label
+                key={column.key}
+                className={`group flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 transition-all ${
+                  isSelected
+                    ? "border-blue-400 bg-blue-50/70"
+                    : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
+                }`}
               >
-                <div className="flex items-start gap-3 px-5 py-4">
-                  {/* Leading icon badge */}
-                  <div
-                    className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
-                    style={{
-                      backgroundColor: "rgba(255,255,255,0.2)",
-                      boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)",
-                    }}
-                    aria-hidden
-                  >
-                    <Download
-                      className="h-5 w-5"
-                      style={{ color: "#ffffff" }}
-                    />
-                  </div>
-                  {/* Title + view chip + subtitle */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                      <h3
-                        id="export-columns-title"
-                        className="text-xl font-bold leading-tight"
-                        style={{ color: "#ffffff" }}
-                      >
-                        Export Columns
-                      </h3>
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-                        style={{
-                          backgroundColor: "rgba(255,255,255,0.22)",
-                          color: "#ffffff",
-                          boxShadow:
-                            "inset 0 0 0 1px rgba(255,255,255,0.4), 0 1px 2px 0 rgba(0,0,0,0.06)",
-                        }}
-                      >
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: "#ffffff" }}
-                        />
-                        {groupBy === "allColumns"
-                          ? "All Columns"
-                          : groupBy === "fuelAndOilData"
-                          ? "Fuel and Oil"
-                          : groupBy === "maintenancePlanning"
-                          ? "Maintenance Planning"
-                          : "Reliability Monitoring"}
-                      </span>
-                    </div>
-                    <p
-                      className="mt-1.5 text-sm font-medium"
-                      style={{ color: "#dbeafe" }}
-                    >
-                      Fleet Time Monitoring{" "}
-                      <span style={{ color: "#93c5fd" }}>·</span> Pick columns
-                      to include in the export
-                    </p>
-                  </div>
-                  {/* Selected counter — always visible */}
-                  <div
-                    className="hidden flex-shrink-0 flex-col items-end leading-tight sm:flex"
-                    aria-live="polite"
-                  >
-                    <span
-                      className="text-lg font-bold"
-                      style={{ color: "#ffffff" }}
-                    >
-                      {totalSelected}
-                      <span style={{ color: "#bfdbfe" }}>
-                        /{totalAvailable}
-                      </span>
-                    </span>
-                    <span
-                      className="text-[10px] font-semibold uppercase tracking-wider"
-                      style={{ color: "#dbeafe" }}
-                    >
-                      Columns
-                    </span>
-                  </div>
-                  {/* Close */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      !exportLoading && setShowExportModal(false)
-                    }
-                    disabled={exportLoading}
-                    className="flex-shrink-0 rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                    style={{ color: "#eff6ff" }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor =
-                        "rgba(255,255,255,0.18)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }}
-                    aria-label="Close export dialog"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                {/* Progress bar — flush to bottom edge */}
-                <div
-                  className="h-1 w-full overflow-hidden"
-                  style={{ backgroundColor: "rgba(255,255,255,0.18)" }}
-                  role="progressbar"
-                  aria-valuenow={progressPct}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Columns selected"
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => toggleExportColumn(column.key)}
+                  className="border-gray-400 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
+                />
+                <span
+                  className={`flex-1 truncate text-sm leading-tight ${
+                    isSelected
+                      ? "font-medium text-gray-900"
+                      : "text-gray-700 group-hover:text-gray-900"
+                  }`}
+                  title={column.label}
                 >
-                  <div
-                    className="h-full transition-[width] duration-300 ease-out"
-                    style={{
-                      width: `${progressPct}%`,
-                      backgroundColor: "#ffffff",
-                    }}
-                  />
-                </div>
-              </div>
+                  {column.label}
+                </span>
+              </label>
+            );
+          };
 
-              {/* Toolbar — refined search + global actions */}
-              <div className="flex flex-shrink-0 flex-col gap-2.5 border-b border-gray-200 bg-white px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3 sm:px-5">
-                {/* Search input */}
-                <div className="relative flex-1">
-                  <Search
-                    className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${
-                      exportColumnSearch ? "text-blue-500" : "text-gray-400"
-                    }`}
-                    aria-hidden
-                  />
-                  <input
-                    type="text"
-                    value={exportColumnSearch}
-                    onChange={(e) => setExportColumnSearch(e.target.value)}
-                    placeholder="Search across all sections…"
-                    aria-label="Search columns"
-                    className={`peer w-full rounded-lg border bg-gray-50 py-2 pl-9 pr-9 text-sm text-gray-800 placeholder:text-gray-400 transition-shadow focus:bg-white focus:outline-none ${
-                      exportColumnSearch
-                        ? "border-blue-400 ring-2 ring-blue-500/20"
-                        : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                    }`}
-                  />
-                  {exportColumnSearch ? (
-                    <button
-                      type="button"
-                      onClick={() => setExportColumnSearch("")}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                      aria-label="Clear search"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  ) : (
-                    <kbd
-                      className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 select-none rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400 sm:inline-block"
+          return createPortal(
+            <div
+              className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 py-0 sm:items-center sm:px-4 sm:py-6"
+              onClick={() => !exportLoading && setShowExportModal(false)}
+              role="presentation"
+              style={{ position: "fixed", inset: 0 }}
+            >
+              <div
+                className="flex max-h-[100vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="export-columns-title"
+              >
+                {/* Header — inline-styled so the gradient/colors render even when
+                  the bundled Tailwind CSS strips opacity/gradient utilities. */}
+                <div
+                  className="relative flex-shrink-0"
+                  style={{
+                    background:
+                      "linear-gradient(90deg, #2563eb 0%, #2563eb 50%, #4f46e5 100%)",
+                    color: "#ffffff",
+                    borderBottom: "1px solid rgba(29, 78, 216, 0.4)",
+                  }}
+                >
+                  <div className="flex items-start gap-3 px-5 py-4">
+                    {/* Leading icon badge */}
+                    <div
+                      className="mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                      style={{
+                        backgroundColor: "rgba(255,255,255,0.2)",
+                        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.3)",
+                      }}
                       aria-hidden
                     >
-                      Search
-                    </kbd>
-                  )}
-                </div>
-                {/* Match counter + bulk actions */}
-                <div className="flex flex-shrink-0 items-center gap-1.5">
-                  {exportColumnSearch && (
-                    <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                      <Filter className="h-3 w-3" />
-                      {sections.reduce(
-                        (sum, s) => sum + s.keys.length,
-                        0
-                      )}{" "}
-                      match
-                      {sections.reduce(
-                        (sum, s) => sum + s.keys.length,
-                        0
-                      ) === 1
-                        ? ""
-                        : "es"}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedExportColumns(
-                        activeExportColumnDefinitions.map(
-                          (column) => column.key
-                        )
-                      )
-                    }
-                    disabled={totalSelected === totalAvailable}
-                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedExportColumns([])}
-                    disabled={totalSelected === 0}
-                    className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              {/* Body — sidebar tabs + content */}
-              {sectionsCount === 0 ? (
-                <div className="flex-1 overflow-y-auto px-6 py-16">
-                  <div className="flex flex-col items-center justify-center gap-2 text-center">
-                    <Search className="h-10 w-10 text-gray-300" />
-                    <p className="text-sm font-medium text-gray-700">
-                      No columns match "{exportColumnSearch}"
-                    </p>
+                      <Download
+                        className="h-5 w-5"
+                        style={{ color: "#ffffff" }}
+                      />
+                    </div>
+                    {/* Title + view chip + subtitle */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                        <h3
+                          id="export-columns-title"
+                          className="text-xl font-bold leading-tight"
+                          style={{ color: "#ffffff" }}
+                        >
+                          Export Columns
+                        </h3>
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                          style={{
+                            backgroundColor: "rgba(255,255,255,0.22)",
+                            color: "#ffffff",
+                            boxShadow:
+                              "inset 0 0 0 1px rgba(255,255,255,0.4), 0 1px 2px 0 rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ backgroundColor: "#ffffff" }}
+                          />
+                          {groupBy === "allColumns"
+                            ? "All Columns"
+                            : groupBy === "fuelAndOilData"
+                            ? "Fuel and Oil"
+                            : groupBy === "maintenancePlanning"
+                            ? "Maintenance Planning"
+                            : "Reliability Monitoring"}
+                        </span>
+                      </div>
+                      <p
+                        className="mt-1.5 text-sm font-medium"
+                        style={{ color: "#dbeafe" }}
+                      >
+                        Fleet Time Monitoring{" "}
+                        <span style={{ color: "#93c5fd" }}>·</span> Pick columns
+                        to include in the export
+                      </p>
+                    </div>
+                    {/* Selected counter — always visible */}
+                    <div
+                      className="hidden flex-shrink-0 flex-col items-end leading-tight sm:flex"
+                      aria-live="polite"
+                    >
+                      <span
+                        className="text-lg font-bold"
+                        style={{ color: "#ffffff" }}
+                      >
+                        {totalSelected}
+                        <span style={{ color: "#bfdbfe" }}>
+                          /{totalAvailable}
+                        </span>
+                      </span>
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-wider"
+                        style={{ color: "#dbeafe" }}
+                      >
+                        Columns
+                      </span>
+                    </div>
+                    {/* Close */}
                     <button
                       type="button"
-                      onClick={() => setExportColumnSearch("")}
-                      className="text-sm font-medium text-blue-600 hover:underline"
+                      onClick={() =>
+                        !exportLoading && setShowExportModal(false)
+                      }
+                      disabled={exportLoading}
+                      className="flex-shrink-0 rounded-lg p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ color: "#eff6ff" }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                          "rgba(255,255,255,0.18)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }}
+                      aria-label="Close export dialog"
                     >
-                      Clear search
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  {/* Progress bar — flush to bottom edge */}
+                  <div
+                    className="h-1 w-full overflow-hidden"
+                    style={{ backgroundColor: "rgba(255,255,255,0.18)" }}
+                    role="progressbar"
+                    aria-valuenow={progressPct}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Columns selected"
+                  >
+                    <div
+                      className="h-full transition-[width] duration-300 ease-out"
+                      style={{
+                        width: `${progressPct}%`,
+                        backgroundColor: "#ffffff",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Toolbar — refined search + global actions */}
+                <div className="flex flex-shrink-0 flex-col gap-2.5 border-b border-gray-200 bg-white px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3 sm:px-5">
+                  {/* Search input */}
+                  <div className="relative flex-1">
+                    <Search
+                      className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${
+                        exportColumnSearch ? "text-blue-500" : "text-gray-400"
+                      }`}
+                      aria-hidden
+                    />
+                    <input
+                      type="text"
+                      value={exportColumnSearch}
+                      onChange={(e) => setExportColumnSearch(e.target.value)}
+                      placeholder="Search across all sections…"
+                      aria-label="Search columns"
+                      className={`peer w-full rounded-lg border bg-gray-50 py-2 pl-9 pr-9 text-sm text-gray-800 placeholder:text-gray-400 transition-shadow focus:bg-white focus:outline-none ${
+                        exportColumnSearch
+                          ? "border-blue-400 ring-2 ring-blue-500/20"
+                          : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                      }`}
+                    />
+                    {exportColumnSearch ? (
+                      <button
+                        type="button"
+                        onClick={() => setExportColumnSearch("")}
+                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : (
+                      <kbd
+                        className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 select-none rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-gray-400 sm:inline-block"
+                        aria-hidden
+                      >
+                        Search
+                      </kbd>
+                    )}
+                  </div>
+                  {/* Match counter + bulk actions */}
+                  <div className="flex flex-shrink-0 items-center gap-1.5">
+                    {exportColumnSearch && (
+                      <span className="mr-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
+                        <Filter className="h-3 w-3" />
+                        {sections.reduce(
+                          (sum, s) => sum + s.keys.length,
+                          0
+                        )}{" "}
+                        match
+                        {sections.reduce((sum, s) => sum + s.keys.length, 0) ===
+                        1
+                          ? ""
+                          : "es"}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedExportColumns(
+                          activeExportColumnDefinitions.map(
+                            (column) => column.key
+                          )
+                        )
+                      }
+                      disabled={totalSelected === totalAvailable}
+                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExportColumns([])}
+                      disabled={totalSelected === 0}
+                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white disabled:hover:text-gray-700"
+                    >
+                      Clear
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  {/* Stepper tab strip — horizontal pills, scrollable */}
-                  <nav
-                    aria-label="Export sections"
-                    className="flex-shrink-0 overflow-x-auto border-b border-gray-200 bg-white px-3 py-2"
-                  >
-                    <ul className="flex w-max items-center gap-1.5">
-                      {sections.map((section, idx) => {
-                        const selected = countSelected(section.keys);
-                        const total = section.keys.length;
-                        const isActive = section.id === activeExportCategoryId;
-                        const isComplete = selected === total && total > 0;
-                        const isPartial = selected > 0 && selected < total;
-                        return (
-                          <li key={section.id}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveExportCategoryId(section.id)
-                              }
-                              className={`group relative flex items-center gap-2 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
-                                isActive
-                                  ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm"
-                                  : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-                              }`}
-                              aria-current={isActive ? "page" : undefined}
-                            >
-                              <span
-                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
-                                  isComplete
-                                    ? "bg-emerald-500 text-white"
-                                    : isActive
-                                    ? `${section.accent} text-white`
-                                    : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
-                                }`}
-                                aria-hidden
-                              >
-                                {isComplete ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                  idx + 1
-                                )}
-                              </span>
-                              <span>{section.shortLabel}</span>
-                              {isPartial && (
-                                <span
-                                  className="rounded-full bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700"
-                                  title={`${selected} of ${total} selected`}
-                                >
-                                  {selected}/{total}
-                                </span>
-                              )}
-                              {isActive && (
-                                <span
-                                  className={`absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full ${section.accent}`}
-                                  aria-hidden
-                                />
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </nav>
 
-                  {/* Active section content (scrollable) */}
-                  <div className="flex-1 overflow-y-auto bg-gray-50/40 px-4 py-4 sm:px-5 sm:py-4">
-                    {activeSection && (() => {
-                      const sectionSelected = countSelected(activeSection.keys);
-                      const sectionTotal = activeSection.keys.length;
-                      const sectionComplete =
-                        sectionSelected === sectionTotal && sectionTotal > 0;
-                      return (
-                      <div className="space-y-3">
-                        {/* Section header card — compact, no redundant count */}
-                        <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <span
-                                className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${activeSection.accent}`}
-                                aria-hidden
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="truncate text-sm font-semibold text-gray-900">
-                                    {activeSection.label}
-                                  </h4>
-                                  {sectionComplete ? (
-                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                      <CheckCircle2 className="h-2.5 w-2.5" />
-                                      Complete
-                                    </span>
-                                  ) : (
-                                    <span
-                                      className={`text-[11px] font-semibold ${activeSection.accentText}`}
-                                    >
-                                      {sectionSelected}/{sectionTotal}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="truncate text-[11px] text-gray-500">
-                                  {activeSection.description}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectionForKeys(activeSection.keys, true)
-                                }
-                                disabled={sectionComplete}
-                                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Select all
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setSelectionForKeys(activeSection.keys, false)
-                                }
-                                disabled={sectionSelected === 0}
-                                className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Clear
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Section body: subGroups accordion OR flat grid */}
-                        {activeSection.subGroups &&
-                        activeSection.subGroups.length > 0 ? (
-                          <div className="space-y-3">
-                            {activeSection.subGroups
-                              .filter((sg) => sg.keys.length > 0)
-                              .map((sg) => {
-                                const expanded = isSubGroupExpanded(
-                                  activeSection.id,
-                                  sg
-                                );
-                                const sgSelected = countSelected(sg.keys);
-                                const sgTotal = sg.keys.length;
-                                const sgAll = sgSelected === sgTotal;
-                                return (
-                                  <section
-                                    key={sg.id}
-                                    className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-                                  >
-                                    <div
-                                      className={`flex items-center justify-between gap-2 border-gray-100 px-3 py-2 transition-colors ${
-                                        expanded
-                                          ? "border-b bg-gray-50/70"
-                                          : "bg-white hover:bg-gray-50/70"
-                                      }`}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          toggleSubGroup(activeSection.id, sg)
-                                        }
-                                        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left"
-                                        aria-expanded={expanded}
-                                        aria-controls={`subgroup-${activeSection.id}-${sg.id}`}
-                                      >
-                                        <span
-                                          className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md ${
-                                            expanded
-                                              ? "bg-gray-200/70 text-gray-700"
-                                              : "text-gray-500"
-                                          }`}
-                                          aria-hidden
-                                        >
-                                          <ChevronDown
-                                            className={`h-3.5 w-3.5 transition-transform ${
-                                              expanded ? "" : "-rotate-90"
-                                            }`}
-                                          />
-                                        </span>
-                                        <h5 className="truncate text-sm font-semibold text-gray-800">
-                                          {sg.label}
-                                        </h5>
-                                        <span
-                                          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                            sgSelected === 0
-                                              ? "bg-gray-100 text-gray-500"
-                                              : sgAll
-                                              ? "bg-emerald-100 text-emerald-700"
-                                              : "bg-blue-100 text-blue-700"
-                                          }`}
-                                        >
-                                          {sgAll && (
-                                            <CheckCircle2 className="h-2.5 w-2.5" />
-                                          )}
-                                          {sgSelected}/{sgTotal}
-                                        </span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setSelectionForKeys(sg.keys, !sgAll)
-                                        }
-                                        className="flex-shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-                                      >
-                                        {sgAll ? "Deselect" : "Select"}
-                                      </button>
-                                    </div>
-                                    {expanded && (
-                                      <div
-                                        id={`subgroup-${activeSection.id}-${sg.id}`}
-                                        className="grid grid-cols-1 gap-1.5 p-2.5 sm:grid-cols-2"
-                                      >
-                                        {sg.keys
-                                          .map((k) => columnByKey.get(k))
-                                          .filter(
-                                            (
-                                              col
-                                            ): col is ExportColumnDefinition =>
-                                              col != null
-                                          )
-                                          .map(renderColumnTile)}
-                                      </div>
-                                    )}
-                                  </section>
-                                );
-                              })}
-                          </div>
-                        ) : (
-                          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-2.5 shadow-sm">
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {activeSection.keys
-                                .map((k) => columnByKey.get(k))
-                                .filter(
-                                  (col): col is ExportColumnDefinition =>
-                                    col != null
-                                )
-                                .map(renderColumnTile)}
-                            </div>
-                          </div>
-                        )}
-
-                      </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {/* Sticky footer — stepper nav + status + actions */}
-              <div className="flex flex-shrink-0 flex-col gap-2 border-t border-gray-200 bg-white px-4 py-2.5 sm:px-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {/* Stepper navigation (Previous / Section X of Y / Next) */}
-                  {sectionsCount > 0 && (
-                    <div className="flex items-center gap-1.5">
+                {/* Body — sidebar tabs + content */}
+                {sectionsCount === 0 ? (
+                  <div className="flex-1 overflow-y-auto px-6 py-16">
+                    <div className="flex flex-col items-center justify-center gap-2 text-center">
+                      <Search className="h-10 w-10 text-gray-300" />
+                      <p className="text-sm font-medium text-gray-700">
+                        No columns match "{exportColumnSearch}"
+                      </p>
                       <button
                         type="button"
-                        onClick={() => {
-                          const prev = sections[activeIdx - 1];
-                          if (prev) setActiveExportCategoryId(prev.id);
-                        }}
-                        disabled={activeIdx <= 0}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Previous section"
+                        onClick={() => setExportColumnSearch("")}
+                        className="text-sm font-medium text-blue-600 hover:underline"
                       >
-                        <ChevronUp className="h-3.5 w-3.5 -rotate-90" />
-                      </button>
-                      <span className="whitespace-nowrap text-[11px] font-medium text-gray-600">
-                        Section{" "}
-                        <span className="font-semibold text-gray-900">
-                          {activeIdx + 1}
-                        </span>{" "}
-                        of{" "}
-                        <span className="font-semibold text-gray-900">
-                          {sectionsCount}
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = sections[activeIdx + 1];
-                          if (next) setActiveExportCategoryId(next.id);
-                        }}
-                        disabled={activeIdx >= sectionsCount - 1}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Next section"
-                      >
-                        <ChevronUp className="h-3.5 w-3.5 rotate-90" />
+                        Clear search
                       </button>
                     </div>
-                  )}
-                  <p className="text-[11px] text-gray-600">
-                    {totalSelected === 0 ? (
-                      <span className="text-gray-500">
-                        Select at least one column to export
-                      </span>
-                    ) : (
-                      <>
-                        <span className="font-semibold text-gray-900">
-                          {totalSelected}
-                        </span>{" "}
-                        column{totalSelected === 1 ? "" : "s"} ready
-                      </>
+                  </div>
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {/* Stepper tab strip — horizontal pills, scrollable */}
+                    <nav
+                      aria-label="Export sections"
+                      className="flex-shrink-0 overflow-x-auto border-b border-gray-200 bg-white px-3 py-2"
+                    >
+                      <ul className="flex w-max items-center gap-1.5">
+                        {sections.map((section, idx) => {
+                          const selected = countSelected(section.keys);
+                          const total = section.keys.length;
+                          const isActive =
+                            section.id === activeExportCategoryId;
+                          const isComplete = selected === total && total > 0;
+                          const isPartial = selected > 0 && selected < total;
+                          return (
+                            <li key={section.id}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setActiveExportCategoryId(section.id)
+                                }
+                                className={`group relative flex items-center gap-2 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
+                                  isActive
+                                    ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm"
+                                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                                }`}
+                                aria-current={isActive ? "page" : undefined}
+                              >
+                                <span
+                                  className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
+                                    isComplete
+                                      ? "bg-emerald-500 text-white"
+                                      : isActive
+                                      ? `${section.accent} text-white`
+                                      : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
+                                  }`}
+                                  aria-hidden
+                                >
+                                  {isComplete ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                  ) : (
+                                    idx + 1
+                                  )}
+                                </span>
+                                <span>{section.shortLabel}</span>
+                                {isPartial && (
+                                  <span
+                                    className="rounded-full bg-blue-100 px-1.5 text-[10px] font-semibold text-blue-700"
+                                    title={`${selected} of ${total} selected`}
+                                  >
+                                    {selected}/{total}
+                                  </span>
+                                )}
+                                {isActive && (
+                                  <span
+                                    className={`absolute inset-x-2 -bottom-[7px] h-0.5 rounded-full ${section.accent}`}
+                                    aria-hidden
+                                  />
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </nav>
+
+                    {/* Active section content (scrollable) */}
+                    <div className="flex-1 overflow-y-auto bg-gray-50/40 px-4 py-4 sm:px-5 sm:py-4">
+                      {activeSection &&
+                        (() => {
+                          const sectionSelected = countSelected(
+                            activeSection.keys
+                          );
+                          const sectionTotal = activeSection.keys.length;
+                          const sectionComplete =
+                            sectionSelected === sectionTotal &&
+                            sectionTotal > 0;
+                          return (
+                            <div className="space-y-3">
+                              {/* Section header card — compact, no redundant count */}
+                              <div className="rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 shadow-sm">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex min-w-0 items-center gap-2.5">
+                                    <span
+                                      className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${activeSection.accent}`}
+                                      aria-hidden
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="truncate text-sm font-semibold text-gray-900">
+                                          {activeSection.label}
+                                        </h4>
+                                        {sectionComplete ? (
+                                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                            <CheckCircle2 className="h-2.5 w-2.5" />
+                                            Complete
+                                          </span>
+                                        ) : (
+                                          <span
+                                            className={`text-[11px] font-semibold ${activeSection.accentText}`}
+                                          >
+                                            {sectionSelected}/{sectionTotal}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="truncate text-[11px] text-gray-500">
+                                        {activeSection.description}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectionForKeys(
+                                          activeSection.keys,
+                                          true
+                                        )
+                                      }
+                                      disabled={sectionComplete}
+                                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      Select all
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectionForKeys(
+                                          activeSection.keys,
+                                          false
+                                        )
+                                      }
+                                      disabled={sectionSelected === 0}
+                                      className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Section body: subGroups accordion OR flat grid */}
+                              {activeSection.subGroups &&
+                              activeSection.subGroups.length > 0 ? (
+                                <div className="space-y-3">
+                                  {activeSection.subGroups
+                                    .filter((sg) => sg.keys.length > 0)
+                                    .map((sg) => {
+                                      const expanded = isSubGroupExpanded(
+                                        activeSection.id,
+                                        sg
+                                      );
+                                      const sgSelected = countSelected(sg.keys);
+                                      const sgTotal = sg.keys.length;
+                                      const sgAll = sgSelected === sgTotal;
+                                      return (
+                                        <section
+                                          key={sg.id}
+                                          className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                                        >
+                                          <div
+                                            className={`flex items-center justify-between gap-2 border-gray-100 px-3 py-2 transition-colors ${
+                                              expanded
+                                                ? "border-b bg-gray-50/70"
+                                                : "bg-white hover:bg-gray-50/70"
+                                            }`}
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                toggleSubGroup(
+                                                  activeSection.id,
+                                                  sg
+                                                )
+                                              }
+                                              className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left"
+                                              aria-expanded={expanded}
+                                              aria-controls={`subgroup-${activeSection.id}-${sg.id}`}
+                                            >
+                                              <span
+                                                className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md ${
+                                                  expanded
+                                                    ? "bg-gray-200/70 text-gray-700"
+                                                    : "text-gray-500"
+                                                }`}
+                                                aria-hidden
+                                              >
+                                                <ChevronDown
+                                                  className={`h-3.5 w-3.5 transition-transform ${
+                                                    expanded ? "" : "-rotate-90"
+                                                  }`}
+                                                />
+                                              </span>
+                                              <h5 className="truncate text-sm font-semibold text-gray-800">
+                                                {sg.label}
+                                              </h5>
+                                              <span
+                                                className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                                  sgSelected === 0
+                                                    ? "bg-gray-100 text-gray-500"
+                                                    : sgAll
+                                                    ? "bg-emerald-100 text-emerald-700"
+                                                    : "bg-blue-100 text-blue-700"
+                                                }`}
+                                              >
+                                                {sgAll && (
+                                                  <CheckCircle2 className="h-2.5 w-2.5" />
+                                                )}
+                                                {sgSelected}/{sgTotal}
+                                              </span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setSelectionForKeys(
+                                                  sg.keys,
+                                                  !sgAll
+                                                )
+                                              }
+                                              className="flex-shrink-0 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                                            >
+                                              {sgAll ? "Deselect" : "Select"}
+                                            </button>
+                                          </div>
+                                          {expanded && (
+                                            <div
+                                              id={`subgroup-${activeSection.id}-${sg.id}`}
+                                              className="grid grid-cols-1 gap-1.5 p-2.5 sm:grid-cols-2"
+                                            >
+                                              {sg.keys
+                                                .map((k) => columnByKey.get(k))
+                                                .filter(
+                                                  (
+                                                    col
+                                                  ): col is ExportColumnDefinition =>
+                                                    col != null
+                                                )
+                                                .map(renderColumnTile)}
+                                            </div>
+                                          )}
+                                        </section>
+                                      );
+                                    })}
+                                </div>
+                              ) : (
+                                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-2.5 shadow-sm">
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    {activeSection.keys
+                                      .map((k) => columnByKey.get(k))
+                                      .filter(
+                                        (col): col is ExportColumnDefinition =>
+                                          col != null
+                                      )
+                                      .map(renderColumnTile)}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sticky footer — stepper nav + status + actions */}
+                <div className="flex flex-shrink-0 flex-col gap-2 border-t border-gray-200 bg-white px-4 py-2.5 sm:px-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    {/* Stepper navigation (Previous / Section X of Y / Next) */}
+                    {sectionsCount > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prev = sections[activeIdx - 1];
+                            if (prev) setActiveExportCategoryId(prev.id);
+                          }}
+                          disabled={activeIdx <= 0}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Previous section"
+                        >
+                          <ChevronUp className="h-3.5 w-3.5 -rotate-90" />
+                        </button>
+                        <span className="whitespace-nowrap text-[11px] font-medium text-gray-600">
+                          Section{" "}
+                          <span className="font-semibold text-gray-900">
+                            {activeIdx + 1}
+                          </span>{" "}
+                          of{" "}
+                          <span className="font-semibold text-gray-900">
+                            {sectionsCount}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = sections[activeIdx + 1];
+                            if (next) setActiveExportCategoryId(next.id);
+                          }}
+                          disabled={activeIdx >= sectionsCount - 1}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label="Next section"
+                        >
+                          <ChevronUp className="h-3.5 w-3.5 rotate-90" />
+                        </button>
+                      </div>
                     )}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowExportModal(false)}
-                    disabled={exportLoading}
-                    className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleExport("csv")}
-                    disabled={
-                      exportLoading || selectedExportColumns.length === 0
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-white px-3.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {exportLoading ? (
-                      <SpinnerIcon
-                        size="sm"
-                        className="h-3.5 w-3.5 text-blue-600"
-                        aria-hidden
-                      />
-                    ) : (
-                      <FileText className="h-3.5 w-3.5" />
-                    )}
-                    Export CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleExport("xlsx")}
-                    disabled={
-                      exportLoading || selectedExportColumns.length === 0
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {exportLoading ? (
-                      <SpinnerIcon
-                        size="sm"
-                        className="h-3.5 w-3.5 text-white"
-                        aria-hidden
-                      />
-                    ) : (
-                      <Download className="h-3.5 w-3.5" />
-                    )}
-                    Export XLSX
-                  </button>
+                    <p className="text-[11px] text-gray-600">
+                      {totalSelected === 0 ? (
+                        <span className="text-gray-500">
+                          Select at least one column to export
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-semibold text-gray-900">
+                            {totalSelected}
+                          </span>{" "}
+                          column{totalSelected === 1 ? "" : "s"} ready
+                        </>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowExportModal(false)}
+                      disabled={exportLoading}
+                      className="rounded-lg border border-gray-300 bg-white px-3.5 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleExport("csv")}
+                      disabled={
+                        exportLoading || selectedExportColumns.length === 0
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-blue-600 bg-white px-3.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {exportLoading ? (
+                        <SpinnerIcon
+                          size="sm"
+                          className="h-3.5 w-3.5 text-blue-600"
+                          aria-hidden
+                        />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5" />
+                      )}
+                      Export CSV
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleExport("xlsx")}
+                      disabled={
+                        exportLoading || selectedExportColumns.length === 0
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {exportLoading ? (
+                        <SpinnerIcon
+                          size="sm"
+                          className="h-3.5 w-3.5 text-white"
+                          aria-hidden
+                        />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      Export XLSX
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>,
-          document.body
-        );
-      })()}
+            </div>,
+            document.body
+          );
+        })()}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}
       {showFileViewModal && (

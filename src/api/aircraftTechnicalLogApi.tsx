@@ -139,22 +139,10 @@ export interface AircraftTechnicalLog {
   autoPropellerTsn?: number | string;
   autoPropellerTso?: number;
   autoPropellerTbo?: number;
+  /** Backend-computed total flight hours for list display (from block times). */
+  totalFlightHours?: string | number | null;
   atlBatchFk?: number | null;
   atlBatch?: { id: number; name?: string };
-}
-
-/** Per-row component times as shown on Operation ATL list (client-computed when API omits cumulative fields). */
-export interface AtlListViewComputedComponentTimes {
-  airframeRunTime: number | null;
-  airframeAftt: number | null;
-  engineRunTime: number | null;
-  engineTsn: number | null;
-  engineTso: number | null;
-  engineTbo: number | null;
-  propellerRunTime: number | null;
-  propellerTsn: number | null;
-  propellerTso: number | null;
-  propellerTbo: number | null;
 }
 
 export interface AircraftTechnicalLogCreate {
@@ -321,153 +309,84 @@ export type AtlComponentMetric =
   | "propellerTso"
   | "propellerTbo";
 
-const ATL_COMPONENT_METRIC_CANDIDATES: Record<AtlComponentMetric, string[]> = {
-  airframeRunTime: [
-    "autoAirframeRunTime",
-    "auto_airframe_run_time",
-    "airframeRunTime",
-    "airframeTotalTime",
-    "airframeRun",
-  ],
-  airframeAftt: [
-    "autoAirframeAftt",
-    "auto_airframe_aftt",
-    "airframeAftt",
-    "airframeTotalTime",
-  ],
-  engineRunTime: [
-    "autoEngineRunTime",
-    "auto_engine_run_time",
-    "engineRunTime",
-    "engineTotalTime",
-    "engineRun",
-  ],
-  engineTsn: ["autoEngineTsn", "auto_engine_tsn", "engineTsn", "engine_tsn"],
-  engineTso: ["autoEngineTso", "auto_engine_tso", "engineTso", "engine_tso"],
-  engineTbo: ["autoEngineTbo", "auto_engine_tbo", "engineTbo", "engine_tbo"],
-  propellerRunTime: [
-    "autoPropellerRunTime",
-    "auto_propeller_run_time",
-    "propellerRunTime",
-    "propellerTotalTime",
-    "propellerRun",
-  ],
-  propellerTsn: [
-    "autoPropellerTsn",
-    "auto_propeller_tsn",
-    "propellerTsn",
-    "propeller_tsn",
-  ],
-  propellerTso: [
-    "autoPropellerTso",
-    "auto_propeller_tso",
-    "propellerTso",
-    "propeller_tso",
-  ],
-  propellerTbo: [
-    "autoPropellerTbo",
-    "auto_propeller_tbo",
-    "propellerTbo",
-    "propeller_tbo",
-  ],
+const ATL_PERSISTED_COMPONENT_METRIC_KEYS: Record<
+  AtlComponentMetric,
+  { snake: string; camel: string }
+> = {
+  airframeRunTime: { snake: "airframe_run_time", camel: "airframeRunTime" },
+  airframeAftt: { snake: "airframe_aftt", camel: "airframeAftt" },
+  engineRunTime: { snake: "engine_run_time", camel: "engineRunTime" },
+  engineTsn: { snake: "engine_tsn", camel: "engineTsn" },
+  engineTso: { snake: "engine_tso", camel: "engineTso" },
+  engineTbo: { snake: "engine_tbo", camel: "engineTbo" },
+  propellerRunTime: { snake: "propeller_run_time", camel: "propellerRunTime" },
+  propellerTsn: { snake: "propeller_tsn", camel: "propellerTsn" },
+  propellerTso: { snake: "propeller_tso", camel: "propellerTso" },
+  propellerTbo: { snake: "propeller_tbo", camel: "propellerTbo" },
 };
+
+/**
+ * Persisted DB field only — never auto_* or derived fallbacks.
+ * Used by Operation list view and Edit Entry form for consistent display.
+ */
+export function resolveAtlPersistedComponentMetric(
+  entry: AircraftTechnicalLog | Record<string, unknown> | null | undefined,
+  metric: AtlComponentMetric
+): unknown {
+  if (!entry || typeof entry !== "object") return undefined;
+  const record = entry as Record<string, unknown>;
+  const { snake, camel } = ATL_PERSISTED_COMPONENT_METRIC_KEYS[metric];
+  if (snake in record) return record[snake];
+  if (camel in record) return record[camel];
+  return record[snake] ?? record[camel];
+}
+
+/** Format persisted component metric (2dp; 0 → "0.00"; null/empty → emptyLabel). */
+export function formatAtlPersistedComponentMetric2dp(
+  entry: AircraftTechnicalLog | Record<string, unknown> | null | undefined,
+  metric: AtlComponentMetric,
+  emptyLabel = "-"
+): string {
+  const value = resolveAtlPersistedComponentMetric(entry, metric);
+  if (value == null || value === "") return emptyLabel;
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : emptyLabel;
+}
 
 export function resolveAtlComponentMetric(
   entry: AircraftTechnicalLog | Record<string, unknown> | null | undefined,
   metric: AtlComponentMetric
 ): unknown {
-  if (!entry || typeof entry !== "object") return undefined;
+  return resolveAtlPersistedComponentMetric(entry, metric);
+}
 
-  const record = entry as Record<string, unknown>;
-  const auto =
-    record.auto && typeof record.auto === "object"
-      ? (record.auto as Record<string, unknown>)
-      : null;
-  const airframe =
-    record.airframe && typeof record.airframe === "object"
-      ? (record.airframe as Record<string, unknown>)
-      : null;
-  const engine =
-    record.engine && typeof record.engine === "object"
-      ? (record.engine as Record<string, unknown>)
-      : null;
-  const propeller =
-    record.propeller && typeof record.propeller === "object"
-      ? (record.propeller as Record<string, unknown>)
-      : null;
+/** Operation ATL list view: render API scalar as-is (null/empty → emptyLabel only). */
+export function formatAtlListCell(
+  value: unknown,
+  emptyLabel = "-"
+): string {
+  if (value == null || value === "") return emptyLabel;
+  return String(value);
+}
 
-  for (const key of ATL_COMPONENT_METRIC_CANDIDATES[metric]) {
-    const value = record[key];
-    if (value != null && value !== "") return value;
-  }
-
-  const nestedCandidates: Record<AtlComponentMetric, unknown[]> = {
-    airframeRunTime: [
-      auto?.airframeRunTime,
-      auto?.airframe_run_time,
-      airframe?.hrsTime,
-      airframe?.run,
-    ],
-    airframeAftt: [auto?.airframeAftt, auto?.airframe_aftt, airframe?.aftt],
-    engineRunTime: [
-      auto?.engineRunTime,
-      auto?.engine_run_time,
-      engine?.hrsTime,
-      engine?.run,
-    ],
-    engineTsn: [
-      auto?.engineTsn,
-      auto?.engine_tsn,
-      engine?.tsn,
-      engine?.engineTsn,
-      engine?.engine_tsn,
-    ],
-    engineTso: [
-      auto?.engineTso,
-      auto?.engine_tso,
-      engine?.tso,
-      engine?.engineTso,
-      engine?.engine_tso,
-    ],
-    engineTbo: [
-      auto?.engineTbo,
-      auto?.engine_tbo,
-      engine?.tbo,
-      engine?.engineTbo,
-      engine?.engine_tbo,
-    ],
-    propellerRunTime: [
-      auto?.propellerRunTime,
-      auto?.propeller_run_time,
-      propeller?.hrsTime,
-      propeller?.run,
-    ],
-    propellerTsn: [
-      auto?.propellerTsn,
-      auto?.propeller_tsn,
-      propeller?.tsn,
-      propeller?.propellerTsn,
-      propeller?.propeller_tsn,
-    ],
-    propellerTso: [
-      auto?.propellerTso,
-      auto?.propeller_tso,
-      propeller?.tso,
-      propeller?.propellerTso,
-      propeller?.propeller_tso,
-    ],
-    propellerTbo: [
-      auto?.propellerTbo,
-      auto?.propeller_tbo,
-      propeller?.tbo,
-      propeller?.propellerTbo,
-      propeller?.propeller_tbo,
-    ],
-  };
-
-  return nestedCandidates[metric].find(
-    (value) => value != null && value !== ""
+/** Join off-blocks date and time from API without formatting. */
+export function formatAtlListOffBlocks(
+  record: AircraftTechnicalLog
+): string {
+  const parts = [record.originDate, record.originTime].filter(
+    (v) => v != null && v !== ""
   );
+  return parts.length === 0 ? "-" : parts.map(String).join(" ");
+}
+
+/** Join on-blocks date and time from API without formatting. */
+export function formatAtlListOnBlocks(
+  record: AircraftTechnicalLog
+): string {
+  const parts = [record.destinationDate, record.destinationTime].filter(
+    (v) => v != null && v !== ""
+  );
+  return parts.length === 0 ? "-" : parts.map(String).join(" ");
 }
 
 /** Normalize rows from GET /aircraft-technical-log/paged (and manage/paged) across common response shapes. */
@@ -870,7 +789,10 @@ export const deleteAircraftTechnicalLog = async (
 };
 
 /**
- * Get the latest Aircraft Technical Log entry for a specific aircraft (optionally scoped to a batch).
+ * Get the latest Aircraft Technical Log entry for a specific aircraft.
+ * With `batchId`: GET /aircraft-technical-log/latest/batch/{batch_id}?aircraft_id=
+ * Without batch: GET /aircraft-technical-log/latest?aircraft_id=
+ * Backend compares sequence_no numerically and ignores soft-deleted rows.
  */
 export const getLatestAircraftTechnicalLog = async (
   aircraftFk: number,
@@ -878,24 +800,38 @@ export const getLatestAircraftTechnicalLog = async (
 ): Promise<AircraftTechnicalLog | null> => {
   try {
     const params = new URLSearchParams({
-      aircraft_fk: String(aircraftFk),
+      aircraft_id: String(aircraftFk),
     });
-    if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
-      params.set("batch_id", String(batchId));
-    }
-    const response = await apiClient.get(
-      `aircraft-technical-log/latest?${params.toString()}`
-    );
+    const endpoint =
+      batchId != null && Number.isFinite(batchId) && batchId > 0
+        ? `aircraft-technical-log/latest/batch/${batchId}?${params.toString()}`
+        : `aircraft-technical-log/latest?${params.toString()}`;
+    const response = await apiClient.get(endpoint);
     const raw = response.data?.data ?? response.data;
     if (raw == null || typeof raw !== "object") return null;
     return toCamelDeep(raw) as AircraftTechnicalLog;
   } catch (error) {
-    // If no latest entry exists, return null
     if ((error as any)?.response?.status === 404) {
       return null;
     }
     throw error;
   }
+};
+
+/**
+ * Resolve previous ATL data for a new entry:
+ * 1. When batch is selected: latest ATL in that batch only
+ * 2. When no batch is selected: latest ATL for the aircraft
+ * 3. Caller falls back to aircraft master data when this returns null
+ */
+export const resolvePreviousAtlForNewEntry = async (
+  aircraftFk: number,
+  batchId?: number | null
+): Promise<AircraftTechnicalLog | null> => {
+  if (batchId != null && Number.isFinite(batchId) && batchId > 0) {
+    return getLatestAircraftTechnicalLog(aircraftFk, batchId);
+  }
+  return getLatestAircraftTechnicalLog(aircraftFk);
 };
 
 /** POST /api/v1/import-excel — async job accepted (e.g. 202). */
@@ -915,6 +851,7 @@ export interface AtlExcelImportProgress {
   processedRows?: number;
   failedRows?: number;
   errors?: unknown;
+  errorReport?: string;
 }
 
 function parseAtlExcelImportStart(raw: unknown): AtlExcelImportStartResponse {
@@ -984,6 +921,12 @@ function parseAtlExcelImportProgress(raw: unknown): AtlExcelImportProgress {
       o.errorRows
     ),
     errors: o.errors,
+    errorReport:
+      o.error_report != null && String(o.error_report).trim() !== ""
+        ? String(o.error_report)
+        : o.errorReport != null && String(o.errorReport).trim() !== ""
+          ? String(o.errorReport)
+          : undefined,
   };
 }
 
@@ -1057,7 +1000,7 @@ export function getAtlExcelImportProcessPercent(
   if (st === "COMPLETED" || st === "COMPLETE" || st === "SUCCESS") {
     return 100;
   }
-  if (st === "FAILED" || st === "ERROR" || st === "CANCELLED") {
+  if (st === "FAILED" || st === "ERROR" || st === "CANCELLED" || st === "VALIDATION_FAILED") {
     const fromRows = percentFromRowCounts(data, true);
     if (fromRows != null) return fromRows;
     const fromProg = normalizeProgressField(data.progress);
@@ -1092,6 +1035,7 @@ function isTerminalImportStatus(st: string): boolean {
     u === "COMPLETE" ||
     u === "SUCCESS" ||
     u === "FAILED" ||
+    u === "VALIDATION_FAILED" ||
     u === "ERROR" ||
     u === "CANCELLED"
   );
@@ -1183,6 +1127,7 @@ export async function pollAtlExcelImportUntilDone(
       s === "COMPLETE" ||
       s === "SUCCESS" ||
       s === "FAILED" ||
+      s === "VALIDATION_FAILED" ||
       s === "ERROR" ||
       s === "CANCELLED"
     ) {

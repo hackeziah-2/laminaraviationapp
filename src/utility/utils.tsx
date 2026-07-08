@@ -430,6 +430,20 @@ export function formatAtlDateReportedManilaFromParts(
 }
 
 /**
+ * ATL API UTC timestamp display (Philippines / Asia-Manila), e.g. "06/03/2024, 22:30:45".
+ * Use for `updatedAt` / `createdAt` and other Zulu API datetimes.
+ */
+export function formatAtlUtcTimestampManila(raw?: string | null): string {
+  if (raw == null || String(raw).trim() === "") return "-";
+  const d = parseAtlDateTimeAsUtc(String(raw).trim());
+  if (!d) return String(raw).trim();
+  return d.toLocaleString(
+    ATL_DATE_REPORTED_LOCALE,
+    PHILIPPINES_DATETIME_FORMAT_OPTIONS
+  );
+}
+
+/**
  * ATL Date Reported display, e.g. "29/02/2024 12:00 AM UTC".
  */
 export function formatAtlDateTimeUtc(raw?: string | null): string {
@@ -473,6 +487,16 @@ export function formatOptionalNumber2dp(
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
+/** Engine/propeller TBO display in ATL create & edit forms (1 decimal place). */
+export function formatAtlTboDisplay1dp(
+  value: unknown,
+  fallback = ""
+): string {
+  if (value == null || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(1) : fallback;
 }
 
 /**
@@ -804,15 +828,29 @@ function formatValidationItem(item: unknown): string {
     return loc ? `${loc}: ${o.msg}` : o.msg;
   }
   const row = o.row != null ? `Row ${o.row}` : "";
-  const field = o.field != null ? String(o.field) : "";
+  const field =
+    o.column != null
+      ? String(o.column)
+      : o.field != null
+        ? String(o.field)
+        : "";
+  const value =
+    o.value != null && String(o.value).trim() !== "" ? String(o.value) : "";
   const message =
     typeof o.message === "string"
       ? o.message
       : typeof o.error === "string"
         ? o.error
         : "";
-  if (row || field || message) {
-    return [row, field, message].filter(Boolean).join(" — ");
+  const expected =
+    typeof o.expected === "string" && o.expected.trim()
+      ? `Expected: ${o.expected.trim()}.`
+      : "";
+  if (row || field || value || message) {
+    const core = [row, field, value ? `value ${value}` : "", message]
+      .filter(Boolean)
+      .join(" — ");
+    return expected ? `${core} ${expected}` : core;
   }
   return JSON.stringify(item);
 }
@@ -1007,6 +1045,111 @@ export function throwIfMaintenanceImportResponseFailed(data: unknown): void {
   };
   err.response = { data };
   throw err;
+}
+
+export type AtlExcelImportValidationError = {
+  row?: number;
+  column?: string;
+  field?: string;
+  value?: string;
+  error?: string;
+  expected?: string;
+  message?: string;
+};
+
+/** Normalize backend ATL import progress status for comparisons. */
+export function normalizeAtlExcelImportStatus(status: string | undefined): string {
+  return (status ?? "").toUpperCase().replace(/\s+/g, "_");
+}
+
+/** True when an ATL async import job finished without importing rows. */
+export function isAtlExcelImportFailureStatus(status: string | undefined): boolean {
+  const s = normalizeAtlExcelImportStatus(status);
+  return (
+    s === "FAILED" ||
+    s === "VALIDATION_FAILED" ||
+    s === "ERROR" ||
+    s === "CANCELLED" ||
+    s === "ABORTED"
+  );
+}
+
+export function formatAtlExcelImportValidationLine(
+  item: AtlExcelImportValidationError
+): string {
+  const row = item.row != null ? `Row ${item.row}` : "";
+  const column = item.column ?? item.field ?? "";
+  const value =
+    item.value != null && String(item.value).trim() !== ""
+      ? `value ${item.value}`
+      : "";
+  const error = item.error ?? item.message ?? "";
+  const expected =
+    item.expected?.trim() ? `Expected: ${item.expected.trim()}.` : "";
+  const core = [row, column, value, error].filter(Boolean).join(" — ");
+  return expected ? `${core} ${expected}` : core;
+}
+
+/** SweetAlert content for ATL Excel async import validation failures. */
+export function formatAtlExcelImportErrorForSwal(
+  progress: {
+    status?: string;
+    message?: string;
+    errors?: unknown;
+  },
+  options?: {
+    defaultTitle?: string;
+    validationTitle?: string;
+    fallbackMessage?: string;
+  }
+): ApiErrorSwalContent {
+  const validationTitle = options?.validationTitle ?? "Validation Error";
+  const defaultTitle = options?.defaultTitle ?? "Import failed";
+  const fallbackMessage =
+    options?.fallbackMessage ??
+    (progress.message?.trim() ||
+      "The file contains validation errors. No records were imported.");
+
+  const status = normalizeAtlExcelImportStatus(progress.status);
+  const title =
+    status === "VALIDATION_FAILED" ? validationTitle : defaultTitle;
+  const errors = Array.isArray(progress.errors) ? progress.errors : [];
+  const lines = errors
+    .map((item) =>
+      formatAtlExcelImportValidationLine(item as AtlExcelImportValidationError)
+    )
+    .filter((line) => line.trim().length > 0);
+
+  if (lines.length > 1) {
+    return {
+      icon: "error",
+      title,
+      html: `<p>${escapeHtmlForSwal(fallbackMessage)}</p><ul style="text-align:left;margin:0.75em 0 0;padding-left:1.25em;max-height:240px;overflow:auto;font-size:14px">${lines
+        .map((line) => `<li>${escapeHtmlForSwal(line)}</li>`)
+        .join("")}</ul>`,
+    };
+  }
+
+  if (lines.length === 1) {
+    return { icon: "error", title, text: lines[0] };
+  }
+
+  return formatApiErrorForSwal(
+    {
+      response: {
+        data: {
+          detail: progress.message,
+          message: progress.message,
+          errors: progress.errors,
+        },
+      },
+    },
+    {
+      defaultTitle,
+      validationTitle,
+      fallbackMessage,
+    }
+  );
 }
 
 /** SweetAlert content for maintenance Excel import errors (incl. "Not valid data input"). */

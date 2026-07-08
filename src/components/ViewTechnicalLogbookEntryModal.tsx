@@ -4,6 +4,7 @@ import Swal from "sweetalert2";
 import {
   AircraftTechnicalLog,
   getAircraftTechnicalLogById,
+  formatAtlPersistedComponentMetric2dp,
 } from "../api/aircraftTechnicalLogApi";
 import {
   getAtlStoredUploadFilePath,
@@ -394,17 +395,37 @@ export function ViewTechnicalLogbookEntryModal({
         propellerTotalTime: formatComponentTime(
           entryData.propellerTotalTime ?? (entryData as any).propellerTotalTime
         ),
-        airframeRunTime: formatComponentTime(entryData.airframeRunTime),
-        airframeAftt: formatComponentTime(entryData.airframeAftt),
-        engineRunTime: formatComponentTime(entryData.engineRunTime),
-        engineTsn: entryData.engineTsn ?? "-",
-        engineTso: formatComponentTime(entryData.engineTso),
-        engineTbo: formatComponentTime(entryData.engineTbo),
-        propellerRunTime: formatComponentTime(entryData.propellerRunTime),
-        propellerTsn:
-          entryData.propellerTsn != null ? String(entryData.propellerTsn) : "-",
-        propellerTso: formatComponentTime(entryData.propellerTso),
-        propellerTbo: formatComponentTime(entryData.propellerTbo),
+        airframeRunTime: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "airframeRunTime"
+        ),
+        airframeAftt: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "airframeAftt"
+        ),
+        engineRunTime: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "engineRunTime"
+        ),
+        engineTsn: formatAtlPersistedComponentMetric2dp(entryData, "engineTsn"),
+        engineTso: formatAtlPersistedComponentMetric2dp(entryData, "engineTso"),
+        engineTbo: formatAtlPersistedComponentMetric2dp(entryData, "engineTbo"),
+        propellerRunTime: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "propellerRunTime"
+        ),
+        propellerTsn: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "propellerTsn"
+        ),
+        propellerTso: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "propellerTso"
+        ),
+        propellerTbo: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "propellerTbo"
+        ),
         lifeTimeLimitEngine: formatComponentTime(entryData.lifeTimeLimitEngine),
         lifeTimeLimitPropeller: formatComponentTime(
           entryData.lifeTimeLimitPropeller
@@ -1067,34 +1088,34 @@ export function ViewTechnicalLogbookEntryModal({
                     <tbody>
                       <tr className="border-b border-gray-300">
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.airframeRunTime ?? "0"}
+                          {detailData.airframeRunTime}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.airframeAftt ?? "-"}
+                          {detailData.airframeAftt}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.engineRunTime ?? "0"}
+                          {detailData.engineRunTime}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.engineTsn ?? "0"}
+                          {detailData.engineTsn}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.engineTso ?? "-"}
+                          {detailData.engineTso}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.engineTbo ?? "-"}
+                          {detailData.engineTbo}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.propellerRunTime ?? "0"}
+                          {detailData.propellerRunTime}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.propellerTsn ?? "-"}
+                          {detailData.propellerTsn}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.propellerTso ?? "-"}
+                          {detailData.propellerTso}
                         </td>
                         <td className="border border-gray-300 px-2 py-1.5 bg-white text-center text-sm text-gray-900">
-                          {detailData.propellerTbo ?? "-"}
+                          {detailData.propellerTbo}
                         </td>
                       </tr>
                     </tbody>
