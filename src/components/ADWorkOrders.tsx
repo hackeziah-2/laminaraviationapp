@@ -116,17 +116,17 @@ const WO_AD_EXPORT_HEADERS = [
   "LAST DONE AFTT",
   "LAST DONE TACH",
   "LAST DONE DATE",
-  "NEXT DONE AFTT",
-  "TACH",
+  "NEXT DUE AFTT",
+  "NEXT DUE TACH",
   "ATL REF",
 ] as const;
 
 type AdWorkOrderFormData = {
   woNumber: string;
-  lastDoneActt: string;
+  lastDoneAftt: string;
   lastDoneTach: string;
   lastDoneDate: string;
-  nextDoneActt: string;
+  nextDueAftt: string;
   nextDueTach: string;
   atlRef: string;
 };
@@ -166,7 +166,7 @@ function applyAdWorkOrderNextDue(
   const interval = String(inspectionInterval ?? "").trim();
   return {
     ...data,
-    nextDoneActt: computeAdWorkOrderNextDue(data.lastDoneActt, interval),
+    nextDueAftt: computeAdWorkOrderNextDue(data.lastDoneAftt, interval),
     nextDueTach: computeAdWorkOrderNextDue(data.lastDoneTach, interval),
   };
 }
@@ -174,12 +174,12 @@ function applyAdWorkOrderNextDue(
 function workOrderToExportRow(wo: WorkOrderAdMonitoring): string[] {
   return [
     String(wo.woNumber ?? "").trim(),
-    String(wo.lastDoneActt ?? ""),
+    String(wo.lastDoneAftt ?? ""),
     String(wo.lastDoneTach ?? ""),
     formatDisplayDate(wo.lastDoneDate, {
       fallback: String(wo.lastDoneDate ?? "").trim(),
     }),
-    String(wo.nextDoneActt ?? ""),
+    String(wo.nextDueAftt ?? ""),
     String(wo.nextDueTach ?? ""),
     String(wo.atlRef ?? "").trim(),
   ];
@@ -200,10 +200,10 @@ export function ADWorkOrders() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState<AdWorkOrderFormData>({
     woNumber: "",
-    lastDoneActt: "",
+    lastDoneAftt: "",
     lastDoneTach: "",
     lastDoneDate: "",
-    nextDoneActt: "",
+    nextDueAftt: "",
     nextDueTach: "",
     atlRef: "",
   });
@@ -389,10 +389,10 @@ export function ADWorkOrders() {
   const resetForm = () => {
     setFormData({
       woNumber: "",
-      lastDoneActt: "",
+      lastDoneAftt: "",
       lastDoneTach: "",
       lastDoneDate: "",
-      nextDoneActt: "",
+      nextDueAftt: "",
       nextDueTach: "",
       atlRef: "",
     });
@@ -434,10 +434,10 @@ export function ADWorkOrders() {
             editingWorkOrder.id,
             {
               woNumber,
-              lastDoneActt: formData.lastDoneActt || undefined,
+              lastDoneAftt: formData.lastDoneAftt || undefined,
               lastDoneTach: formData.lastDoneTach || undefined,
               lastDoneDate: formData.lastDoneDate || undefined,
-              nextDoneActt: formData.nextDoneActt || undefined,
+              nextDueAftt: formData.nextDueAftt || undefined,
               nextDueTach: formData.nextDueTach || undefined,
               atlRef: formData.atlRef || undefined,
             }
@@ -445,10 +445,10 @@ export function ADWorkOrders() {
         } else {
           await createWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, {
             woNumber,
-            lastDoneActt: formData.lastDoneActt ?? "",
+            lastDoneAftt: formData.lastDoneAftt ?? "",
             lastDoneTach: formData.lastDoneTach ?? "",
             lastDoneDate: formData.lastDoneDate ?? "",
-            nextDoneActt: formData.nextDoneActt ?? "",
+            nextDueAftt: formData.nextDueAftt ?? "",
             nextDueTach: formData.nextDueTach ?? "",
             atlRef: formData.atlRef ?? "",
           });
@@ -501,10 +501,10 @@ export function ADWorkOrders() {
       applyAdWorkOrderNextDue(
         {
           woNumber: item.woNumber,
-          lastDoneActt: String(item.lastDoneActt ?? ""),
+          lastDoneAftt: String(item.lastDoneAftt ?? ""),
           lastDoneTach: String(item.lastDoneTach ?? ""),
           lastDoneDate: formatDateForApi(item.lastDoneDate),
-          nextDoneActt: "",
+          nextDueAftt: "",
           nextDueTach: "",
           atlRef: item.atlRef ?? "",
         },
@@ -922,7 +922,7 @@ export function ADWorkOrders() {
                           {wo.woNumber}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900 border-l border-gray-200">
-                          {wo.lastDoneActt}
+                          {wo.lastDoneAftt}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900">
                           {wo.lastDoneTach}
@@ -933,7 +933,7 @@ export function ADWorkOrders() {
                           })}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900">
-                          {wo.nextDoneActt}
+                          {wo.nextDueAftt}
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-900 border-r border-gray-200">
                           {wo.nextDueTach}
@@ -1194,7 +1194,7 @@ export function ADWorkOrders() {
                                         opt.cpcpLastDoneAftt != null &&
                                         opt.cpcpLastDoneAftt !== ""
                                       ) {
-                                        next.lastDoneActt =
+                                        next.lastDoneAftt =
                                           opt.cpcpLastDoneAftt;
                                       }
                                       if (
@@ -1238,9 +1238,9 @@ export function ADWorkOrders() {
                     <input
                       type="text"
                       placeholder="e.g., 60"
-                      value={formData.lastDoneActt}
+                      value={formData.lastDoneAftt}
                       onChange={(e) =>
-                        patchFormData({ lastDoneActt: e.target.value })
+                        patchFormData({ lastDoneAftt: e.target.value })
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -1293,7 +1293,7 @@ export function ADWorkOrders() {
                       readOnly
                       tabIndex={-1}
                       placeholder="—"
-                      value={formData.nextDoneActt}
+                      value={formData.nextDueAftt}
                       className="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700 cursor-not-allowed"
                       aria-readonly="true"
                     />
