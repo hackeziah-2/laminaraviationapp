@@ -63,7 +63,9 @@ import {
   toCamelDeep,
   formatApiErrorForSwal,
   formatAtlExcelImportErrorForSwal,
+  formatAtlListDateTime,
   formatAtlUtcTimestampManila,
+  formatTimeZulu,
   isAtlExcelImportFailureStatus,
 } from "../utility/utils";
 import {
@@ -928,7 +930,7 @@ export function Operation() {
       {
         key: "originTime",
         label: "Off Blocks Time (Zulu)",
-        getValue: (record) => formatAtlListCell(record.originTime),
+        getValue: (record) => formatTimeZulu(record.originTime),
       },
       {
         key: "destinationDate",
@@ -938,7 +940,7 @@ export function Operation() {
       {
         key: "destinationTime",
         label: "On Blocks Time (Zulu)",
-        getValue: (record) => formatAtlListCell(record.destinationTime),
+        getValue: (record) => formatTimeZulu(record.destinationTime),
       },
       {
         key: "offBlocks",
@@ -993,7 +995,7 @@ export function Operation() {
       {
         key: "airframeAftt",
         label: "Airframe AFTT",
-        getValue: (record) => formatAtlListCell(record.airframeAftt),
+        getValue: (record) => formatAtlListMetric2dp(record.airframeAftt),
       },
       {
         key: "engineRun",
@@ -1170,12 +1172,12 @@ export function Operation() {
       {
         key: "dateTimeReported",
         label: "Reported Date",
-        getValue: (record) => formatAtlListCell(record.dateTimeReported),
+        getValue: (record) => formatAtlListOffBlocks(record),
       },
       {
         key: "dateTimeReleased",
         label: "Released Date",
-        getValue: (record) => formatAtlListCell(record.dateTimeReleased),
+        getValue: (record) => formatAtlListDateTime(record.dateTimeReleased),
       },
       {
         key: "rtsSignedBy",
@@ -2651,13 +2653,13 @@ export function Operation() {
                                   {formatAtlListCell(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.originTime)}
+                                  {formatTimeZulu(record.originTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.destinationTime)}
+                                  {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.totalFlightHours)}
@@ -2686,7 +2688,7 @@ export function Operation() {
                                   {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.airframeAftt)}
+                                  {formatAtlListMetric2dp(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {formatAtlListCell(record.engineRunTime)}
@@ -2875,10 +2877,10 @@ export function Operation() {
                                   </table>
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.dateTimeReported)}
+                                  {formatAtlListOffBlocks(record)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.dateTimeReleased)}
+                                  {formatAtlListDateTime(record.dateTimeReleased)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.rtsSignedBy)}
@@ -3331,7 +3333,7 @@ export function Operation() {
                                   {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.airframeAftt)}
+                                  {formatAtlListMetric2dp(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.engineRunTime)}
@@ -3473,16 +3475,16 @@ export function Operation() {
                                 {formatAtlListCell(record.natureOfFlight)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlListCell(record.dateTimeReported)}
+                                {formatAtlListOffBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlListCell(record.dateTimeReleased)}
+                                {formatAtlListDateTime(record.dateTimeReleased)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.airframeRunTime)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.airframeAftt)}
+                                {formatAtlListMetric2dp(record.airframeAftt)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.totalFlightHours)}

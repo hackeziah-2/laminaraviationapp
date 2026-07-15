@@ -367,6 +367,30 @@ export function formatAtlDateReportedManila(raw?: string | null): string {
   );
 }
 
+/**
+ * Operation ATL list view datetime: DD-MM-YYYY | HH:MM (Asia/Manila, 24h).
+ */
+export function formatAtlListDateTime(
+  raw?: string | null,
+  emptyLabel = "-"
+): string {
+  if (raw == null || String(raw).trim() === "") return emptyLabel;
+  const d = parseAtlDateTimeReported(String(raw).trim());
+  if (!d) return String(raw).trim();
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ATL_DATE_REPORTED_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("day")}-${get("month")}-${get("year")} | ${get("hour")}:${get("minute")}`;
+}
+
 /** Current Date Reported string (en-PH, Asia/Manila) — e.g. for live display. */
 export function formatAtlDateReportedManilaNow(now = new Date()): string {
   return formatPhilippinesDateTime(now);

@@ -5,30 +5,30 @@ export interface WorkOrderAdMonitoring {
   woNumber: string;
   /** May be set per row from API, or filled from parent AD in UI/export */
   subject?: string;
-  lastDoneActt: string | number;
+  lastDoneAftt: string | number;
   lastDoneTach: string | number;
   lastDoneDate: string;
-  nextDoneActt: string | number;
+  nextDueAftt: string | number;
   nextDueTach: string | number;
   atlRef: string;
 }
 
 export interface WorkOrderAdMonitoringCreate {
   woNumber: string;
-  lastDoneActt: string | number;
+  lastDoneAftt: string | number;
   lastDoneTach: string | number;
   lastDoneDate: string;
-  nextDoneActt: string | number;
+  nextDueAftt: string | number;
   nextDueTach: string | number;
   atlRef: string;
 }
 
 export interface WorkOrderAdMonitoringUpdate {
   woNumber?: string;
-  lastDoneActt?: string | number;
+  lastDoneAftt?: string | number;
   lastDoneTach?: string | number;
   lastDoneDate?: string;
-  nextDoneActt?: string | number;
+  nextDueAftt?: string | number;
   nextDueTach?: string | number;
   atlRef?: string;
 }
@@ -40,6 +40,7 @@ export interface PaginatedWorkOrderResponse {
   pages: number;
 }
 
+/** GET/POST/DELETE …/aircraft/{id}/ad_monitoring/{adId}/work-order-ad-monitoring/ */
 const WO_PATH = (aircraftFk: number, adMonitoringFk: number) =>
   `aircraft/${aircraftFk}/ad_monitoring/${adMonitoringFk}/work-order-ad-monitoring/`;
 
@@ -55,15 +56,51 @@ function normalizeItem(raw: any): WorkOrderAdMonitoring {
         ? r.ad_monitoring.subject
         : undefined) ??
       undefined,
-    lastDoneActt: r.last_done_actt ?? r.last_done_acft ?? r.lastDoneActt ?? "",
+    lastDoneAftt:
+      r.last_done_aftt ??
+      r.last_done_actt ??
+      r.last_done_acft ??
+      r.lastDoneAftt ??
+      r.lastDoneActt ??
+      "",
     lastDoneTach: r.last_done_tach ?? r.lastDoneTach ?? "",
     lastDoneDate: r.last_done_date ?? r.lastDoneDate ?? "",
-    nextDoneActt: r.next_done_actt ?? r.next_due_acft ?? r.nextDoneActt ?? "",
-    nextDueTach: r.tach ?? r.next_due_tach ?? r.nextDueTach ?? "",
+    nextDueAftt:
+      r.next_due_aftt ??
+      r.next_done_actt ??
+      r.next_due_acft ??
+      r.nextDueAftt ??
+      r.nextDoneActt ??
+      "",
+    nextDueTach:
+      r.next_due_tach ?? r.tach ?? r.nextDueTach ?? "",
     atlRef: r.atl_ref ?? r.atl_reference ?? r.atlRef ?? "",
   };
 }
 
+function toApiPayload(
+  data: WorkOrderAdMonitoringCreate | WorkOrderAdMonitoringUpdate,
+  adMonitoringFk?: number
+) {
+  const payload: Record<string, unknown> = {
+    work_order_number: String(data.woNumber ?? "").trim(),
+    last_done_aftt: Number(data.lastDoneAftt) || 0,
+    last_done_tach: Number(data.lastDoneTach) || 0,
+    last_done_date: data.lastDoneDate?.trim() || null,
+    next_due_aftt: Number(data.nextDueAftt) || 0,
+    next_due_tach: Number(data.nextDueTach) || 0,
+    atl_ref: String(data.atlRef ?? "").trim(),
+  };
+  if (adMonitoringFk != null) {
+    payload.ad_monitoring_fk = adMonitoringFk;
+  }
+  return payload;
+}
+
+/**
+ * List (paged).
+ * GET api/v1/aircraft/{aircraftId}/ad_monitoring/{adMonitoringId}/work-order-ad-monitoring/paged
+ */
 export const getWorkOrderAdMonitoring = async (
   aircraftFk: number,
   adMonitoringFk: number,
@@ -119,21 +156,16 @@ export const getWorkOrderAdMonitoring = async (
   return { items, total, page, pages };
 };
 
+/**
+ * Create.
+ * POST api/v1/aircraft/{aircraftId}/ad_monitoring/{adMonitoringId}/work-order-ad-monitoring/
+ */
 export const createWorkOrderAdMonitoring = async (
   aircraftFk: number,
   adMonitoringFk: number,
   data: WorkOrderAdMonitoringCreate
 ): Promise<WorkOrderAdMonitoring> => {
-  const payload = {
-    ad_monitoring_fk: adMonitoringFk,
-    work_order_number: String(data.woNumber ?? "").trim(),
-    last_done_actt: Number(data.lastDoneActt) || 0,
-    last_done_tach: Number(data.lastDoneTach) || 0,
-    last_done_date: data.lastDoneDate?.trim() || null,
-    next_done_actt: Number(data.nextDoneActt) || 0,
-    tach: Number(data.nextDueTach) || 0,
-    atl_ref: String(data.atlRef ?? "").trim(),
-  };
+  const payload = toApiPayload(data, adMonitoringFk);
   const res = await apiClient.post(
     WO_PATH(aircraftFk, adMonitoringFk),
     payload,
@@ -147,11 +179,11 @@ export const createWorkOrderAdMonitoring = async (
     return {
       id: (res.data as any)?.id ?? 0,
       woNumber: String(payload.work_order_number),
-      lastDoneActt: payload.last_done_actt,
-      lastDoneTach: payload.last_done_tach,
-      lastDoneDate: payload.last_done_date ?? "",
-      nextDoneActt: payload.next_done_actt,
-      nextDueTach: payload.tach,
+      lastDoneAftt: payload.last_done_aftt as number,
+      lastDoneTach: payload.last_done_tach as number,
+      lastDoneDate: (payload.last_done_date as string | null) ?? "",
+      nextDueAftt: payload.next_due_aftt as number,
+      nextDueTach: payload.next_due_tach as number,
       atlRef: String(payload.atl_ref),
     };
   }
@@ -168,15 +200,7 @@ export const updateWorkOrderAdMonitoring = async (
   id: number,
   data: WorkOrderAdMonitoringUpdate
 ): Promise<WorkOrderAdMonitoring> => {
-  const payload = {
-    work_order_number: String(data.woNumber ?? "").trim(),
-    last_done_actt: Number(data.lastDoneActt) || 0,
-    last_done_tach: Number(data.lastDoneTach) || 0,
-    last_done_date: data.lastDoneDate?.trim() || null,
-    next_done_actt: Number(data.nextDoneActt) || 0,
-    tach: Number(data.nextDueTach) || 0,
-    atl_ref: String(data.atlRef ?? "").trim(),
-  };
+  const payload = toApiPayload(data);
 
   const res = await apiClient.put(`work-order-ad-monitoring/${id}/`, payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -185,16 +209,20 @@ export const updateWorkOrderAdMonitoring = async (
   if (raw != null) return normalizeItem(raw);
   return {
     id,
-    woNumber: payload.work_order_number,
-    lastDoneActt: payload.last_done_actt,
-    lastDoneTach: payload.last_done_tach,
-    lastDoneDate: payload.last_done_date ?? "",
-    nextDoneActt: payload.next_done_actt,
-    nextDueTach: payload.tach,
-    atlRef: payload.atl_ref,
+    woNumber: String(payload.work_order_number),
+    lastDoneAftt: payload.last_done_aftt as number,
+    lastDoneTach: payload.last_done_tach as number,
+    lastDoneDate: (payload.last_done_date as string | null) ?? "",
+    nextDueAftt: payload.next_due_aftt as number,
+    nextDueTach: payload.next_due_tach as number,
+    atlRef: String(payload.atl_ref),
   };
 };
 
+/**
+ * Delete.
+ * DELETE api/v1/aircraft/{aircraftId}/ad_monitoring/{adMonitoringId}/work-order-ad-monitoring/{id}/
+ */
 export const deleteWorkOrderAdMonitoring = async (
   aircraftFk: number,
   adMonitoringFk: number,

@@ -105,6 +105,15 @@ function formatAtlComputedDisplay1dp(
   return Number.isFinite(n) ? n.toFixed(1) : fallback;
 }
 
+function formatAtlComputedDisplay2dp(
+  value: unknown,
+  fallback = ""
+): string {
+  if (value == null || value === "") return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
 /** Life limits from a previous ATL row (empty when missing/invalid). */
 function formatAtlLifeLimitFromPrevious(value: unknown): string {
   if (value == null || value === "") return "";
@@ -138,7 +147,7 @@ function getPrevTimesFromLatestAtl(latestEntry: AircraftTechnicalLog | null): {
 /**
  * Map persisted ATL component metrics for the edit form (matches Operation list view).
  * Reads only stored API fields — never auto_* computed values or list fallbacks.
- * Preserves numeric zero as "0.00"; engine/propeller TBO shown to 1 decimal place.
+ * AFTT shown to 2 decimal places; other runtimes/TSN/TSO to 1dp; TBO to 1dp.
  */
 function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
   const formatPersisted = (metric: Parameters<
@@ -151,7 +160,10 @@ function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
 
   return {
     airframeRunTime: formatPersisted("airframeRunTime"),
-    airframeAftt: formatPersisted("airframeAftt"),
+    airframeAftt: formatAtlComputedDisplay2dp(
+      resolveAtlPersistedComponentMetric(entry, "airframeAftt"),
+      ""
+    ),
     engineRunTime: formatPersisted("engineRunTime"),
     engineTsn: formatPersisted("engineTsn"),
     engineTso: formatPersisted("engineTso"),
@@ -343,7 +355,7 @@ function computeAtlComponentMetricsPatch(
 
   const patch: Partial<typeof form> = {
     airframeRunTime: airframeRunTime.toFixed(1),
-    airframeAftt: airframeAfttVal.toFixed(1),
+    airframeAftt: airframeAfttVal.toFixed(2),
     engineRunTime: engineRunTime.toFixed(1),
     engineTsn: engineTsnVal.toFixed(1),
     engineTso: engineTso.toFixed(1),
@@ -777,6 +789,8 @@ export function AddTechnicalLogbookEntryModal({
     dfpWebLink: "",
     dateTimeReportedDate: "",
     dateTimeReportedTime: "",
+    dateTimeReleasedDate: "",
+    dateTimeReleasedTime: "",
     // Airframe & Component Times
 
     airframePrevTime: DEFAULT_ATL_PREV_TIME,
@@ -1156,6 +1170,9 @@ export function AddTechnicalLogbookEntryModal({
       const reported = splitAtlDateTimeReportedFromApi(
         editEntry.dateTimeReported
       );
+      const released = splitAtlDateTimeReportedFromApi(
+        editEntry.dateTimeReleased
+      );
       preservedDateReportedRef.current =
         editEntry.dateTimeReported?.trim() || null;
       initialTechPubLinksRef.current = {
@@ -1257,6 +1274,11 @@ export function AddTechnicalLogbookEntryModal({
         dfpWebLink: editEntry.dfpWebLink?.toString() || "",
         dateTimeReportedDate: reported.date,
         dateTimeReportedTime: reported.time,
+        dateTimeReleasedDate: released.date,
+        dateTimeReleasedTime: released.time
+          ? zuluTimeToTimeInputValue(released.time) ||
+            released.time.slice(0, 5)
+          : "",
         airframePrevTime: (editEntry as any).airframePrevTime?.toString() || "",
         airframeFlightTime:
           (editEntry as any).airframeFlightTime?.toString() || "",
@@ -1451,6 +1473,8 @@ export function AddTechnicalLogbookEntryModal({
         dfpWebLink: "",
         dateTimeReportedDate: "",
         dateTimeReportedTime: "",
+        dateTimeReleasedDate: "",
+        dateTimeReleasedTime: "",
         airframePrevTime: DEFAULT_ATL_PREV_TIME,
         airframeFlightTime: "",
         airframeTotalTime: "",
@@ -2903,6 +2927,10 @@ export function AddTechnicalLogbookEntryModal({
             ? convertTimeToAPIFormat(formData.rtsTime)
             : undefined,
           dateTimeReported: buildDateTimeForApi(reportedDate, reportedTime),
+          dateTimeReleased: buildDateTimeForApi(
+            formData.dateTimeReleasedDate,
+            formData.dateTimeReleasedTime
+          ),
           // When uploading new file: omit from JSON (sent via multipart). When editing: omit whiteAtl/dfp from JSON so backend keeps existing files (sending string URL causes "value is not a valid dict").
           ...(!editEntry &&
           formData.whiteAtl !== undefined &&
@@ -3073,6 +3101,8 @@ export function AddTechnicalLogbookEntryModal({
           dfpWebLink: "",
           dateTimeReportedDate: "",
           dateTimeReportedTime: "",
+          dateTimeReleasedDate: "",
+          dateTimeReleasedTime: "",
           airframePrevTime: DEFAULT_ATL_PREV_TIME,
           airframeFlightTime: "",
           airframeTotalTime: "",
@@ -5143,6 +5173,73 @@ export function AddTechnicalLogbookEntryModal({
                     <Plus className="w-4 h-4" />
                     Add another Component
                   </button>
+                </div>
+              </div>
+
+              {/* Date Time Reported / Released — below COMPONENT RECORD */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1">
+                    Date Time Reported
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
+                    value={
+                      [formData.offBlocksDate, formData.offBlocksTime]
+                        .map((v) => (v ?? "").trim())
+                        .filter(Boolean)
+                        .join(" | ") || ""
+                    }
+                    placeholder="From Off Blocks date | time"
+                    className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-700 text-sm cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-700 text-sm mb-1">
+                    Date Time Released
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <DateInput
+                      value={formData.dateTimeReleasedDate}
+                      onChange={(dateTimeReleasedDate) =>
+                        setFormData({
+                          ...formData,
+                          dateTimeReleasedDate,
+                        })
+                      }
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                    />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={formData.dateTimeReleasedTime}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          dateTimeReleasedTime: formatZuluTimeKeyboardInput(
+                            e.target.value
+                          ),
+                        })
+                      }
+                      onBlur={(e) => {
+                        const normalized = normalizeOptionalZuluTimeInput(
+                          e.target.value
+                        );
+                        setFormData((prev) => ({
+                          ...prev,
+                          dateTimeReleasedTime: normalized,
+                        }));
+                      }}
+                      maxLength={5}
+                      title="HH:mm (UTC)"
+                      placeholder="HH:mm"
+                      pattern="[0-9]{2}:[0-9]{2}"
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono text-sm"
+                    />
+                  </div>
                 </div>
               </div>
 
