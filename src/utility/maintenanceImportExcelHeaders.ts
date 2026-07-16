@@ -24,8 +24,8 @@ const AD_WORK_ORDERS_IMPORT_HEADERS = [
   "LAST DONE AFTT",
   "LAST DONE TACH",
   "LAST DONE DATE",
-  "NEXT DONE AFTT",
-  "TACH",
+  "NEXT DUE AFTT",
+  "NEXT DUE TACH",
   "ATL REF",
 ] as const;
 
