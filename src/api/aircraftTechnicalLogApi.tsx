@@ -1,5 +1,9 @@
 import apiClient from "./index";
-import { formatTimeZulu, toCamelDeep } from "../utility/utils";
+import {
+  formatAtlListDate,
+  formatTimeZulu,
+  toCamelDeep,
+} from "../utility/utils";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
 
 // Component Parts Record Interfaces
@@ -369,31 +373,33 @@ export function formatAtlListCell(
   return String(value);
 }
 
-/** Join off-blocks date and Zulu time (HH:mm) for list view: `date | time`. */
+/** Join off-blocks date and Zulu time (HH:mm) for list view: `DD-MM-YYYY | time`. */
 export function formatAtlListOffBlocks(
   record: AircraftTechnicalLog
 ): string {
+  const date = formatAtlListDate(record.originDate, "");
   const time =
     record.originTime != null && record.originTime !== ""
       ? formatTimeZulu(record.originTime)
       : "";
   const parts = [
-    record.originDate,
+    date,
     time && time !== "-" ? time : "",
   ].filter((v) => v != null && v !== "");
   return parts.length === 0 ? "-" : parts.map(String).join(" | ");
 }
 
-/** Join on-blocks date and Zulu time (HH:mm) for list view: `date | time`. */
+/** Join on-blocks date and Zulu time (HH:mm) for list view: `DD-MM-YYYY | time`. */
 export function formatAtlListOnBlocks(
   record: AircraftTechnicalLog
 ): string {
+  const date = formatAtlListDate(record.destinationDate, "");
   const time =
     record.destinationTime != null && record.destinationTime !== ""
       ? formatTimeZulu(record.destinationTime)
       : "";
   const parts = [
-    record.destinationDate,
+    date,
     time && time !== "-" ? time : "",
   ].filter((v) => v != null && v !== "");
   return parts.length === 0 ? "-" : parts.map(String).join(" | ");
