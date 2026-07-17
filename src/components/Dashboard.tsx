@@ -189,11 +189,9 @@ export function Dashboard() {
             {today}
           </p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-gray-900 sm:text-3xl">
-            Dashboard 
+            Dashboard
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-gray-600 sm:text-base">
-            
-          </p>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-gray-600 sm:text-base"></p>
         </div>
       </div>
 
@@ -241,116 +239,9 @@ export function Dashboard() {
           </div>
 
           {/* Content grid — gap matches stats row so center gutter lines up on lg */}
-          <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
-            {/* Recent Activities */}
-            <div className="flex min-h-0 flex-col rounded-2xl border border-gray-100 bg-white p-6 shadow-sm ring-1 ring-gray-100/80">
-              <div className="mb-6 flex items-center justify-between gap-4">
-                <h3 className="text-lg font-semibold tracking-tight text-gray-900">
-                  Recent activity
-                </h3>
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg py-1.5 pl-2 text-sm font-medium text-sky-600 transition-colors hover:bg-sky-50 hover:text-sky-700"
-                >
-                  View all
-                </button>
-              </div>
-              <div className="flex flex-col gap-3">
-                {recentActivities.map((activity, index) => (
-                  <div
-                    key={index}
-                    className="flex items-start gap-3 rounded-xl border border-gray-100/80 bg-gray-50/80 p-4 transition-colors hover:border-gray-200 hover:bg-white sm:gap-4"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 ring-1 ring-sky-100/80">
-                      <Plane className="h-5 w-5 text-sky-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="font-medium">
-                            {activity.aircraft ?? "—"}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {activity.registration ?? "—"}
-                          </p>
-                        </div>
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            activity.status === "Departed"
-                              ? "bg-blue-100 text-blue-700"
-                              : activity.status === "Maintenance"
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-green-100 text-green-700"
-                          }`}
-                        >
-                          {activity.status ?? "—"}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {activity.location ?? "—"}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {activity.time ?? "—"}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Maintenance Alerts */}
-            <div className="flex min-h-0 flex-col rounded-2xl border border-gray-100 bg-white p-6 shadow-sm ring-1 ring-gray-100/80">
-              <div className="mb-6 flex items-center justify-between gap-4">
-                <h3 className="text-lg font-semibold tracking-tight text-gray-900">
-                  Alerts
-                </h3>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 ring-1 ring-amber-100/80">
-                  <AlertTriangle className="h-5 w-5 text-amber-600" />
-                </div>
-              </div>
-              <div className="flex flex-col gap-3">
-                {maintenanceAlerts.map((alert, index) => (
-                  <div
-                    key={index}
-                    className="rounded-r-xl border-l-4 bg-gray-50/90 p-4 pr-4 shadow-sm ring-1 ring-gray-100/60 sm:p-4 sm:pr-5"
-                    style={{
-                      borderLeftColor:
-                        alert.priority === "high"
-                          ? "#ef4444"
-                          : alert.priority === "medium"
-                          ? "#f59e0b"
-                          : "#10b981",
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">
-                          {alert.aircraft ?? "—"}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-600">
-                          {alert.issue ?? "—"}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 text-xs px-2.5 py-1 rounded-full ${
-                          alert.priority === "high"
-                            ? "bg-red-100 text-red-700"
-                            : alert.priority === "medium"
-                            ? "bg-orange-100 text-orange-700"
-                            : "bg-green-100 text-green-700"
-                        }`}
-                      >
-                        {(alert.priority ?? "low").toUpperCase()}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
 
           {/* Fleet Performance */}
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 pb-7 shadow-sm ring-1 ring-gray-100/80 sm:pb-8">
+          {/* <div className="rounded-2xl border border-gray-100 bg-white p-6 pb-7 shadow-sm ring-1 ring-gray-100/80 sm:pb-8">
             <h3 className="mb-6 text-lg font-semibold tracking-tight text-gray-900">
               Fleet performance
             </h3>
@@ -386,7 +277,7 @@ export function Dashboard() {
                 </p>
               </div>
             </div>
-          </div>
+          </div> */}
         </>
       )}
     </div>

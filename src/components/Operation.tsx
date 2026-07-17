@@ -63,6 +63,7 @@ import {
   toCamelDeep,
   formatApiErrorForSwal,
   formatAtlExcelImportErrorForSwal,
+  formatAtlListDate,
   formatAtlListDateTime,
   formatAtlUtcTimestampManila,
   formatTimeZulu,
@@ -925,7 +926,7 @@ export function Operation() {
       {
         key: "originDate",
         label: "Off Blocks Date",
-        getValue: (record) => formatAtlListCell(record.originDate),
+        getValue: (record) => formatAtlListDate(record.originDate),
       },
       {
         key: "originTime",
@@ -935,7 +936,7 @@ export function Operation() {
       {
         key: "destinationDate",
         label: "On Blocks Date",
-        getValue: (record) => formatAtlListCell(record.destinationDate),
+        getValue: (record) => formatAtlListDate(record.destinationDate),
       },
       {
         key: "destinationTime",
@@ -1187,7 +1188,7 @@ export function Operation() {
       {
         key: "rtsDate",
         label: "Return To Service Date",
-        getValue: (record) => formatAtlListCell(record.rtsDate),
+        getValue: (record) => formatAtlListDate(record.rtsDate),
       },
       {
         key: "rtsTime",
@@ -1202,7 +1203,7 @@ export function Operation() {
       {
         key: "pilotAcceptDate",
         label: "Pilot Acceptance Date",
-        getValue: (record) => formatAtlListCell(record.pilotAcceptDate),
+        getValue: (record) => formatAtlListDate(record.pilotAcceptDate),
       },
       {
         key: "pilotAcceptTime",
@@ -2650,13 +2651,13 @@ export function Operation() {
                                   {formatAtlListCell(record.tachTimeDue)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.originDate)}
+                                  {formatAtlListDate(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.originTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.destinationDate)}
+                                  {formatAtlListDate(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.destinationTime)}
@@ -2886,7 +2887,7 @@ export function Operation() {
                                   {formatAtlListCell(record.rtsSignedBy)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.rtsDate)}
+                                  {formatAtlListDate(record.rtsDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.rtsTime)}
@@ -2895,7 +2896,7 @@ export function Operation() {
                                   {formatAtlListCell(record.pilotAcceptedBy)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.pilotAcceptDate)}
+                                  {formatAtlListDate(record.pilotAcceptDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.pilotAcceptTime)}

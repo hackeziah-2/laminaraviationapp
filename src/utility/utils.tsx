@@ -368,6 +368,21 @@ export function formatAtlDateReportedManila(raw?: string | null): string {
 }
 
 /**
+ * Operation ATL list view date: DD-MM-YYYY.
+ */
+export function formatAtlListDate(
+  raw?: string | null,
+  emptyLabel = "-"
+): string {
+  if (raw == null || String(raw).trim() === "") return emptyLabel;
+  const api = formatDateForApi(String(raw));
+  if (!api) return String(raw).trim();
+  const [y, m, d] = api.split("-");
+  if (!y || !m || !d) return String(raw).trim();
+  return `${d}-${m}-${y}`;
+}
+
+/**
  * Operation ATL list view datetime: DD-MM-YYYY | HH:MM (Asia/Manila, 24h).
  */
 export function formatAtlListDateTime(
