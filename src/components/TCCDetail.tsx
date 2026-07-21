@@ -16,12 +16,23 @@ import {
   Trash2,
   Loader,
 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { AddTCCModal } from "./AddTCCModal";
+import { SortableTableRow } from "./SortableTableRow";
 import {
   getAircraftTccMonitoring,
+  getAllAircraftTccMonitoring,
   createAircraftTccMonitoring,
   updateAircraftTccMonitoring,
   deleteAircraftTccMonitoring,
+  reorderAircraftTccMonitoring,
 } from "../api/tccMonitoringApi";
 import {
   getAircraftDetails,
@@ -36,6 +47,12 @@ import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "sweetalert2";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import {
+  ARRANGEMENT_DISABLED_TOOLTIP,
+  isManualArrangementMode,
+} from "../utils/displayOrderReorder";
+import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 import * as XLSX from "xlsx";
 
 const TCC_EXPORT_HEADERS = [
@@ -78,6 +95,8 @@ export interface ComponentItem {
   category?: string;
   /** Linked ATL row id when known */
   atlId?: number;
+  /** 1-based persistent row order */
+  displayOrder?: number;
   /** From GET .../tcc-maintenance/paged — server-computed; overrides client formulas when set */
   remainingYears?: number | null;
   remainingDays?: number | null;
@@ -368,6 +387,23 @@ export const TCCDetailContent = forwardRef<
     return () => clearTimeout(t);
   }, [searchQuery]);
 
+  const arrangementMode = useMemo(
+    () =>
+      isManualArrangementMode({
+        search: searchDebounced,
+        categoryFilter: activeTab,
+      }),
+    [searchDebounced, activeTab]
+  );
+
+  const canUpdateMaintenance = canUpdate("maintenance");
+  const canReorder =
+    arrangementMode && canUpdateMaintenance && !tccLoading;
+
+  const dragDisabledReason = !canUpdateMaintenance
+    ? "You do not have permission to reorder rows."
+    : ARRANGEMENT_DISABLED_TOOLTIP;
+
   const fetchTcc = useCallback(async () => {
     if (!aircraftIdNum || aircraftIdNum <= 0) {
       setTccItems([]);
@@ -378,6 +414,8 @@ export const TCCDetailContent = forwardRef<
     setTccLoading(true);
     setTccError(null);
     try {
+      // Always use paged list for display (restores pre-DnD load path).
+      // Full ordered collection is loaded only when a drag-reorder is persisted.
       const res = await getAircraftTccMonitoring(
         aircraftIdNum,
         currentPage,
@@ -395,20 +433,68 @@ export const TCCDetailContent = forwardRef<
         setTccPages(1);
       } else {
         setTccError(
-          err?.response?.data?.detail ??
-            err?.message ??
-            "Failed to load TCC data."
+          formatApiErrorMessage(err, "Failed to load TCC data.")
         );
         setTccItems([]);
       }
     } finally {
       setTccLoading(false);
     }
-  }, [aircraftIdNum, activeTab, currentPage, itemsPerPage, searchDebounced]);
+  }, [
+    aircraftIdNum,
+    currentPage,
+    itemsPerPage,
+    searchDebounced,
+    activeTab,
+  ]);
 
   useEffect(() => {
     fetchTcc();
   }, [fetchTcc]);
+
+  const persistTccReorder = useCallback(
+    async (payload: { items: { id: number; display_order: number }[] }) => {
+      await reorderAircraftTccMonitoring(payload);
+    },
+    []
+  );
+
+  const loadFullTccOrdered = useCallback(async () => {
+    const res = await getAllAircraftTccMonitoring(aircraftIdNum);
+    return (res.items as ComponentItem[]) ?? [];
+  }, [aircraftIdNum]);
+
+  const {
+    sensors: tccDndSensors,
+    handleDragEnd: handleTccDragEnd,
+    isReordering: tccReordering,
+    dndDisabled: tccDndDisabled,
+  } = useTableDisplayOrderReorder({
+    items: tccItems,
+    setItems: setTccItems,
+    canReorder,
+    pageOffset: (currentPage - 1) * itemsPerPage,
+    loadFullOrdered: loadFullTccOrdered,
+    persistReorder: persistTccReorder,
+    tableName: "TCC",
+    onSuccess: async () => {
+      await fetchTcc();
+      await Swal.fire({
+        icon: "success",
+        title: "Order saved",
+        text: "TCC row arrangement has been updated.",
+        timer: 1400,
+        showConfirmButton: false,
+      });
+    },
+    onError: async (message) => {
+      await Swal.fire({
+        icon: "error",
+        title: "Reorder failed",
+        text: message,
+      });
+    },
+  });
 
   useEffect(() => {
     if (!aircraftIdNum || aircraftIdNum <= 0) {
@@ -553,7 +639,7 @@ export const TCCDetailContent = forwardRef<
     setEditingTCCEntry(null);
   };
 
-  // API returns paged data for current category
+  // API returns paged data for the current filters/page.
   const totalItems = tccTotal;
   const totalPages = Math.max(1, tccPages);
   const paginatedData = tccItems;
@@ -935,6 +1021,19 @@ export const TCCDetailContent = forwardRef<
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
+                  <th
+                    rowSpan={2}
+                    className="px-2 py-2 text-xs font-bold text-gray-700 border-r border-gray-200 align-middle w-10"
+                  >
+                    {/* drag */}
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="px-2 py-2 text-xs font-bold text-gray-700 border-r border-gray-200 align-middle whitespace-nowrap"
+                    title="Display order"
+                  >
+                    #
+                  </th>
                   {showCategoryColumn && (
                     <th
                       rowSpan={2}
@@ -1040,188 +1139,213 @@ export const TCCDetailContent = forwardRef<
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
-                {computedRows.map((row) => {
-                  const item = row.raw;
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      {showCategoryColumn && (
-                        <td className="px-3 py-3 text-gray-900 text-xs border-r border-gray-200 whitespace-nowrap">
-                          {formatTccCategoryDisplay(item.category)}
-                        </td>
-                      )}
-                      {/* REMAINING: Years — color by % remaining: Red<=0, Orange<=10, Yellow<=20, Green<=40 */}
-                      {(() => {
-                        const pctYears =
-                          row.limitYears > 0 && row.remainingYears != null
-                            ? (row.remainingYears / row.limitYears) * 100
-                            : null;
-                        const colorYears = getRemainingColorClass(pctYears);
-                        return (
-                          <td
-                            className={`px-3 py-3 text-xs ${
-                              colorYears || "text-gray-900"
-                            }`}
-                          >
-                            {row.remainingYears != null
-                              ? row.remainingYears.toFixed(2)
-                              : item.remaining}
-                          </td>
-                        );
-                      })()}
-                      {/* REMAINING: Days */}
-                      {(() => {
-                        const pctDays =
-                          row.limitYears > 0 && row.remainingDays != null
-                            ? (row.remainingDays / (row.limitYears * 365)) * 100
-                            : null;
-                        const colorDays = getRemainingColorClass(pctDays);
-                        return (
-                          <td
-                            className={`px-3 py-3 text-xs ${
-                              colorDays || "text-gray-900"
-                            }`}
-                          >
-                            {row.remainingDays != null
-                              ? String(row.remainingDays)
-                              : item.date}
-                          </td>
-                        );
-                      })()}
-                      {/* REMAINING: TACH */}
-                      {(() => {
-                        const pctTach =
-                          row.limitHours > 0 && row.remainingTach != null
-                            ? (row.remainingTach / row.limitHours) * 100
-                            : null;
-                        const colorTach = getRemainingColorClass(pctTach);
-                        return (
-                          <td
-                            className={`px-3 py-3 text-xs ${
-                              colorTach || "text-gray-900"
-                            }`}
-                          >
-                            {formatNum(row.remainingTach) || item.when}
-                          </td>
-                        );
-                      })()}
-                      {/* REMAINING: AFTT */}
-                      {(() => {
-                        const pctAftt =
-                          row.limitHours > 0 && row.remainingAftt != null
-                            ? (row.remainingAftt / row.limitHours) * 100
-                            : null;
-                        const colorAftt = getRemainingColorClass(pctAftt);
-                        return (
-                          <td
-                            className={`px-3 py-3 text-xs ${
-                              colorAftt || "text-gray-900"
-                            }`}
-                          >
-                            {formatNum(row.remainingAftt) || item.aftt}
-                          </td>
-                        );
-                      })()}
-                      {/* COMPONENT INFO: Part No., Serial No., Description (reference) */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {item.partNo}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs">
-                        {item.serialNo}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {item.description}
-                      </td>
-                      {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {formatNum(parseNum(item.limitYears))}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs">
-                        {formatNum(parseNum(item.limitHours))}
-                      </td>
-                      {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {item.methodOfCompliance}
-                      </td>
-                      {/* LAST DONE: Date, TACH, AFTT (reference) */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
-                        {formatDisplayDate(item.lastDoneDate, {
-                          fallback: item.lastDoneDate ?? "",
-                        })}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
-                        {item.lastDoneTach ?? item.lastDoneYear}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
-                        {item.lastDoneAftt}
-                      </td>
-                      {/* NEXT DUE: Date = Last Done + Limit Years; TACH/AFTT = Last Done + Limit Hours */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {row.nextDueDate
-                          ? formatDate(row.nextDueDate)
-                          : formatDisplayDate(item.nextDueDate, {
-                              fallback: item.nextDueDate ?? "",
-                            })}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs">
-                        {formatNum(row.nextDueTach) || item.nextDueYear}
-                      </td>
-                      <td className="px-3 py-3 text-gray-900 text-xs">
-                        {formatNum(row.nextDueAftt) || item.nextDueAftt}
-                      </td>
-                      {/* ATL Reference: sequence_number */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                        {String(item.reference ?? "").trim() ? (
-                          String(aircraftId ?? "").trim() ? (
-                            <a
-                              href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
-                                { sequence_no: String(item.reference).trim() }
-                              ).toString()}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-700 hover:underline"
-                            >
-                              {item.reference}
-                            </a>
-                          ) : (
-                            <span className="text-gray-900">{item.reference}</span>
-                          )
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      {/* Actions: Edit, Delete */}
-                      <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 whitespace-nowrap">
-                        <div className="flex items-center gap-1">
-                          {canUpdate("maintenance") && (
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(item)}
-                              className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
+              <DndContext
+                sensors={tccDndSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleTccDragEnd}
+              >
+                <SortableContext
+                  items={paginatedData.map((item) => item.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <tbody className="divide-y divide-gray-200">
+                    {computedRows.map((row) => {
+                      const item = row.raw;
+                      return (
+                        <SortableTableRow
+                          key={item.id}
+                          id={item.id}
+                          disabled={tccDndDisabled}
+                          dragLabel="Move Maintenance TCC row"
+                          disabledReason={dragDisabledReason}
+                          className="hover:bg-gray-50 transition-colors"
+                        >
+                          {({ dragHandle }) => (
+                            <>
+                              <td className="px-2 py-3 border-r border-gray-200 align-middle">
+                                {dragHandle}
+                              </td>
+                              <td className="px-2 py-3 text-gray-700 text-xs border-r border-gray-200 tabular-nums text-center">
+                                {item.displayOrder ?? "—"}
+                              </td>
+                              {showCategoryColumn && (
+                                <td className="px-3 py-3 text-gray-900 text-xs border-r border-gray-200 whitespace-nowrap">
+                                  {formatTccCategoryDisplay(item.category)}
+                                </td>
+                              )}
+                              {/* REMAINING: Years — color by % remaining: Red<=0, Orange<=10, Yellow<=20, Green<=40 */}
+                              {(() => {
+                                const pctYears =
+                                  row.limitYears > 0 && row.remainingYears != null
+                                    ? (row.remainingYears / row.limitYears) * 100
+                                    : null;
+                                const colorYears = getRemainingColorClass(pctYears);
+                                return (
+                                  <td
+                                    className={`px-3 py-3 text-xs ${
+                                      colorYears || "text-gray-900"
+                                    }`}
+                                  >
+                                    {row.remainingYears != null
+                                      ? row.remainingYears.toFixed(2)
+                                      : item.remaining}
+                                  </td>
+                                );
+                              })()}
+                              {/* REMAINING: Days */}
+                              {(() => {
+                                const pctDays =
+                                  row.limitYears > 0 && row.remainingDays != null
+                                    ? (row.remainingDays / (row.limitYears * 365)) * 100
+                                    : null;
+                                const colorDays = getRemainingColorClass(pctDays);
+                                return (
+                                  <td
+                                    className={`px-3 py-3 text-xs ${
+                                      colorDays || "text-gray-900"
+                                    }`}
+                                  >
+                                    {row.remainingDays != null
+                                      ? String(row.remainingDays)
+                                      : item.date}
+                                  </td>
+                                );
+                              })()}
+                              {/* REMAINING: TACH */}
+                              {(() => {
+                                const pctTach =
+                                  row.limitHours > 0 && row.remainingTach != null
+                                    ? (row.remainingTach / row.limitHours) * 100
+                                    : null;
+                                const colorTach = getRemainingColorClass(pctTach);
+                                return (
+                                  <td
+                                    className={`px-3 py-3 text-xs ${
+                                      colorTach || "text-gray-900"
+                                    }`}
+                                  >
+                                    {formatNum(row.remainingTach) || item.when}
+                                  </td>
+                                );
+                              })()}
+                              {/* REMAINING: AFTT */}
+                              {(() => {
+                                const pctAftt =
+                                  row.limitHours > 0 && row.remainingAftt != null
+                                    ? (row.remainingAftt / row.limitHours) * 100
+                                    : null;
+                                const colorAftt = getRemainingColorClass(pctAftt);
+                                return (
+                                  <td
+                                    className={`px-3 py-3 text-xs ${
+                                      colorAftt || "text-gray-900"
+                                    }`}
+                                  >
+                                    {formatNum(row.remainingAftt) || item.aftt}
+                                  </td>
+                                );
+                              })()}
+                              {/* COMPONENT INFO: Part No., Serial No., Description (reference) */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                                {item.partNo}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs">
+                                {item.serialNo}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                                {item.description}
+                              </td>
+                              {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                                {formatNum(parseNum(item.limitYears))}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs">
+                                {formatNum(parseNum(item.limitHours))}
+                              </td>
+                              {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                                {item.methodOfCompliance}
+                              </td>
+                              {/* LAST DONE: Date, TACH, AFTT (reference) */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 bg-green-50">
+                                {formatDisplayDate(item.lastDoneDate, {
+                                  fallback: item.lastDoneDate ?? "",
+                                })}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
+                                {item.lastDoneTach ?? item.lastDoneYear}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs bg-green-50">
+                                {item.lastDoneAftt}
+                              </td>
+                              {/* NEXT DUE: Date = Last Done + Limit Years; TACH/AFTT = Last Done + Limit Hours */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                                {row.nextDueDate
+                                  ? formatDate(row.nextDueDate)
+                                  : formatDisplayDate(item.nextDueDate, {
+                                      fallback: item.nextDueDate ?? "",
+                                    })}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs">
+                                {formatNum(row.nextDueTach) || item.nextDueYear}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-xs">
+                                {formatNum(row.nextDueAftt) || item.nextDueAftt}
+                              </td>
+                              {/* ATL Reference: sequence_number */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
+                                {String(item.reference ?? "").trim() ? (
+                                  String(aircraftId ?? "").trim() ? (
+                                    <a
+                                      href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
+                                        { sequence_no: String(item.reference).trim() }
+                                      ).toString()}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-700 hover:underline"
+                                    >
+                                      {item.reference}
+                                    </a>
+                                  ) : (
+                                    <span className="text-gray-900">{item.reference}</span>
+                                  )
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
+                              {/* Actions: Edit, Delete */}
+                              <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200 whitespace-nowrap">
+                                <div className="flex items-center gap-1">
+                                  {canUpdate("maintenance") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditModal(item)}
+                                      className="p-1.5 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                                      title="Edit"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {canDelete("maintenance") && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteTCC(item)}
+                                      className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
+                                      title="Delete"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </>
                           )}
-                          {canDelete("maintenance") && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTCC(item)}
-                              className="p-1.5 rounded text-red-600 hover:bg-red-50 transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+                        </SortableTableRow>
+                      );
+                    })}
+                  </tbody>
+                </SortableContext>
+              </DndContext>
             </table>
           </div>
         )}
@@ -1235,7 +1359,7 @@ export const TCCDetailContent = forwardRef<
           itemsPerPage={itemsPerPage}
           onItemsPerPageChange={setItemsPerPage}
           pageSizeOptions={[10, 25, 50]}
-          disabled={tccLoading}
+          disabled={tccLoading || tccReordering}
           className="px-6"
         />
       </div>

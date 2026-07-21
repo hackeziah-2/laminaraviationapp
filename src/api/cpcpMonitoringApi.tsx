@@ -56,6 +56,10 @@ function normalizeEntry(raw: any): CPCPEntry {
   return {
     ...r,
     id: Number(id),
+    displayOrder: (() => {
+      const n = Number(r.display_order ?? r.displayOrder);
+      return Number.isFinite(n) && n >= 1 ? n : undefined;
+    })(),
     inspectionCode: toStr(r.inspection_operation ?? r.inspection_code ?? r.inspectionCode),
     description: toStr(r.description),
     reference,
@@ -85,6 +89,8 @@ function normalizeEntry(raw: any): CPCPEntry {
 
 export interface CPCPEntry {
   id: number;
+  /** 1-based persistent row order (display_order) */
+  displayOrder?: number;
   inspectionCode?: string;
   description?: string;
   reference?: string;
@@ -112,6 +118,19 @@ export interface CPCPEntry {
   [key: string]: any;
 }
 
+export interface CPCPReorderItem {
+  id: number;
+  display_order: number;
+}
+
+export interface CPCPReorderRequest {
+  items: CPCPReorderItem[];
+}
+
+export interface CPCPReorderResponse {
+  items: CPCPEntry[];
+}
+
 export interface PaginatedCPCPResponse {
   items: CPCPEntry[];
   total: number;
@@ -137,7 +156,8 @@ export async function getCpcpMonitoringPaged(
     const aid = typeof aircraftId === "number" ? aircraftId : parseInt(String(aircraftId), 10);
     if (!isNaN(aid)) params.set("aircraft_id", String(aid));
   }
-  const res = await apiClient.get(`${BASE}/paged?${params.toString()}`);
+  const endpoint = `${BASE}/paged?${params.toString()}`;
+  const res = await apiClient.get(endpoint);
   const data = res.data ?? {};
   const rawItems = Array.isArray(data) ? data : data.items ?? data.results ?? data.data ?? [];
   const items = (Array.isArray(rawItems) ? rawItems : []).map((item: any) => normalizeEntry(item));
@@ -234,4 +254,59 @@ export async function updateCpcpMonitoring(
  */
 export async function deleteCpcpMonitoring(entryId: number): Promise<void> {
   await apiClient.delete(`${BASE}/${entryId}`);
+}
+
+/**
+ * Persist CPCP row arrangement for one aircraft.
+ * PUT /api/v1/maintenance-cpcp/reorder
+ * Body: { items: [{ id, display_order }, ...] } — complete active set, 1..N.
+ */
+export async function reorderCpcpMonitoring(
+  payload: CPCPReorderRequest
+): Promise<CPCPReorderResponse> {
+  const res = await apiClient.put("maintenance-cpcp/reorder", payload, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
+  const data = res.data?.data ?? res.data;
+  const rawItems = Array.isArray(data)
+    ? data
+    : data?.items ?? data?.results ?? [];
+  const items = (Array.isArray(rawItems) ? rawItems : []).map((item: any) =>
+    normalizeEntry(item)
+  );
+  return { items };
+}
+
+const CPCP_PAGE_LIMIT = 100;
+
+/**
+ * Fetch every active CPCP row for an aircraft in display_order.
+ * Used for arrangement-mode drag-and-drop so global display_order stays unique.
+ */
+export async function getAllCpcpMonitoring(
+  search = "",
+  aircraftId?: string | number | null
+): Promise<PaginatedCPCPResponse> {
+  const first = await getCpcpMonitoringPaged(
+    1,
+    CPCP_PAGE_LIMIT,
+    search,
+    aircraftId
+  );
+  let items = first.items.slice();
+  const total = first.total;
+  const pages = Math.max(
+    first.pages,
+    Math.ceil(total / CPCP_PAGE_LIMIT) || 1
+  );
+  for (let page = 2; page <= pages; page++) {
+    const next = await getCpcpMonitoringPaged(
+      page,
+      CPCP_PAGE_LIMIT,
+      search,
+      aircraftId
+    );
+    items = items.concat(next.items);
+  }
+  return { items, total, page: 1, pages: 1 };
 }

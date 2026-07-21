@@ -25,6 +25,8 @@ export interface TCCMonitoring {
   category?: string;
   /** ATL row id when API returns nested atl or numeric FK */
   atlId?: number;
+  /** 1-based persistent row order (display_order) */
+  displayOrder?: number;
   /**
    * From GET .../tcc-maintenance/paged — server-computed remaining / next due.
    * When present, list UI prefers these over client-side formulas.
@@ -33,6 +35,19 @@ export interface TCCMonitoring {
   remainingDays?: number | null;
   remainingTach?: number | null;
   remainingAftt?: number | null;
+}
+
+export interface TCCReorderItem {
+  id: number;
+  display_order: number;
+}
+
+export interface TCCReorderRequest {
+  items: TCCReorderItem[];
+}
+
+export interface TCCReorderResponse {
+  items: TCCMonitoring[];
 }
 
 export interface TCCMonitoringCreate {
@@ -157,6 +172,10 @@ function normalizeItem(raw: any): TCCMonitoring {
     ),
     category: r.category ?? undefined,
     atlId,
+    displayOrder: (() => {
+      const n = parseNullableNumber(r.display_order ?? r.displayOrder);
+      return n != null && n >= 1 ? n : undefined;
+    })(),
     remainingYears: parseNullableNumber(
       r.remaining_years ?? r.remainingYears
     ),
@@ -395,4 +414,60 @@ export const deleteAircraftTccMonitoring = async (
   id: number
 ): Promise<void> => {
   await apiClient.delete(`${TCC_PATH(aircraftId)}${id}/`);
+};
+
+/**
+ * Persist TCC row arrangement for one aircraft.
+ * PUT api/v1/maintenance-tcc/reorder
+ * Body: { items: [{ id, display_order }, ...] } — complete active set, 1..N.
+ */
+export const reorderAircraftTccMonitoring = async (
+  payload: TCCReorderRequest
+): Promise<TCCReorderResponse> => {
+  const res = await apiClient.put("maintenance-tcc/reorder", payload, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
+  const data = res.data?.data ?? res.data;
+  const rawItems = Array.isArray(data)
+    ? data
+    : data?.items ?? data?.results ?? [];
+  const items = (Array.isArray(rawItems) ? rawItems : []).map(normalizeItem);
+  return { items };
+};
+
+const TCC_PAGE_LIMIT = 100;
+
+/**
+ * Fetch every active TCC row for an aircraft in display_order (unpaginated collection).
+ * Used for arrangement-mode drag-and-drop so global display_order stays unique.
+ */
+export const getAllAircraftTccMonitoring = async (
+  aircraftId: number,
+  search = "",
+  category?: string
+): Promise<PaginatedTCCResponse> => {
+  const first = await getAircraftTccMonitoring(
+    aircraftId,
+    1,
+    TCC_PAGE_LIMIT,
+    search,
+    category
+  );
+  let items = first.items.slice();
+  const total = first.total;
+  const pages = Math.max(
+    first.pages,
+    Math.ceil(total / TCC_PAGE_LIMIT) || 1
+  );
+  for (let page = 2; page <= pages; page++) {
+    const next = await getAircraftTccMonitoring(
+      aircraftId,
+      page,
+      TCC_PAGE_LIMIT,
+      search,
+      category
+    );
+    items = items.concat(next.items);
+  }
+  return { items, total, page: 1, pages: 1 };
 };
