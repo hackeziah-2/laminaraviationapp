@@ -21,13 +21,24 @@ import {
   X,
   Loader,
 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CPCPEntryModal } from "./CPCPEntryModal";
+import { SortableTableRow } from "./SortableTableRow";
 import {
   getCpcpMonitoringPaged,
+  getAllCpcpMonitoring,
   getCpcpMonitoringById,
   createCpcpMonitoring,
   updateCpcpMonitoring,
   deleteCpcpMonitoring,
+  reorderCpcpMonitoring,
   type CPCPEntry,
 } from "../api/cpcpMonitoringApi";
 import { computeCpcpRow, getCpcpRemainingAlert } from "../utils/cpcpFormulas";
@@ -36,6 +47,12 @@ import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import {
+  ARRANGEMENT_DISABLED_TOOLTIP,
+  isManualArrangementMode,
+} from "../utils/displayOrderReorder";
+import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 import {
   getAircraftDetails,
   type AircraftMaintenanceDetails,
@@ -313,9 +330,26 @@ export const CPCPMonitoring = forwardRef<
     [handleCpcpExport]
   );
 
+  const arrangementMode = useMemo(
+    () =>
+      isManualArrangementMode({
+        search: searchDebounced,
+      }),
+    [searchDebounced]
+  );
+
+  const canUpdateMaintenance = canUpdate("maintenance");
+  const canReorder =
+    arrangementMode && canUpdateMaintenance && !loading;
+
+  const dragDisabledReason = !canUpdateMaintenance
+    ? "You do not have permission to reorder rows."
+    : ARRANGEMENT_DISABLED_TOOLTIP;
+
   const fetchList = useCallback(async () => {
     setLoading(true);
     try {
+      // Always paged for display; full collection loaded only on drag persist.
       const res = await getCpcpMonitoringPaged(
         currentPage,
         itemsPerPage,
@@ -326,10 +360,7 @@ export const CPCPMonitoring = forwardRef<
       setTotalItems(res.total);
       setTotalPages(Math.max(1, res.pages));
     } catch (err: any) {
-      const msg =
-        err?.response?.data?.detail ??
-        err?.message ??
-        "Failed to load CPCP list.";
+      const msg = formatApiErrorMessage(err, "Failed to load CPCP list.");
       Swal.fire({ icon: "error", title: "Error!", text: msg });
       setItems([]);
       setTotalItems(0);
@@ -337,11 +368,60 @@ export const CPCPMonitoring = forwardRef<
     } finally {
       setTimeout(() => setLoading(false), 360);
     }
-  }, [currentPage, itemsPerPage, searchDebounced, aircraftId]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    searchDebounced,
+    aircraftId,
+  ]);
 
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  const persistCpcpReorder = useCallback(
+    async (payload: { items: { id: number; display_order: number }[] }) => {
+      await reorderCpcpMonitoring(payload);
+    },
+    []
+  );
+
+  const loadFullCpcpOrdered = useCallback(async () => {
+    const res = await getAllCpcpMonitoring("", aircraftId);
+    return res.items;
+  }, [aircraftId]);
+
+  const {
+    sensors: cpcpDndSensors,
+    handleDragEnd: handleCpcpDragEnd,
+    isReordering: cpcpReordering,
+    dndDisabled: cpcpDndDisabled,
+  } = useTableDisplayOrderReorder({
+    items,
+    setItems,
+    canReorder,
+    pageOffset: (currentPage - 1) * itemsPerPage,
+    loadFullOrdered: loadFullCpcpOrdered,
+    persistReorder: persistCpcpReorder,
+    tableName: "CPCP",
+    onSuccess: async () => {
+      await fetchList();
+      await Swal.fire({
+        icon: "success",
+        title: "Order saved",
+        text: "CPCP row arrangement has been updated.",
+        timer: 1400,
+        showConfirmButton: false,
+      });
+    },
+    onError: async (message) => {
+      await Swal.fire({
+        icon: "error",
+        title: "Reorder failed",
+        text: message,
+      });
+    },
+  });
 
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -484,6 +564,8 @@ export const CPCPMonitoring = forwardRef<
     totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
   const endIndex = Math.min(currentPage * itemsPerPage, totalItems);
   const currentItems = items;
+  const displayTotalItems = totalItems;
+  const displayTotalPages = Math.max(totalPages, 1);
 
   const contentPadding = embedded ? "p-0" : "p-6";
 
@@ -652,6 +734,19 @@ export const CPCPMonitoring = forwardRef<
                     <thead>
                       <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
                         <th
+                          rowSpan={2}
+                          className="px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20 w-10"
+                        >
+                          {/* drag */}
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                          title="Display order"
+                        >
+                          #
+                        </th>
+                        <th
                           colSpan={4}
                           className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
                         >
@@ -739,170 +834,198 @@ export const CPCPMonitoring = forwardRef<
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {currentItems.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={16}
-                            className="px-6 py-12 text-center text-gray-500 text-sm"
-                          >
-                            No CPCP entries found.
-                          </td>
-                        </tr>
-                      ) : (
-                        currentItems.map((item) => {
-                          const computed = computeCpcpRow(
-                            item,
-                            headerTach,
-                            headerAftt
-                          );
-                          const intervalHours = parseNum(item.interval?.hours);
-                          const intervalMonths = parseNum(item.interval?.months);
-                          const intervalDays =
-                            intervalMonths != null ? (intervalMonths * 365) / 12 : null;
-                          const remMonths = parseNum(computed.remaining.months);
-                          const remDays = parseNum(computed.remaining.days);
-                          const remTach = parseNum(computed.remaining.tach);
-                          const remAftt = parseNum(computed.remaining.aftf);
-
-                          return (
-                            <tr key={item.id} className="transition-colors">
+                    <DndContext
+                      sensors={cpcpDndSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleCpcpDragEnd}
+                    >
+                      <SortableContext
+                        items={currentItems.map((item) => item.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        <tbody className="divide-y divide-gray-100">
+                          {currentItems.length === 0 ? (
+                            <tr>
                               <td
-                                className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
-                                  intervalMonths,
-                                  remMonths
-                                )}`}
+                                colSpan={18}
+                                className="px-6 py-12 text-center text-gray-500 text-sm"
                               >
-                                {computed.remaining.months}
-                              </td>
-                              <td
-                                className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
-                                  intervalDays,
-                                  remDays
-                                )}`}
-                              >
-                                {computed.remaining.days}
-                              </td>
-                              <td
-                                className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
-                                  intervalHours,
-                                  remTach
-                                )}`}
-                              >
-                                {computed.remaining.tach}
-                              </td>
-                              <td
-                                className={`px-3 py-2.5 whitespace-nowrap border-r border-gray-100 ${getRemainingCellClass(
-                                  intervalHours,
-                                  remAftt
-                                )}`}
-                              >
-                                {computed.remaining.aftf}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                {item.inspectionCode ?? "-"}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100 max-w-[240px]">
-                                <div className="whitespace-pre-line text-gray-600 leading-snug">
-                                  {item.description ?? "-"}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {item.interval?.hours ?? "0"}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                {item.interval?.months ?? "0"}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {formatDisplayDate(item.lastDone?.date)}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {item.lastDone?.tach || "-"}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                {item.lastDone?.aftf || "-"}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {formatDisplayDate(computed.nextDue.date)}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                {computed.nextDue.tach}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                {computed.nextDue.aftf}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
-                                {String(item.reference ?? "").trim() ? (
-                                  String(aircraftId ?? "").trim() ? (
-                                    <a
-                                      href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
-                                        { sequence_no: String(item.reference).trim() }
-                                      ).toString()}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-700 hover:underline"
-                                    >
-                                      {item.reference}
-                                    </a>
-                                  ) : (
-                                    <span className="text-gray-600">{item.reference}</span>
-                                  )
-                                ) : (
-                                  "-"
-                                )}
-                              </td>
-                              <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleView(item)}
-                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                    title="View"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                  {canUpdate("maintenance") && (
-                                    <button
-                                      type="button"
-                                      onClick={() => openEdit(item)}
-                                      className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
-                                      title="Edit"
-                                    >
-                                      <Pencil className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                  {canDelete("maintenance") && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDelete(item)}
-                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                      title="Delete"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
+                                No CPCP entries found.
                               </td>
                             </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
+                          ) : (
+                            currentItems.map((item) => {
+                              const computed = computeCpcpRow(
+                                item,
+                                headerTach,
+                                headerAftt
+                              );
+                              const intervalHours = parseNum(item.interval?.hours);
+                              const intervalMonths = parseNum(item.interval?.months);
+                              const intervalDays =
+                                intervalMonths != null ? (intervalMonths * 365) / 12 : null;
+                              const remMonths = parseNum(computed.remaining.months);
+                              const remDays = parseNum(computed.remaining.days);
+                              const remTach = parseNum(computed.remaining.tach);
+                              const remAftt = parseNum(computed.remaining.aftf);
+
+                              return (
+                                <SortableTableRow
+                                  key={item.id}
+                                  id={item.id}
+                                  disabled={cpcpDndDisabled}
+                                  dragLabel="Move Maintenance CPCP row"
+                                  disabledReason={dragDisabledReason}
+                                  className="transition-colors"
+                                >
+                                  {({ dragHandle }) => (
+                                    <>
+                                      <td className="px-2 py-2.5 border-r border-gray-100 align-middle">
+                                        {dragHandle}
+                                      </td>
+                                      <td className="px-2 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100 tabular-nums text-center">
+                                        {item.displayOrder ?? "—"}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                          intervalMonths,
+                                          remMonths
+                                        )}`}
+                                      >
+                                        {computed.remaining.months}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                          intervalDays,
+                                          remDays
+                                        )}`}
+                                      >
+                                        {computed.remaining.days}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                          intervalHours,
+                                          remTach
+                                        )}`}
+                                      >
+                                        {computed.remaining.tach}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2.5 whitespace-nowrap border-r border-gray-100 ${getRemainingCellClass(
+                                          intervalHours,
+                                          remAftt
+                                        )}`}
+                                      >
+                                        {computed.remaining.aftf}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                        {item.inspectionCode ?? "-"}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100 max-w-[240px]">
+                                        <div className="whitespace-pre-line text-gray-600 leading-snug">
+                                          {item.description ?? "-"}
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                        {item.interval?.hours ?? "0"}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                        {item.interval?.months ?? "0"}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                        {formatDisplayDate(item.lastDone?.date)}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                        {item.lastDone?.tach || "-"}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                        {item.lastDone?.aftf || "-"}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                        {formatDisplayDate(computed.nextDue.date)}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                        {computed.nextDue.tach}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                        {computed.nextDue.aftf}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
+                                        {String(item.reference ?? "").trim() ? (
+                                          String(aircraftId ?? "").trim() ? (
+                                            <a
+                                              href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
+                                                { sequence_no: String(item.reference).trim() }
+                                              ).toString()}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-blue-600 hover:text-blue-700 hover:underline"
+                                            >
+                                              {item.reference}
+                                            </a>
+                                          ) : (
+                                            <span className="text-gray-600">{item.reference}</span>
+                                          )
+                                        ) : (
+                                          "-"
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleView(item)}
+                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                            title="View"
+                                          >
+                                            <Eye className="w-4 h-4" />
+                                          </button>
+                                          {canUpdate("maintenance") && (
+                                            <button
+                                              type="button"
+                                              onClick={() => openEdit(item)}
+                                              className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                              title="Edit"
+                                            >
+                                              <Pencil className="w-4 h-4" />
+                                            </button>
+                                          )}
+                                          {canDelete("maintenance") && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDelete(item)}
+                                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                              title="Delete"
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </>
+                                  )}
+                                </SortableTableRow>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </SortableContext>
+                    </DndContext>
                   </table>
                 </div>
             )}
 
-            {(totalItems > 0 || loading) && (
+            {(displayTotalItems > 0 || loading) && (
               <DataTablePagination
                 currentPage={currentPage}
-                totalPages={Math.max(totalPages, 1)}
+                totalPages={displayTotalPages}
                 onPageChange={setCurrentPage}
-                totalItems={totalItems}
+                totalItems={displayTotalItems}
                 totalLabel="records"
                 itemsPerPage={itemsPerPage}
                 onItemsPerPageChange={setItemsPerPage}
                 showRangeText={false}
-                disabled={loading}
+                disabled={loading || cpcpReordering}
                 pageSizeOptions={[10, 25, 50]}
               />
             )}
