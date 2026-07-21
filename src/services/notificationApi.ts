@@ -73,22 +73,6 @@ export async function fetchNotifications(
   }
   const url = `${API_BASE}/notifications?${query.toString()}`;
   const res = await fetch(url, { headers: authHeaders(token) });
-  // #region agent log
-  if (status === "unread") {
-    fetch("http://127.0.0.1:7356/ingest/06a46138-4048-4848-9c8e-520fa90eebbe", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "489cc5" },
-      body: JSON.stringify({
-        sessionId: "489cc5",
-        location: "notificationApi.ts:fetchNotifications",
-        message: "unread list API response",
-        data: { url, status, recipientAccount, httpStatus: res.status, ok: res.ok },
-        timestamp: Date.now(),
-        hypothesisId: "E",
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
   return handleJsonResponse<NotificationPagedResponse>(
     res,
     "Failed to fetch notifications"
@@ -106,25 +90,6 @@ export async function fetchUnreadCount(token: string) {
   const res = await fetch(url, {
     headers: authHeaders(token),
   });
-  // #region agent log
-  fetch("http://127.0.0.1:7356/ingest/06a46138-4048-4848-9c8e-520fa90eebbe", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "489cc5" },
-    body: JSON.stringify({
-      sessionId: "489cc5",
-      location: "notificationApi.ts:fetchUnreadCount",
-      message: "unread-count API response",
-      data: {
-        url,
-        recipientAccount,
-        httpStatus: res.status,
-        ok: res.ok,
-      },
-      timestamp: Date.now(),
-      hypothesisId: "C",
-    }),
-  }).catch(() => {});
-  // #endregion
   return handleJsonResponse<UnreadCountResponse>(
     res,
     "Failed to fetch unread count"
