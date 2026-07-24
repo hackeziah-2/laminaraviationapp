@@ -8,6 +8,8 @@ export interface Aircraft {
   base: string;
   ownership: string;
   status: "Active" | "Inactive" | "Maintenance";
+  /** 1-based persistent fleet arrangement (shared with Daily Update) */
+  displayOrder?: number;
 
   // Aircraft Information
   modelYear?: number | null;

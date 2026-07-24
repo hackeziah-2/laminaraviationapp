@@ -40,8 +40,16 @@ export interface FleetDailyUpdateItem {
   statusColor?: string;
   rowColor?: string;
   criticalValue?: string | null;
+  /** Shared aircraft fleet arrangement (from Aircraft.display_order) */
+  displayOrder?: number;
   /** Backend may use aircraft.registration as ident */
-  aircraft?: { id: number; registration: string; model?: string; type?: string };
+  aircraft?: {
+    id: number;
+    registration: string;
+    model?: string;
+    type?: string;
+    displayOrder?: number;
+  };
 }
 
 export interface FleetDailyUpdatePagedResponse {
@@ -62,6 +70,12 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
     "";
   const rawStatus = camel?.status ?? camel?.workStatus ?? o?.work_status ?? "";
   const rawWorkStatus = camel?.workStatus ?? o?.work_status;
+  const displayOrderRaw =
+    camel?.displayOrder ??
+    o?.display_order ??
+    aircraft?.display_order ??
+    aircraft?.displayOrder;
+  const displayOrderNum = Number(displayOrderRaw);
   return {
     id: camel?.id ?? o?.id,
     aircraftId: camel?.aircraftId ?? camel?.aircraftFk ?? o?.aircraft_id ?? o?.aircraft_fk,
@@ -117,6 +131,7 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
     statusColor: camel?.statusColor ?? o?.status_color,
     rowColor: camel?.rowColor ?? o?.row_color,
     criticalValue: camel?.criticalValue ?? o?.critical_value ?? null,
+    displayOrder: Number.isFinite(displayOrderNum) ? displayOrderNum : undefined,
     aircraft:
       aircraft && typeof aircraft === "object"
         ? {
@@ -124,6 +139,11 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
             registration: aircraft.registration ?? ident,
             model: aircraft.model,
             type: aircraft.type,
+            displayOrder: Number.isFinite(
+              Number(aircraft.display_order ?? aircraft.displayOrder)
+            )
+              ? Number(aircraft.display_order ?? aircraft.displayOrder)
+              : undefined,
           }
         : undefined,
   };
@@ -155,7 +175,7 @@ export async function getFleetDailyUpdatePaged(
   limit = 10,
   search = "",
   status = "",
-  sort = "-registration"
+  sort = ""
 ): Promise<FleetDailyUpdatePagedResponse> {
   const params = new URLSearchParams();
   params.set("page", String(page));
@@ -195,6 +215,37 @@ export async function getFleetDailyUpdatePaged(
     }
     throw err;
   }
+}
+
+const FLEET_DAILY_PAGE_LIMIT = 100;
+
+/**
+ * Fetch every fleet daily update row ordered by Aircraft.display_order.
+ * Used for arrangement-mode drag-and-drop so global display_order stays unique.
+ */
+export async function getAllFleetDailyUpdatesOrdered(): Promise<
+  FleetDailyUpdateItem[]
+> {
+  const first = await getFleetDailyUpdatePaged(
+    1,
+    FLEET_DAILY_PAGE_LIMIT,
+    "",
+    "",
+    ""
+  );
+  let items = first.items.slice();
+  const pages = Math.max(1, first.pages || 1);
+  for (let page = 2; page <= pages; page += 1) {
+    const res = await getFleetDailyUpdatePaged(
+      page,
+      FLEET_DAILY_PAGE_LIMIT,
+      "",
+      "",
+      ""
+    );
+    items = items.concat(res.items);
+  }
+  return items;
 }
 
 /**
