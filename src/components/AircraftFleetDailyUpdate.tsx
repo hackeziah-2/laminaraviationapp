@@ -10,21 +10,40 @@ import {
   ChevronDown,
   Save,
 } from "lucide-react";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import Swal from "sweetalert2";
+import {
+  DndContext,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getFleetDailyUpdatePaged,
+  getAllFleetDailyUpdatesOrdered,
   updateFleetDailyUpdateRemark,
   bulkUpdateFleetDailyUpdates,
   type FleetDailyUpdateItem,
   type FleetDailyUpdateBulkUpdateItem,
 } from "../api/fleetDailyUpdateApi";
+import {
+  reorderAircraft,
+} from "../api/aircraftApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import { SortableTableRow } from "./SortableTableRow";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import { formatDisplayDate } from "../utility/utils";
+import {
+  AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP,
+  isManualArrangementMode,
+  toAircraftReorderPayload,
+} from "../utils/displayOrderReorder";
 
 /** Map status text to badge/row color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
 function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
@@ -165,12 +184,18 @@ export function AircraftFleetDailyUpdate() {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  /** Server sort for A/C IDENT: registration (asc) / -registration (desc) */
-  const [registrationSort, setRegistrationSort] = useState<"asc" | "desc">(
-    "desc"
+  /**
+   * Server sort for A/C IDENT. null = default Aircraft.display_order (manual arrangement).
+   */
+  const [registrationSort, setRegistrationSort] = useState<"asc" | "desc" | null>(
+    null
   );
   const sortParam =
-    registrationSort === "asc" ? "registration" : "-registration";
+    registrationSort === "asc"
+      ? "registration"
+      : registrationSort === "desc"
+        ? "-registration"
+        : "";
 
   // Edit remark/status modal
   const [showRemarkModal, setShowRemarkModal] = useState(false);
@@ -223,6 +248,75 @@ export function AircraftFleetDailyUpdate() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const getAircraftSortId = useCallback((item: FleetDailyUpdateItem) => {
+    return Number(item.aircraftId ?? item.aircraft?.id ?? 0);
+  }, []);
+
+  // Same as TCC: drag only when search/filters/sorts are clear (default display_order).
+  const arrangementMode = useMemo(
+    () =>
+      isManualArrangementMode({
+        search: searchDebounced,
+        categoryFilter: filterStatus === "all" ? "" : filterStatus,
+        columnSortActive: registrationSort != null,
+      }),
+    [searchDebounced, filterStatus, registrationSort]
+  );
+
+  const canUpdateDaily = canUpdate("daily-update");
+  const canReorder =
+    arrangementMode && canUpdateDaily && !bulkEditMode && !loading;
+
+  const dragDisabledReason = !canUpdateDaily
+    ? "You do not have permission to reorder aircraft."
+    : bulkEditMode
+      ? "Save or cancel maintenance edits before rearranging aircraft."
+      : AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP;
+
+  const persistAircraftReorder = useCallback(
+    async (payload: { items: { id: number; display_order: number }[] }) => {
+      await reorderAircraft(toAircraftReorderPayload(payload));
+    },
+    []
+  );
+
+  const loadFullDailyOrdered = useCallback(async () => {
+    return getAllFleetDailyUpdatesOrdered();
+  }, []);
+
+  const {
+    sensors: dailyDndSensors,
+    handleDragEnd: handleDailyDragEnd,
+    isReordering: dailyReordering,
+    dndDisabled: dailyDndDisabled,
+  } = useTableDisplayOrderReorder({
+    items,
+    setItems,
+    canReorder,
+    pageOffset: (currentPage - 1) * itemsPerPage,
+    getItemId: getAircraftSortId,
+    loadFullOrdered: loadFullDailyOrdered,
+    persistReorder: persistAircraftReorder,
+    onSuccess: async () => {
+      await fetchData();
+      await Swal.fire({
+        icon: "success",
+        title: "Order saved",
+        text: "Aircraft arrangement has been updated.",
+        timer: 1400,
+        showConfirmButton: false,
+      });
+    },
+    onError: async (message) => {
+      await fetchData();
+      await Swal.fire({
+        icon: "error",
+        title: "Reorder failed",
+        text: message,
+      });
+    },
+  });
 
   // Keep bulk PATCH payload in sync with table edits (only changed fields).
   useEffect(() => {
@@ -344,7 +438,11 @@ export function AircraftFleetDailyUpdate() {
 
   const toggleRegistrationSort = async () => {
     if (!(await guardBulkEditNavigation())) return;
-    setRegistrationSort((prev) => (prev === "asc" ? "desc" : "asc"));
+    setRegistrationSort((prev) => {
+      if (prev == null) return "asc";
+      if (prev === "asc") return "desc";
+      return null;
+    });
     setCurrentPage(1);
   };
 
@@ -480,7 +578,7 @@ export function AircraftFleetDailyUpdate() {
             <>
               <button
                 onClick={handleRefresh}
-                disabled={loading}
+                disabled={loading || dailyReordering}
                 className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {loading ? (
@@ -494,7 +592,11 @@ export function AircraftFleetDailyUpdate() {
                 <button
                   type="button"
                   onClick={enterBulkEditMode}
-                  disabled={loading || items.length === 0}
+                  disabled={
+                    loading ||
+                    items.length === 0 ||
+                    dailyReordering
+                  }
                   className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-blue-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <Pencil className="w-4 h-4" />
@@ -503,17 +605,8 @@ export function AircraftFleetDailyUpdate() {
               )}
             </>
           )}
-          {/* <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-            <Printer className="w-4 h-4" />
-            <span className="hidden sm:inline">Print</span>
-          </button> */}
-          {/* <button className="flex items-center gap-2 px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export</span>
-          </button> */}
         </div>
       </div>
-
       {/* Main Content */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
         {/* Blue Header Bar */}
@@ -574,6 +667,9 @@ export function AircraftFleetDailyUpdate() {
           <table className="w-full">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-300">
+                <th className="px-2 py-3 text-left text-gray-900 text-xs border-r border-gray-300 w-10">
+                  Arrange
+                </th>
                 <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
                   <button
                     type="button"
@@ -584,12 +680,12 @@ export function AircraftFleetDailyUpdate() {
                     A/C IDENT
                     {registrationSort === "asc" ? (
                       <ChevronUp className="w-3.5 h-3.5 shrink-0" aria-hidden />
-                    ) : (
+                    ) : registrationSort === "desc" ? (
                       <ChevronDown
                         className="w-3.5 h-3.5 shrink-0"
                         aria-hidden
                       />
-                    )}
+                    ) : null}
                   </button>
                 </th>
                 <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
@@ -632,11 +728,9 @@ export function AircraftFleetDailyUpdate() {
                 <th className="px-4 py-3 text-left text-gray-900 text-xs">
                   REMARKS
                 </th>
-                {/* <th className="px-4 py-3 text-center text-gray-900 text-xs w-20">
-                  ACTIONS
-                </th> */}
               </tr>
               <tr className="bg-gray-100 border-b border-gray-300">
+                <th className="border-r border-gray-300"></th>
                 <th className="border-r border-gray-300"></th>
                 <th className="border-r border-gray-300"></th>
                 <th className="border-r border-gray-300"></th>
@@ -650,193 +744,225 @@ export function AircraftFleetDailyUpdate() {
                 <th className="border-r border-gray-300"></th>
                 <th className="border-r border-gray-300"></th>
                 <th></th>
-                <th></th>
               </tr>
             </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={10}
-                    className="px-4 py-8 text-center text-gray-500"
-                  >
-                    {loading
-                      ? "Loading..."
-                      : "No aircraft found matching your filters."}
-                  </td>
-                </tr>
-              ) : (
-                items.map((aircraft) => (
-                  <tr
-                    key={aircraft.id ?? aircraft.ident ?? Math.random()}
-                    className={`border-b border-gray-200 ${getRowColorClass(
-                      aircraft.rowColor,
-                      bulkEditMode
-                        ? statusToColor(
-                            bulkDrafts[getRowKey(aircraft)]?.status ??
-                              aircraft.status ??
-                              aircraft.workStatus
-                          )
-                        : aircraft.statusColor,
-                      bulkEditMode
-                        ? bulkDrafts[getRowKey(aircraft)]?.status ??
-                            aircraft.status ??
-                            aircraft.workStatus
-                        : aircraft.status ?? aircraft.workStatus
-                    )}`}
-                  >
-                    <td className="px-4 py-3 text-sm text-gray-900 border-r border-gray-300">
-                      {(() => {
-                        const ident =
-                          aircraft.ident ?? aircraft.registration ?? "-";
-                        const trimmed =
-                          ident !== "-" ? String(ident).trim() : "";
-                        if (!trimmed) return "-";
-                        return (
-                          <Link
-                            to={`/profile?aircraft=${encodeURIComponent(
-                              trimmed
-                            )}`}
-                            className="text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
-                          >
-                            {trimmed}
-                          </Link>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-sm border-r border-gray-300">
-                      {bulkEditMode ? (
-                        <select
-                          value={
-                            bulkDrafts[getRowKey(aircraft)]?.status ??
-                            normalizeStatusForEdit(aircraft)
+            <DndContext
+              sensors={dailyDndSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDailyDragEnd}
+            >
+              <SortableContext
+                items={items
+                  .map((item) => getAircraftSortId(item))
+                  .filter((id) => id > 0)}
+                strategy={verticalListSortingStrategy}
+              >
+                <tbody>
+                  {items.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={11}
+                        className="px-4 py-8 text-center text-gray-500"
+                      >
+                        {loading
+                          ? "Loading..."
+                          : "No aircraft found matching your filters."}
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((aircraft) => {
+                      const sortId = getAircraftSortId(aircraft);
+                      const identLabel =
+                        aircraft.ident ??
+                        aircraft.registration ??
+                        String(sortId);
+                      return (
+                        <SortableTableRow
+                          key={
+                            aircraft.id ??
+                            aircraft.aircraftId ??
+                            aircraft.ident ??
+                            Math.random()
                           }
-                          onChange={(e) =>
-                            updateBulkDraft(
-                              getRowKey(aircraft),
-                              "status",
-                              e.target.value
-                            )
-                          }
-                          disabled={savingBulk}
-                          className="w-full min-w-[140px] px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                          id={sortId > 0 ? sortId : `row-${aircraft.id}`}
+                          disabled={dailyDndDisabled || sortId <= 0}
+                          dragLabel={`Move aircraft ${identLabel}`}
+                          disabledReason={dragDisabledReason}
+                          className={`border-b border-gray-200 ${getRowColorClass(
+                            aircraft.rowColor,
+                            bulkEditMode
+                              ? statusToColor(
+                                  bulkDrafts[getRowKey(aircraft)]?.status ??
+                                    aircraft.status ??
+                                    aircraft.workStatus
+                                )
+                              : aircraft.statusColor,
+                            bulkEditMode
+                              ? bulkDrafts[getRowKey(aircraft)]?.status ??
+                                  aircraft.status ??
+                                  aircraft.workStatus
+                              : aircraft.status ?? aircraft.workStatus
+                          )}`}
                         >
-                          {STATUS_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        getStatusBadge(
-                          aircraft.status ?? aircraft.workStatus ?? "-"
-                        )
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {(() => {
-                        const lines = nextInspDueDisplayLines(
-                          aircraft.nextInspDue ?? aircraft.nextInspectionDue,
-                          aircraft.nextInspDueUnit ??
-                            aircraft.nextInspectionDueUnit
-                        );
-                        if (lines.length === 0) return "-";
-                        return (
-                          <div className="space-y-1">
-                            {lines.map((text, index) => (
-                              <div key={`${aircraft.id}-next-insp-${index}`}>
-                                {text}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {aircraft.tachDue ?? aircraft.tachTimeDue ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {bulkEditMode ? (
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={
-                            bulkDrafts[getRowKey(aircraft)]?.tachEod ??
-                            (aircraft.tachEod != null
-                              ? String(aircraft.tachEod)
-                              : "")
-                          }
-                          onChange={(e) =>
-                            updateBulkDraft(
-                              getRowKey(aircraft),
-                              "tachEod",
-                              e.target.value
-                            )
-                          }
-                          disabled={savingBulk}
-                          className="w-full min-w-[80px] px-2 py-1.5 border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                          placeholder="-"
-                        />
-                      ) : (
-                        aircraft.tachEod ?? "-"
-                      )}
-                    </td>
-                    <td
-                      className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${
-                        aircraft.criticalValue === "remainingNextInsp"
-                          ? "bg-red-500 text-white"
-                          : "text-gray-900"
-                      }`}
-                    >
-                      {aircraft.remainingNextInsp ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {aircraft.remainingEngine ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                      {aircraft.remainingPropeller ?? "-"}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">
-                      {bulkEditMode ? (
-                        <textarea
-                          value={
-                            bulkDrafts[getRowKey(aircraft)]?.remarks ??
-                            aircraft.remarks ??
-                            ""
-                          }
-                          onChange={(e) =>
-                            updateBulkDraft(
-                              getRowKey(aircraft),
-                              "remarks",
-                              e.target.value
-                            )
-                          }
-                          disabled={savingBulk}
-                          rows={2}
-                          className="w-full min-w-[160px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 resize-y"
-                          placeholder="Enter remarks..."
-                        />
-                      ) : (
-                        aircraft.remarks ?? "-"
-                      )}
-                    </td>
-                    {/* <td className="px-4 py-3 text-center border-gray-300">
-                      {canUpdate("daily-update") && !bulkEditMode && (
-                        <button
-                          type="button"
-                          onClick={() => openRemarkModal(aircraft)}
-                          className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
-                          title="Edit remark"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                          Edit
-                        </button>
-                      )}
-                    </td> */}
-                  </tr>
-                ))
-              )}
-            </tbody>
+                          {({ dragHandle }) => (
+                            <>
+                              <td className="px-2 py-3 text-sm border-r border-gray-300 align-middle">
+                                {dragHandle}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 border-r border-gray-300">
+                                {(() => {
+                                  const ident =
+                                    aircraft.ident ??
+                                    aircraft.registration ??
+                                    "-";
+                                  const trimmed =
+                                    ident !== "-" ? String(ident).trim() : "";
+                                  if (!trimmed) return "-";
+                                  return (
+                                    <Link
+                                      to={`/profile?aircraft=${encodeURIComponent(
+                                        trimmed
+                                      )}`}
+                                      className="text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
+                                    >
+                                      {trimmed}
+                                    </Link>
+                                  );
+                                })()}
+                              </td>
+                              <td className="px-4 py-3 text-sm border-r border-gray-300">
+                                {bulkEditMode ? (
+                                  <select
+                                    value={
+                                      bulkDrafts[getRowKey(aircraft)]?.status ??
+                                      normalizeStatusForEdit(aircraft)
+                                    }
+                                    onChange={(e) =>
+                                      updateBulkDraft(
+                                        getRowKey(aircraft),
+                                        "status",
+                                        e.target.value
+                                      )
+                                    }
+                                    disabled={savingBulk}
+                                    className="w-full min-w-[140px] px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                  >
+                                    {STATUS_OPTIONS.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  getStatusBadge(
+                                    aircraft.status ??
+                                      aircraft.workStatus ??
+                                      "-"
+                                  )
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
+                                {(() => {
+                                  const lines = nextInspDueDisplayLines(
+                                    aircraft.nextInspDue ??
+                                      aircraft.nextInspectionDue,
+                                    aircraft.nextInspDueUnit ??
+                                      aircraft.nextInspectionDueUnit
+                                  );
+                                  if (lines.length === 0) return "-";
+                                  return (
+                                    <div className="space-y-1">
+                                      {lines.map((text, index) => (
+                                        <div
+                                          key={`${aircraft.id}-next-insp-${index}`}
+                                        >
+                                          {text}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
+                                {aircraft.tachDue ??
+                                  aircraft.tachTimeDue ??
+                                  "-"}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
+                                {bulkEditMode ? (
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={
+                                      bulkDrafts[getRowKey(aircraft)]?.tachEod ??
+                                      (aircraft.tachEod != null
+                                        ? String(aircraft.tachEod)
+                                        : "")
+                                    }
+                                    onChange={(e) =>
+                                      updateBulkDraft(
+                                        getRowKey(aircraft),
+                                        "tachEod",
+                                        e.target.value
+                                      )
+                                    }
+                                    disabled={savingBulk}
+                                    className="w-full min-w-[80px] px-2 py-1.5 border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                    placeholder="-"
+                                  />
+                                ) : (
+                                  aircraft.tachEod ?? "-"
+                                )}
+                              </td>
+                              <td
+                                className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${
+                                  aircraft.criticalValue === "remainingNextInsp"
+                                    ? "bg-red-500 text-white"
+                                    : "text-gray-900"
+                                }`}
+                              >
+                                {aircraft.remainingNextInsp ?? "-"}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
+                                {aircraft.remainingEngine ?? "-"}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
+                                {aircraft.remainingPropeller ?? "-"}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {bulkEditMode ? (
+                                  <textarea
+                                    value={
+                                      bulkDrafts[getRowKey(aircraft)]
+                                        ?.remarks ??
+                                      aircraft.remarks ??
+                                      ""
+                                    }
+                                    onChange={(e) =>
+                                      updateBulkDraft(
+                                        getRowKey(aircraft),
+                                        "remarks",
+                                        e.target.value
+                                      )
+                                    }
+                                    disabled={savingBulk}
+                                    rows={2}
+                                    className="w-full min-w-[160px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 resize-y"
+                                    placeholder="Enter remarks..."
+                                  />
+                                ) : (
+                                  aircraft.remarks ?? "-"
+                                )}
+                              </td>
+                            </>
+                          )}
+                        </SortableTableRow>
+                      );
+                    })
+                  )}
+                </tbody>
+              </SortableContext>
+            </DndContext>
           </table>
         </div>
 
@@ -854,8 +980,10 @@ export function AircraftFleetDailyUpdate() {
             onItemsPerPageChange={async (size) => {
               if (!(await guardBulkEditNavigation())) return;
               setItemsPerPage(size);
+              setCurrentPage(1);
             }}
             pageSizeOptions={[10, 25, 50]}
+            disabled={loading || dailyReordering || bulkEditMode}
             className="px-6"
           />
         )}

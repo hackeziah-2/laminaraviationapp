@@ -30,12 +30,21 @@ import {
 } from "./ui/dropdown-menu";
 import Swal from "sweetalert2";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  DndContext,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import { isMechanicRole } from "../utility/atlEditRbac";
 import { AircraftForm } from "../types/Aircraft";
 import {
@@ -44,6 +53,8 @@ import {
   createReportPDFAircraft,
   importAircraftExcel,
   deleteAircraft,
+  getAllAircraftForArrangement,
+  reorderAircraft,
 } from "../api/aircraftApi";
 import {
   dateToday,
@@ -54,12 +65,19 @@ import {
   readExcelFirstRowCells,
   validateAircraftFleetImportHeaderRow,
 } from "../utility/aircraftFleetImportExcelHeaders";
+import { SortableTableRow } from "./SortableTableRow";
+import {
+  AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP,
+  isManualArrangementMode,
+  toAircraftReorderPayload,
+} from "../utils/displayOrderReorder";
 
 export function AircraftFleetProfile() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const aircraftFromQuery = searchParams.get("aircraft")?.trim() ?? "";
-  const { canAccess, canCreate, canDelete, user } = useUserPermissions();
+  const { canAccess, canCreate, canDelete, canUpdate, user } =
+    useUserPermissions();
   /** Mechanic role cannot export the Aircraft Fleet Profile to Excel. */
   const canExportFleetProfileExcel = !isMechanicRole(user?.role);
   const [searchTerm, setSearchTerm] = useState(aircraftFromQuery);
@@ -78,9 +96,8 @@ export function AircraftFleetProfile() {
     direction: "asc" | "desc";
   };
 
-  const [sorts, setSorts] = useState<SortItem[]>([
-    { field: "created_at", direction: "desc" },
-  ]);
+  /** Empty sorts → backend default display_order ascending (manual arrangement). */
+  const [sorts, setSorts] = useState<SortItem[]>([]);
 
   const toggleSort = (field: string, multi = false) => {
     setCurrentPage(1);
@@ -140,7 +157,7 @@ export function AircraftFleetProfile() {
     );
   };
 
-  const { aircrafts, loading, error, totalItems, totalPage, refresh } =
+  const { aircrafts, setAircrafts, loading, error, totalItems, totalPage, refresh } =
     useAircrafts(
       currentPage,
       itemsPerPage,
@@ -148,6 +165,67 @@ export function AircraftFleetProfile() {
       filterStatus,
       sortParam
     );
+
+  // Same as TCC: drag only when search/filters/sorts are clear (default display_order).
+  const arrangementMode = useMemo(
+    () =>
+      isManualArrangementMode({
+        search: searchDebounced,
+        categoryFilter: filterStatus === "all" ? "" : filterStatus,
+        columnSortActive: sorts.length > 0,
+      }),
+    [searchDebounced, filterStatus, sorts.length]
+  );
+
+  const canUpdateProfile = canUpdate("profile");
+  const canReorder = arrangementMode && canUpdateProfile && !loading;
+
+  const dragDisabledReason = !canUpdateProfile
+    ? "You do not have permission to reorder aircraft."
+    : AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP;
+
+  const persistAircraftReorder = useCallback(
+    async (payload: { items: { id: number; display_order: number }[] }) => {
+      await reorderAircraft(toAircraftReorderPayload(payload));
+    },
+    []
+  );
+
+  const loadFullAircraftOrdered = useCallback(async () => {
+    return getAllAircraftForArrangement();
+  }, []);
+
+  const {
+    sensors: aircraftDndSensors,
+    handleDragEnd: handleAircraftDragEnd,
+    isReordering: aircraftReordering,
+    dndDisabled: aircraftDndDisabled,
+  } = useTableDisplayOrderReorder({
+    items: aircrafts,
+    setItems: setAircrafts,
+    canReorder,
+    pageOffset: (currentPage - 1) * itemsPerPage,
+    loadFullOrdered: loadFullAircraftOrdered,
+    persistReorder: persistAircraftReorder,
+    onSuccess: async () => {
+      refresh();
+      await Swal.fire({
+        icon: "success",
+        title: "Order saved",
+        text: "Aircraft arrangement has been updated.",
+        timer: 1400,
+        showConfirmButton: false,
+      });
+    },
+    onError: async (message) => {
+      refresh();
+      await Swal.fire({
+        icon: "error",
+        title: "Reorder failed",
+        text: message,
+      });
+    },
+  });
 
   // Deep link: /profile?aircraft= — seed search and refetch list for that aircraft
   useEffect(() => {
@@ -250,7 +328,6 @@ export function AircraftFleetProfile() {
   };
 
   const totalPages = totalPage;
-  const paginatedAircraft = aircrafts;
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
@@ -611,7 +688,6 @@ export function AircraftFleetProfile() {
           )}
         </div>
       </div>
-
       {/* Blue Banner */}
       <div className="bg-blue-600 text-white px-4 sm:px-6 py-3 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0">
         <span className="tracking-wide text-sm sm:text-base">
@@ -665,8 +741,9 @@ export function AircraftFleetProfile() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {/* <th className=""></th> */}
-
+                    <th className="px-2 py-3 w-10 text-left text-xs text-gray-600 uppercase tracking-wider">
+                      Arrange
+                    </th>
                     <th
                       onClick={(e) => toggleSort("registration", e.shiftKey)}
                       className="cursor-pointer select-none px-6 py-3"
@@ -692,14 +769,31 @@ export function AircraftFleetProfile() {
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
+              <DndContext
+                sensors={aircraftDndSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleAircraftDragEnd}
+              >
+                <SortableContext
+                  items={aircrafts.map((ac) => ac.id)}
+                  strategy={verticalListSortingStrategy}
+                >
                 <tbody className="divide-y divide-gray-200">
-                  {Array.isArray(paginatedAircraft) &&
-                  paginatedAircraft.length > 0 ? (
-                    paginatedAircraft.map((ac) => (
-                      <tr
+                  {Array.isArray(aircrafts) && aircrafts.length > 0 ? (
+                    aircrafts.map((ac) => (
+                      <SortableTableRow
                         key={ac?.id ?? Math.random()}
+                        id={ac.id}
+                        disabled={aircraftDndDisabled}
+                        dragLabel={`Move aircraft ${ac.registration || ac.id}`}
+                        disabledReason={dragDisabledReason}
                         className="hover:bg-gray-50 transition-colors"
                       >
+                        {({ dragHandle }) => (
+                          <>
+                        <td className="px-2 py-3.5 border-r border-gray-100 align-middle">
+                          {dragHandle}
+                        </td>
                         <td className="px-6 py-3.5 text-gray-900">
                           {ac?.registration ?? "-"}
                         </td>
@@ -846,12 +940,14 @@ export function AircraftFleetProfile() {
                             )}
                           </div>
                         </td>
-                      </tr>
+                          </>
+                        )}
+                      </SortableTableRow>
                     ))
                   ) : (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-6 py-12 text-center text-gray-500"
                       >
                         No aircraft found matching your search criteria
@@ -859,6 +955,8 @@ export function AircraftFleetProfile() {
                     </tr>
                   )}
                 </tbody>
+                </SortableContext>
+              </DndContext>
               </table>
             </div>
 
@@ -871,7 +969,7 @@ export function AircraftFleetProfile() {
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
               pageSizeOptions={[10, 20, 50]}
-              disabled={loading}
+              disabled={loading || aircraftReordering}
               className="px-6"
             />
           </div>

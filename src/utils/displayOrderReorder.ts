@@ -68,6 +68,46 @@ export function buildDisplayOrderReorderPayload(
   return { items };
 }
 
+export type AircraftDisplayOrderReorderItem = {
+  aircraft_id: number;
+  display_order: number;
+};
+
+export type AircraftDisplayOrderReorderPayload = {
+  items: AircraftDisplayOrderReorderItem[];
+};
+
+/**
+ * Build aircraft fleet reorder body for PUT /api/v1/aircraft/reorder.
+ * Uses aircraft_id (not Fleet Daily Update record id).
+ */
+export function buildAircraftDisplayOrderReorderPayload(
+  orderedIds: Array<number | { id: number; aircraftId?: number }>
+): AircraftDisplayOrderReorderPayload {
+  const items: AircraftDisplayOrderReorderItem[] = orderedIds.map(
+    (entry, index) => {
+      const aircraft_id =
+        typeof entry === "number"
+          ? entry
+          : entry.aircraftId ?? entry.id;
+      return { aircraft_id, display_order: index + 1 };
+    }
+  );
+  return { items };
+}
+
+/** Remap generic { id, display_order } payload to aircraft_id form. */
+export function toAircraftReorderPayload(
+  payload: DisplayOrderReorderPayload
+): AircraftDisplayOrderReorderPayload {
+  return {
+    items: payload.items.map(({ id, display_order }) => ({
+      aircraft_id: id,
+      display_order,
+    })),
+  };
+}
+
 /**
  * Apply a page-local drag to a full ordered collection.
  * Prefer operating on the complete unpaginated list so global display_order stays unique.
@@ -85,3 +125,6 @@ export function applyPageLocalReorder<T>(
 
 export const ARRANGEMENT_DISABLED_TOOLTIP =
   "Return to the default arrangement (no search or filters) before reordering rows.";
+
+export const AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP =
+  "Clear search, filters, and sorting to rearrange aircraft.";
