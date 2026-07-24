@@ -373,6 +373,15 @@ export function formatAtlListCell(
   return String(value);
 }
 
+/** Display-only: empty engine/propeller TSN → "UNK". Never send "UNK" to the API. */
+export function displayTSN(
+  value: number | string | null | undefined
+): string {
+  return value === null || value === undefined || value === ""
+    ? "UNK"
+    : String(value);
+}
+
 /** Join off-blocks date and Zulu time (HH:mm) for list view: `DD-MM-YYYY | time`. */
 export function formatAtlListOffBlocks(
   record: AircraftTechnicalLog

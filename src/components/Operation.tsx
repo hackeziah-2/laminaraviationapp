@@ -43,6 +43,7 @@ import {
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
   formatAtlListCell,
+  displayTSN,
   formatAtlListOffBlocks,
   formatAtlListOnBlocks,
   resolvePreviousAtlForNewEntry,
@@ -1006,7 +1007,7 @@ export function Operation() {
       {
         key: "engineTsn",
         label: "Engine TSN",
-        getValue: (record) => formatAtlListCell(record.engineTsn),
+        getValue: (record) => displayTSN(record.engineTsn),
       },
       {
         key: "engineTso",
@@ -1026,7 +1027,7 @@ export function Operation() {
       {
         key: "propellerTsn",
         label: "Propeller TSN",
-        getValue: (record) => formatAtlListCell(record.propellerTsn),
+        getValue: (record) => displayTSN(record.propellerTsn),
       },
       {
         key: "propellerTso",
@@ -2695,7 +2696,7 @@ export function Operation() {
                                   {formatAtlListCell(record.engineRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.engineTsn)}
+                                  {displayTSN(record.engineTsn)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {formatAtlListCell(record.engineTso)}
@@ -2707,7 +2708,7 @@ export function Operation() {
                                   {formatAtlListCell(record.propellerRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.propellerTsn)}
+                                  {displayTSN(record.propellerTsn)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {formatAtlListCell(record.propellerTso)}
@@ -3340,7 +3341,7 @@ export function Operation() {
                                   {formatAtlListCell(record.engineRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.engineTsn)}
+                                  {displayTSN(record.engineTsn)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.engineTso)}
@@ -3352,7 +3353,7 @@ export function Operation() {
                                   {formatAtlListCell(record.propellerRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.propellerTsn)}
+                                  {displayTSN(record.propellerTsn)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.propellerTso)}
