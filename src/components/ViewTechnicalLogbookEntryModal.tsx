@@ -407,7 +407,11 @@ export function ViewTechnicalLogbookEntryModal({
           entryData,
           "engineRunTime"
         ),
-        engineTsn: formatAtlPersistedComponentMetric2dp(entryData, "engineTsn"),
+        engineTsn: formatAtlPersistedComponentMetric2dp(
+          entryData,
+          "engineTsn",
+          "UNK"
+        ),
         engineTso: formatAtlPersistedComponentMetric2dp(entryData, "engineTso"),
         engineTbo: formatAtlPersistedComponentMetric2dp(entryData, "engineTbo"),
         propellerRunTime: formatAtlPersistedComponentMetric2dp(
@@ -416,7 +420,8 @@ export function ViewTechnicalLogbookEntryModal({
         ),
         propellerTsn: formatAtlPersistedComponentMetric2dp(
           entryData,
-          "propellerTsn"
+          "propellerTsn",
+          "UNK"
         ),
         propellerTso: formatAtlPersistedComponentMetric2dp(
           entryData,
