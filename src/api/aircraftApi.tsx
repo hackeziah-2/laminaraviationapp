@@ -128,6 +128,179 @@ export const getAircraftAll = (page = 1, limit = 10, search = "") =>
 
 export const getAircraftList = () => apiClient.get("aircraft/list");
 
+export type AircraftListItem = {
+  id: number;
+  registration: string;
+  displayOrder: number;
+};
+
+export type AircraftReorderItem = {
+  aircraft_id: number;
+  display_order: number;
+};
+
+export type AircraftReorderRequest = {
+  items: AircraftReorderItem[];
+};
+
+export type AircraftReorderResponse = {
+  items: AircraftListItem[];
+};
+
+function normalizeAircraftListItem(raw: unknown): AircraftListItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const camel = toCamel(o) as Record<string, unknown>;
+  const id = Number(camel.id ?? o.id);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const displayOrder = Number(
+    camel.displayOrder ?? o.display_order ?? o.displayOrder ?? 0
+  );
+  return {
+    id,
+    registration: String(camel.registration ?? o.registration ?? ""),
+    displayOrder: Number.isFinite(displayOrder) ? displayOrder : 0,
+  };
+}
+
+/**
+ * Minimal active fleet ordered by display_order (unpaginated).
+ * GET api/v1/aircraft/list
+ */
+export async function getAircraftListOrdered(): Promise<AircraftListItem[]> {
+  const response = await getAircraftList();
+  const data = response.data?.data ?? response.data;
+  const rawList = Array.isArray(data)
+    ? data
+    : data?.items ?? data?.results ?? data?.data ?? [];
+  const list = Array.isArray(rawList) ? rawList : [];
+  return list
+    .map(normalizeAircraftListItem)
+    .filter((item): item is AircraftListItem => item != null)
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id);
+}
+
+/**
+ * Persist shared aircraft display_order for Fleet Profile and Daily Update.
+ * PUT api/v1/aircraft/reorder
+ * Body: { items: [{ aircraft_id, display_order }, ...] } — complete active set, 1..N.
+ */
+export async function reorderAircraft(
+  payload: AircraftReorderRequest
+): Promise<AircraftReorderResponse> {
+  const response = await apiClient.put("aircraft/reorder", payload, {
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+  });
+  const data = response.data?.data ?? response.data;
+  const rawItems = Array.isArray(data)
+    ? data
+    : data?.items ?? data?.results ?? [];
+  const items = (Array.isArray(rawItems) ? rawItems : [])
+    .map(normalizeAircraftListItem)
+    .filter((item): item is AircraftListItem => item != null);
+  return { items };
+}
+
+/**
+ * Fetch every active aircraft in display_order for arrangement-mode DnD.
+ * Prefers /aircraft/list; falls back to aggregating /aircraft/paged.
+ */
+export async function getAllAircraftOrdered(): Promise<AircraftListItem[]> {
+  try {
+    const list = await getAircraftListOrdered();
+    if (list.length > 0) return list;
+  } catch {
+    // fall through to paged aggregation
+  }
+
+  const pageLimit = 100;
+  const first = await getAircrafts(1, pageLimit, "", "all", "");
+  const data = first.data ?? {};
+  const rawItems = data.items ?? data.results ?? data.data ?? [];
+  let items = (Array.isArray(rawItems) ? rawItems : [])
+    .map(normalizeAircraftListItem)
+    .filter((item): item is AircraftListItem => item != null);
+  const total = Number(data.total ?? data.count ?? items.length);
+  const pages = Math.max(
+    1,
+    Number(data.pages ?? Math.ceil(total / pageLimit)) || 1
+  );
+  for (let page = 2; page <= pages; page += 1) {
+    const res = await getAircrafts(page, pageLimit, "", "all", "");
+    const pageData = res.data ?? {};
+    const pageRaw = pageData.items ?? pageData.results ?? pageData.data ?? [];
+    const pageItems = (Array.isArray(pageRaw) ? pageRaw : [])
+      .map(normalizeAircraftListItem)
+      .filter((item): item is AircraftListItem => item != null);
+    items = items.concat(pageItems);
+  }
+  return items.sort(
+    (a, b) => a.displayOrder - b.displayOrder || a.id - b.id
+  );
+}
+
+export type AircraftArrangementRow = {
+  id: number;
+  registration: string;
+  model?: string;
+  msn?: string;
+  base?: string;
+  status?: string;
+  displayOrder?: number;
+};
+
+function normalizeArrangementRow(raw: unknown): AircraftArrangementRow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const camel = toCamel(o) as Record<string, unknown>;
+  const id = Number(camel.id ?? o.id);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const displayOrder = Number(
+    camel.displayOrder ?? o.display_order ?? o.displayOrder ?? 0
+  );
+  return {
+    id,
+    registration: String(camel.registration ?? o.registration ?? ""),
+    model: String(camel.model ?? o.model ?? ""),
+    msn: String(camel.msn ?? o.msn ?? ""),
+    base: String(camel.base ?? o.base ?? ""),
+    status: String(camel.status ?? o.status ?? ""),
+    displayOrder: Number.isFinite(displayOrder) ? displayOrder : undefined,
+  };
+}
+
+/**
+ * Full aircraft rows in display_order for Arrange Aircraft mode (no pagination).
+ */
+export async function getAllAircraftForArrangement(): Promise<
+  AircraftArrangementRow[]
+> {
+  const pageLimit = 100;
+  const first = await getAircrafts(1, pageLimit, "", "all", "");
+  const data = first.data ?? {};
+  const rawItems = data.items ?? data.results ?? data.data ?? [];
+  let items = (Array.isArray(rawItems) ? rawItems : [])
+    .map(normalizeArrangementRow)
+    .filter((item): item is AircraftArrangementRow => item != null);
+  const total = Number(data.total ?? data.count ?? items.length);
+  const pages = Math.max(
+    1,
+    Number(data.pages ?? Math.ceil(total / pageLimit)) || 1
+  );
+  for (let page = 2; page <= pages; page += 1) {
+    const res = await getAircrafts(page, pageLimit, "", "all", "");
+    const pageData = res.data ?? {};
+    const pageRaw = pageData.items ?? pageData.results ?? pageData.data ?? [];
+    const pageItems = (Array.isArray(pageRaw) ? pageRaw : [])
+      .map(normalizeArrangementRow)
+      .filter((item): item is AircraftArrangementRow => item != null);
+    items = items.concat(pageItems);
+  }
+  return items.sort(
+    (a, b) =>
+      (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || a.id - b.id
+  );
+}
 // export const updateAircraft = async (id: number, data: any) => {
 //   try {
 //     const response = await apiClient.put<Aircraft>(`/aircraft/${id}`, data);

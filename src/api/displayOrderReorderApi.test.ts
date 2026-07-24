@@ -13,7 +13,15 @@ import {
   reorderCpcpMonitoring,
   getAllCpcpMonitoring,
 } from "./cpcpMonitoringApi";
-import { buildDisplayOrderReorderPayload } from "../utils/displayOrderReorder";
+import {
+  reorderAircraft,
+  getAllAircraftOrdered,
+  getAllAircraftForArrangement,
+} from "./aircraftApi";
+import {
+  buildDisplayOrderReorderPayload,
+  toAircraftReorderPayload,
+} from "../utils/displayOrderReorder";
 
 describe("reorderAircraftTccMonitoring", () => {
   beforeEach(() => {
@@ -87,37 +95,79 @@ describe("reorderCpcpMonitoring", () => {
   });
 });
 
+describe("reorderAircraft (shared Profile + Daily Update)", () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.put).mockReset();
+    vi.mocked(apiClient.put).mockResolvedValue({
+      data: {
+        items: [
+          { id: 10, registration: "RP-12", display_order: 1 },
+          { id: 4, registration: "RP-2323", display_order: 2 },
+        ],
+      },
+    });
+  });
+
+  it("PUTs aircraft_id and display_order to aircraft/reorder", async () => {
+    const payload = toAircraftReorderPayload(
+      buildDisplayOrderReorderPayload([10, 4])
+    );
+    const res = await reorderAircraft(payload);
+
+    expect(apiClient.put).toHaveBeenCalledWith(
+      "aircraft/reorder",
+      {
+        items: [
+          { aircraft_id: 10, display_order: 1 },
+          { aircraft_id: 4, display_order: 2 },
+        ],
+      },
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      })
+    );
+    expect(res.items.map((i) => i.id)).toEqual([10, 4]);
+    expect(res.items.map((i) => i.displayOrder)).toEqual([1, 2]);
+  });
+
+  it("uses aircraft_id even when Daily Update record ids differ", async () => {
+    // Daily Update rows: FDU id 99/88 map to aircraft 10/4
+    const dailyUpdateRows = [
+      { id: 99, aircraftId: 10 },
+      { id: 88, aircraftId: 4 },
+    ];
+    const payload = toAircraftReorderPayload(
+      buildDisplayOrderReorderPayload(
+        dailyUpdateRows.map((row) => row.aircraftId)
+      )
+    );
+    await reorderAircraft(payload);
+    expect(apiClient.put).toHaveBeenCalledWith(
+      "aircraft/reorder",
+      {
+        items: [
+          { aircraft_id: 10, display_order: 1 },
+          { aircraft_id: 4, display_order: 2 },
+        ],
+      },
+      expect.any(Object)
+    );
+    const body = vi.mocked(apiClient.put).mock.calls[0][1] as {
+      items: { aircraft_id: number }[];
+    };
+    expect(body.items.map((i) => i.aircraft_id)).not.toContain(99);
+    expect(body.items.map((i) => i.aircraft_id)).not.toContain(88);
+  });
+});
+
 describe("getAll* arrangement fetch", () => {
   beforeEach(() => {
     vi.mocked(apiClient.get).mockReset();
   });
 
   it("aggregates TCC pages for full ordered collection", async () => {
-    vi.mocked(apiClient.get)
-      .mockResolvedValueOnce({
-        data: {
-          items: [
-            { id: 1, display_order: 1, description: "A" },
-            { id: 2, display_order: 2, description: "B" },
-          ],
-          total: 3,
-          page: 1,
-          pages: 2,
-          limit: 2,
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          items: [{ id: 3, display_order: 3, description: "C" }],
-          total: 3,
-          page: 2,
-          pages: 2,
-          limit: 2,
-        },
-      });
-
-    // Force page size path: getAll uses limit 100; simulate multi-page via pages field
-    vi.mocked(apiClient.get).mockReset();
     vi.mocked(apiClient.get).mockResolvedValue({
       data: {
         items: [
@@ -151,5 +201,45 @@ describe("getAll* arrangement fetch", () => {
 
     const res = await getAllCpcpMonitoring("", 7);
     expect(res.items.map((i) => i.displayOrder)).toEqual([1, 2]);
+  });
+
+  it("loads aircraft list ordered by display_order", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: [
+        { id: 4, registration: "RP-B", display_order: 2 },
+        { id: 10, registration: "RP-A", display_order: 1 },
+      ],
+    });
+
+    const res = await getAllAircraftOrdered();
+    expect(apiClient.get).toHaveBeenCalledWith("aircraft/list");
+    expect(res.map((i) => i.id)).toEqual([10, 4]);
+    expect(res.map((i) => i.displayOrder)).toEqual([1, 2]);
+  });
+
+  it("loads full aircraft rows for Arrange Aircraft mode", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 10,
+            registration: "RP-12",
+            model: "C172",
+            msn: "1",
+            base: "MNL",
+            status: "Active",
+            display_order: 1,
+          },
+        ],
+        total: 1,
+        page: 1,
+        pages: 1,
+      },
+    });
+
+    const res = await getAllAircraftForArrangement();
+    expect(res[0]?.registration).toBe("RP-12");
+    expect(res[0]?.model).toBe("C172");
+    expect(res[0]?.displayOrder).toBe(1);
   });
 });

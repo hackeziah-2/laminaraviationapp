@@ -321,9 +321,6 @@ export function Maintenance() {
   const activeCategoryFromUrl =
     (maintenanceSegment && PATH_TO_CATEGORY[maintenanceSegment]) || "LDND";
 
-  const formatLdndLastUpdated = (value: string | null | undefined): string =>
-    formatDisplayDate(value, { fallback: "—" });
-
   const handleBack = () => {
     navigate("/profile");
   };
@@ -1601,7 +1598,7 @@ export function Maintenance() {
         {/* LDND Section */}
         {activeCategory === "LDND" && (
           <>
-            {/* Info Cards – from api/v1/aircraft/{aircraft_id}/ldnd-monitoring/latest */}
+            {/* Info Cards – from api/v1/aircraft/{id}/ldnd-detail */}
             <div className="p-5 border-b border-gray-200">
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-white border border-gray-200 rounded p-4">
@@ -1624,15 +1621,11 @@ export function Maintenance() {
                   <div className="text-gray-900 text-lg">
                     {ldndLatestLoading ? (
                       <Loader className="w-5 h-5 animate-spin text-gray-400 inline" />
+                    ) : ldndLatest?.nextInspection != null &&
+                      ldndLatest.nextInspection !== "" ? (
+                      String(ldndLatest.nextInspection)
                     ) : (
-                      [
-                        ldndLatest?.nextInspectionDue != null
-                          ? String(ldndLatest.nextInspectionDue)
-                          : null,
-                        ldndLatest?.nextInspectionUnit,
-                      ]
-                        .filter(Boolean)
-                        .join(" ") || "—"
+                      "—"
                     )}
                   </div>
                 </div>
@@ -1641,8 +1634,10 @@ export function Maintenance() {
                   <div className="text-gray-900 text-lg">
                     {ldndLatestLoading ? (
                       <Loader className="w-5 h-5 animate-spin text-gray-400 inline" />
+                    ) : ldndLatest?.lastUpdated ? (
+                      ldndLatest.lastUpdated
                     ) : (
-                      formatLdndLastUpdated(ldndLatest?.lastUpdated)
+                      "—"
                     )}
                   </div>
                 </div>

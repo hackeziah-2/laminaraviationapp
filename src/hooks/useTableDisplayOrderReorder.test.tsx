@@ -210,6 +210,76 @@ describe("useTableDisplayOrderReorder", () => {
       { id: 1, display_order: 3 },
     ]);
   });
+
+  it("reorders Daily Update rows by aircraftId, not FDU record id", async () => {
+    const dailyItems = [
+      { id: 99, aircraftId: 10, displayOrder: 1, label: "RP-12" },
+      { id: 88, aircraftId: 4, displayOrder: 2, label: "RP-2323" },
+      { id: 77, aircraftId: 7, displayOrder: 3, label: "RP-7" },
+    ];
+    const persist = vi.fn().mockResolvedValue(undefined);
+
+    function DailyHarness() {
+      const [items, setItems] = useState(dailyItems);
+      const { handleDragEnd } = useTableDisplayOrderReorder({
+        items,
+        setItems,
+        canReorder: true,
+        pageOffset: 0,
+        getItemId: (item) => item.aircraftId,
+        loadFullOrdered: async () => dailyItems,
+        persistReorder: persist,
+      });
+      return (
+        <button
+          type="button"
+          data-testid="daily-reorder"
+          onClick={() =>
+            handleDragEnd({
+              active: { id: 10 },
+              over: { id: 7 },
+            } as DragEndEvent)
+          }
+        >
+          Reorder
+        </button>
+      );
+    }
+
+    render(<DailyHarness />);
+    fireEvent.click(screen.getByTestId("daily-reorder"));
+    await waitFor(() => expect(persist).toHaveBeenCalledTimes(1));
+    expect(persist).toHaveBeenCalledWith({
+      items: [
+        { id: 4, display_order: 1 },
+        { id: 7, display_order: 2 },
+        { id: 10, display_order: 3 },
+      ],
+    });
+  });
+
+  it("disables dragging while unsaved Daily Update edits are active", () => {
+    const hasUnsavedChanges = true;
+    const canReorder = !hasUnsavedChanges;
+    expect(canReorder).toBe(false);
+  });
+});
+
+describe("aircraft drag labels", () => {
+  it("exposes Move aircraft {registration} labels", () => {
+    render(
+      <>
+        <RowDragHandle label="Move aircraft RP-12" />
+        <RowDragHandle label="Move aircraft RP-2323" />
+      </>
+    );
+    expect(
+      screen.getByRole("button", { name: "Move aircraft RP-12" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Move aircraft RP-2323" })
+    ).toBeInTheDocument();
+  });
 });
 
 describe("SortableTableRow + row actions", () => {

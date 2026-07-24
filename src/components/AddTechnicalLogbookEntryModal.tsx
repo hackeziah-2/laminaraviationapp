@@ -96,19 +96,13 @@ function formatAtlPrevTimeFromLatest(value: number | null | undefined): string {
   return Number(value).toFixed(2);
 }
 
-function formatAtlComputedDisplay1dp(
-  value: unknown,
-  fallback = ""
-): string {
+function formatAtlComputedDisplay1dp(value: unknown, fallback = ""): string {
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(1) : fallback;
 }
 
-function formatAtlComputedDisplay2dp(
-  value: unknown,
-  fallback = ""
-): string {
+function formatAtlComputedDisplay2dp(value: unknown, fallback = ""): string {
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(2) : fallback;
@@ -150,9 +144,9 @@ function getPrevTimesFromLatestAtl(latestEntry: AircraftTechnicalLog | null): {
  * AFTT shown to 2 decimal places; other runtimes/TSN/TSO to 1dp; TBO to 1dp.
  */
 function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
-  const formatPersisted = (metric: Parameters<
-    typeof resolveAtlPersistedComponentMetric
-  >[1]) =>
+  const formatPersisted = (
+    metric: Parameters<typeof resolveAtlPersistedComponentMetric>[1]
+  ) =>
     formatAtlComputedDisplay1dp(
       resolveAtlPersistedComponentMetric(entry, metric),
       ""
@@ -191,9 +185,15 @@ function parseFiniteFloatField(
   return Number.isFinite(n) ? n : null;
 }
 
-/** engine_tsn / propeller_tsn: optional on form; empty → 0 on submit (≥0 when present). */
-function resolveTsnForApi(value: string | undefined | null): number {
-  return parseFiniteFloatField(value) ?? 0;
+/**
+ * engine_tsn / propeller_tsn: optional on form.
+ * Empty / "UNK" (display-only) → null — never persist "UNK".
+ */
+function resolveTsnForApi(value: string | undefined | null): number | null {
+  if (value == null) return null;
+  const t = String(value).trim();
+  if (t === "" || t.toUpperCase() === "UNK") return null;
+  return parseFiniteFloatField(t);
 }
 
 /** Edit Entry: map displayed form fields directly to persisted snake_case payload keys. */
@@ -215,11 +215,12 @@ function applyAtlEditComponentMetricsPayload(
   payload.airframe_aftt = parseFiniteFloatField(form.airframeAftt) ?? 0;
   payload.airframe_run_time = parseFiniteFloatField(form.airframeRunTime) ?? 0;
   payload.engine_run_time = parseFiniteFloatField(form.engineRunTime) ?? 0;
-  payload.engine_tsn = parseFiniteFloatField(form.engineTsn) ?? 0;
+  payload.engine_tsn = resolveTsnForApi(form.engineTsn);
   payload.engine_tso = parseFiniteFloatField(form.engineTso) ?? 0;
   payload.engine_tbo = parseFiniteFloatField(form.engineTbo) ?? 0;
-  payload.propeller_run_time = parseFiniteFloatField(form.propellerRunTime) ?? 0;
-  payload.propeller_tsn = parseFiniteFloatField(form.propellerTsn) ?? 0;
+  payload.propeller_run_time =
+    parseFiniteFloatField(form.propellerRunTime) ?? 0;
+  payload.propeller_tsn = resolveTsnForApi(form.propellerTsn);
   payload.propeller_tso = parseFiniteFloatField(form.propellerTso) ?? 0;
   payload.propeller_tbo = parseFiniteFloatField(form.propellerTbo) ?? 0;
 }
@@ -403,21 +404,13 @@ function applyAtlTboOnTsoUserChange(
     const lifeLimit =
       aircraftLifeLimits?.engine || prev.lifeTimeLimitEngine || "";
     return {
-      engineTbo: recomputeAtlTboOnTsoChange(
-        lifeLimit,
-        tso,
-        prev.engineTbo
-      ),
+      engineTbo: recomputeAtlTboOnTsoChange(lifeLimit, tso, prev.engineTbo),
     };
   }
   const lifeLimit =
     aircraftLifeLimits?.propeller || prev.lifeTimeLimitPropeller || "";
   return {
-    propellerTbo: recomputeAtlTboOnTsoChange(
-      lifeLimit,
-      tso,
-      prev.propellerTbo
-    ),
+    propellerTbo: recomputeAtlTboOnTsoChange(lifeLimit, tso, prev.propellerTbo),
   };
 }
 
@@ -434,7 +427,9 @@ function resolveAtlPersistedOrComputedTbo(
   return formatAtlTboFromLifeLimitAndTso(lifeLimit, tso);
 }
 
-type AtlComponentFormSlice = Parameters<typeof computeAtlComponentMetricsPatch>[0];
+type AtlComponentFormSlice = Parameters<
+  typeof computeAtlComponentMetricsPatch
+>[0];
 
 function syncAtlComponentFlightTimesFromTachTotal(
   prev: {
@@ -729,7 +724,7 @@ export function AddTechnicalLogbookEntryModal({
     workStatus: "FOR_REVIEW",
     acReg: "",
     atlBatchFk: "",
-    natureOfFlight: "",
+    natureOfFlight: "TR",
     // Off-blocks/Origin
     offBlocksDate: "",
     offBlocksTime: "",
@@ -1276,8 +1271,7 @@ export function AddTechnicalLogbookEntryModal({
         dateTimeReportedTime: reported.time,
         dateTimeReleasedDate: released.date,
         dateTimeReleasedTime: released.time
-          ? zuluTimeToTimeInputValue(released.time) ||
-            released.time.slice(0, 5)
+          ? zuluTimeToTimeInputValue(released.time) || released.time.slice(0, 5)
           : "",
         airframePrevTime: (editEntry as any).airframePrevTime?.toString() || "",
         airframeFlightTime:
@@ -1422,7 +1416,7 @@ export function AddTechnicalLogbookEntryModal({
           defaultAtlBatchFk > 0
             ? String(defaultAtlBatchFk)
             : "",
-        natureOfFlight: "",
+        natureOfFlight: "TR",
         offBlocksDate: "",
         offBlocksTime: "",
         offBlocksStation: "",
@@ -2524,7 +2518,8 @@ export function AddTechnicalLogbookEntryModal({
 
     const optionalTsn = (v: string | undefined, key: string) => {
       const t = (v ?? "").trim();
-      if (t === "") return;
+      // Empty / display-only UNK — skip numeric validation
+      if (t === "" || t.toUpperCase() === "UNK") return;
       const n = parseFloat(t);
       if (!Number.isFinite(n)) {
         errors[key] = "Must be a valid number";
@@ -2761,12 +2756,11 @@ export function AddTechnicalLogbookEntryModal({
         const apiDataCamel: any = {
           aircraftFk: aircraftFkValue!,
           sequenceNo: formData.seqNo.trim(),
-          // Blank/empty -> VOID (API requires valid enum); "VOID" -> VOID
-          // "-" option (value "") submits "" in JSON; only explicit VOID sends "VOID"
+          // Blank/empty -> TR on create; "VOID" stays VOID
           natureOfFlight:
             formData.natureOfFlight === "VOID"
               ? "VOID"
-              : formData.natureOfFlight?.trim() ?? "",
+              : formData.natureOfFlight?.trim() || "TR",
           nextInspectionDue: formData.nextInspectionDue || undefined,
           tachTimeDue: formData.tachTimeDue
             ? parseFloat(formData.tachTimeDue)
@@ -2847,9 +2841,7 @@ export function AddTechnicalLogbookEntryModal({
                 formData.engineRunTime,
                 formData.tachometerTotal
               ),
-          engineTsn: editEntry
-            ? parseFiniteFloatField(formData.engineTsn) ?? 0
-            : resolveTsnForApi(formData.engineTsn),
+          engineTsn: resolveTsnForApi(formData.engineTsn),
           engineTso: editEntry
             ? parseFiniteFloatField(formData.engineTso) ?? 0
             : parseFiniteFloatField(formData.engineTso) ?? undefined,
@@ -2862,9 +2854,7 @@ export function AddTechnicalLogbookEntryModal({
                 formData.propellerRunTime,
                 formData.tachometerTotal
               ),
-          propellerTsn: editEntry
-            ? parseFiniteFloatField(formData.propellerTsn) ?? 0
-            : resolveTsnForApi(formData.propellerTsn),
+          propellerTsn: resolveTsnForApi(formData.propellerTsn),
           propellerTso: editEntry
             ? parseFiniteFloatField(formData.propellerTso) ?? 0
             : parseFiniteFloatField(formData.propellerTso) ?? undefined,
@@ -3050,7 +3040,7 @@ export function AddTechnicalLogbookEntryModal({
           workStatus: "FOR_REVIEW",
           acReg: "",
           atlBatchFk: "",
-          natureOfFlight: "",
+          natureOfFlight: "TR",
           offBlocksDate: "",
           offBlocksTime: "",
           offBlocksStation: "",
@@ -4744,7 +4734,10 @@ export function AddTechnicalLogbookEntryModal({
                             onChange={(e) => {
                               const value = e.target.value;
                               if (isEditEntry) {
-                                handleEditRuntimeChange("airframeRunTime", value);
+                                handleEditRuntimeChange(
+                                  "airframeRunTime",
+                                  value
+                                );
                               } else {
                                 setFormData({
                                   ...formData,
@@ -4795,6 +4788,7 @@ export function AddTechnicalLogbookEntryModal({
                         <td className="border border-gray-300 px-2 py-1.5 bg-white">
                           <input
                             type="text"
+                            inputMode="decimal"
                             value={formData.engineTsn}
                             onChange={(e) => {
                               setFormData({
@@ -4803,8 +4797,8 @@ export function AddTechnicalLogbookEntryModal({
                               });
                             }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="0"
-                            title="0 or greater when entered"
+                            placeholder="UNK"
+                            title="Leave empty for UNK. 0 or greater when entered"
                           />
                           {validationErrors.engineTsn && (
                             <p className="text-red-500 text-xs mt-0.5 text-center">
@@ -4875,6 +4869,7 @@ export function AddTechnicalLogbookEntryModal({
                         <td className="border border-gray-300 px-2 py-1.5 bg-white">
                           <input
                             type="text"
+                            inputMode="decimal"
                             value={formData.propellerTsn}
                             onChange={(e) => {
                               setFormData({
@@ -4883,8 +4878,8 @@ export function AddTechnicalLogbookEntryModal({
                               });
                             }}
                             className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="0"
-                            title="0 or greater when entered. Auto: Prev TSN + Prop Run"
+                            placeholder="UNK"
+                            title="Leave empty for UNK. 0 or greater when entered. Auto: Prev TSN + Prop Run"
                           />
                           {validationErrors.propellerTsn && (
                             <p className="text-red-500 text-xs mt-0.5 text-center">

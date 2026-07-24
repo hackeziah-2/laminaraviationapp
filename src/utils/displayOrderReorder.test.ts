@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   applyPageLocalReorder,
+  buildAircraftDisplayOrderReorderPayload,
   buildDisplayOrderReorderPayload,
   isManualArrangementMode,
   moveItemAtIndex,
+  toAircraftReorderPayload,
   withRecalculatedDisplayOrder,
 } from "./displayOrderReorder";
 
@@ -32,6 +34,23 @@ describe("isManualArrangementMode", () => {
       })
     ).toBe(false);
   });
+
+  it("disables aircraft rearrange during search or status filter", () => {
+    expect(
+      isManualArrangementMode({
+        search: "RP-12",
+        categoryFilter: "",
+        columnSortActive: false,
+      })
+    ).toBe(false);
+    expect(
+      isManualArrangementMode({
+        search: "",
+        categoryFilter: "active",
+        columnSortActive: false,
+      })
+    ).toBe(false);
+  });
 });
 
 describe("display order payload helpers", () => {
@@ -41,6 +60,32 @@ describe("display order payload helpers", () => {
         { id: 10, display_order: 1 },
         { id: 20, display_order: 2 },
         { id: 30, display_order: 3 },
+      ],
+    });
+  });
+
+  it("builds sequential aircraft_id + display_order payload", () => {
+    expect(buildAircraftDisplayOrderReorderPayload([10, 4, 7])).toEqual({
+      items: [
+        { aircraft_id: 10, display_order: 1 },
+        { aircraft_id: 4, display_order: 2 },
+        { aircraft_id: 7, display_order: 3 },
+      ],
+    });
+  });
+
+  it("remaps generic id payload to aircraft_id for shared fleet endpoint", () => {
+    expect(
+      toAircraftReorderPayload({
+        items: [
+          { id: 10, display_order: 1 },
+          { id: 4, display_order: 2 },
+        ],
+      })
+    ).toEqual({
+      items: [
+        { aircraft_id: 10, display_order: 1 },
+        { aircraft_id: 4, display_order: 2 },
       ],
     });
   });
@@ -82,6 +127,17 @@ describe("display order payload helpers", () => {
       { id: 4, display_order: 3 },
       { id: 5, display_order: 4 },
       { id: 3, display_order: 5 },
+    ]);
+    expect(
+      toAircraftReorderPayload(
+        buildDisplayOrderReorderPayload(withRecalculatedDisplayOrder(next))
+      ).items
+    ).toEqual([
+      { aircraft_id: 1, display_order: 1 },
+      { aircraft_id: 2, display_order: 2 },
+      { aircraft_id: 4, display_order: 3 },
+      { aircraft_id: 5, display_order: 4 },
+      { aircraft_id: 3, display_order: 5 },
     ]);
   });
 });

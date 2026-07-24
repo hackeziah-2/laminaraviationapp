@@ -42,23 +42,39 @@ export interface PaginatedLDNDResponse {
   pages: number;
 }
 
-/** Response from GET .../ldnd-monitoring/latest */
+/** Response from GET .../ldnd-detail */
 export interface LDNDLatest {
   currentTach: number | string | null;
-  nextInspectionDue: number | null;
-  nextInspectionUnit: string | null;
-  /** From latest LDND monitoring record; used to pre-fill Last Done Tach Due on create */
+  nextInspection: number | string | null;
+  /** From detail payload when present; used to pre-fill Last Done Tach Due on create */
   nextDueTachHours: number | null;
+  /** Prefer last_updated.display_value when API returns an object */
   lastUpdated: string | null;
 }
 
 const LDND_PATH = (aircraftId: number) =>
   `aircraft/${aircraftId}/ldnd-monitoring/`;
 
+const LDND_DETAIL_PATH = (aircraftId: number) =>
+  `aircraft/${aircraftId}/ldnd-detail`;
+
 function toNum(v: any): number | null {
   if (v == null || v === "") return null;
   const n = Number(v);
   return Number.isNaN(n) ? null : n;
+}
+
+/** Prefer display_value when the API wraps a field as an object. */
+function toDisplayValue(v: any): string | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "object") {
+    const dv = v.display_value ?? v.displayValue;
+    if (dv != null && dv !== "") return String(dv);
+    const raw = v.value ?? v.raw;
+    if (raw != null && raw !== "") return String(raw);
+    return null;
+  }
+  return String(v);
 }
 
 function normalizeItem(raw: any): LDNDMonitoring {
@@ -79,25 +95,31 @@ function normalizeItem(raw: any): LDNDMonitoring {
 }
 
 /**
- * Get latest LDND summary for an aircraft.
- * GET api/v1/aircraft/{aircraft_id}/ldnd-monitoring/latest
+ * Get LDND detail summary for an aircraft.
+ * GET api/v1/aircraft/{id}/ldnd-detail
  */
 export const getAircraftLdndMonitoringLatest = async (
   aircraftId: number
 ): Promise<LDNDLatest | null> => {
   try {
-    const res = await apiClient.get(`${LDND_PATH(aircraftId)}latest/`, {
+    const res = await apiClient.get(LDND_DETAIL_PATH(aircraftId), {
       headers: { Accept: "application/json" },
     });
     const raw = res?.data?.data ?? res?.data ?? {};
     const r = raw ?? {};
+    const currentTachRaw = r.current_tach ?? r.currentTach ?? null;
+    const nextInspectionRaw = r.next_inspection ?? r.nextInspection ?? null;
     return {
-      currentTach: r.current_tach ?? r.currentTach ?? null,
-      nextInspectionDue: toNum(r.next_inspection_due ?? r.nextInspectionDue),
-      nextInspectionUnit:
-        r.next_inspection_unit ?? r.nextInspectionUnit ?? null,
+      currentTach:
+        currentTachRaw != null && typeof currentTachRaw === "object"
+          ? toDisplayValue(currentTachRaw)
+          : currentTachRaw,
+      nextInspection:
+        nextInspectionRaw != null && typeof nextInspectionRaw === "object"
+          ? toDisplayValue(nextInspectionRaw)
+          : nextInspectionRaw,
       nextDueTachHours: toNum(r.next_due_tach_hours ?? r.nextDueTachHours),
-      lastUpdated: r.last_updated ?? r.lastUpdated ?? null,
+      lastUpdated: toDisplayValue(r.last_updated ?? r.lastUpdated),
     };
   } catch (err: any) {
     if (err?.response?.status === 404) return null;

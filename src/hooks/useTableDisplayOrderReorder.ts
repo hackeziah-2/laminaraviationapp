@@ -17,7 +17,7 @@ import {
 import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 
 type UseTableDisplayOrderReorderOptions<
-  T extends { id: number; displayOrder?: number }
+  T extends { id?: number; displayOrder?: number }
 > = {
   /** Visible page rows (optimistic UI). */
   items: T[];
@@ -25,6 +25,11 @@ type UseTableDisplayOrderReorderOptions<
   canReorder: boolean;
   /** Global index offset for the visible page: (page - 1) * pageSize */
   pageOffset?: number;
+  /**
+   * Resolve the sortable / persist identity for a row.
+   * Defaults to `item.id`. Fleet Daily Update should pass aircraft_id.
+   */
+  getItemId?: (item: T) => number;
   /**
    * Load the complete ordered collection for the aircraft.
    * Used so reorder payloads stay globally unique across pages.
@@ -40,12 +45,13 @@ type UseTableDisplayOrderReorderOptions<
  * Optimistic page-local UI update + full-collection persist for display_order.
  */
 export function useTableDisplayOrderReorder<
-  T extends { id: number; displayOrder?: number }
+  T extends { id?: number; displayOrder?: number }
 >({
   items,
   setItems,
   canReorder,
   pageOffset = 0,
+  getItemId = (item: T) => Number((item as { id: number }).id),
   loadFullOrdered,
   persistReorder,
   onSuccess,
@@ -69,8 +75,12 @@ export function useTableDisplayOrderReorder<
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      const oldIndex = items.findIndex((item) => item.id === active.id);
-      const newIndex = items.findIndex((item) => item.id === over.id);
+      const oldIndex = items.findIndex(
+        (item) => getItemId(item) === Number(active.id)
+      );
+      const newIndex = items.findIndex(
+        (item) => getItemId(item) === Number(over.id)
+      );
       if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) {
         return;
       }
@@ -90,7 +100,12 @@ export function useTableDisplayOrderReorder<
       try {
         const full = await loadFullOrdered();
         const nextFull = withRecalculatedDisplayOrder(
-          applyPageLocalReorder(full, oldIndex, newIndex, pageOffset)
+          applyPageLocalReorder(full, oldIndex, newIndex, pageOffset).map(
+            (item) => ({
+              ...item,
+              id: getItemId(item),
+            })
+          )
         );
         const payload = buildDisplayOrderReorderPayload(nextFull);
         await persistReorder(payload);
@@ -108,6 +123,7 @@ export function useTableDisplayOrderReorder<
       canReorder,
       items,
       pageOffset,
+      getItemId,
       loadFullOrdered,
       persistReorder,
       setItems,
