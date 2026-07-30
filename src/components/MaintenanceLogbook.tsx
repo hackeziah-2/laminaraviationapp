@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getAccountsByDesignation,
@@ -2583,18 +2583,8 @@ export function MaintenanceLogbook() {
 
       {/* File View Modal */}
       {showImageViewModal && imageUrl && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black bg-opacity-50"
-          onClick={() => {
-            setShowImageViewModal(false);
-            setImageUrl("");
-            setViewingFilePath(null);
-          }}
-        >
-          <div
-            className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">
                 View Document
@@ -2692,14 +2682,7 @@ export function MaintenanceLogbook() {
       {(showAddEntryModal || showEditEntryModal) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Overlay with blur */}
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={() => {
-              setShowAddEntryModal(false);
-              setShowEditEntryModal(false);
-              setEditingEntry(null);
-            }}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           {/* Modal */}
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* Modal Header */}

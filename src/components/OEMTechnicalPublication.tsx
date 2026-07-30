@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getOemPublicationsPaged,
@@ -630,10 +630,7 @@ export function OEMTechnicalPublication() {
       {/* View Publication Modal */}
       {viewingPublication && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={() => setViewingPublication(null)}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -713,7 +710,6 @@ export function OEMTechnicalPublication() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
-            onClick={closeAddModal}
             aria-hidden
           />
           <div
@@ -721,7 +717,6 @@ export function OEMTechnicalPublication() {
             aria-modal="true"
             aria-labelledby="add-publication-title"
             className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2
@@ -863,12 +858,6 @@ export function OEMTechnicalPublication() {
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
               <div
                 className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
-                onClick={() => {
-                  if (!creatingItemType) {
-                    setShowAddItemTypeModal(false);
-                    setNewItemTypeName("");
-                  }
-                }}
                 aria-hidden
               />
               <div
@@ -876,7 +865,6 @@ export function OEMTechnicalPublication() {
                 aria-modal="true"
                 aria-labelledby="add-item-type-title"
                 className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
-                onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200">
                   <h2
@@ -956,12 +944,6 @@ export function OEMTechnicalPublication() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
-            onClick={() => {
-              if (!creatingItemType) {
-                setShowAddItemTypeModal(false);
-                setNewItemTypeName("");
-              }
-            }}
             aria-hidden
           />
           <div
@@ -969,7 +951,6 @@ export function OEMTechnicalPublication() {
             aria-modal="true"
             aria-labelledby="add-item-type-standalone-title"
             className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200">
               <h2

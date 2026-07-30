@@ -45,7 +45,7 @@ import { searchAtlOptionsForTcc, type AtlItem } from "../api/atlApi";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { Popover, PopoverAnchor, PopoverContent } from "./ui/popover";
 import { cn } from "./ui/utils";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";

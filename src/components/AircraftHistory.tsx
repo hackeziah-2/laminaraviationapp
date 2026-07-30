@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import {
   getAircraftById,
   getAircraftHistory,

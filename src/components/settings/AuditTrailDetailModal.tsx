@@ -1,5 +1,4 @@
 import type { ComponentType } from "react";
-import { useEffect } from "react";
 import {
   Activity,
   ArrowRight,
@@ -121,15 +120,6 @@ export function AuditTrailDetailModal({
 
   const close = () => onOpenChange(false);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onOpenChange(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onOpenChange]);
-
   if (!open) return null;
 
   const oldData = data?.oldData ?? {};
@@ -142,12 +132,10 @@ export function AuditTrailDetailModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={close}
       role="presentation"
     >
       <div
         className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="audit-trail-detail-title"
