@@ -601,6 +601,7 @@ type AtlCalculationField =
   | "offBlocksTime"
   | "onBlocksDate"
   | "onBlocksTime"
+  | "totalFlightTime"
   | "hobbsMeterStart"
   | "hobbsMeterEnd"
   | "tachometerStart"
@@ -837,6 +838,13 @@ function recomputeAllAffectedFields(
   );
 
   // --- Block / Hobbs ---
+  const totalFlightTimeChanged =
+    changed.has("offBlocksDate") ||
+    changed.has("offBlocksTime") ||
+    changed.has("onBlocksDate") ||
+    changed.has("onBlocksTime") ||
+    changed.has("totalFlightTime");
+
   if (
     changed.has("offBlocksDate") ||
     changed.has("offBlocksTime") ||
@@ -868,7 +876,8 @@ function recomputeAllAffectedFields(
     changed.has("tachometerStart") || changed.has("tachometerEnd");
   const tachTotalDirectChanged = changed.has("tachometerTotal");
 
-  if (tachStartEndChanged) {
+  // Recompute component chains when tach changes, and also when Total Flight Time changes.
+  if (tachStartEndChanged || totalFlightTimeChanged) {
     const start = parseFiniteFloatField(next.tachometerStart);
     const end = parseFiniteFloatField(next.tachometerEnd);
     const total =
