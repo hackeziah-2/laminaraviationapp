@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import Swal from "sweetalert2";
+import Swal from "../../utils/swalDefaults";
 import { Edit2, Eye, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   deleteAuthorizationScope,

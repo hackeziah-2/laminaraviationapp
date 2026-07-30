@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   createOemItemType,
@@ -111,12 +111,10 @@ export function AddOemItemTypeModal({
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
-      onClick={() => !submitting && !loadingType && onClose()}
       role="presentation"
     >
       <div
         className="w-full max-w-md rounded-xl bg-white shadow-xl"
-        onClick={(ev) => ev.stopPropagation()}
         role="dialog"
         aria-labelledby={titleId}
       >

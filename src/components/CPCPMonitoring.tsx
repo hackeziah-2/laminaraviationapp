@@ -42,7 +42,7 @@ import {
   type CPCPEntry,
 } from "../api/cpcpMonitoringApi";
 import { computeCpcpRow, getCpcpRemainingAlert } from "../utils/cpcpFormulas";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";

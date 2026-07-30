@@ -17,7 +17,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getCertificatesMonitoring,
@@ -895,10 +895,7 @@ export function CertificateMonitoring() {
       {(showAddModal || showEditModal) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Overlay with blur */}
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={resetForm}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
 
           {/* Modal */}
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -1194,13 +1191,7 @@ export function CertificateMonitoring() {
       {showViewModal && viewingCertificate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Overlay with blur - same as Add Certificate */}
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={() => {
-              setShowViewModal(false);
-              setViewingCertificate(null);
-            }}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           {/* Modal */}
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}

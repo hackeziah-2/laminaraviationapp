@@ -18,7 +18,7 @@ import {
   hasTechnicalLogbookAtlFilters,
   parseTechnicalLogbookAtlFilters,
 } from "../utility/technicalLogbookRoute";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { Spinner } from "../components/ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
@@ -66,7 +66,10 @@ import {
   BulkAtlWorkStatusValidationError,
   type BulkAtlWorkStatusFailedItem,
 } from "../services/aircraftTechnicalLog.service";
-import { formatDisplayDate } from "../utility/utils";
+import {
+  formatDisplayDate,
+  formatAtlTotalFlightHoursForDisplay,
+} from "../utility/utils";
 
 interface LogbookEntry {
   id: number;
@@ -210,11 +213,9 @@ export function AircraftTechnicalLogbook() {
       apiEntry.destinationStation || ""
     }`;
 
-    const fltTimeRaw = apiEntry.totalFlightHours;
-    const fltTime =
-      fltTimeRaw != null && String(fltTimeRaw).trim() !== ""
-        ? `${String(fltTimeRaw).trim()}h`
-        : "—";
+    const fltTime = formatAtlTotalFlightHoursForDisplay(apiEntry, "—");
+    const fltTimeDisplay =
+      fltTime !== "—" ? `${fltTime}h` : "—";
 
     const pilotName = apiEntry.remarks
       ? apiEntry.remarks.split("\n")[0].substring(0, 30)
@@ -232,7 +233,7 @@ export function AircraftTechnicalLogbook() {
       route: route,
       origin: apiEntry?.originStation || "",
       destination: apiEntry?.destinationStation || "",
-      fltTime: fltTime,
+      fltTime: fltTimeDisplay,
       pilot: pilotName,
       workStatus: apiEntry.workStatus,
       atlBatchName: apiEntry.atlBatch?.name?.trim() || "—",
@@ -1463,6 +1464,7 @@ export function AircraftTechnicalLogbook() {
         }}
         entry={selectedEntry}
         fullEntry={selectedFullEntry}
+        permissionModuleCode="logbook"
       />
     </div>
   );

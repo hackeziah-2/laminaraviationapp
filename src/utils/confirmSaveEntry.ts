@@ -1,4 +1,4 @@
-import Swal from "sweetalert2";
+import Swal from "./swalDefaults";
 
 export function extractApiErrorMessage(
   error: unknown,
@@ -64,7 +64,8 @@ export async function confirmSaveEntry(
     confirmButtonColor: "#2563eb",
     cancelButtonColor: "#6b7280",
     showLoaderOnConfirm: true,
-    allowOutsideClick: () => !Swal.isLoading(),
+    allowOutsideClick: false,
+    allowEscapeKey: false,
     preConfirm: async () => {
       try {
         await saveFn();

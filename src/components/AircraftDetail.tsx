@@ -10,7 +10,7 @@ import {
   Upload,
   Eye,
 } from "lucide-react";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -1186,12 +1186,8 @@ export function AircraftDetail() {
             backgroundColor: "rgba(0,0,0,0.5)",
             backdropFilter: "blur(4px)",
           }}
-          onClick={closeFileViewModal}
         >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
               <span className="text-sm font-medium text-gray-900">
                 View file

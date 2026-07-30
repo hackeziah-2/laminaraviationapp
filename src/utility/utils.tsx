@@ -810,6 +810,215 @@ export function computeTotalBlockTimeFromUtc(
 }
 
 /**
+ * Display-only: show total flight time with "+" instead of ":".
+ * Does not mutate stored/API values (e.g. "1:56" → "1+56").
+ */
+export function formatTotalFlightTimeForDisplay(
+  value?: string | number | null
+): string {
+  if (value == null || value === "") return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  // Keep empty placeholders as-is
+  if (raw === "-" || raw === "—" || raw === "N/A") return raw;
+  // Already in display format
+  if (raw.includes("+")) return raw;
+  return raw.replace(":", "+");
+}
+
+/**
+ * ATL list/detail display for total flight hours.
+ * Prefers API H:MM when present; otherwise computes from block times.
+ * Always renders with "+" (never mutates stored/API values).
+ */
+export function formatAtlTotalFlightHoursForDisplay(
+  record: {
+    totalFlightHours?: string | number | null;
+    originDate?: string | null;
+    originTime?: string | null;
+    destinationDate?: string | null;
+    destinationTime?: string | null;
+  },
+  emptyLabel = "-"
+): string {
+  const apiRaw =
+    record.totalFlightHours != null &&
+    String(record.totalFlightHours).trim() !== ""
+      ? String(record.totalFlightHours).trim()
+      : "";
+
+  if (apiRaw.includes(":") || apiRaw.includes("+")) {
+    return formatTotalFlightTimeForDisplay(apiRaw) || emptyLabel;
+  }
+
+  const computed = computeTotalBlockTimeFromUtc(
+    record.originDate || undefined,
+    record.originTime || undefined,
+    record.destinationDate || undefined,
+    record.destinationTime || undefined
+  );
+  if (computed && computed !== "0") {
+    return formatTotalFlightTimeForDisplay(computed) || emptyLabel;
+  }
+
+  if (apiRaw) {
+    return formatTotalFlightTimeForDisplay(apiRaw) || emptyLabel;
+  }
+  return emptyLabel;
+}
+
+/**
+ * Display-only: join fuel LEFT + RIGHT quantities (e.g. 4 and 5 → "4+5").
+ * Does not mutate stored/API left/right values.
+ */
+export function formatAtlFuelLeftRightForDisplay(
+  left?: string | number | null,
+  right?: string | number | null,
+  emptyLabel = "-"
+): string {
+  const l =
+    left == null || String(left).trim() === "" ? "" : String(left).trim();
+  const r =
+    right == null || String(right).trim() === "" ? "" : String(right).trim();
+  if (!l && !r) return emptyLabel;
+  if (!l) return r;
+  if (!r) return l;
+  return `${l}+${r}`;
+}
+
+/**
+ * Display-only account label: `{name} - {license_no}`.
+ * Omits trailing hyphen when license is missing; never shows null/undefined.
+ */
+export function formatAccountNameLicense(
+  fullName?: string | null,
+  licenseNo?: string | null
+): string {
+  const name = String(fullName ?? "").trim();
+  const license = String(licenseNo ?? "").trim();
+  if (!name && !license) return "";
+  if (!name) return license;
+  if (!license) return name;
+  return `${name} - ${license}`;
+}
+
+/** Resolve display label from an account-like object (nested API or Account). */
+export function resolveAccountNameLicenseDisplay(
+  account?: {
+    fullName?: string | null;
+    firstName?: string | null;
+    middleName?: string | null;
+    lastName?: string | null;
+    licenseNo?: string | null;
+    license_no?: string | null;
+  } | null,
+  emptyLabel = "-"
+): string {
+  if (!account) return emptyLabel;
+  const fullName =
+    String(account.fullName ?? "").trim() ||
+    [account.firstName, account.middleName, account.lastName]
+      .map((part) => String(part ?? "").trim())
+      .filter(Boolean)
+      .join(" ");
+  const license = String(
+    account.licenseNo ?? account.license_no ?? ""
+  ).trim();
+  return formatAccountNameLicense(fullName, license) || emptyLabel;
+}
+
+/**
+ * ATL remark / action-taken person label from nested maintenance data,
+ * then accounts map by maintenanceFk. Display only — does not change IDs.
+ */
+export function resolveAtlMaintenancePersonDisplay(
+  record: {
+    maintenanceFk?: number | null;
+    maintenance?: {
+      fullName?: string | null;
+      firstName?: string | null;
+      middleName?: string | null;
+      lastName?: string | null;
+      licenseNo?: string | null;
+      license_no?: string | null;
+    } | null;
+  } | null | undefined,
+  accountsMap?: Map<
+    number,
+    {
+      fullName?: string | null;
+      firstName?: string | null;
+      middleName?: string | null;
+      lastName?: string | null;
+      licenseNo?: string | null;
+    }
+  > | null,
+  emptyLabel = "-"
+): string {
+  if (!record) return emptyLabel;
+  if (record.maintenance) {
+    const fromNested = resolveAccountNameLicenseDisplay(
+      record.maintenance,
+      ""
+    );
+    if (fromNested) return fromNested;
+  }
+  const fk = record.maintenanceFk;
+  if (fk != null && Number.isFinite(Number(fk)) && accountsMap?.has(Number(fk))) {
+    return resolveAccountNameLicenseDisplay(
+      accountsMap.get(Number(fk)),
+      emptyLabel
+    );
+  }
+  return emptyLabel;
+}
+
+/** Which remarks UI section to show for a Nature of Flight value (UI only). */
+export type AtlRemarksSectionVisibility =
+  | "pilotReport"
+  | "maintenanceEntry"
+  | "remarks";
+
+/**
+ * TR / TR W/ PIREM → Pilot Report
+ * PRF / PSF / EGR / ME / ATL REPL → Maintenance Entry
+ * All other (incl. null/empty) → Remarks
+ * Matching is case-insensitive; display/API aliases are normalized.
+ */
+export function resolveAtlRemarksSectionVisibility(
+  natureOfFlight?: string | null
+): AtlRemarksSectionVisibility {
+  const raw = String(natureOfFlight ?? "").trim();
+  if (!raw) return "remarks";
+
+  const normalized = raw
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .replace(/_/g, " ")
+    .trim();
+
+  if (
+    normalized === "TR" ||
+    normalized === "TR W/ PIREM" ||
+    normalized === "TR WITH PIREM"
+  ) {
+    return "pilotReport";
+  }
+
+  if (
+    normalized === "PRF" ||
+    normalized === "PSF" ||
+    normalized === "EGR" ||
+    normalized === "ME" ||
+    normalized === "ATL REPL"
+  ) {
+    return "maintenanceEntry";
+  }
+
+  return "remarks";
+}
+
+/**
  * Decimal flight hours from UTC dates + Zulu times (see {@link computeTotalBlockTimeFromUtc}).
  */
 export function computeTotalFlightHoursDecimalFromUtc(

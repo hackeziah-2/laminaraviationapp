@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import Swal from "sweetalert2";
+import Swal from "../../utils/swalDefaults";
 import { Edit2, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   deleteAtlBatch,

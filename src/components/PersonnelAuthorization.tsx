@@ -11,7 +11,7 @@ import {
   ChevronUp,
   Search,
 } from "lucide-react";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import * as XLSX from "xlsx";
 import {
@@ -1501,7 +1501,6 @@ export function PersonnelAuthorization() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
-            onClick={() => setViewingPersonnel(null)}
             aria-hidden
           />
           <div
@@ -1509,7 +1508,6 @@ export function PersonnelAuthorization() {
             aria-modal="true"
             aria-labelledby="view-personnel-title"
             className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2
@@ -1627,7 +1625,6 @@ export function PersonnelAuthorization() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
-            onClick={closeCreateModal}
             aria-hidden
           />
           <div
@@ -1635,7 +1632,6 @@ export function PersonnelAuthorization() {
             aria-modal="true"
             aria-labelledby="create-personnel-title"
             className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2
@@ -2252,12 +2248,6 @@ export function PersonnelAuthorization() {
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
               <div
                 className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
-                onClick={() => {
-                  if (!addingScope) {
-                    setShowNewScopeModal(false);
-                    setNewScopeValue("");
-                  }
-                }}
                 aria-hidden
               />
               <div
@@ -2265,7 +2255,6 @@ export function PersonnelAuthorization() {
                 aria-modal="true"
                 aria-labelledby="new-scope-title"
                 className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                   <h2

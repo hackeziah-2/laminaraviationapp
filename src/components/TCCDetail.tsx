@@ -44,7 +44,7 @@ import {
   formatDisplayDateFromDate,
 } from "../utility/utils";
 import { DataTablePagination } from "./ui/DataTablePagination";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
