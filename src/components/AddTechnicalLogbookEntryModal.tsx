@@ -60,7 +60,10 @@ import {
 } from "../utility/atlAircraftPrerequisites";
 import type { Aircraft } from "../types/Aircraft";
 import apiClient from "../api/index";
-import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
+import {
+  formatShortDisplayFileName,
+  getAtlStoredUploadFilePath,
+} from "../api/fileUploadApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   formatAtlWorkStatusLabel,
@@ -4036,19 +4039,17 @@ export function AddTechnicalLogbookEntryModal({
   const existingDfpFilePath = getAtlStoredUploadFilePath(editEntry?.dfp);
 
   const whiteAtlUploadLabel = (() => {
-    if (whiteAtlFileName) return whiteAtlFileName;
+    if (whiteAtlFileName) return formatShortDisplayFileName(whiteAtlFileName);
     if (existingWhiteAtlFilePath) {
-      return (
-        existingWhiteAtlFilePath.split("/").pop() || existingWhiteAtlFilePath
-      );
+      return formatShortDisplayFileName(existingWhiteAtlFilePath);
     }
     return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
   })();
 
   const dfpUploadLabel = (() => {
-    if (dfpFileName) return dfpFileName;
+    if (dfpFileName) return formatShortDisplayFileName(dfpFileName);
     if (existingDfpFilePath) {
-      return existingDfpFilePath.split("/").pop() || existingDfpFilePath;
+      return formatShortDisplayFileName(existingDfpFilePath);
     }
     return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
   })();
