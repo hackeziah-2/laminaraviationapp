@@ -54,6 +54,24 @@ export function getAtlStoredUploadFilePath(
   return v;
 }
 
+/**
+ * Display-only filename: last 5 characters of the basename (before extension) + extension.
+ * e.g. 0755873baa08467cbc968b91f22c9c42_ATL.jpg → 2_ATL.jpg
+ */
+export function formatShortDisplayFileName(pathOrName: string): string {
+  const trimmed = pathOrName.trim();
+  if (!trimmed) return "";
+  const basename = trimmed.split("/").pop() || trimmed;
+  const lastDot = basename.lastIndexOf(".");
+  if (lastDot <= 0) {
+    return basename.length > 5 ? basename.slice(-5) : basename;
+  }
+  const stem = basename.slice(0, lastDot);
+  const ext = basename.slice(lastDot);
+  const shortStem = stem.length > 5 ? stem.slice(-5) : stem;
+  return `${shortStem}${ext}`;
+}
+
 /** Value to persist on entity records (prefer server filename). */
 export function storedPathForApi(upload: ModuleFileUploadResult): string {
   const filename = (upload.filename ?? "").trim();

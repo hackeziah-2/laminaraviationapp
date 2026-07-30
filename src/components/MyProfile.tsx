@@ -7,7 +7,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import * as authApi from "../api/authApi";
 import * as accountApi from "../api/accountApi";

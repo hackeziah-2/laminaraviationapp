@@ -59,7 +59,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
@@ -2163,12 +2163,8 @@ export function Maintenance() {
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
           }}
-          onClick={() => setShowAddModal(false)}
         >
-          <div
-            className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-6xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-6xl">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h3 className="text-gray-900">
@@ -2399,12 +2395,8 @@ export function Maintenance() {
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
           }}
-          onClick={() => setShowADModal(false)}
         >
-          <div
-            className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-4xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-4xl">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h3 className="text-gray-900">

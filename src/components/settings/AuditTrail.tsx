@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import Swal from "sweetalert2";
+import Swal from "../../utils/swalDefaults";
 import {
   useAuditLogFilterOptions,
   useAuditLogs,

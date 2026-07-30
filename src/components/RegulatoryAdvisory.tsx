@@ -9,7 +9,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
@@ -751,15 +751,11 @@ export function RegulatoryAdvisory() {
       {showRenewModal && renewAdvisoryRow && renewUpdate && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50"
-          onClick={closeRenewModal}
           role="dialog"
           aria-modal="true"
           aria-labelledby="renew-advisory-title"
         >
-          <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-md p-5 relative"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5 relative">
             <div className="flex items-center justify-between mb-4">
               <h2
                 id="renew-advisory-title"

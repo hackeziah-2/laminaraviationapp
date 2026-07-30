@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getAircraftStatutoryCertificates,
@@ -1064,10 +1064,7 @@ export function AircraftStatutoryCertificates() {
       {/* View Details Modal */}
       {viewingCertificate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={() => setViewingCertificate(null)}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -1138,10 +1135,7 @@ export function AircraftStatutoryCertificates() {
       {/* Certificate history (paged) */}
       {historyTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={closeHistoryModal}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div>
@@ -1241,10 +1235,7 @@ export function AircraftStatutoryCertificates() {
       {/* Add / Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={resetForm}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">

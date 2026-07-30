@@ -22,7 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getOrganizationalApprovalsPaged,
@@ -824,10 +824,7 @@ export function OrganizationalApprovals() {
       {/* View Approval Details Modal */}
       {viewingApproval && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={() => setViewingApproval(null)}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -900,10 +897,7 @@ export function OrganizationalApprovals() {
       {/* Approval history (paged) */}
       {historyTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={closeHistoryModal}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <div>
@@ -1003,10 +997,7 @@ export function OrganizationalApprovals() {
       {/* Add / Edit Approval Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-            onClick={closeModal}
-          />
+          <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">
@@ -1165,12 +1156,6 @@ export function OrganizationalApprovals() {
             <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
               <div
                 className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
-                onClick={() => {
-                  if (!creatingType) {
-                    setShowCreateTypeModal(false);
-                    setNewTypeName("");
-                  }
-                }}
                 aria-hidden
               />
               <div
@@ -1178,7 +1163,6 @@ export function OrganizationalApprovals() {
                 aria-modal="true"
                 aria-labelledby="create-approval-type-title"
                 className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
-                onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                   <h2
@@ -1260,12 +1244,6 @@ export function OrganizationalApprovals() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/20 backdrop-blur-[4px]"
-            onClick={() => {
-              if (!creatingType) {
-                setShowCreateTypeModal(false);
-                setNewTypeName("");
-              }
-            }}
             aria-hidden
           />
           <div
@@ -1273,7 +1251,6 @@ export function OrganizationalApprovals() {
             aria-modal="true"
             aria-labelledby="create-approval-type-standalone-title"
             className="relative bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden border border-gray-200"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2

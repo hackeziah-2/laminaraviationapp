@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   Users,
@@ -1280,7 +1280,6 @@ function DeactivateUserModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         className={`bg-white rounded-xl max-w-md w-full shadow-xl border ${accent.border} overflow-hidden`}

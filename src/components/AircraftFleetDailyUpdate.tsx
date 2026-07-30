@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import {
   DndContext,
   closestCenter,
@@ -991,14 +991,8 @@ export function AircraftFleetDailyUpdate() {
 
       {/* Edit Remark Modal */}
       {showRemarkModal && editingItem && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          onClick={closeRemarkModal}
-        >
-          <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-md relative"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md relative">
             {savingRemark && (
               <div className="absolute inset-0 rounded-lg bg-white/80 flex items-center justify-center z-10">
                 <SpinnerIcon size="xl" />

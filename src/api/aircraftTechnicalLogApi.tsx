@@ -95,6 +95,15 @@ export interface AircraftTechnicalLog {
   actionsTaken?: string;
   pilotFk?: number;
   maintenanceFk?: number;
+  /** Nested maintenance person when API includes account join (display only). */
+  maintenance?: {
+    id?: number;
+    fullName?: string;
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    licenseNo?: string;
+  };
   pilotAcceptedBy?: number;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;

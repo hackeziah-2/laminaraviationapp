@@ -55,7 +55,7 @@ import {
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
-import Swal from "sweetalert2";
+import Swal from "../utils/swalDefaults";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { Checkbox } from "./ui/checkbox";
@@ -69,7 +69,11 @@ import {
   formatAtlUtcTimestampManila,
   formatTimeZulu,
   isAtlExcelImportFailureStatus,
+  formatAtlTotalFlightHoursForDisplay,
+  formatAtlFuelLeftRightForDisplay,
+  resolveAtlMaintenancePersonDisplay,
 } from "../utility/utils";
+import { getAllAccounts, type Account } from "../api/accountApi";
 import {
   getMissingAircraftFieldsForNewAtl,
   getMissingAircraftFieldsForNewAtlWhenNoPrevious,
@@ -719,6 +723,9 @@ export function Operation() {
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
+  const [accountsMap, setAccountsMap] = useState<Map<number, Account>>(
+    new Map()
+  );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
   const [importLoading, setImportLoading] = useState(false);
@@ -795,6 +802,28 @@ export function Operation() {
     };
     fetchAircraft();
   }, [effectiveAircraftId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAllAccounts()
+      .then((accountsList) => {
+        if (cancelled) return;
+        const map = new Map<number, Account>();
+        accountsList.forEach((account) => {
+          map.set(account.id, account);
+        });
+        setAccountsMap(map);
+      })
+      .catch((err) => {
+        console.error("Error fetching accounts for ATL person display:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const formatAtlPersonCell = (record: AircraftTechnicalLog) =>
+    resolveAtlMaintenancePersonDisplay(record, accountsMap, "-");
 
   useEffect(() => {
     if (!showAtlBatchFilter) {
@@ -1094,12 +1123,14 @@ export function Operation() {
       {
         key: "remarkPerson",
         label: "Remark Person",
-        getValue: (record) => formatAtlListCell(record.maintenanceFk),
+        getValue: (record) =>
+          resolveAtlMaintenancePersonDisplay(record, accountsMap, "-"),
       },
       {
         key: "maintenanceNameLicense",
         label: "Name and License",
-        getValue: (record) => formatAtlListCell(record.maintenanceFk),
+        getValue: (record) =>
+          resolveAtlMaintenancePersonDisplay(record, accountsMap, "-"),
       },
       {
         key: "actionsTaken",
@@ -1109,7 +1140,8 @@ export function Operation() {
       {
         key: "actionTakenPerson",
         label: "Action Taken Person",
-        getValue: (record) => formatAtlListCell(record.maintenanceFk),
+        getValue: (record) =>
+          resolveAtlMaintenancePersonDisplay(record, accountsMap, "-"),
       },
       {
         key: "componentRemovedPn",
@@ -1212,7 +1244,7 @@ export function Operation() {
         getValue: (record) => formatAtlListCell(record.pilotAcceptTime),
       },
     ],
-    []
+    [accountsMap]
   );
 
   const activeExportColumnDefinitions = useMemo<
@@ -2357,10 +2389,10 @@ export function Operation() {
                               PROPELLER
                             </th>
                             <th
-                              colSpan={6}
+                              colSpan={3}
                               className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
-                              FUEL
+                              FUEL QTY. (GALS)
                             </th>
                             <th
                               colSpan={3}
@@ -2370,19 +2402,37 @@ export function Operation() {
                             </th>
                             <th
                               rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
+                              style={{
+                                width: "360px",
+                                minWidth: "360px",
+                                whiteSpace: "normal",
+                                overflowWrap: "anywhere",
+                              }}
                             >
                               REMARKS
                             </th>
                             <th
                               rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
+                              style={{
+                                width: "220px",
+                                minWidth: "220px",
+                                whiteSpace: "normal",
+                                overflowWrap: "anywhere",
+                              }}
                             >
                               REMARK PERSON
                             </th>
                             <th
                               rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
+                              style={{
+                                width: "360px",
+                                minWidth: "360px",
+                                whiteSpace: "normal",
+                                overflowWrap: "anywhere",
+                              }}
                             >
                               ACTION/S
                               <br />
@@ -2499,26 +2549,17 @@ export function Operation() {
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               UPLIFT QTY
                               <br />
-                              LEFT
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              RIGHT
+                              (L+R)
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               PRIOR DEP.
                               <br />
-                              LEFT
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              RIGHT
+                              (L+R)
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               AFTER ON-BLKS
                               <br />
-                              LEFT
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              RIGHT
+                              (L+R)
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               UPLIFT
@@ -2566,7 +2607,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={58}
+                                colSpan={55}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -2664,7 +2705,7 @@ export function Operation() {
                                   {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.totalFlightHours)}
+                                  {formatAtlTotalFlightHoursForDisplay(record)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -2717,22 +2758,22 @@ export function Operation() {
                                   {formatAtlListCell(record.propellerTbo)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.fuelQtyLeftUpliftQty)}
+                                  {formatAtlFuelLeftRightForDisplay(
+                                    record.fuelQtyLeftUpliftQty,
+                                    record.fuelQtyRightUpliftQty
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.fuelQtyRightUpliftQty)}
+                                  {formatAtlFuelLeftRightForDisplay(
+                                    record.fuelQtyLeftPriorDeparture,
+                                    record.fuelQtyRightPriorDeparture
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.fuelQtyLeftPriorDeparture)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.fuelQtyRightPriorDeparture)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.fuelQtyLeftAfterOnBlks)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.fuelQtyRightAfterOnBlks)}
+                                  {formatAtlFuelLeftRightForDisplay(
+                                    record.fuelQtyLeftAfterOnBlks,
+                                    record.fuelQtyRightAfterOnBlks
+                                  )}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.oilQtyUpliftQty)}
@@ -2743,17 +2784,41 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.oilQtyAfterOnBlks)}
                                 </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                <td
+                                  className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
+                                  style={{
+                                    width: "360px",
+                                    minWidth: "360px",
+                                    whiteSpace: "normal",
+                                    overflowWrap: "anywhere",
+                                  }}
+                                >
                                   {formatAtlListCell(record.remarks)}
                                 </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.maintenanceFk)}
+                                <td
+                                  className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
+                                  style={{
+                                    width: "220px",
+                                    minWidth: "220px",
+                                    whiteSpace: "normal",
+                                    overflowWrap: "anywhere",
+                                  }}
+                                >
+                                  {formatAtlPersonCell(record)}
                                 </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                <td
+                                  className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
+                                  style={{
+                                    width: "360px",
+                                    minWidth: "360px",
+                                    whiteSpace: "normal",
+                                    overflowWrap: "anywhere",
+                                  }}
+                                >
                                   {formatAtlListCell(record.actionsTaken)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.maintenanceFk)}
+                                  {formatAtlPersonCell(record)}
                                 </td>
                                 <td
                                   colSpan={9}
@@ -3031,10 +3096,10 @@ export function Operation() {
                             TOTAL FLIGHT TIME
                           </th>
                           <th
-                            colSpan={6}
+                            colSpan={3}
                             className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                           >
-                            FUEL
+                            FUEL QTY. (GALS)
                           </th>
                           <th
                             colSpan={3}
@@ -3057,22 +3122,13 @@ export function Operation() {
                         </tr>
                         <tr className="bg-gray-100">
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            UPLIFT QTY LEFT
+                            UPLIFT QTY (L+R)
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            UPLIFT QTY RIGHT
+                            PRIOR DEP. (L+R)
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PRIOR DEP. LEFT
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PRIOR DEP. RIGHT
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AFTER ON-BLKS LEFT
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AFTER ON-BLKS RIGHT
+                            AFTER ON-BLKS (L+R)
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             UPLIFT QTY
@@ -3089,7 +3145,7 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={16}
+                              colSpan={13}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
@@ -3159,25 +3215,25 @@ export function Operation() {
                                 {formatAtlListOnBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.totalFlightHours)}
+                                {formatAtlTotalFlightHoursForDisplay(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.fuelQtyLeftUpliftQty)}
+                                {formatAtlFuelLeftRightForDisplay(
+                                  record.fuelQtyLeftUpliftQty,
+                                  record.fuelQtyRightUpliftQty
+                                )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.fuelQtyRightUpliftQty)}
+                                {formatAtlFuelLeftRightForDisplay(
+                                  record.fuelQtyLeftPriorDeparture,
+                                  record.fuelQtyRightPriorDeparture
+                                )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.fuelQtyLeftPriorDeparture)}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.fuelQtyRightPriorDeparture)}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.fuelQtyLeftAfterOnBlks)}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.fuelQtyRightAfterOnBlks)}
+                                {formatAtlFuelLeftRightForDisplay(
+                                  record.fuelQtyLeftAfterOnBlks,
+                                  record.fuelQtyRightAfterOnBlks
+                                )}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.oilQtyUpliftQty)}
@@ -3192,7 +3248,7 @@ export function Operation() {
                                 {formatAtlListCell(record.remarks)}
                               </td>
                               <td className="px-3 py-2 text-sm">
-                                {formatAtlListCell(record.maintenanceFk)}
+                                {formatAtlPersonCell(record)}
                               </td>
                             </tr>
                           ))
@@ -3489,7 +3545,7 @@ export function Operation() {
                                 {formatAtlListMetric2dp(record.airframeAftt)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.totalFlightHours)}
+                                {formatAtlTotalFlightHoursForDisplay(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.numberOfLandings)}
@@ -3705,7 +3761,7 @@ export function Operation() {
         />
       )}
 
-      {/* View Entry Modal – READ */}
+      {/* View Entry Modal – same UI as Edit, read-only */}
       {selectedEntry && (
         <ViewTechnicalLogbookEntryModal
           isOpen={showViewModal}
@@ -3723,11 +3779,13 @@ export function Operation() {
             route: `${selectedEntry.originStation || ""} → ${
               selectedEntry.destinationStation || ""
             }`,
-            fltTime: formatAtlListCell(selectedEntry.totalFlightHours, "—"),
+            fltTime: formatAtlTotalFlightHoursForDisplay(selectedEntry, "—"),
             pilot: selectedEntry.remarks?.split("\n")[0] || "N/A",
             status: "Serviceable",
           }}
           fullEntry={selectedEntry}
+          aircraftId={effectiveAircraftId}
+          permissionModuleCode={operationAtlPermissionModuleCode}
         />
       )}
 
@@ -3825,13 +3883,11 @@ export function Operation() {
           return createPortal(
             <div
               className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/60 backdrop-blur-sm px-0 py-0 sm:items-center sm:px-4 sm:py-6"
-              onClick={() => !exportLoading && setShowExportModal(false)}
               role="presentation"
               style={{ position: "fixed", inset: 0 }}
             >
               <div
                 className="flex max-h-[100vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
-                onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="export-columns-title"
@@ -4448,12 +4504,8 @@ export function Operation() {
             backgroundColor: "rgba(0,0,0,0.5)",
             backdropFilter: "blur(4px)",
           }}
-          onClick={closeFileViewModal}
         >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
               <span className="text-sm font-medium text-gray-900">
                 View file

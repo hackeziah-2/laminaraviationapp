@@ -77,11 +77,9 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
         background: 'rgba(255, 255, 255, 0.15)',
         backdropFilter: 'blur(4px)'
       }}
-      onClick={onClose}
     >
       <div 
         className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Form */}
         <form onSubmit={handleSubmit}>
