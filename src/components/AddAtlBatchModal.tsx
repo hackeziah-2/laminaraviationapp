@@ -16,6 +16,10 @@ interface AddAtlBatchModalProps {
   editBatchId: number | null;
   onClose: () => void;
   onSaved: (batch: AtlBatch) => void;
+  /** Capture list scroll before confirm/success Swal opens (updates only). */
+  onBeforeConfirmSave?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onSaveCancelled?: () => void;
 }
 
 export function AddAtlBatchModal({
@@ -23,6 +27,8 @@ export function AddAtlBatchModal({
   editBatchId,
   onClose,
   onSaved,
+  onBeforeConfirmSave,
+  onSaveCancelled,
 }: AddAtlBatchModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -99,7 +105,11 @@ export function AddAtlBatchModal({
 
     setSubmitting(true);
     try {
-      await confirmSaveEntry(isEdit, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isEdit) {
+        onBeforeConfirmSave?.();
+      }
+      const saved = await confirmSaveEntry(isEdit, async () => {
         const batch = isEdit
           ? await updateAtlBatch(editBatchId!, {
               name: trimmed,
@@ -112,6 +122,9 @@ export function AddAtlBatchModal({
         onSaved(batch);
         onClose();
       });
+      if (isEdit && !saved) {
+        onSaveCancelled?.();
+      }
     } finally {
       setSubmitting(false);
     }

@@ -106,6 +106,7 @@ export function OEMTechnicalPublication() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingPublication),
     loading,
@@ -227,7 +228,12 @@ export function OEMTechnicalPublication() {
     const isUpdate = Boolean(editingPublication);
     setSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingPublication) {
+        captureViewForRestore(editingPublication.id, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingPublication) {
           await updateOemPublication(editingPublication.id, {
             item: addForm.itemFk,
@@ -235,7 +241,6 @@ export function OEMTechnicalPublication() {
             date_of_expiration: toApiDate(addForm.expiryDate),
             web_link: addForm.assignLink?.trim() || "",
           });
-          captureViewForRestore(editingPublication.id, currentPage);
           closeAddModal();
           await fetchPublications({ preserveView: true });
         } else {
@@ -249,6 +254,10 @@ export function OEMTechnicalPublication() {
           await fetchPublications();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSaving(false);
     }
@@ -582,7 +591,11 @@ export function OEMTechnicalPublication() {
                     isWithhold ? "text-red-900" : "text-gray-900"
                   }`;
                   return (
-                    <tr key={pub.id} className={`${rowBg} transition-colors`}>
+                    <tr
+                      key={pub.id}
+                      data-list-entry-id={pub.id}
+                      className={`${rowBg} transition-colors`}
+                    >
                       <td className={`${cellClass} font-medium`}>
                         {pub.itemName || pub.itemFk}
                       </td>

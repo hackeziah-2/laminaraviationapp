@@ -2694,6 +2694,7 @@ export function Operation() {
                               <tr
                                 key={record.id}
                                 data-atl-entry-id={record.id}
+                                data-list-entry-id={record.id}
                                 className="hover:bg-gray-50/50 transition-colors"
                               >
                                 <td className={STICKY_SEQ_CELL_CLASS}>
@@ -3232,7 +3233,11 @@ export function Operation() {
                           </tr>
                         ) : (
                           paginatedRecords.map((record) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
+                            <tr
+                              key={record.id}
+                              data-list-entry-id={record.id}
+                              className="hover:bg-gray-50"
+                            >
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -3405,7 +3410,11 @@ export function Operation() {
                         ) : (
                           paginatedRecords.map((record) => {
                             return (
-                              <tr key={record.id} className="hover:bg-gray-50">
+                              <tr
+                                key={record.id}
+                                data-list-entry-id={record.id}
+                                className="hover:bg-gray-50"
+                              >
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
@@ -3564,7 +3573,11 @@ export function Operation() {
                           </tr>
                         ) : (
                           paginatedRecords.map((record) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
+                            <tr
+                              key={record.id}
+                              data-list-entry-id={record.id}
+                              className="hover:bg-gray-50"
+                            >
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -3840,11 +3853,16 @@ export function Operation() {
             operationAtlRole,
             selectedEntry.workStatus
           )}
-          onSuccess={() => {
+          onSuccess={async () => {
+            const { rememberWindowScroll } = await import(
+              "../utils/windowScrollMemory"
+            );
+            rememberWindowScroll();
             captureViewForRestore(selectedEntry?.id, currentPage);
             setShowEditModal(false);
             setSelectedEntry(null);
-            void refreshPage({ preserveView: true });
+            await refreshPage({ preserveView: true });
+            // Success toast + final scroll restore are handled by confirmSaveEntry in the modal.
           }}
         />
       )}

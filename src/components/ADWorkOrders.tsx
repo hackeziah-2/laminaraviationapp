@@ -234,6 +234,7 @@ export function ADWorkOrders() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingWorkOrder),
     loading,
@@ -456,7 +457,12 @@ export function ADWorkOrders() {
     const isUpdate = Boolean(editingWorkOrder);
     setSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingWorkOrder) {
+        captureViewForRestore(editingWorkOrder.id, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingWorkOrder) {
           await updateWorkOrderAdMonitoring(
             aircraft_fk,
@@ -472,7 +478,6 @@ export function ADWorkOrders() {
               atlRef: formData.atlRef || undefined,
             }
           );
-          captureViewForRestore(editingWorkOrder.id, currentPage);
           setShowAddModal(false);
           resetForm();
           await fetchWorkOrders({ preserveView: true });
@@ -491,6 +496,10 @@ export function ADWorkOrders() {
           await fetchWorkOrders();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSaving(false);
     }
@@ -954,6 +963,7 @@ export function ADWorkOrders() {
                     workOrders.map((wo) => (
                       <tr
                         key={wo.id}
+                        data-list-entry-id={wo.id}
                         className="hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-5 py-3 text-sm text-gray-900">

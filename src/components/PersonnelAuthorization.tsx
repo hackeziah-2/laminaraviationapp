@@ -322,6 +322,7 @@ export function PersonnelAuthorization() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingPersonnel),
     loading: listLoading,
@@ -583,13 +584,17 @@ export function PersonnelAuthorization() {
 
     setSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingPersonnel) {
+        captureViewForRestore(editingPersonnel.id, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingPersonnel) {
           await updatePersonnelAuthorization(
             editingPersonnel.id,
             compliancePayload
           );
-          captureViewForRestore(editingPersonnel.id, currentPage);
           closeCreateModal();
           await fetchPersonnel({ preserveView: true });
         } else {
@@ -598,6 +603,10 @@ export function PersonnelAuthorization() {
           await fetchPersonnel();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSaving(false);
     }
@@ -1297,6 +1306,7 @@ export function PersonnelAuthorization() {
                     return (
                       <tr
                         key={rowKey}
+                        data-list-entry-id={person.id}
                         className={`group ${rowBg} transition-colors`}
                       >
                         <td
@@ -1413,6 +1423,7 @@ export function PersonnelAuthorization() {
                   return (
                     <tr
                       key={rowKey}
+                      data-list-entry-id={person.id}
                       className={`group ${rowBg} transition-colors`}
                     >
                       <td

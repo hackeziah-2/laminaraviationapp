@@ -179,6 +179,7 @@ export function AircraftStatutoryCertificates() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: showEditModal,
     loading,
@@ -749,12 +750,16 @@ export function AircraftStatutoryCertificates() {
 
     setIsSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingCertificate) {
+        captureViewForRestore(getCertId(editingCertificate), currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingCertificate) {
           const certId = getCertId(editingCertificate);
           if (!certId) throw new Error("Invalid certificate ID");
           await updateAircraftStatutoryCertificate(certId, formDataObj);
-          captureViewForRestore(certId, currentPage);
           resetForm();
           await fetchCertificates({ preserveView: true });
         } else {
@@ -763,6 +768,10 @@ export function AircraftStatutoryCertificates() {
           await fetchCertificates();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setTimeout(() => setIsSaving(false), 360);
     }
@@ -995,6 +1004,7 @@ export function AircraftStatutoryCertificates() {
                   return (
                     <tr
                       key={certId ?? `cert-${index}`}
+                      data-list-entry-id={certId ?? undefined}
                       className={`${rowBg} transition-colors`}
                     >
                       <td className={`${cellClass} font-medium`}>

@@ -262,6 +262,7 @@ export function MaintenanceLogbook() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: showEditEntryModal,
     loading,
@@ -1326,10 +1327,14 @@ export function MaintenanceLogbook() {
 
     setIsSaving(true);
     try {
-      await confirmSaveEntry(Boolean(editingEntry), async () => {
-        const wasEdit = Boolean(editingEntry);
-        const editId = editingEntry?.id ?? null;
+      const wasEdit = Boolean(editingEntry);
+      const editId = editingEntry?.id ?? null;
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (wasEdit) {
+        captureViewForRestore(editId, currentPage);
+      }
 
+      const saved = await confirmSaveEntry(wasEdit, async () => {
         if (editingEntry) {
           switch (activeCategory) {
             case "AIRFRAME":
@@ -1372,10 +1377,6 @@ export function MaintenanceLogbook() {
           if (fileInput) fileInput.value = "";
         }
 
-        if (wasEdit) {
-          captureViewForRestore(editId, currentPage);
-        }
-
         setShowAddEntryModal(false);
         setShowEditEntryModal(false);
         setEditingEntry(null);
@@ -1395,6 +1396,10 @@ export function MaintenanceLogbook() {
           await fetchLogbooks();
         }
       });
+
+      if (wasEdit && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setIsSaving(false);
     }
@@ -1529,6 +1534,7 @@ export function MaintenanceLogbook() {
                     currentEntries.map((entry) => (
                       <tr
                         key={entry.id}
+                        data-list-entry-id={entry.id}
                         className="hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-5 py-4 text-gray-900 text-sm">

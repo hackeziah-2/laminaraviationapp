@@ -135,6 +135,7 @@ function AtlBatchSettingsPanel() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: modalOpen,
     loading,
@@ -333,6 +334,7 @@ function AtlBatchSettingsPanel() {
                 {batches.map((batch) => (
                   <tr
                     key={batch.id}
+                    data-list-entry-id={batch.id}
                     className="transition-colors hover:bg-gray-50"
                   >
                     <td className="px-6 py-4">
@@ -400,11 +402,14 @@ function AtlBatchSettingsPanel() {
         isOpen={modalOpen}
         editBatchId={editBatchId}
         onClose={() => setModalOpen(false)}
+        onBeforeConfirmSave={() => {
+          if (editBatchId != null) {
+            captureViewForRestore(editBatchId, currentPage);
+          }
+        }}
+        onSaveCancelled={clearPendingViewRestore}
         onSaved={() => {
           const editingId = editBatchId;
-          if (editingId != null) {
-            captureViewForRestore(editingId, currentPage);
-          }
           setModalOpen(false);
           void loadBatches(
             editingId != null ? { preserveView: true } : undefined
@@ -436,6 +441,7 @@ function OaApprovalTypeSettingsPanel() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: modalOpen,
     loading,
@@ -618,6 +624,7 @@ function OaApprovalTypeSettingsPanel() {
                 {types.map((type) => (
                   <tr
                     key={type.id}
+                    data-list-entry-id={type.id}
                     className="transition-colors hover:bg-gray-50"
                   >
                     <td className="px-6 py-4">
@@ -682,11 +689,14 @@ function OaApprovalTypeSettingsPanel() {
         isOpen={modalOpen}
         editTypeId={editTypeId}
         onClose={() => setModalOpen(false)}
+        onBeforeConfirmSave={() => {
+          if (editTypeId != null) {
+            captureViewForRestore(editTypeId, currentPage);
+          }
+        }}
+        onSaveCancelled={clearPendingViewRestore}
         onSaved={() => {
           const editingId = editTypeId;
-          if (editingId != null) {
-            captureViewForRestore(editingId, currentPage);
-          }
           setModalOpen(false);
           void loadTypes(
             editingId != null ? { preserveView: true } : undefined
@@ -718,6 +728,7 @@ function OemItemTypesSettingsPanel() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: modalOpen,
     loading,
@@ -897,6 +908,7 @@ function OemItemTypesSettingsPanel() {
                 {types.map((type) => (
                   <tr
                     key={type.id}
+                    data-list-entry-id={type.id}
                     className="transition-colors hover:bg-gray-50"
                   >
                     <td className="px-6 py-4">
@@ -961,11 +973,14 @@ function OemItemTypesSettingsPanel() {
         isOpen={modalOpen}
         editTypeId={editTypeId}
         onClose={() => setModalOpen(false)}
+        onBeforeConfirmSave={() => {
+          if (editTypeId != null) {
+            captureViewForRestore(editTypeId, currentPage);
+          }
+        }}
+        onSaveCancelled={clearPendingViewRestore}
         onSaved={() => {
           const editingId = editTypeId;
-          if (editingId != null) {
-            captureViewForRestore(editingId, currentPage);
-          }
           setModalOpen(false);
           void loadTypes(
             editingId != null ? { preserveView: true } : undefined

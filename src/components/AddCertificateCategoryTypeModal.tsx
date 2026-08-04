@@ -16,6 +16,10 @@ interface AddCertificateCategoryTypeModalProps {
   editTypeId: number | null;
   onClose: () => void;
   onSaved: (type: CertificateTypeOption) => void;
+  /** Capture list scroll before confirm/success Swal opens (updates only). */
+  onBeforeConfirmSave?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onSaveCancelled?: () => void;
 }
 
 export function AddCertificateCategoryTypeModal({
@@ -23,6 +27,8 @@ export function AddCertificateCategoryTypeModal({
   editTypeId,
   onClose,
   onSaved,
+  onBeforeConfirmSave,
+  onSaveCancelled,
 }: AddCertificateCategoryTypeModalProps) {
   const [name, setName] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -94,13 +100,20 @@ export function AddCertificateCategoryTypeModal({
 
     setSubmitting(true);
     try {
-      await confirmSaveEntry(isEdit, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isEdit) {
+        onBeforeConfirmSave?.();
+      }
+      const saved = await confirmSaveEntry(isEdit, async () => {
         const type = isEdit
           ? await updateCertificateCategoryType(editTypeId!, { name: trimmed })
           : await createCertificateCategoryType({ name: trimmed });
         onSaved(type);
         onClose();
       });
+      if (isEdit && !saved) {
+        onSaveCancelled?.();
+      }
     } finally {
       setSubmitting(false);
     }

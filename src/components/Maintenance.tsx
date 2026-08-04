@@ -469,6 +469,7 @@ export function Maintenance() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingLdndEntry) || Boolean(editingADEntry),
     loading: ldndLoading || adLoading,
@@ -667,14 +668,18 @@ export function Maintenance() {
 
     setLdndSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingLdndEntry) {
+        captureViewForRestore(editingLdndEntry.id, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingLdndEntry) {
           await updateAircraftLdndMonitoring(
             aircraftId,
             editingLdndEntry.id,
             payload
           );
-          captureViewForRestore(editingLdndEntry.id, currentPage);
           setShowAddModal(false);
           setEditingLdndEntry(null);
           setNewEntry({
@@ -705,6 +710,10 @@ export function Maintenance() {
           await fetchLdndLatest();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setLdndSaving(false);
     }
@@ -1197,14 +1206,18 @@ export function Maintenance() {
 
     setAdSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingADEntry) {
+        captureViewForRestore(editingADEntry.id, adCurrentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingADEntry) {
           await updateAircraftAdMonitoring(
             aircraftId,
             editingADEntry.id,
             basePayload
           );
-          captureViewForRestore(editingADEntry.id, adCurrentPage);
           setShowADModal(false);
           setEditingADEntry(null);
           setNewADEntry({
@@ -1229,6 +1242,10 @@ export function Maintenance() {
           await fetchAd();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setAdSaving(false);
     }
@@ -1883,6 +1900,7 @@ export function Maintenance() {
                       paginatedLDNDItems.map((item) => (
                         <tr
                           key={item.id}
+                          data-list-entry-id={item.id}
                           style={{ backgroundColor: "#E8F5E9" }}
                           className="border-b border-gray-200"
                         >
@@ -2128,6 +2146,7 @@ export function Maintenance() {
                       paginatedADItems.map((item) => (
                         <tr
                           key={item.id}
+                          data-list-entry-id={item.id}
                           className="hover:bg-gray-50 transition-colors"
                         >
                           <td className="px-5 py-4 text-gray-900 text-sm">

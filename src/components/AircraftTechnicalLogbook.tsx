@@ -933,20 +933,15 @@ export function AircraftTechnicalLogbook() {
   };
 
   // Handle update entry success
-  const handleUpdateSuccess = () => {
+  const handleUpdateSuccess = async () => {
+    const { rememberWindowScroll } = await import("../utils/windowScrollMemory");
+    rememberWindowScroll();
     captureViewForRestore(selectedEntry?.id, currentPage);
     setIsEditModalOpen(false);
     setSelectedEntry(null);
     setSelectedFullEntry(null);
-    void fetchEntries({ preserveView: true });
-    Swal.fire({
-      title: "Updated!",
-      text: "Entry has been updated successfully.",
-      icon: "success",
-      confirmButtonColor: "#1f2937",
-      timer: 2000,
-      showConfirmButton: false,
-    });
+    await fetchEntries({ preserveView: true });
+    // Success toast + final scroll restore are handled by confirmSaveEntry in the modal.
   };
 
   return (
@@ -1204,6 +1199,7 @@ export function AircraftTechnicalLogbook() {
                     paginatedEntries.map((entry) => (
                       <tr
                         key={entry.id}
+                        data-list-entry-id={entry.id}
                         className={`transition-colors hover:bg-gray-50 ${
                           selectedEntryIds.has(entry.id) ? "bg-blue-50/60" : ""
                         }`}

@@ -9,6 +9,8 @@ type SortableTableRowProps = {
   dragLabel: string;
   disabledReason?: string;
   className?: string;
+  /** Used by usePreserveListView to re-anchor scroll after soft refresh. */
+  "data-list-entry-id"?: number | string | null;
   children: (ctx: {
     dragHandle: React.ReactNode;
     isDragging: boolean;
@@ -24,6 +26,7 @@ export function SortableTableRow({
   dragLabel,
   disabledReason,
   className = "",
+  "data-list-entry-id": dataListEntryId,
   children,
 }: SortableTableRowProps) {
   const {
@@ -66,6 +69,9 @@ export function SortableTableRow({
       style={style}
       className={`${className} ${isDragging ? "bg-blue-50" : ""}`.trim()}
       data-dragging={isDragging ? "true" : undefined}
+      data-list-entry-id={
+        dataListEntryId == null ? undefined : dataListEntryId
+      }
     >
       {children({ dragHandle, isDragging })}
     </tr>
