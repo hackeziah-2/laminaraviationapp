@@ -47,6 +47,7 @@ import { DataTablePagination } from "./ui/DataTablePagination";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import {
   ARRANGEMENT_DISABLED_TOOLTIP,
@@ -104,11 +105,16 @@ export interface ComponentItem {
   remainingAftt?: number | null;
 }
 
-/** Display aircraft detail field; empty → em dash */
+/** Display aircraft detail field; empty → em dash. TSN fields use displayTSN (UNK). */
 function fmtAircraftDetail(v: unknown): string {
   if (v == null) return "—";
   const s = String(v).trim();
   return s === "" ? "—" : s;
+}
+
+function fmtAircraftTsn(v: unknown): string {
+  if (v == null || v === "") return "UNK";
+  return String(v);
 }
 
 /** Parses numeric string to number; returns NaN if invalid */
@@ -381,6 +387,17 @@ export const TCCDetailContent = forwardRef<
     useState<AircraftMaintenanceDetails | null>(null);
   const [aircraftDetailsLoading, setAircraftDetailsLoading] = useState(false);
 
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingTCCEntry),
+    loading: tccLoading,
+    listDeps: [tccItems],
+  });
+
   // Debounce search so we don't hit API on every keystroke
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(searchQuery.trim()), 350);
@@ -404,49 +421,67 @@ export const TCCDetailContent = forwardRef<
     ? "You do not have permission to reorder rows."
     : ARRANGEMENT_DISABLED_TOOLTIP;
 
-  const fetchTcc = useCallback(async () => {
-    if (!aircraftIdNum || aircraftIdNum <= 0) {
-      setTccItems([]);
-      setTccTotal(0);
-      setTccPages(1);
-      return;
-    }
-    setTccLoading(true);
-    setTccError(null);
-    try {
-      // Always use paged list for display (restores pre-DnD load path).
-      // Full ordered collection is loaded only when a drag-reorder is persisted.
-      const res = await getAircraftTccMonitoring(
-        aircraftIdNum,
-        currentPage,
-        itemsPerPage,
-        searchDebounced,
-        activeTab
-      );
-      setTccItems((res.items as ComponentItem[]) ?? []);
-      setTccTotal(res.total ?? 0);
-      setTccPages(res.pages ?? 1);
-    } catch (err: any) {
-      if (err?.response?.status === 404 || err?.response?.status === 405) {
+  const fetchTcc = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      if (!aircraftIdNum || aircraftIdNum <= 0) {
         setTccItems([]);
         setTccTotal(0);
         setTccPages(1);
-      } else {
-        setTccError(
-          formatApiErrorMessage(err, "Failed to load TCC data.")
-        );
-        setTccItems([]);
+        return;
       }
-    } finally {
-      setTccLoading(false);
-    }
-  }, [
-    aircraftIdNum,
-    currentPage,
-    itemsPerPage,
-    searchDebounced,
-    activeTab,
-  ]);
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setTccLoading(true);
+      }
+      setTccError(null);
+      try {
+        // Always use paged list for display (restores pre-DnD load path).
+        // Full ordered collection is loaded only when a drag-reorder is persisted.
+        const res = await getAircraftTccMonitoring(
+          aircraftIdNum,
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced,
+          activeTab
+        );
+        setTccItems((res.items as ComponentItem[]) ?? []);
+        setTccTotal(res.total ?? 0);
+        setTccPages(res.pages ?? 1);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        if (err?.response?.status === 404 || err?.response?.status === 405) {
+          setTccItems([]);
+          setTccTotal(0);
+          setTccPages(1);
+        } else {
+          setTccError(
+            formatApiErrorMessage(err, "Failed to load TCC data.")
+          );
+          setTccItems([]);
+        }
+      } finally {
+        if (!preserveView) {
+          setTccLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      aircraftIdNum,
+      currentPage,
+      itemsPerPage,
+      searchDebounced,
+      activeTab,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchTcc();
@@ -584,8 +619,9 @@ export const TCCDetailContent = forwardRef<
           lastDoneAftt: payload.lastDoneAftt,
           lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
         });
+        captureViewForRestore(id, currentPage);
         closeModal();
-        fetchTcc();
+        fetchTcc({ preserveView: true });
       });
     } finally {
       setTccSaving(false);
@@ -825,13 +861,13 @@ export const TCCDetailContent = forwardRef<
                       Eng TSN:
                     </td>
                     <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
-                      {fmtAircraftDetail(aircraftDetails?.engineTsn)}
+                      {fmtAircraftTsn(aircraftDetails?.engineTsn)}
                     </td>
                     <td className="border border-gray-300 bg-gray-50/80 px-3 py-2 font-bold text-gray-900">
                       Prop TSN
                     </td>
                     <td className="border border-gray-300 px-3 py-2 font-normal text-gray-900 tabular-nums">
-                      {fmtAircraftDetail(aircraftDetails?.propellerTsn)}
+                      {fmtAircraftTsn(aircraftDetails?.propellerTsn)}
                     </td>
                   </tr>
                   <tr>
@@ -1017,7 +1053,11 @@ export const TCCDetailContent = forwardRef<
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            ref={listScrollRef}
+            data-atl-list-scroll
+            className="overflow-x-auto"
+          >
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">

@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 
 /** Renew / Withhold on advisory list always for this role (aligns with ATL tech-pub role variants). */
 const ADVISORY_EXPORT_HEADERS = [
@@ -109,6 +110,16 @@ export function RegulatoryAdvisory() {
   const renewDetailSeqRef = useRef(0);
   const [withholdSubmitting, setWithholdSubmitting] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+  } = usePreserveListView({
+    isEditOpen: showRenewModal,
+    loading,
+    listDeps: [items],
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -293,6 +304,7 @@ export function RegulatoryAdvisory() {
             ? { auth_issue_date: renewUpdate.auth_issue_date }
             : {}),
         });
+        captureViewForRestore(renewUpdate.id, currentPage);
         closeRenewModal();
         const typeParam = filterType === "all" ? undefined : filterType;
         getAdvisoryPaged(
@@ -308,7 +320,10 @@ export function RegulatoryAdvisory() {
             setTotal(res.total);
             setTotalPages(res.pages);
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => {
+            beginPreserveViewSettle();
+          });
       });
     } finally {
       setRenewSubmitting(false);
@@ -519,7 +534,11 @@ export function RegulatoryAdvisory() {
 
       {/* Advisory Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto"
+        >
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
