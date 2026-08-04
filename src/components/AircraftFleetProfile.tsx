@@ -504,9 +504,10 @@ export function AircraftFleetProfile() {
           ? parseFloat(form.airframeAftt)
           : null,
       engineTsn:
-        form.engineTsn === ""
+        form.engineTsn === "" ||
+        form.engineTsn.trim().toUpperCase() === "UNK"
           ? null
-          : form.engineTsn
+          : Number.isFinite(parseFloat(form.engineTsn))
           ? parseFloat(form.engineTsn)
           : null,
       engineTso:
@@ -516,9 +517,10 @@ export function AircraftFleetProfile() {
           ? parseFloat(form.engineTso)
           : null,
       propellerTsn:
-        form.propellerTsn === ""
+        form.propellerTsn === "" ||
+        form.propellerTsn.trim().toUpperCase() === "UNK"
           ? null
-          : form.propellerTsn
+          : Number.isFinite(parseFloat(form.propellerTsn))
           ? parseFloat(form.propellerTsn)
           : null,
       propellerTso:
@@ -1253,7 +1255,8 @@ export function AircraftFleetProfile() {
                         onChange={(e) =>
                           handleChange("engineTsn", e.target.value)
                         }
-                        placeholder="Time Since New"
+                        placeholder="UNK"
+                        title="Leave empty for UNK"
                         className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
                       />
                     </div>
@@ -1383,7 +1386,8 @@ export function AircraftFleetProfile() {
                         onChange={(e) =>
                           handleChange("propellerTsn", e.target.value)
                         }
-                        placeholder="Time Since New"
+                        placeholder="UNK"
+                        title="Leave empty for UNK"
                         className="w-full px-3.5 py-2.5 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-300 focus:border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 shadow-sm"
                       />
                     </div>

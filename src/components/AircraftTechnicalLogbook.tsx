@@ -39,6 +39,7 @@ import {
 import { getAircraftList } from "../api/aircraftApi";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
@@ -143,6 +144,17 @@ export function AircraftTechnicalLogbook() {
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const lastAppliedAtlQueryRef = useRef<string | null>(null);
 
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: isEditModalOpen,
+    loading,
+    listDeps: [entries],
+  });
+
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
   const showAtlBatchFilter = canManageAtlBatchFilter(user?.role);
@@ -241,15 +253,21 @@ export function AircraftTechnicalLogbook() {
   };
 
   // Fetch entries from API
-  const fetchEntries = async () => {
-    setLoading(true);
+  const fetchEntries = async (options?: { preserveView?: boolean }) => {
+    const preserveView = Boolean(options?.preserveView);
+    const pageToFetch = preserveView
+      ? getPendingPage(currentPage)
+      : currentPage;
+    if (!preserveView) {
+      setLoading(true);
+    }
     setError(null);
     try {
       // Notification deep-link: always use manage/paged with atl_batch, search, etc.
       const response =
         !isMaintenancePlanner || isAtlDeepLinkRoute
           ? await getManagedAircraftTechnicalLogs(
-              currentPage,
+              pageToFetch,
               itemsPerPage,
               debouncedSearchTerm,
               selectedAircraftFk,
@@ -258,7 +276,7 @@ export function AircraftTechnicalLogbook() {
               selectedAtlBatchFk
             )
           : await getAircraftTechnicalLogs(
-              currentPage,
+              pageToFetch,
               itemsPerPage,
               debouncedSearchTerm,
               selectedAircraftFk,
@@ -276,6 +294,9 @@ export function AircraftTechnicalLogbook() {
         response.total > 0 ? Math.max(1, response.pages) : response.pages
       );
       setTotalEntries(response.total);
+      if (preserveView && pageToFetch !== currentPage) {
+        setCurrentPage(pageToFetch);
+      }
     } catch (err: any) {
       // Check for network errors (backend not running)
       if (
@@ -295,7 +316,11 @@ export function AircraftTechnicalLogbook() {
       setTotalPages(0);
       setTotalEntries(0);
     } finally {
-      setTimeout(() => setLoading(false), 360);
+      if (!preserveView) {
+        setTimeout(() => setLoading(false), 360);
+      } else {
+        beginPreserveViewSettle();
+      }
     }
   };
 
@@ -908,19 +933,15 @@ export function AircraftTechnicalLogbook() {
   };
 
   // Handle update entry success
-  const handleUpdateSuccess = () => {
+  const handleUpdateSuccess = async () => {
+    const { rememberWindowScroll } = await import("../utils/windowScrollMemory");
+    rememberWindowScroll();
+    captureViewForRestore(selectedEntry?.id, currentPage);
     setIsEditModalOpen(false);
     setSelectedEntry(null);
     setSelectedFullEntry(null);
-    fetchEntries();
-    Swal.fire({
-      title: "Updated!",
-      text: "Entry has been updated successfully.",
-      icon: "success",
-      confirmButtonColor: "#1f2937",
-      timer: 2000,
-      showConfirmButton: false,
-    });
+    await fetchEntries({ preserveView: true });
+    // Success toast + final scroll restore are handled by confirmSaveEntry in the modal.
   };
 
   return (
@@ -1109,7 +1130,11 @@ export function AircraftTechnicalLogbook() {
 
           {/* Entries Table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
+            <div
+              ref={listScrollRef}
+              data-atl-list-scroll
+              className="overflow-x-auto"
+            >
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -1174,6 +1199,7 @@ export function AircraftTechnicalLogbook() {
                     paginatedEntries.map((entry) => (
                       <tr
                         key={entry.id}
+                        data-list-entry-id={entry.id}
                         className={`transition-colors hover:bg-gray-50 ${
                           selectedEntryIds.has(entry.id) ? "bg-blue-50/60" : ""
                         }`}

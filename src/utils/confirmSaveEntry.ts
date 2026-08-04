@@ -1,4 +1,8 @@
 import Swal from "./swalDefaults";
+import {
+  rememberWindowScroll,
+  restoreRememberedWindowScroll,
+} from "./windowScrollMemory";
 
 export function extractApiErrorMessage(
   error: unknown,
@@ -40,6 +44,9 @@ export function extractApiErrorMessage(
  * Shows a standardized create/update confirmation dialog, runs `saveFn` on confirm
  * (with loading on the confirm button), then shows a success toast.
  * Returns true when the entry was saved successfully.
+ *
+ * Window scroll is remembered before any dialog opens and restored after the
+ * success toast closes so list pages do not jump to the top.
  */
 export async function confirmSaveEntry(
   isUpdate: boolean,
@@ -54,6 +61,9 @@ export async function confirmSaveEntry(
     ? "Entry updated successfully."
     : "Entry created successfully.";
 
+  // Capture before confirm Swal can disturb body scroll / overflow.
+  rememberWindowScroll();
+
   const result = await Swal.fire({
     title,
     text,
@@ -66,6 +76,8 @@ export async function confirmSaveEntry(
     showLoaderOnConfirm: true,
     allowOutsideClick: false,
     allowEscapeKey: false,
+    scrollbarPadding: false,
+    heightAuto: false,
     preConfirm: async () => {
       try {
         await saveFn();
@@ -78,15 +90,20 @@ export async function confirmSaveEntry(
   });
 
   if (result.isConfirmed && result.value === true) {
+    restoreRememberedWindowScroll();
     await Swal.fire({
       icon: "success",
       text: successText,
       timer: 1500,
       showConfirmButton: false,
       timerProgressBar: true,
+      scrollbarPadding: false,
+      heightAuto: false,
     });
+    restoreRememberedWindowScroll();
     return true;
   }
 
+  restoreRememberedWindowScroll();
   return false;
 }

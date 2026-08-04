@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -173,35 +174,71 @@ export function AircraftStatutoryCertificates() {
   const [selectedAircraftDisplay, setSelectedAircraftDisplay] = useState("");
   const aircraftDropdownRef = useRef<HTMLDivElement>(null);
 
-  const fetchCertificates = useCallback(async () => {
-    setLoading(true);
-    try {
-      const filters: { certificate_type?: string } = {};
-      if (filterCertificateType.trim())
-        filters.certificate_type = filterCertificateType.trim();
-      const response = await getAircraftStatutoryCertificates(
-        currentPage,
-        itemsPerPage,
-        searchDebounced,
-        Object.keys(filters).length ? filters : undefined
-      );
-      setCertificates(response.items);
-      setTotalRecords(response.total);
-      setTotalPages(response.pages);
-    } catch (error: any) {
-      console.error("Error fetching certificates:", error);
-      Swal.fire({
-        icon: "error",
-        title: "Error",
-        text: error?.message ?? "Failed to load certificates.",
-      });
-      setCertificates([]);
-      setTotalRecords(0);
-      setTotalPages(0);
-    } finally {
-      setTimeout(() => setLoading(false), 360);
-    }
-  }, [currentPage, itemsPerPage, searchDebounced, filterCertificateType]);
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+    clearPendingViewRestore,
+  } = usePreserveListView({
+    isEditOpen: showEditModal,
+    loading,
+    listDeps: [certificates],
+  });
+
+  const fetchCertificates = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+
+      if (!preserveView) {
+        setLoading(true);
+      }
+      try {
+        const filters: { certificate_type?: string } = {};
+        if (filterCertificateType.trim())
+          filters.certificate_type = filterCertificateType.trim();
+        const response = await getAircraftStatutoryCertificates(
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced,
+          Object.keys(filters).length ? filters : undefined
+        );
+        setCertificates(response.items);
+        setTotalRecords(response.total);
+        setTotalPages(response.pages);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (error: any) {
+        console.error("Error fetching certificates:", error);
+        Swal.fire({
+          icon: "error",
+          title: "Error",
+          text: error?.message ?? "Failed to load certificates.",
+        });
+        setCertificates([]);
+        setTotalRecords(0);
+        setTotalPages(0);
+      } finally {
+        if (!preserveView) {
+          setTimeout(() => setLoading(false), 360);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      searchDebounced,
+      filterCertificateType,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   const fetchAircrafts = useCallback(async (search = "") => {
     setLoadingAircrafts(true);
@@ -713,17 +750,28 @@ export function AircraftStatutoryCertificates() {
 
     setIsSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingCertificate) {
+        captureViewForRestore(getCertId(editingCertificate), currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingCertificate) {
           const certId = getCertId(editingCertificate);
           if (!certId) throw new Error("Invalid certificate ID");
           await updateAircraftStatutoryCertificate(certId, formDataObj);
+          resetForm();
+          await fetchCertificates({ preserveView: true });
         } else {
           await createAircraftStatutoryCertificate(formDataObj);
+          resetForm();
+          await fetchCertificates();
         }
-        resetForm();
-        await fetchCertificates();
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setTimeout(() => setIsSaving(false), 360);
     }
@@ -849,7 +897,11 @@ export function AircraftStatutoryCertificates() {
 
       {/* Certificates Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto"
+        >
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -952,6 +1004,7 @@ export function AircraftStatutoryCertificates() {
                   return (
                     <tr
                       key={certId ?? `cert-${index}`}
+                      data-list-entry-id={certId ?? undefined}
                       className={`${rowBg} transition-colors`}
                     >
                       <td className={`${cellClass} font-medium`}>

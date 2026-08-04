@@ -43,6 +43,7 @@ import {
 } from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -117,6 +118,10 @@ interface EditUserModalProps {
   user: User | null;
   roles: Role[];
   onUpdate: (user: User) => void | Promise<void>;
+  /** Capture list scroll before confirm/success Swal opens. */
+  onBeforeConfirmUpdate?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onUpdateCancelled?: () => void;
 }
 
 interface DeactivateUserModalProps {
@@ -141,6 +146,10 @@ interface EditRoleModalProps {
   moduleList: Array<{ id?: number; name: string; code?: string }>;
   permissions: Permission[];
   onUpdate: (role: Role, permissions: Permission[]) => void | Promise<void>;
+  /** Capture list scroll before confirm/success Swal opens. */
+  onBeforeConfirmUpdate?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onUpdateCancelled?: () => void;
 }
 
 interface CreateRoleModalProps {
@@ -883,6 +892,8 @@ function EditUserModal({
   user,
   onUpdate,
   roles,
+  onBeforeConfirmUpdate,
+  onUpdateCancelled,
 }: EditUserModalProps) {
   const [formData, setFormData] = useState({
     first_name: user?.firstName || "",
@@ -963,7 +974,9 @@ function EditUserModal({
     try {
       const resolvedRole =
         roles.find((r) => r.id === formData.role_id)?.name || user.role;
-      const success = await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      onBeforeConfirmUpdate?.();
+      const saved = await confirmSaveEntry(true, async () => {
         await Promise.resolve(
           onUpdate({
             ...user,
@@ -985,8 +998,10 @@ function EditUserModal({
           })
         );
       });
-      if (success) {
+      if (saved) {
         onClose();
+      } else {
+        onUpdateCancelled?.();
       }
     } finally {
       setSubmitting(false);
@@ -1587,6 +1602,8 @@ function EditRoleModal({
   moduleList,
   permissions,
   onUpdate,
+  onBeforeConfirmUpdate,
+  onUpdateCancelled,
 }: EditRoleModalProps) {
   const [formData, setFormData] = useState({
     name: role?.name || "",
@@ -1651,13 +1668,17 @@ function EditRoleModal({
     };
     setSubmitting(true);
     try {
-      const success = await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      onBeforeConfirmUpdate?.();
+      const saved = await confirmSaveEntry(true, async () => {
         await Promise.resolve(
           onUpdate({ ...role, ...normalized }, rolePermissions)
         );
       });
-      if (success) {
+      if (saved) {
         onClose();
+      } else {
+        onUpdateCancelled?.();
       }
     } finally {
       setSubmitting(false);
@@ -2266,47 +2287,77 @@ export function Settings() {
     [roles, formatReadableDateTime]
   );
 
-  const fetchUsersList = useCallback(async () => {
-    setUsersLoading(true);
-    setUsersError(null);
-    try {
-      const res = await accountApi.getAccountsPaged(
-        currentPage,
-        itemsPerPage,
-        searchDebounced,
-        selectedUserRoleFilter === "all" ? "" : selectedUserRoleFilter
-      );
-      setUsers(res.items.map(mapAccountToUser));
-      setTotalUsers(res.total);
-      setTotalPages(Math.max(1, res.pages));
-    } catch (err) {
-      const msg =
-        (
-          err as {
-            response?: { data?: { message?: string; detail?: string } };
-            message?: string;
-          }
-        )?.response?.data?.message ??
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ??
-        (err as Error)?.message ??
-        "Failed to load users";
-      setUsersError(msg);
-      setUsers((prev) => {
-        setTotalUsers(prev.length);
-        setTotalPages(Math.max(1, Math.ceil(prev.length / itemsPerPage)));
-        return prev;
-      });
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [
-    currentPage,
-    itemsPerPage,
-    mapAccountToUser,
-    searchDebounced,
-    selectedUserRoleFilter,
-  ]);
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+    clearPendingViewRestore,
+  } = usePreserveListView({
+    isEditOpen: showEditUserModal || showEditRoleModal,
+    loading: usersLoading || rolesLoading,
+    listDeps: [users, roles],
+  });
+
+  const fetchUsersList = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setUsersLoading(true);
+      }
+      setUsersError(null);
+      try {
+        const res = await accountApi.getAccountsPaged(
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced,
+          selectedUserRoleFilter === "all" ? "" : selectedUserRoleFilter
+        );
+        setUsers(res.items.map(mapAccountToUser));
+        setTotalUsers(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err) {
+        const msg =
+          (
+            err as {
+              response?: { data?: { message?: string; detail?: string } };
+              message?: string;
+            }
+          )?.response?.data?.message ??
+          (err as { response?: { data?: { detail?: string } } })?.response?.data
+            ?.detail ??
+          (err as Error)?.message ??
+          "Failed to load users";
+        setUsersError(msg);
+        setUsers((prev) => {
+          setTotalUsers(prev.length);
+          setTotalPages(Math.max(1, Math.ceil(prev.length / itemsPerPage)));
+          return prev;
+        });
+      } finally {
+        if (!preserveView) {
+          setUsersLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      mapAccountToUser,
+      searchDebounced,
+      selectedUserRoleFilter,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchUsersList();
@@ -2316,21 +2367,33 @@ export function Settings() {
     setCurrentPage(1);
   }, [selectedUserRoleFilter]);
 
-  const fetchRoles = useCallback(() => {
-    setRolesLoading(true);
-    setRolesError(null);
-    rolesApi
-      .getRoles()
-      .then((data) => {
-        setRoles(data.length ? data : defaultRoles);
-        setRolesError(null);
-      })
-      .catch((err) => {
-        setRoles(defaultRoles);
-        setRolesError((err as Error)?.message ?? "Failed to load roles");
-      })
-      .finally(() => setRolesLoading(false));
-  }, []);
+  const fetchRoles = useCallback(
+    (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      if (!preserveView) {
+        setRolesLoading(true);
+      }
+      setRolesError(null);
+      rolesApi
+        .getRoles()
+        .then((data) => {
+          setRoles(data.length ? data : defaultRoles);
+          setRolesError(null);
+        })
+        .catch((err) => {
+          setRoles(defaultRoles);
+          setRolesError((err as Error)?.message ?? "Failed to load roles");
+        })
+        .finally(() => {
+          if (!preserveView) {
+            setRolesLoading(false);
+          } else {
+            beginPreserveViewSettle();
+          }
+        });
+    },
+    [beginPreserveViewSettle]
+  );
 
   useEffect(() => {
     fetchRoles();
@@ -2839,6 +2902,11 @@ export function Settings() {
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
                     </div>
                   ) : (
+                    <div
+                      ref={listScrollRef}
+                      data-atl-list-scroll
+                      className="overflow-x-auto"
+                    >
                     <table className="w-full">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
@@ -2869,7 +2937,10 @@ export function Settings() {
                         {filteredUsers.length > 0 ? (
                           filteredUsers.map((user) => (
                             <React.Fragment key={user.id}>
-                              <tr className="hover:bg-gray-50 transition-colors">
+                              <tr
+                                data-list-entry-id={user.id}
+                                className="hover:bg-gray-50 transition-colors"
+                              >
                                 <td className="px-6 py-4">
                                   <div>
                                     <div className="text-sm font-medium text-gray-900">
@@ -3023,6 +3094,7 @@ export function Settings() {
                         )}
                       </tbody>
                     </table>
+                    </div>
                   )}
                   {!usersLoading &&
                     (filteredUsers.length > 0 || totalUsers > 0) && (
@@ -3055,10 +3127,15 @@ export function Settings() {
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  <div
+                    ref={listScrollRef}
+                    data-atl-list-scroll
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6"
+                  >
                     {roles.map((role) => (
                       <div
                         key={role.id}
+                        data-list-entry-id={role.id}
                         className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow"
                       >
                         <div className="flex items-start justify-between mb-4">
@@ -3412,6 +3489,12 @@ export function Settings() {
         }}
         user={selectedUser}
         roles={roles}
+        onBeforeConfirmUpdate={() => {
+          if (selectedUser) {
+            captureViewForRestore(selectedUser.id, currentPage);
+          }
+        }}
+        onUpdateCancelled={clearPendingViewRestore}
         onUpdate={async (updatedUser) => {
           await accountApi.updateAccount(updatedUser.id, {
             firstName: updatedUser.firstName || "",
@@ -3427,7 +3510,7 @@ export function Settings() {
             auth_stamp: updatedUser.auth_stamp ?? null,
           });
           setSelectedUser(null);
-          await fetchUsersList();
+          void fetchUsersList({ preserveView: true });
         }}
       />
 
@@ -3518,6 +3601,12 @@ export function Settings() {
               getDefaultModulePermissions(modulesList)
             : []
         }
+        onBeforeConfirmUpdate={() => {
+          if (selectedRoleForEdit) {
+            captureViewForRestore(selectedRoleForEdit.id, currentPage);
+          }
+        }}
+        onUpdateCancelled={clearPendingViewRestore}
         onUpdate={async (updatedRole, updatedPermissions) => {
           const result = await rolesApi.updateRole(
             updatedRole.id,
@@ -3536,7 +3625,7 @@ export function Settings() {
           setRoles((prev) =>
             prev.map((r) => (r.id === savedRole.id ? savedRole : r))
           );
-          fetchRoles();
+          fetchRoles({ preserveView: true });
           setCustomPermissions((prev) => {
             const next = { ...prev };
             const oldName = selectedRoleForEdit?.name;

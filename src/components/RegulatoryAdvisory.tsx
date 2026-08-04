@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 
 /** Renew / Withhold on advisory list always for this role (aligns with ATL tech-pub role variants). */
 const ADVISORY_EXPORT_HEADERS = [
@@ -109,6 +110,17 @@ export function RegulatoryAdvisory() {
   const renewDetailSeqRef = useRef(0);
   const [withholdSubmitting, setWithholdSubmitting] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    clearPendingViewRestore,
+  } = usePreserveListView({
+    isEditOpen: showRenewModal,
+    loading,
+    listDeps: [items],
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -278,7 +290,10 @@ export function RegulatoryAdvisory() {
 
     setRenewSubmitting(true);
     try {
-      await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      captureViewForRestore(renewUpdate.id, currentPage);
+
+      const saved = await confirmSaveEntry(true, async () => {
         const renewIsAuthExpiry = isAuthExpiryAdvisoryType(
           renewAdvisoryRow?.type,
           renewUpdate.category_type,
@@ -308,8 +323,15 @@ export function RegulatoryAdvisory() {
             setTotal(res.total);
             setTotalPages(res.pages);
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => {
+            beginPreserveViewSettle();
+          });
       });
+
+      if (!saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setRenewSubmitting(false);
     }
@@ -519,7 +541,11 @@ export function RegulatoryAdvisory() {
 
       {/* Advisory Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto"
+        >
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -590,6 +616,7 @@ export function RegulatoryAdvisory() {
                 items.map((advisory, index) => (
                   <tr
                     key={`advisory-${advisory.id}-${index}`}
+                    data-list-entry-id={advisory.id}
                     className="hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-6 py-3.5 text-gray-900 font-medium">

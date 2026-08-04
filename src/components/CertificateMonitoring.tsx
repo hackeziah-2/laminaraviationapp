@@ -33,6 +33,7 @@ import {
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -92,6 +93,18 @@ export function CertificateMonitoring() {
     "Expiring Soon",
     "Inactive",
   ]);
+
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+    clearPendingViewRestore,
+  } = usePreserveListView({
+    isEditOpen: showEditModal,
+    loading,
+    listDeps: [certificates],
+  });
 
   // Fetch certificates
   const fetchCertificates = useCallback(async () => {
@@ -155,26 +168,49 @@ export function CertificateMonitoring() {
     }
   }, [currentPage, itemsPerPage, searchDebounced]);
 
-  // Refresh certificates list after save/edit - shows loading spinner
-  const refreshCertificates = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await getCertificatesMonitoring(
-        currentPage,
-        itemsPerPage,
-        searchDebounced
-      );
-      setCertificates(response.items);
-      setTotalRecords(response.total);
-      setTotalPages(response.pages);
-    } catch (error: any) {
-      console.error("Error refreshing certificates:", error);
-      // Don't show error alert on refresh - just log it
-      // The main fetchCertificates will handle errors on initial load
-    } finally {
-      setTimeout(() => setLoading(false), 360);
-    }
-  }, [currentPage, itemsPerPage, searchDebounced]);
+  // Refresh certificates list after save/edit - shows loading spinner unless preserveView
+  const refreshCertificates = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+
+      if (!preserveView) {
+        setLoading(true);
+      }
+      try {
+        const response = await getCertificatesMonitoring(
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced
+        );
+        setCertificates(response.items);
+        setTotalRecords(response.total);
+        setTotalPages(response.pages);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (error: any) {
+        console.error("Error refreshing certificates:", error);
+        // Don't show error alert on refresh - just log it
+        // The main fetchCertificates will handle errors on initial load
+      } finally {
+        if (!preserveView) {
+          setTimeout(() => setLoading(false), 360);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      searchDebounced,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchCertificates();
@@ -550,21 +586,35 @@ export function CertificateMonitoring() {
 
     setIsSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate) {
+        captureViewForRestore(
+          getCertificateId(editingCertificate),
+          currentPage
+        );
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (isUpdate) {
           const certificateId = getCertificateId(editingCertificate);
           await updateCertificateMonitoring(
             certificateId!,
             requestData as FormData | CertificateMonitoringUpdate
           );
+          resetForm();
+          await refreshCertificates({ preserveView: true });
         } else {
           await createCertificateMonitoring(
             requestData as FormData | CertificateMonitoringCreate
           );
+          resetForm();
+          await refreshCertificates();
         }
-        resetForm();
-        await refreshCertificates();
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setTimeout(() => setIsSaving(false), 360);
     }
@@ -734,7 +784,11 @@ export function CertificateMonitoring() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            <div
+              ref={listScrollRef}
+              data-atl-list-scroll
+              className="overflow-x-auto"
+            >
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -812,6 +866,7 @@ export function CertificateMonitoring() {
                       return (
                         <tr
                           key={certId ?? `cert-${index}`}
+                          data-list-entry-id={certId ?? undefined}
                           className="hover:bg-gray-50"
                         >
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

@@ -39,6 +39,7 @@ import {
   type CertificateTypeOption,
 } from "../api/organizationalApprovalApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -108,6 +109,18 @@ export function OrganizationalApprovals() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
 
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+    clearPendingViewRestore,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingApproval),
+    loading,
+    listDeps: [approvals],
+  });
+
   const certificateOptions = useMemo(() => {
     const byId = new Map<number, { id: number; name: string }>();
     approvals
@@ -146,41 +159,60 @@ export function OrganizationalApprovals() {
     getCertificateCategoryTypesList().then(setCertificateTypesFromApi);
   }, []);
 
-  const fetchApprovals = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const certificateFilter =
-        filterType === "all" ? undefined : Number(filterType) || filterType;
-      const res = await getOrganizationalApprovalsPaged(
-        currentPage,
-        itemsPerPage,
-        debouncedSearchTerm.trim(),
-        sortBy,
-        sortOrder,
-        certificateFilter
-      );
-      setApprovals(res.items);
-      setTotal(res.total);
-      setTotalPages(Math.max(1, res.pages));
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to load approvals.";
-      setError(message);
-      setApprovals([]);
-      setTotal(0);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    currentPage,
-    itemsPerPage,
-    debouncedSearchTerm,
-    filterType,
-    sortBy,
-    sortOrder,
-  ]);
+  const fetchApprovals = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+
+      if (!preserveView) {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const certificateFilter =
+          filterType === "all" ? undefined : Number(filterType) || filterType;
+        const res = await getOrganizationalApprovalsPaged(
+          pageToFetch,
+          itemsPerPage,
+          debouncedSearchTerm.trim(),
+          sortBy,
+          sortOrder,
+          certificateFilter
+        );
+        setApprovals(res.items);
+        setTotal(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to load approvals.";
+        setError(message);
+        setApprovals([]);
+        setTotal(0);
+        setTotalPages(1);
+      } finally {
+        if (!preserveView) {
+          setLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      debouncedSearchTerm,
+      filterType,
+      sortBy,
+      sortOrder,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchApprovals();
@@ -434,16 +466,27 @@ export function OrganizationalApprovals() {
 
     setSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingApproval) {
+        captureViewForRestore(editingApproval.id, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingApproval) {
           await updateOrganizationalApproval(editingApproval.id, payload);
+          closeModal();
+          await fetchApprovals({ preserveView: true });
         } else {
           await createOrganizationalApproval(payload);
+          closeModal();
+          setCurrentPage(1);
+          await fetchApprovals();
         }
-        closeModal();
-        setCurrentPage(1);
-        await fetchApprovals();
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSaving(false);
     }
@@ -635,7 +678,11 @@ export function OrganizationalApprovals() {
 
       {/* Approvals Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto"
+        >
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -709,6 +756,7 @@ export function OrganizationalApprovals() {
                   return (
                     <tr
                       key={approval.id}
+                      data-list-entry-id={approval.id}
                       className={`${rowBg} transition-colors`}
                     >
                       <td className={`${cellClass} font-medium`}>

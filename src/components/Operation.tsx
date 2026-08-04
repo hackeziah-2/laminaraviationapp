@@ -1,6 +1,7 @@
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   type CSSProperties,
@@ -99,6 +100,7 @@ import {
 } from "../utility/atlEditRbac";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import * as XLSX from "xlsx";
 
 type GroupByOption =
@@ -116,9 +118,13 @@ type AtlComponentPartRow = ComponentPartsRecord & {
 };
 
 const STICKY_SEQ_CLASS =
-  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
+  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky top-0 left-0 z-40 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
   "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
+
+const ATL_TABLE_SCROLL_CLASS = "atl-all-columns-scroll";
+const ATL_ALL_COLUMNS_TABLE_CLASS =
+  "atl-all-columns-table min-w-full border-collapse table-fixed";
 
 /** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
 function formatFleetWorkStatus(status: string | undefined): string {
@@ -743,6 +749,8 @@ export function Operation() {
     Record<string, boolean>
   >({});
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  const atlAllColumnsTheadRef = useRef<HTMLTableSectionElement>(null);
+  const [atlHeaderRow1Height, setAtlHeaderRow1Height] = useState(40);
   /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
   const atlBatchFilterTouchedRef = useRef(false);
   const effectiveAircraftId =
@@ -759,6 +767,35 @@ export function Operation() {
 
   /** "All" batch filter (or no batch param) → Sequence column shows `Batch name - seq`. */
   const showSeqNoWithBatchName = selectedAtlBatchFk == null;
+
+  useLayoutEffect(() => {
+    if (groupBy !== "allColumns") return;
+    const thead = atlAllColumnsTheadRef.current;
+    const firstRow = thead?.rows[0];
+    if (!firstRow) return;
+
+    const updateHeight = () => {
+      const next = firstRow.getBoundingClientRect().height;
+      setAtlHeaderRow1Height((prev) => (prev === next ? prev : next));
+    };
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(firstRow);
+    return () => observer.disconnect();
+  }, [groupBy, fleetTimeRecords, sequenceSort, loading]);
+
+  const {
+    listScrollRef: fleetTableScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: showEditModal,
+    loading,
+    listDeps: [fleetTimeRecords, atlHeaderRow1Height],
+    scrollSelector: "[data-atl-fleet-scroll]",
+  });
 
   useEffect(() => {
     if (Number.isFinite(aircraftId) && aircraftId > 0) {
@@ -1797,15 +1834,28 @@ export function Operation() {
   };
 
   // Refresh aircraft + records so list view shows the latest API-provided auto_* values.
-  const refreshPage = async (options?: { rethrowOnError?: boolean }) => {
+  // preserveView: keep page/filters/sort and avoid unmounting the table (used after Edit).
+  const refreshPage = async (options?: {
+    rethrowOnError?: boolean;
+    preserveView?: boolean;
+  }) => {
     if (!effectiveAircraftId) return;
-    setLoading(true);
+
+    const preserveView = Boolean(options?.preserveView);
+    // Prefer page captured at edit-success time; never reset to 1 on edit refresh.
+    const pageToFetch = preserveView
+      ? getPendingPage(currentPage)
+      : currentPage;
+
+    if (!preserveView) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [aircraftRes, recordsRes] = await Promise.all([
         getAircraftById(effectiveAircraftId),
         getAircraftTechnicalLogs(
-          currentPage,
+          pageToFetch,
           itemsPerPage,
           selectedSequenceNo,
           effectiveAircraftId,
@@ -1820,6 +1870,9 @@ export function Operation() {
       );
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
+      if (preserveView && pageToFetch !== currentPage) {
+        setCurrentPage(pageToFetch);
+      }
     } catch (err: any) {
       console.error("Error refreshing:", err);
       setError("Failed to load data");
@@ -1828,7 +1881,11 @@ export function Operation() {
         throw err;
       }
     } finally {
-      setTimeout(() => setLoading(false), 360);
+      if (!preserveView) {
+        setTimeout(() => setLoading(false), 360);
+      } else {
+        beginPreserveViewSettle();
+      }
     }
   };
 
@@ -1903,8 +1960,12 @@ export function Operation() {
                   </span>
                   <span>
                     Engine TSN:{" "}
-                    {formatAtlListMetric2dp(
-                      resolveAircraftEnginePropHour(aircraft, "engineTsn")
+                    {displayTSN(
+                      resolveAircraftEnginePropHour(aircraft, "engineTsn") as
+                        | string
+                        | number
+                        | null
+                        | undefined
                     )}
                   </span>
                   <span>
@@ -1915,8 +1976,12 @@ export function Operation() {
                   </span>
                   <span>
                     Propeller TSN:{" "}
-                    {formatAtlListMetric2dp(
-                      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
+                    {displayTSN(
+                      resolveAircraftEnginePropHour(aircraft, "propellerTsn") as
+                        | string
+                        | number
+                        | null
+                        | undefined
                     )}
                   </span>
                 </div>
@@ -2271,10 +2336,19 @@ export function Operation() {
             ) : (
               <>
                 {groupBy === "allColumns" && (
-                  <div className="overflow-x-auto">
+                  <div
+                    ref={fleetTableScrollRef}
+                    data-atl-fleet-scroll
+                    className={ATL_TABLE_SCROLL_CLASS}
+                    style={
+                      {
+                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
+                      } as CSSProperties
+                    }
+                  >
                     <div className="inline-block min-w-full align-middle">
-                      <table className="min-w-full border-collapse table-fixed">
-                        <thead>
+                      <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
+                        <thead ref={atlAllColumnsTheadRef}>
                           <tr>
                             <th
                               rowSpan={2}
@@ -2619,6 +2693,8 @@ export function Operation() {
                             paginatedRecords.map((record) => (
                               <tr
                                 key={record.id}
+                                data-atl-entry-id={record.id}
+                                data-list-entry-id={record.id}
                                 className="hover:bg-gray-50/50 transition-colors"
                               >
                                 <td className={STICKY_SEQ_CELL_CLASS}>
@@ -3061,7 +3137,11 @@ export function Operation() {
 
                 {/* Fuel and Oil Data */}
                 {groupBy === "fuelAndOilData" && (
-                  <div className="overflow-x-auto">
+                  <div
+                    ref={fleetTableScrollRef}
+                    data-atl-fleet-scroll
+                    className="overflow-x-auto"
+                  >
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
@@ -3153,7 +3233,11 @@ export function Operation() {
                           </tr>
                         ) : (
                           paginatedRecords.map((record) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
+                            <tr
+                              key={record.id}
+                              data-list-entry-id={record.id}
+                              className="hover:bg-gray-50"
+                            >
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -3260,7 +3344,11 @@ export function Operation() {
 
                 {/* Maintenance Planning — separate columns: OFF BLOCKS, ON BLOCKS, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
                 {groupBy === "maintenancePlanning" && (
-                  <div className="overflow-x-auto">
+                  <div
+                    ref={fleetTableScrollRef}
+                    data-atl-fleet-scroll
+                    className="overflow-x-auto"
+                  >
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
@@ -3322,7 +3410,11 @@ export function Operation() {
                         ) : (
                           paginatedRecords.map((record) => {
                             return (
-                              <tr key={record.id} className="hover:bg-gray-50">
+                              <tr
+                                key={record.id}
+                                data-list-entry-id={record.id}
+                                className="hover:bg-gray-50"
+                              >
                                 <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
@@ -3428,7 +3520,11 @@ export function Operation() {
 
                 {/* Reliability Monitoring */}
                 {groupBy === "reliabilityMonitoring" && (
-                  <div className="overflow-x-auto">
+                  <div
+                    ref={fleetTableScrollRef}
+                    data-atl-fleet-scroll
+                    className="overflow-x-auto"
+                  >
                     <table className="min-w-full border-collapse">
                       <thead>
                         <tr className="bg-gray-100">
@@ -3477,7 +3573,11 @@ export function Operation() {
                           </tr>
                         ) : (
                           paginatedRecords.map((record) => (
-                            <tr key={record.id} className="hover:bg-gray-50">
+                            <tr
+                              key={record.id}
+                              data-list-entry-id={record.id}
+                              className="hover:bg-gray-50"
+                            >
                               <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -3753,10 +3853,16 @@ export function Operation() {
             operationAtlRole,
             selectedEntry.workStatus
           )}
-          onSuccess={() => {
+          onSuccess={async () => {
+            const { rememberWindowScroll } = await import(
+              "../utils/windowScrollMemory"
+            );
+            rememberWindowScroll();
+            captureViewForRestore(selectedEntry?.id, currentPage);
             setShowEditModal(false);
             setSelectedEntry(null);
-            refreshPage();
+            await refreshPage({ preserveView: true });
+            // Success toast + final scroll restore are handled by confirmSaveEntry in the modal.
           }}
         />
       )}

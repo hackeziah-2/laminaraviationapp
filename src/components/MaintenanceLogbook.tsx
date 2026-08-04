@@ -72,6 +72,7 @@ import { DataTablePagination } from "./ui/DataTablePagination";
 import { snakeAllKeys } from "../utility/utils";
 import apiClient from "../api/index";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 
 interface LogEntry {
   id: number;
@@ -247,6 +248,27 @@ export function MaintenanceLogbook() {
     EngineLogbook | AirframeLogbook | AvionicsLogbook | PropellerLogbook | null
   >(null);
 
+  const currentListEntries =
+    activeCategory === "AIRFRAME"
+      ? airframeLogEntries
+      : activeCategory === "AVIONICS"
+        ? avionicsLogEntries
+        : activeCategory === "ENGINE"
+          ? engineLogEntries
+          : propellerLogEntries;
+
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+    clearPendingViewRestore,
+  } = usePreserveListView({
+    isEditOpen: showEditEntryModal,
+    loading,
+    listDeps: [currentListEntries],
+  });
+
   // Fetch aircraft information
   useEffect(() => {
     const fetchAircraft = async () => {
@@ -280,70 +302,99 @@ export function MaintenanceLogbook() {
   }, []);
 
   // Fetch logbook entries from API using useCallback
-  const fetchLogbooks = useCallback(async () => {
-    if (!aircraftId) return;
+  const fetchLogbooks = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      if (!aircraftId) return;
 
-    setLoading(true);
-    setError(null);
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
 
-    try {
-      switch (activeCategory) {
-        case "AIRFRAME":
-          const airframeResponse = await getAirframeLogbooks(
-            currentPage,
-            itemsPerPage,
-            searchQuery,
-            aircraftId
-          );
-          setAirframeLogEntries(airframeResponse.items);
-          setTotalRecords(airframeResponse.total);
-          setTotalPages(airframeResponse.pages);
-          break;
-        case "AVIONICS":
-          const avionicsResponse = await getAvionicsLogbooks(
-            currentPage,
-            itemsPerPage,
-            searchQuery,
-            aircraftId
-          );
-          setAvionicsLogEntries(avionicsResponse.items);
-          setTotalRecords(avionicsResponse.total);
-          setTotalPages(avionicsResponse.pages);
-          break;
-        case "ENGINE":
-          const engineResponse = await getEngineLogbooks(
-            currentPage,
-            itemsPerPage,
-            searchQuery,
-            aircraftId
-          );
-          setEngineLogEntries(engineResponse.items);
-          setTotalRecords(engineResponse.total);
-          setTotalPages(engineResponse.pages);
-          break;
-        case "PROPELLER":
-          const propellerResponse = await getPropellerLogbooks(
-            currentPage,
-            itemsPerPage,
-            searchQuery,
-            aircraftId
-          );
-          setPropellerLogEntries(propellerResponse.items);
-          setTotalRecords(propellerResponse.total);
-          setTotalPages(propellerResponse.pages);
-          break;
+      if (!preserveView) {
+        setLoading(true);
       }
-    } catch (err: any) {
-      console.error("Error fetching logbooks:", err);
-      setError("Failed to load logbook entries");
-      setAirframeLogEntries([]);
-      setAvionicsLogEntries([]);
-      setEngineLogEntries([]);
-      setPropellerLogEntries([]);
-    } finally {
-      setTimeout(() => setLoading(false), 360);
-    }
-  }, [activeCategory, currentPage, searchQuery, aircraftId, itemsPerPage]);
+      setError(null);
+
+      try {
+        switch (activeCategory) {
+          case "AIRFRAME": {
+            const airframeResponse = await getAirframeLogbooks(
+              pageToFetch,
+              itemsPerPage,
+              searchQuery,
+              aircraftId
+            );
+            setAirframeLogEntries(airframeResponse.items);
+            setTotalRecords(airframeResponse.total);
+            setTotalPages(airframeResponse.pages);
+            break;
+          }
+          case "AVIONICS": {
+            const avionicsResponse = await getAvionicsLogbooks(
+              pageToFetch,
+              itemsPerPage,
+              searchQuery,
+              aircraftId
+            );
+            setAvionicsLogEntries(avionicsResponse.items);
+            setTotalRecords(avionicsResponse.total);
+            setTotalPages(avionicsResponse.pages);
+            break;
+          }
+          case "ENGINE": {
+            const engineResponse = await getEngineLogbooks(
+              pageToFetch,
+              itemsPerPage,
+              searchQuery,
+              aircraftId
+            );
+            setEngineLogEntries(engineResponse.items);
+            setTotalRecords(engineResponse.total);
+            setTotalPages(engineResponse.pages);
+            break;
+          }
+          case "PROPELLER": {
+            const propellerResponse = await getPropellerLogbooks(
+              pageToFetch,
+              itemsPerPage,
+              searchQuery,
+              aircraftId
+            );
+            setPropellerLogEntries(propellerResponse.items);
+            setTotalRecords(propellerResponse.total);
+            setTotalPages(propellerResponse.pages);
+            break;
+          }
+        }
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        console.error("Error fetching logbooks:", err);
+        setError("Failed to load logbook entries");
+        setAirframeLogEntries([]);
+        setAvionicsLogEntries([]);
+        setEngineLogEntries([]);
+        setPropellerLogEntries([]);
+      } finally {
+        if (!preserveView) {
+          setTimeout(() => setLoading(false), 360);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      activeCategory,
+      currentPage,
+      searchQuery,
+      aircraftId,
+      itemsPerPage,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   // Reset to page 1 when itemsPerPage changes
   useEffect(() => {
@@ -1276,7 +1327,14 @@ export function MaintenanceLogbook() {
 
     setIsSaving(true);
     try {
-      await confirmSaveEntry(Boolean(editingEntry), async () => {
+      const wasEdit = Boolean(editingEntry);
+      const editId = editingEntry?.id ?? null;
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (wasEdit) {
+        captureViewForRestore(editId, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(wasEdit, async () => {
         if (editingEntry) {
           switch (activeCategory) {
             case "AIRFRAME":
@@ -1331,9 +1389,17 @@ export function MaintenanceLogbook() {
         ) as HTMLInputElement;
         if (fileInput) fileInput.value = "";
 
-        setLoading(true);
-        await fetchLogbooks();
+        if (wasEdit) {
+          await fetchLogbooks({ preserveView: true });
+        } else {
+          setLoading(true);
+          await fetchLogbooks();
+        }
       });
+
+      if (wasEdit && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setIsSaving(false);
     }
@@ -1431,7 +1497,11 @@ export function MaintenanceLogbook() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            <div
+              ref={listScrollRef}
+              data-atl-list-scroll
+              className="overflow-x-auto"
+            >
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
@@ -1464,6 +1534,7 @@ export function MaintenanceLogbook() {
                     currentEntries.map((entry) => (
                       <tr
                         key={entry.id}
+                        data-list-entry-id={entry.id}
                         className="hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-5 py-4 text-gray-900 text-sm">
