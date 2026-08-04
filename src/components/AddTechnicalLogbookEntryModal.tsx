@@ -1222,7 +1222,7 @@ interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   editEntry?: AircraftTechnicalLog | null;
-  onSuccess?: () => void;
+  onSuccess?: () => void | Promise<void>;
   aircraftId?: number; // Optional aircraft ID from useParams
   /** Module code for role Update permission (e.g. operation, logbook). Required when editEntry is set. */
   permissionModuleCode?: string;
@@ -3944,7 +3944,7 @@ export function AddTechnicalLogbookEntryModal({
           );
 
           if (onSuccess) {
-            onSuccess();
+            await onSuccess();
           }
 
           onClose();
@@ -3954,7 +3954,7 @@ export function AddTechnicalLogbookEntryModal({
         await createAircraftTechnicalLog(apiDataSnake, files);
 
         if (onSuccess) {
-          onSuccess();
+          await onSuccess();
         }
 
         // Reset form

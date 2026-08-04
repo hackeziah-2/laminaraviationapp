@@ -99,6 +99,7 @@ export function CertificateMonitoring() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: showEditModal,
     loading,
@@ -585,14 +586,21 @@ export function CertificateMonitoring() {
 
     setIsSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate) {
+        captureViewForRestore(
+          getCertificateId(editingCertificate),
+          currentPage
+        );
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (isUpdate) {
           const certificateId = getCertificateId(editingCertificate);
           await updateCertificateMonitoring(
             certificateId!,
             requestData as FormData | CertificateMonitoringUpdate
           );
-          captureViewForRestore(certificateId, currentPage);
           resetForm();
           await refreshCertificates({ preserveView: true });
         } else {
@@ -603,6 +611,10 @@ export function CertificateMonitoring() {
           await refreshCertificates();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setTimeout(() => setIsSaving(false), 360);
     }
@@ -854,6 +866,7 @@ export function CertificateMonitoring() {
                       return (
                         <tr
                           key={certId ?? `cert-${index}`}
+                          data-list-entry-id={certId ?? undefined}
                           className="hover:bg-gray-50"
                         >
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

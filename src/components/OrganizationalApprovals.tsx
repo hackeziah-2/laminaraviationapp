@@ -114,6 +114,7 @@ export function OrganizationalApprovals() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingApproval),
     loading,
@@ -465,10 +466,14 @@ export function OrganizationalApprovals() {
 
     setSaving(true);
     try {
-      await confirmSaveEntry(isUpdate, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isUpdate && editingApproval) {
+        captureViewForRestore(editingApproval.id, currentPage);
+      }
+
+      const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingApproval) {
           await updateOrganizationalApproval(editingApproval.id, payload);
-          captureViewForRestore(editingApproval.id, currentPage);
           closeModal();
           await fetchApprovals({ preserveView: true });
         } else {
@@ -478,6 +483,10 @@ export function OrganizationalApprovals() {
           await fetchApprovals();
         }
       });
+
+      if (isUpdate && !saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSaving(false);
     }
@@ -747,6 +756,7 @@ export function OrganizationalApprovals() {
                   return (
                     <tr
                       key={approval.id}
+                      data-list-entry-id={approval.id}
                       className={`${rowBg} transition-colors`}
                     >
                       <td className={`${cellClass} font-medium`}>

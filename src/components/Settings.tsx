@@ -118,6 +118,10 @@ interface EditUserModalProps {
   user: User | null;
   roles: Role[];
   onUpdate: (user: User) => void | Promise<void>;
+  /** Capture list scroll before confirm/success Swal opens. */
+  onBeforeConfirmUpdate?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onUpdateCancelled?: () => void;
 }
 
 interface DeactivateUserModalProps {
@@ -142,6 +146,10 @@ interface EditRoleModalProps {
   moduleList: Array<{ id?: number; name: string; code?: string }>;
   permissions: Permission[];
   onUpdate: (role: Role, permissions: Permission[]) => void | Promise<void>;
+  /** Capture list scroll before confirm/success Swal opens. */
+  onBeforeConfirmUpdate?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onUpdateCancelled?: () => void;
 }
 
 interface CreateRoleModalProps {
@@ -884,6 +892,8 @@ function EditUserModal({
   user,
   onUpdate,
   roles,
+  onBeforeConfirmUpdate,
+  onUpdateCancelled,
 }: EditUserModalProps) {
   const [formData, setFormData] = useState({
     first_name: user?.firstName || "",
@@ -964,7 +974,9 @@ function EditUserModal({
     try {
       const resolvedRole =
         roles.find((r) => r.id === formData.role_id)?.name || user.role;
-      const success = await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      onBeforeConfirmUpdate?.();
+      const saved = await confirmSaveEntry(true, async () => {
         await Promise.resolve(
           onUpdate({
             ...user,
@@ -986,8 +998,10 @@ function EditUserModal({
           })
         );
       });
-      if (success) {
+      if (saved) {
         onClose();
+      } else {
+        onUpdateCancelled?.();
       }
     } finally {
       setSubmitting(false);
@@ -1588,6 +1602,8 @@ function EditRoleModal({
   moduleList,
   permissions,
   onUpdate,
+  onBeforeConfirmUpdate,
+  onUpdateCancelled,
 }: EditRoleModalProps) {
   const [formData, setFormData] = useState({
     name: role?.name || "",
@@ -1652,13 +1668,17 @@ function EditRoleModal({
     };
     setSubmitting(true);
     try {
-      const success = await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      onBeforeConfirmUpdate?.();
+      const saved = await confirmSaveEntry(true, async () => {
         await Promise.resolve(
           onUpdate({ ...role, ...normalized }, rolePermissions)
         );
       });
-      if (success) {
+      if (saved) {
         onClose();
+      } else {
+        onUpdateCancelled?.();
       }
     } finally {
       setSubmitting(false);
@@ -2272,6 +2292,7 @@ export function Settings() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: showEditUserModal || showEditRoleModal,
     loading: usersLoading || rolesLoading,
@@ -2916,7 +2937,10 @@ export function Settings() {
                         {filteredUsers.length > 0 ? (
                           filteredUsers.map((user) => (
                             <React.Fragment key={user.id}>
-                              <tr className="hover:bg-gray-50 transition-colors">
+                              <tr
+                                data-list-entry-id={user.id}
+                                className="hover:bg-gray-50 transition-colors"
+                              >
                                 <td className="px-6 py-4">
                                   <div>
                                     <div className="text-sm font-medium text-gray-900">
@@ -3111,6 +3135,7 @@ export function Settings() {
                     {roles.map((role) => (
                       <div
                         key={role.id}
+                        data-list-entry-id={role.id}
                         className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-md transition-shadow"
                       >
                         <div className="flex items-start justify-between mb-4">
@@ -3464,6 +3489,12 @@ export function Settings() {
         }}
         user={selectedUser}
         roles={roles}
+        onBeforeConfirmUpdate={() => {
+          if (selectedUser) {
+            captureViewForRestore(selectedUser.id, currentPage);
+          }
+        }}
+        onUpdateCancelled={clearPendingViewRestore}
         onUpdate={async (updatedUser) => {
           await accountApi.updateAccount(updatedUser.id, {
             firstName: updatedUser.firstName || "",
@@ -3478,7 +3509,6 @@ export function Settings() {
             auth_initial_doi: updatedUser.auth_initial_doi || null,
             auth_stamp: updatedUser.auth_stamp ?? null,
           });
-          captureViewForRestore(updatedUser.id, currentPage);
           setSelectedUser(null);
           void fetchUsersList({ preserveView: true });
         }}
@@ -3571,6 +3601,12 @@ export function Settings() {
               getDefaultModulePermissions(modulesList)
             : []
         }
+        onBeforeConfirmUpdate={() => {
+          if (selectedRoleForEdit) {
+            captureViewForRestore(selectedRoleForEdit.id, currentPage);
+          }
+        }}
+        onUpdateCancelled={clearPendingViewRestore}
         onUpdate={async (updatedRole, updatedPermissions) => {
           const result = await rolesApi.updateRole(
             updatedRole.id,
@@ -3588,10 +3624,6 @@ export function Settings() {
           };
           setRoles((prev) =>
             prev.map((r) => (r.id === savedRole.id ? savedRole : r))
-          );
-          captureViewForRestore(
-            selectedRoleForEdit?.id ?? savedRole.id,
-            currentPage
           );
           fetchRoles({ preserveView: true });
           setCustomPermissions((prev) => {

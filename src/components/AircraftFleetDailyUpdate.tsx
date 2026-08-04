@@ -228,6 +228,7 @@ export function AircraftFleetDailyUpdate() {
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: showRemarkModal,
     loading,
@@ -438,12 +439,18 @@ export function AircraftFleetDailyUpdate() {
 
     setSavingBulk(true);
     try {
-      await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      captureViewForRestore(null, currentPage);
+
+      const saved = await confirmSaveEntry(true, async () => {
         await bulkUpdateFleetDailyUpdates({ updates: bulkUpdates });
-        captureViewForRestore(null, currentPage);
         exitBulkEditMode();
         await fetchData({ preserveView: true });
       });
+
+      if (!saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSavingBulk(false);
     }
@@ -452,6 +459,7 @@ export function AircraftFleetDailyUpdate() {
     exitBulkEditMode,
     fetchData,
     captureViewForRestore,
+    clearPendingViewRestore,
     currentPage,
   ]);
 
@@ -520,18 +528,24 @@ export function AircraftFleetDailyUpdate() {
 
     setSavingRemark(true);
     try {
-      await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      captureViewForRestore(editingItem.id ?? null, currentPage);
+
+      const saved = await confirmSaveEntry(true, async () => {
         await updateFleetDailyUpdateRemark(editingItem, {
           remarks: remarkDraft,
           status: statusDraft,
         });
-        captureViewForRestore(editingItem.id ?? null, currentPage);
         setShowRemarkModal(false);
         setEditingItem(null);
         setRemarkDraft("");
         setStatusDraft("");
         await fetchData({ preserveView: true });
       });
+
+      if (!saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setSavingRemark(false);
     }
@@ -542,6 +556,7 @@ export function AircraftFleetDailyUpdate() {
     fetchData,
     savingRemark,
     captureViewForRestore,
+    clearPendingViewRestore,
     currentPage,
   ]);
 
@@ -841,6 +856,7 @@ export function AircraftFleetDailyUpdate() {
                             Math.random()
                           }
                           id={sortId > 0 ? sortId : `row-${aircraft.id}`}
+                          data-list-entry-id={aircraft.id}
                           disabled={dailyDndDisabled || sortId <= 0}
                           dragLabel={`Move aircraft ${identLabel}`}
                           disabledReason={dragDisabledReason}

@@ -392,6 +392,7 @@ export const TCCDetailContent = forwardRef<
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingTCCEntry),
     loading: tccLoading,
@@ -601,7 +602,10 @@ export const TCCDetailContent = forwardRef<
 
     setTccSaving(true);
     try {
-      await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      captureViewForRestore(id, currentPage);
+
+      const saved = await confirmSaveEntry(true, async () => {
         await updateAircraftTccMonitoring(aircraftIdNum, id, {
           partNo: payload.partNo,
           serialNo: payload.serialNo,
@@ -619,10 +623,13 @@ export const TCCDetailContent = forwardRef<
           lastDoneAftt: payload.lastDoneAftt,
           lastDoneMethodOfCompliance: payload.lastDoneMethodOfCompliance,
         });
-        captureViewForRestore(id, currentPage);
         closeModal();
         fetchTcc({ preserveView: true });
       });
+
+      if (!saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setTccSaving(false);
     }
@@ -1195,6 +1202,7 @@ export const TCCDetailContent = forwardRef<
                         <SortableTableRow
                           key={item.id}
                           id={item.id}
+                          data-list-entry-id={item.id}
                           disabled={tccDndDisabled}
                           dragLabel="Move Maintenance TCC row"
                           disabledReason={dragDisabledReason}

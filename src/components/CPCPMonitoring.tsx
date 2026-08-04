@@ -206,6 +206,7 @@ export const CPCPMonitoring = forwardRef<
     captureViewForRestore,
     beginPreserveViewSettle,
     getPendingPage,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: Boolean(editingEntry),
     loading,
@@ -545,18 +546,30 @@ export const CPCPMonitoring = forwardRef<
       if (saving) return;
       setSaving(true);
       try {
-        await confirmSaveEntry(true, async () => {
+        // Capture before confirm/success Swal so window scroll is not already reset.
+        captureViewForRestore(id, currentPage);
+
+        const saved = await confirmSaveEntry(true, async () => {
           await updateCpcpMonitoring(id, data);
-          captureViewForRestore(id, currentPage);
           setShowAddModal(false);
           setEditingEntry(null);
           fetchList({ preserveView: true });
         });
+
+        if (!saved) {
+          clearPendingViewRestore();
+        }
       } finally {
         setTimeout(() => setSaving(false), 360);
       }
     },
-    [fetchList, saving, captureViewForRestore, currentPage]
+    [
+      fetchList,
+      saving,
+      captureViewForRestore,
+      clearPendingViewRestore,
+      currentPage,
+    ]
   );
 
   const openEdit = useCallback((entry: CPCPEntry) => {
@@ -908,6 +921,7 @@ export const CPCPMonitoring = forwardRef<
                                 <SortableTableRow
                                   key={item.id}
                                   id={item.id}
+                                  data-list-entry-id={item.id}
                                   disabled={cpcpDndDisabled}
                                   dragLabel="Move Maintenance CPCP row"
                                   disabledReason={dragDisabledReason}

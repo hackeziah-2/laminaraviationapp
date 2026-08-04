@@ -115,6 +115,7 @@ export function RegulatoryAdvisory() {
     listScrollRef,
     captureViewForRestore,
     beginPreserveViewSettle,
+    clearPendingViewRestore,
   } = usePreserveListView({
     isEditOpen: showRenewModal,
     loading,
@@ -289,7 +290,10 @@ export function RegulatoryAdvisory() {
 
     setRenewSubmitting(true);
     try {
-      await confirmSaveEntry(true, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      captureViewForRestore(renewUpdate.id, currentPage);
+
+      const saved = await confirmSaveEntry(true, async () => {
         const renewIsAuthExpiry = isAuthExpiryAdvisoryType(
           renewAdvisoryRow?.type,
           renewUpdate.category_type,
@@ -304,7 +308,6 @@ export function RegulatoryAdvisory() {
             ? { auth_issue_date: renewUpdate.auth_issue_date }
             : {}),
         });
-        captureViewForRestore(renewUpdate.id, currentPage);
         closeRenewModal();
         const typeParam = filterType === "all" ? undefined : filterType;
         getAdvisoryPaged(
@@ -325,6 +328,10 @@ export function RegulatoryAdvisory() {
             beginPreserveViewSettle();
           });
       });
+
+      if (!saved) {
+        clearPendingViewRestore();
+      }
     } finally {
       setRenewSubmitting(false);
     }
@@ -609,6 +616,7 @@ export function RegulatoryAdvisory() {
                 items.map((advisory, index) => (
                   <tr
                     key={`advisory-${advisory.id}-${index}`}
+                    data-list-entry-id={advisory.id}
                     className="hover:bg-gray-50 transition-colors"
                   >
                     <td className="px-6 py-3.5 text-gray-900 font-medium">

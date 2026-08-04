@@ -16,6 +16,10 @@ interface AddOemItemTypeModalProps {
   editTypeId: number | null;
   onClose: () => void;
   onSaved: (type: OemItemTypeOption) => void;
+  /** Capture list scroll before confirm/success Swal opens (updates only). */
+  onBeforeConfirmSave?: () => void;
+  /** Clear pending restore when update confirm is cancelled or fails. */
+  onSaveCancelled?: () => void;
 }
 
 export function AddOemItemTypeModal({
@@ -23,6 +27,8 @@ export function AddOemItemTypeModal({
   editTypeId,
   onClose,
   onSaved,
+  onBeforeConfirmSave,
+  onSaveCancelled,
 }: AddOemItemTypeModalProps) {
   const [name, setName] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -92,13 +98,20 @@ export function AddOemItemTypeModal({
 
     setSubmitting(true);
     try {
-      await confirmSaveEntry(isEdit, async () => {
+      // Capture before confirm/success Swal so window scroll is not already reset.
+      if (isEdit) {
+        onBeforeConfirmSave?.();
+      }
+      const saved = await confirmSaveEntry(isEdit, async () => {
         const type = isEdit
           ? await updateOemItemType(editTypeId!, { name: trimmed })
           : await createOemItemType({ name: trimmed });
         onSaved(type);
         onClose();
       });
+      if (isEdit && !saved) {
+        onSaveCancelled?.();
+      }
     } finally {
       setSubmitting(false);
     }
