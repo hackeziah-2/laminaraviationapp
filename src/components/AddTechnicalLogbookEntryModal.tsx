@@ -3553,26 +3553,26 @@ export function AddTechnicalLogbookEntryModal({
       }
 
       // GAP limit 15 upon creation: new sequence no must not exceed latest + 15
-      const latestNumMatch = (latestSequenceNo || "").trim().match(/(\d+)$/);
-      const enteredNumMatch = (formData.seqNo || "").trim().match(/(\d+)$/);
-      const latestNum = latestNumMatch ? parseInt(latestNumMatch[1], 10) : null;
-      const enteredNum = enteredNumMatch
-        ? parseInt(enteredNumMatch[1], 10)
-        : null;
-      if (
-        latestNum != null &&
-        enteredNum != null &&
-        enteredNum > latestNum + 15
-      ) {
-        const maxNum = latestNum + 15;
-        const padLen = (latestNumMatch?.[1] || "").length;
-        const maxSeq = (latestSequenceNo || "").replace(
-          /\d+$/,
-          String(maxNum).padStart(padLen, "0")
-        );
-        const latestDisplay = (latestSequenceNo || "").trim();
-        errors.seqNo = `Sequence No. gap must not exceed 15 from the latest entry. Latest: ${latestDisplay}, max allowed: ${maxSeq}.`;
-      }
+      // const latestNumMatch = (latestSequenceNo || "").trim().match(/(\d+)$/);
+      // const enteredNumMatch = (formData.seqNo || "").trim().match(/(\d+)$/);
+      // const latestNum = latestNumMatch ? parseInt(latestNumMatch[1], 10) : null;
+      // const enteredNum = enteredNumMatch
+      //   ? parseInt(enteredNumMatch[1], 10)
+      //   : null;
+      // if (
+      //   latestNum != null &&
+      //   enteredNum != null &&
+      //   enteredNum > latestNum + 15
+      // ) {
+      //   const maxNum = latestNum + 15;
+      //   const padLen = (latestNumMatch?.[1] || "").length;
+      //   const maxSeq = (latestSequenceNo || "").replace(
+      //     /\d+$/,
+      //     String(maxNum).padStart(padLen, "0")
+      //   );
+      //   const latestDisplay = (latestSequenceNo || "").trim();
+      //   errors.seqNo = `Sequence No. gap must not exceed 15 from the latest entry. Latest: ${latestDisplay}, max allowed: ${maxSeq}.`;
+      // }
     }
 
     // Only validate A/C Registration if aircraftId prop is not provided
