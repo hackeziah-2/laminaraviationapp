@@ -47,6 +47,7 @@ import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import {
   ARRANGEMENT_DISABLED_TOOLTIP,
@@ -200,6 +201,17 @@ export const CPCPMonitoring = forwardRef<
     useState<AircraftMaintenanceDetails | null>(null);
   const [aircraftDetailsLoading, setAircraftDetailsLoading] = useState(false);
 
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingEntry),
+    loading,
+    listDeps: [items],
+  });
+
   const aircraftIdNum = useMemo(() => {
     if (aircraftId == null || String(aircraftId).trim() === "") return NaN;
     const n =
@@ -346,34 +358,52 @@ export const CPCPMonitoring = forwardRef<
     ? "You do not have permission to reorder rows."
     : ARRANGEMENT_DISABLED_TOOLTIP;
 
-  const fetchList = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Always paged for display; full collection loaded only on drag persist.
-      const res = await getCpcpMonitoringPaged(
-        currentPage,
-        itemsPerPage,
-        searchDebounced,
-        aircraftId
-      );
-      setItems(res.items);
-      setTotalItems(res.total);
-      setTotalPages(Math.max(1, res.pages));
-    } catch (err: any) {
-      const msg = formatApiErrorMessage(err, "Failed to load CPCP list.");
-      Swal.fire({ icon: "error", title: "Error!", text: msg });
-      setItems([]);
-      setTotalItems(0);
-      setTotalPages(1);
-    } finally {
-      setTimeout(() => setLoading(false), 360);
-    }
-  }, [
-    currentPage,
-    itemsPerPage,
-    searchDebounced,
-    aircraftId,
-  ]);
+  const fetchList = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLoading(true);
+      }
+      try {
+        // Always paged for display; full collection loaded only on drag persist.
+        const res = await getCpcpMonitoringPaged(
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced,
+          aircraftId
+        );
+        setItems(res.items);
+        setTotalItems(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        const msg = formatApiErrorMessage(err, "Failed to load CPCP list.");
+        Swal.fire({ icon: "error", title: "Error!", text: msg });
+        setItems([]);
+        setTotalItems(0);
+        setTotalPages(1);
+      } finally {
+        if (!preserveView) {
+          setTimeout(() => setLoading(false), 360);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      searchDebounced,
+      aircraftId,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchList();
@@ -517,15 +547,16 @@ export const CPCPMonitoring = forwardRef<
       try {
         await confirmSaveEntry(true, async () => {
           await updateCpcpMonitoring(id, data);
+          captureViewForRestore(id, currentPage);
           setShowAddModal(false);
           setEditingEntry(null);
-          fetchList();
+          fetchList({ preserveView: true });
         });
       } finally {
         setTimeout(() => setSaving(false), 360);
       }
     },
-    [fetchList, saving]
+    [fetchList, saving, captureViewForRestore, currentPage]
   );
 
   const openEdit = useCallback((entry: CPCPEntry) => {
@@ -729,7 +760,11 @@ export const CPCPMonitoring = forwardRef<
                 <Spinner />
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div
+                ref={listScrollRef}
+                data-atl-list-scroll
+                className="overflow-x-auto"
+              >
                 <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-blue-700/30 bg-blue-600 text-white">

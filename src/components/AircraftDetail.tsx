@@ -169,6 +169,12 @@ export function AircraftDetail() {
   const handleSaveEdit = async () => {
     const toOptionalFloat = (value: unknown): number | null => {
       if (value === null || value === undefined || value === "") return null;
+      if (
+        typeof value === "string" &&
+        value.trim().toUpperCase() === "UNK"
+      ) {
+        return null;
+      }
       const num = Number(value);
       return Number.isFinite(num) ? num : null;
     };
@@ -850,12 +856,13 @@ export function AircraftDetail() {
                         handleInputChange("engineTsn", e.target.value)
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Time Since New"
+                      placeholder="UNK"
+                      title="Leave empty for UNK"
                     />
                   ) : (
                     <p className="text-gray-900">
                       {aircraft.engineTsn == null || aircraft.engineTsn === ""
-                        ? "N/A"
+                        ? "UNK"
                         : numOrZero(aircraft.engineTsn)}
                     </p>
                   )}
@@ -1060,13 +1067,14 @@ export function AircraftDetail() {
                         handleInputChange("propellerTsn", e.target.value)
                       }
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Time Since New"
+                      placeholder="UNK"
+                      title="Leave empty for UNK"
                     />
                   ) : (
                     <p className="text-gray-900">
                       {aircraft.propellerTsn == null ||
                       aircraft.propellerTsn === ""
-                        ? "N/A"
+                        ? "UNK"
                         : numOrZero(aircraft.propellerTsn)}
                     </p>
                   )}

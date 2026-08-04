@@ -35,6 +35,7 @@ import {
   getOemApiErrorMessage,
 } from "../api/oemTechnicalPublicationApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -100,33 +101,69 @@ export function OEMTechnicalPublication() {
   const [saving, setSaving] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
 
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingPublication),
+    loading,
+    listDeps: [publications],
+  });
+
   useEffect(() => {
     getOemItemTypesList().then(setItemTypes);
   }, []);
 
-  const fetchPublications = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getOemPublicationsPaged(
-        currentPage,
-        itemsPerPage,
-        debouncedSearchTerm.trim(),
-        sortBy,
-        sortOrder
-      );
-      setPublications(res.items);
-      setTotal(res.total);
-      setTotalPages(Math.max(1, res.pages));
-    } catch (err) {
-      setError(getOemApiErrorMessage(err, "Failed to load publications."));
-      setPublications([]);
-      setTotal(0);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, itemsPerPage, debouncedSearchTerm, sortBy, sortOrder]);
+  const fetchPublications = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+
+      if (!preserveView) {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const res = await getOemPublicationsPaged(
+          pageToFetch,
+          itemsPerPage,
+          debouncedSearchTerm.trim(),
+          sortBy,
+          sortOrder
+        );
+        setPublications(res.items);
+        setTotal(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err) {
+        setError(getOemApiErrorMessage(err, "Failed to load publications."));
+        setPublications([]);
+        setTotal(0);
+        setTotalPages(1);
+      } finally {
+        if (!preserveView) {
+          setLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      debouncedSearchTerm,
+      sortBy,
+      sortOrder,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchPublications();
@@ -198,6 +235,9 @@ export function OEMTechnicalPublication() {
             date_of_expiration: toApiDate(addForm.expiryDate),
             web_link: addForm.assignLink?.trim() || "",
           });
+          captureViewForRestore(editingPublication.id, currentPage);
+          closeAddModal();
+          await fetchPublications({ preserveView: true });
         } else {
           await createOemPublication({
             item: addForm.itemFk,
@@ -205,9 +245,9 @@ export function OEMTechnicalPublication() {
             date_of_expiration: toApiDate(addForm.expiryDate),
             web_link: addForm.assignLink?.trim() || null,
           });
+          closeAddModal();
+          await fetchPublications();
         }
-        closeAddModal();
-        await fetchPublications();
       });
     } finally {
       setSaving(false);
@@ -469,7 +509,11 @@ export function OEMTechnicalPublication() {
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto"
+        >
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>

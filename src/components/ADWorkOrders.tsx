@@ -48,6 +48,7 @@ import { cn } from "./ui/utils";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   importAdWorkOrdersExcel,
@@ -228,6 +229,17 @@ export function ADWorkOrders() {
   const [adDetail, setAdDetail] = useState<ADMonitoring | null>(null);
   const [adDetailLoading, setAdDetailLoading] = useState(false);
 
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingWorkOrder),
+    loading,
+    listDeps: [workOrders],
+  });
+
   const inspectionInterval = adDetail?.inspectionInterval ?? "";
 
   const patchFormData = useCallback(
@@ -256,40 +268,58 @@ export function ADWorkOrders() {
   const atlAnchorRef = useRef<HTMLDivElement>(null);
   const [atlPanelWidth, setAtlPanelWidth] = useState<number | null>(null);
 
-  const fetchWorkOrders = useCallback(async () => {
-    if (!hasValidParams) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getWorkOrderAdMonitoring(
-        aircraft_fk,
-        ad_monitoring_fk,
-        currentPage,
-        itemsPerPage,
-        searchQuery
-      );
-      setWorkOrders(res.items);
-      setTotal(res.total);
-      setPages(res.pages);
-    } catch (err: any) {
-      console.error("Work orders fetch error:", err);
-      setError(
-        err?.response?.data?.detail ??
-          err?.message ??
-          "Failed to load work orders"
-      );
-      setWorkOrders([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    aircraft_fk,
-    ad_monitoring_fk,
-    hasValidParams,
-    currentPage,
-    itemsPerPage,
-    searchQuery,
-  ]);
+  const fetchWorkOrders = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      if (!hasValidParams) return;
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const res = await getWorkOrderAdMonitoring(
+          aircraft_fk,
+          ad_monitoring_fk,
+          pageToFetch,
+          itemsPerPage,
+          searchQuery
+        );
+        setWorkOrders(res.items);
+        setTotal(res.total);
+        setPages(res.pages);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        console.error("Work orders fetch error:", err);
+        setError(
+          err?.response?.data?.detail ??
+            err?.message ??
+            "Failed to load work orders"
+        );
+        setWorkOrders([]);
+      } finally {
+        if (!preserveView) {
+          setLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      aircraft_fk,
+      ad_monitoring_fk,
+      hasValidParams,
+      currentPage,
+      itemsPerPage,
+      searchQuery,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchWorkOrders();
@@ -442,6 +472,10 @@ export function ADWorkOrders() {
               atlRef: formData.atlRef || undefined,
             }
           );
+          captureViewForRestore(editingWorkOrder.id, currentPage);
+          setShowAddModal(false);
+          resetForm();
+          await fetchWorkOrders({ preserveView: true });
         } else {
           await createWorkOrderAdMonitoring(aircraft_fk, ad_monitoring_fk, {
             woNumber,
@@ -452,10 +486,10 @@ export function ADWorkOrders() {
             nextDueTach: formData.nextDueTach ?? "",
             atlRef: formData.atlRef ?? "",
           });
+          setShowAddModal(false);
+          resetForm();
+          await fetchWorkOrders();
         }
-        setShowAddModal(false);
-        resetForm();
-        await fetchWorkOrders();
       });
     } finally {
       setSaving(false);
@@ -867,7 +901,11 @@ export function ADWorkOrders() {
             </div>
           )}
 
-          <div className="overflow-x-auto">
+          <div
+            ref={listScrollRef}
+            data-atl-list-scroll
+            className="overflow-x-auto"
+          >
             {loading ? (
               <div className="flex justify-center py-12">
                 <Spinner />

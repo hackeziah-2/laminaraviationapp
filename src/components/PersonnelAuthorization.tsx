@@ -32,6 +32,7 @@ import {
 } from "../api/personnelAuthorizationApi";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 
 const displayDate = (v?: string | null) =>
   formatDisplayDate(v ?? undefined, { fallback: "—" });
@@ -316,27 +317,61 @@ export function PersonnelAuthorization() {
   const [saving, setSaving] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
 
-  const fetchPersonnel = useCallback(async () => {
-    setListLoading(true);
-    try {
-      const rows =
-        listGroupBy === "matrix2"
-          ? await getPersonnelAuthorizationsMatrix2({
-              sortExpiryDate: expiryDateSort,
-              name: debouncedNameSearch.trim() || undefined,
-            })
-          : await getPersonnelAuthorizations({
-              itemType: itemTypeFilter || undefined,
-              sortExpiryDate: expiryDateSort,
-              name: debouncedNameSearch.trim() || undefined,
-            });
-      setPersonnel(rows);
-    } catch {
-      setPersonnel([]);
-    } finally {
-      setListLoading(false);
-    }
-  }, [listGroupBy, itemTypeFilter, expiryDateSort, debouncedNameSearch]);
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingPersonnel),
+    loading: listLoading,
+    listDeps: [personnel],
+  });
+
+  const fetchPersonnel = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      if (!preserveView) {
+        setListLoading(true);
+      }
+      try {
+        const rows =
+          listGroupBy === "matrix2"
+            ? await getPersonnelAuthorizationsMatrix2({
+                sortExpiryDate: expiryDateSort,
+                name: debouncedNameSearch.trim() || undefined,
+              })
+            : await getPersonnelAuthorizations({
+                itemType: itemTypeFilter || undefined,
+                sortExpiryDate: expiryDateSort,
+                name: debouncedNameSearch.trim() || undefined,
+              });
+        setPersonnel(rows);
+        if (preserveView) {
+          const pendingPage = getPendingPage(currentPage);
+          if (pendingPage !== currentPage) {
+            setCurrentPage(pendingPage);
+          }
+        }
+      } catch {
+        setPersonnel([]);
+      } finally {
+        if (!preserveView) {
+          setListLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      listGroupBy,
+      itemTypeFilter,
+      expiryDateSort,
+      debouncedNameSearch,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   const total = personnel.length;
   const totalPages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
@@ -554,11 +589,14 @@ export function PersonnelAuthorization() {
             editingPersonnel.id,
             compliancePayload
           );
+          captureViewForRestore(editingPersonnel.id, currentPage);
+          closeCreateModal();
+          await fetchPersonnel({ preserveView: true });
         } else {
           await createPersonnelAuthorization(compliancePayload);
+          closeCreateModal();
+          await fetchPersonnel();
         }
-        closeCreateModal();
-        await fetchPersonnel();
       });
     } finally {
       setSaving(false);
@@ -1056,7 +1094,11 @@ export function PersonnelAuthorization() {
             )}
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto"
+        >
           <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
             {listGroupBy === "matrix1" ? (
               <thead className="bg-gray-50 border-b border-gray-200">

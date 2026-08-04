@@ -37,6 +37,7 @@ import { SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { SortableTableRow } from "./SortableTableRow";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import { formatDisplayDate } from "../utility/utils";
 import {
@@ -222,28 +223,63 @@ export function AircraftFleetDailyUpdate() {
   // Map filterStatus to API status param (backend may expect these values)
   const apiStatus = filterStatus === "all" ? "" : filterStatus;
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getFleetDailyUpdatePaged(
-        currentPage,
-        itemsPerPage,
-        searchDebounced,
-        apiStatus,
-        sortParam
-      );
-      setItems(res.items);
-      setTotal(res.total);
-      setTotalPages(res.pages);
-    } catch (err: any) {
-      console.error("Error fetching fleet daily update:", err);
-      setItems([]);
-      setTotal(0);
-      setTotalPages(0);
-    } finally {
-      setTimeout(() => setLoading(false), 360);
-    }
-  }, [currentPage, itemsPerPage, searchDebounced, apiStatus, sortParam]);
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: showRemarkModal,
+    loading,
+    listDeps: [items],
+  });
+
+  const fetchData = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLoading(true);
+      }
+      try {
+        const res = await getFleetDailyUpdatePaged(
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced,
+          apiStatus,
+          sortParam
+        );
+        setItems(res.items);
+        setTotal(res.total);
+        setTotalPages(res.pages);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        console.error("Error fetching fleet daily update:", err);
+        setItems([]);
+        setTotal(0);
+        setTotalPages(0);
+      } finally {
+        if (!preserveView) {
+          setTimeout(() => setLoading(false), 360);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      searchDebounced,
+      apiStatus,
+      sortParam,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchData();
@@ -404,13 +440,20 @@ export function AircraftFleetDailyUpdate() {
     try {
       await confirmSaveEntry(true, async () => {
         await bulkUpdateFleetDailyUpdates({ updates: bulkUpdates });
+        captureViewForRestore(null, currentPage);
         exitBulkEditMode();
-        await fetchData();
+        await fetchData({ preserveView: true });
       });
     } finally {
       setSavingBulk(false);
     }
-  }, [bulkUpdates, exitBulkEditMode, fetchData]);
+  }, [
+    bulkUpdates,
+    exitBulkEditMode,
+    fetchData,
+    captureViewForRestore,
+    currentPage,
+  ]);
 
   const guardBulkEditNavigation = useCallback(async (): Promise<boolean> => {
     if (!bulkEditMode) return true;
@@ -482,16 +525,25 @@ export function AircraftFleetDailyUpdate() {
           remarks: remarkDraft,
           status: statusDraft,
         });
+        captureViewForRestore(editingItem.id ?? null, currentPage);
         setShowRemarkModal(false);
         setEditingItem(null);
         setRemarkDraft("");
         setStatusDraft("");
-        await fetchData();
+        await fetchData({ preserveView: true });
       });
     } finally {
       setSavingRemark(false);
     }
-  }, [editingItem, remarkDraft, statusDraft, fetchData, savingRemark]);
+  }, [
+    editingItem,
+    remarkDraft,
+    statusDraft,
+    fetchData,
+    savingRemark,
+    captureViewForRestore,
+    currentPage,
+  ]);
 
   const getRowColorClass = (
     rowColor?: string,
@@ -658,7 +710,11 @@ export function AircraftFleetDailyUpdate() {
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto relative min-h-[200px]">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-x-auto relative min-h-[200px]"
+        >
           {loading ? (
             <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
               <SpinnerIcon size="lg" />

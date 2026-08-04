@@ -62,6 +62,7 @@ import {
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import {
   importMaintenanceExcel,
   importTccMaintenanceExcel,
@@ -463,32 +464,67 @@ export function Maintenance() {
   );
   const [adSaving, setAdSaving] = useState(false);
 
-  const fetchLdnd = useCallback(async () => {
-    if (!aircraftId || activeCategory !== "LDND") return;
-    setLdndLoading(true);
-    setLdndError(null);
-    try {
-      const res = await getAircraftLdndMonitoring(
-        aircraftId,
-        currentPage,
-        itemsPerPage,
-        ldndSearchQuery
-      );
-      setLdndItems(res.items);
-      setLdndTotal(res.total);
-      setLdndPages(res.pages);
-    } catch (err: any) {
-      console.error("LDND fetch error:", err);
-      setLdndError(
-        err?.response?.data?.detail ??
-          err?.message ??
-          "Failed to load LDND records"
-      );
-      setLdndItems([]);
-    } finally {
-      setLdndLoading(false);
-    }
-  }, [aircraftId, activeCategory, currentPage, itemsPerPage, ldndSearchQuery]);
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: Boolean(editingLdndEntry) || Boolean(editingADEntry),
+    loading: ldndLoading || adLoading,
+    listDeps: [ldndItems, adItems],
+  });
+
+  const fetchLdnd = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      if (!aircraftId || activeCategory !== "LDND") return;
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLdndLoading(true);
+      }
+      setLdndError(null);
+      try {
+        const res = await getAircraftLdndMonitoring(
+          aircraftId,
+          pageToFetch,
+          itemsPerPage,
+          ldndSearchQuery
+        );
+        setLdndItems(res.items);
+        setLdndTotal(res.total);
+        setLdndPages(res.pages);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        console.error("LDND fetch error:", err);
+        setLdndError(
+          err?.response?.data?.detail ??
+            err?.message ??
+            "Failed to load LDND records"
+        );
+        setLdndItems([]);
+      } finally {
+        if (!preserveView) {
+          setLdndLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      aircraftId,
+      activeCategory,
+      currentPage,
+      itemsPerPage,
+      ldndSearchQuery,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   const fetchLdndLatest = useCallback(async () => {
     if (!aircraftId || activeCategory !== "LDND") return;
@@ -508,38 +544,56 @@ export function Maintenance() {
     if (activeCategory === "LDND") fetchLdndLatest();
   }, [activeCategory, fetchLdndLatest]);
 
-  const fetchAd = useCallback(async () => {
-    if (!aircraftId || activeCategory !== "AD") return;
-    setAdLoading(true);
-    setAdError(null);
-    try {
-      const res = await getAircraftAdMonitoring(
-        aircraftId,
-        adCurrentPage,
-        adItemsPerPage,
-        adSearchQuery
-      );
-      setAdItems(res.items);
-      setAdTotal(res.total);
-      setAdPages(res.pages);
-    } catch (err: any) {
-      console.error("AD fetch error:", err);
-      setAdError(
-        err?.response?.data?.detail ??
-          err?.message ??
-          "Failed to load AD records"
-      );
-      setAdItems([]);
-    } finally {
-      setAdLoading(false);
-    }
-  }, [
-    aircraftId,
-    activeCategory,
-    adCurrentPage,
-    adItemsPerPage,
-    adSearchQuery,
-  ]);
+  const fetchAd = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      if (!aircraftId || activeCategory !== "AD") return;
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(adCurrentPage)
+        : adCurrentPage;
+      if (!preserveView) {
+        setAdLoading(true);
+      }
+      setAdError(null);
+      try {
+        const res = await getAircraftAdMonitoring(
+          aircraftId,
+          pageToFetch,
+          adItemsPerPage,
+          adSearchQuery
+        );
+        setAdItems(res.items);
+        setAdTotal(res.total);
+        setAdPages(res.pages);
+        if (preserveView && pageToFetch !== adCurrentPage) {
+          setAdCurrentPage(pageToFetch);
+        }
+      } catch (err: any) {
+        console.error("AD fetch error:", err);
+        setAdError(
+          err?.response?.data?.detail ??
+            err?.message ??
+            "Failed to load AD records"
+        );
+        setAdItems([]);
+      } finally {
+        if (!preserveView) {
+          setAdLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      aircraftId,
+      activeCategory,
+      adCurrentPage,
+      adItemsPerPage,
+      adSearchQuery,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     if (activeCategory === "LDND") fetchLdnd();
@@ -620,22 +674,36 @@ export function Maintenance() {
             editingLdndEntry.id,
             payload
           );
+          captureViewForRestore(editingLdndEntry.id, currentPage);
+          setShowAddModal(false);
+          setEditingLdndEntry(null);
+          setNewEntry({
+            type: "",
+            unit: "HRS",
+            lastDoneTachDue: "",
+            lastDoneTachDone: "",
+            nextDueTachHours: "",
+            performedDateStart: "",
+            performedDateEnd: "",
+          });
+          await fetchLdnd({ preserveView: true });
+          await fetchLdndLatest();
         } else {
           await createAircraftLdndMonitoring(aircraftId, payload);
+          setShowAddModal(false);
+          setEditingLdndEntry(null);
+          setNewEntry({
+            type: "",
+            unit: "HRS",
+            lastDoneTachDue: "",
+            lastDoneTachDone: "",
+            nextDueTachHours: "",
+            performedDateStart: "",
+            performedDateEnd: "",
+          });
+          await fetchLdnd();
+          await fetchLdndLatest();
         }
-        setShowAddModal(false);
-        setEditingLdndEntry(null);
-        setNewEntry({
-          type: "",
-          unit: "HRS",
-          lastDoneTachDue: "",
-          lastDoneTachDone: "",
-          nextDueTachHours: "",
-          performedDateStart: "",
-          performedDateEnd: "",
-        });
-        await fetchLdnd();
-        await fetchLdndLatest();
       });
     } finally {
       setLdndSaving(false);
@@ -1136,19 +1204,30 @@ export function Maintenance() {
             editingADEntry.id,
             basePayload
           );
+          captureViewForRestore(editingADEntry.id, adCurrentPage);
+          setShowADModal(false);
+          setEditingADEntry(null);
+          setNewADEntry({
+            adNumber: "",
+            subject: "",
+            inspectionInterval: "",
+            compliDate: "",
+            webLink: "",
+          });
+          await fetchAd({ preserveView: true });
         } else {
           await createAircraftAdMonitoring(aircraftId, basePayload);
+          setShowADModal(false);
+          setEditingADEntry(null);
+          setNewADEntry({
+            adNumber: "",
+            subject: "",
+            inspectionInterval: "",
+            compliDate: "",
+            webLink: "",
+          });
+          await fetchAd();
         }
-        setShowADModal(false);
-        setEditingADEntry(null);
-        setNewADEntry({
-          adNumber: "",
-          subject: "",
-          inspectionInterval: "",
-          compliDate: "",
-          webLink: "",
-        });
-        await fetchAd();
       });
     } finally {
       setAdSaving(false);
@@ -1698,7 +1777,11 @@ export function Maintenance() {
             )}
 
             {/* LDND Table */}
-            <div className="overflow-x-auto">
+            <div
+              ref={listScrollRef}
+              data-atl-list-scroll
+              className="overflow-x-auto"
+            >
               {ldndLoading ? (
                 <div className="flex justify-center py-12">
                   <Spinner />
@@ -1957,7 +2040,11 @@ export function Maintenance() {
             )}
 
             {/* AD Table */}
-            <div className="overflow-x-auto">
+            <div
+              ref={listScrollRef}
+              data-atl-list-scroll
+              className="overflow-x-auto"
+            >
               {adLoading ? (
                 <div className="flex justify-center py-12">
                   <Spinner />

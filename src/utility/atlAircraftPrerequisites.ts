@@ -1,4 +1,5 @@
 import type { Aircraft } from "../types/Aircraft";
+import { hasTsnValue, displayTSN } from "../api/aircraftTechnicalLogApi";
 import { formatAtlTboDisplay1dp } from "./utils";
 
 export const ATL_AIRCRAFT_DETAILS_REQUIRED_TITLE = "Aircraft Details Required";
@@ -112,26 +113,13 @@ export function getMissingAircraftFieldsForNewAtl(
   if (isMissingRequiredHoursAllowZero(resolveAircraftAirframeAftt(aircraft))) {
     missing.push("Airframe AFTT");
   }
-  if (
-    isMissingRequiredHoursAllowZero(
-      resolveAircraftEnginePropHour(aircraft, "engineTsn")
-    )
-  ) {
-    missing.push("Engine TSN");
-  }
+  // Engine/Propeller TSN may be null/empty (display UNK) — not required for ATL create.
   if (
     isMissingRequiredHoursAllowZero(
       resolveAircraftEnginePropHour(aircraft, "engineTso")
     )
   ) {
     missing.push("Engine TSO");
-  }
-  if (
-    isMissingRequiredHoursAllowZero(
-      resolveAircraftEnginePropHour(aircraft, "propellerTsn")
-    )
-  ) {
-    missing.push("Propeller TSN");
   }
   if (
     isMissingRequiredHoursAllowZero(
@@ -158,6 +146,13 @@ function formatAtlInitialHourValue(value: unknown): string {
 function parseAtlBaselineHour(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Previous TSN for auto-compute; null/empty → null (do not coerce to 0). */
+function parseAtlBaselineTsn(value: unknown): number | null {
+  if (!hasTsnValue(value)) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function resolveAircraftEngineLifeTimeLimit(
@@ -198,10 +193,12 @@ export function buildAtlInitialValuesFromAircraftFallback(
   lifeTimeLimitEngine: string;
   lifeTimeLimitPropeller: string;
   previousAirframeAftt: number;
-  previousEngineTsn: number;
+  previousEngineTsn: number | null;
   previousEngineTso: number;
-  previousPropellerTsn: number;
+  previousPropellerTsn: number | null;
   previousPropellerTso: number;
+  hasEngineTsn: boolean;
+  hasPropellerTsn: boolean;
 } {
   const airframeAftt = resolveAircraftAirframeAftt(aircraft);
   const engineTsn = resolveAircraftEnginePropHour(aircraft, "engineTsn");
@@ -225,6 +222,9 @@ export function buildAtlInitialValuesFromAircraftFallback(
       ? propellerLimitNum - propellerTsoNum
       : null;
 
+  const previousEngineTsn = parseAtlBaselineTsn(engineTsn);
+  const previousPropellerTsn = parseAtlBaselineTsn(propellerTsn);
+
   return {
     airframeAftt: formatAtlInitialHourValue(airframeAftt),
     engineTsn: formatAtlInitialHourValue(engineTsn),
@@ -236,10 +236,12 @@ export function buildAtlInitialValuesFromAircraftFallback(
     lifeTimeLimitEngine: formatAtlInitialHourValue(engineLimit),
     lifeTimeLimitPropeller: formatAtlInitialHourValue(propellerLimit),
     previousAirframeAftt: parseAtlBaselineHour(airframeAftt),
-    previousEngineTsn: parseAtlBaselineHour(engineTsn),
+    previousEngineTsn,
     previousEngineTso: parseAtlBaselineHour(engineTso),
-    previousPropellerTsn: parseAtlBaselineHour(propellerTsn),
+    previousPropellerTsn,
     previousPropellerTso: parseAtlBaselineHour(propellerTso),
+    hasEngineTsn: previousEngineTsn != null,
+    hasPropellerTsn: previousPropellerTsn != null,
   };
 }
 
@@ -263,9 +265,12 @@ export function buildAircraftDetailsRequiredForAtlHtml(
       formatAircraftDetailAlertValue(propellerLimit),
     ],
     ["Airframe AFTT", formatAircraftDetailAlertValue(airframeAftt)],
-    ["Engine TSN", formatAircraftDetailAlertValue(engineTsn)],
+    ["Engine TSN", displayTSN(engineTsn as string | number | null | undefined)],
     ["Engine TSO", formatAircraftDetailAlertValue(engineTso)],
-    ["Propeller TSN", formatAircraftDetailAlertValue(propellerTsn)],
+    [
+      "Propeller TSN",
+      displayTSN(propellerTsn as string | number | null | undefined),
+    ],
     ["Propeller TSO", formatAircraftDetailAlertValue(propellerTso)],
   ];
 
@@ -273,7 +278,7 @@ export function buildAircraftDetailsRequiredForAtlHtml(
 
   return (
     '<p style="margin:0 0 0.75em 0"><strong>Complete Engine & Propeller Details</strong></p>' +
-    '<p style="margin:0 0 1em 0"><strong>Complete required fields:</strong> Lifetime Limits must be valid. Airframe AFTT, Engine TSN/TSO, and Propeller TSN/TSO cannot be blank (0 is allowed).</p>' +
+    '<p style="margin:0 0 1em 0"><strong>Complete required fields:</strong> Lifetime Limits must be valid. Airframe AFTT, Engine TSO, and Propeller TSO cannot be blank (0 is allowed). Engine/Propeller TSN may be blank (shown as UNK).</p>' +
     '<div style="text-align:left;line-height:1.65">' +
     list +
     "</div>"

@@ -19,6 +19,7 @@ import {
 } from "../../api/organizationalApprovalApi";
 import type { ModuleSettingKey } from "../../constants/moduleSettingsOptions";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
+import { usePreserveListView } from "../../hooks/usePreserveListView";
 import { getMe } from "../../api/authApi";
 import {
   canCreateAtlBatch,
@@ -129,26 +130,53 @@ function AtlBatchSettingsPanel() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalBatches, setTotalBatches] = useState(0);
 
-  const loadBatches = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getAtlBatchesPaged(currentPage, itemsPerPage);
-      setBatches(res.items);
-      setTotalBatches(res.total);
-      setTotalPages(Math.max(1, res.pages));
-      if (res.items.length === 0 && currentPage > 1 && res.total > 0) {
-        setCurrentPage((p) => Math.max(1, p - 1));
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: modalOpen,
+    loading,
+    listDeps: [batches],
+  });
+
+  const loadBatches = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLoading(true);
       }
-    } catch (err: unknown) {
-      setError((err as Error)?.message ?? "Failed to load ATL batches.");
-      setBatches([]);
-      setTotalBatches(0);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, itemsPerPage]);
+      setError(null);
+      try {
+        const res = await getAtlBatchesPaged(pageToFetch, itemsPerPage);
+        setBatches(res.items);
+        setTotalBatches(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+        if (res.items.length === 0 && pageToFetch > 1 && res.total > 0) {
+          setCurrentPage((p) => Math.max(1, p - 1));
+        }
+      } catch (err: unknown) {
+        setError((err as Error)?.message ?? "Failed to load ATL batches.");
+        setBatches([]);
+        setTotalBatches(0);
+        setTotalPages(1);
+      } finally {
+        if (!preserveView) {
+          setLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [currentPage, itemsPerPage, getPendingPage, beginPreserveViewSettle]
+  );
 
   useEffect(() => {
     void loadBatches();
@@ -256,7 +284,11 @@ function AtlBatchSettingsPanel() {
           </div>
         )}
 
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+        >
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -369,8 +401,14 @@ function AtlBatchSettingsPanel() {
         editBatchId={editBatchId}
         onClose={() => setModalOpen(false)}
         onSaved={() => {
+          const editingId = editBatchId;
+          if (editingId != null) {
+            captureViewForRestore(editingId, currentPage);
+          }
           setModalOpen(false);
-          void loadBatches();
+          void loadBatches(
+            editingId != null ? { preserveView: true } : undefined
+          );
         }}
       />
     </>
@@ -393,29 +431,56 @@ function OaApprovalTypeSettingsPanel() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalTypes, setTotalTypes] = useState(0);
 
-  const loadTypes = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getCertificateCategoryTypesPaged(
-        currentPage,
-        itemsPerPage
-      );
-      setTypes(res.items);
-      setTotalTypes(res.total);
-      setTotalPages(Math.max(1, res.pages));
-      if (res.items.length === 0 && currentPage > 1 && res.total > 0) {
-        setCurrentPage((p) => Math.max(1, p - 1));
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: modalOpen,
+    loading,
+    listDeps: [types],
+  });
+
+  const loadTypes = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLoading(true);
       }
-    } catch (err: unknown) {
-      setError((err as Error)?.message ?? "Failed to load approval types.");
-      setTypes([]);
-      setTotalTypes(0);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, itemsPerPage]);
+      setError(null);
+      try {
+        const res = await getCertificateCategoryTypesPaged(
+          pageToFetch,
+          itemsPerPage
+        );
+        setTypes(res.items);
+        setTotalTypes(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+        if (res.items.length === 0 && pageToFetch > 1 && res.total > 0) {
+          setCurrentPage((p) => Math.max(1, p - 1));
+        }
+      } catch (err: unknown) {
+        setError((err as Error)?.message ?? "Failed to load approval types.");
+        setTypes([]);
+        setTotalTypes(0);
+        setTotalPages(1);
+      } finally {
+        if (!preserveView) {
+          setLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [currentPage, itemsPerPage, getPendingPage, beginPreserveViewSettle]
+  );
 
   useEffect(() => {
     void loadTypes();
@@ -507,7 +572,11 @@ function OaApprovalTypeSettingsPanel() {
           </div>
         )}
 
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+        >
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -614,8 +683,14 @@ function OaApprovalTypeSettingsPanel() {
         editTypeId={editTypeId}
         onClose={() => setModalOpen(false)}
         onSaved={() => {
+          const editingId = editTypeId;
+          if (editingId != null) {
+            captureViewForRestore(editingId, currentPage);
+          }
           setModalOpen(false);
-          void loadTypes();
+          void loadTypes(
+            editingId != null ? { preserveView: true } : undefined
+          );
         }}
       />
     </>
@@ -638,26 +713,53 @@ function OemItemTypesSettingsPanel() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalTypes, setTotalTypes] = useState(0);
 
-  const loadTypes = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getOemItemTypesPaged(currentPage, itemsPerPage);
-      setTypes(res.items);
-      setTotalTypes(res.total);
-      setTotalPages(Math.max(1, res.pages));
-      if (res.items.length === 0 && currentPage > 1 && res.total > 0) {
-        setCurrentPage((p) => Math.max(1, p - 1));
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: modalOpen,
+    loading,
+    listDeps: [types],
+  });
+
+  const loadTypes = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setLoading(true);
       }
-    } catch (err: unknown) {
-      setError((err as Error)?.message ?? "Failed to load OEM item types.");
-      setTypes([]);
-      setTotalTypes(0);
-      setTotalPages(1);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, itemsPerPage]);
+      setError(null);
+      try {
+        const res = await getOemItemTypesPaged(pageToFetch, itemsPerPage);
+        setTypes(res.items);
+        setTotalTypes(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+        if (res.items.length === 0 && pageToFetch > 1 && res.total > 0) {
+          setCurrentPage((p) => Math.max(1, p - 1));
+        }
+      } catch (err: unknown) {
+        setError((err as Error)?.message ?? "Failed to load OEM item types.");
+        setTypes([]);
+        setTotalTypes(0);
+        setTotalPages(1);
+      } finally {
+        if (!preserveView) {
+          setLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [currentPage, itemsPerPage, getPendingPage, beginPreserveViewSettle]
+  );
 
   useEffect(() => {
     void loadTypes();
@@ -749,7 +851,11 @@ function OemItemTypesSettingsPanel() {
           </div>
         )}
 
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div
+          ref={listScrollRef}
+          data-atl-list-scroll
+          className="overflow-hidden rounded-lg border border-gray-200 bg-white"
+        >
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -856,8 +962,14 @@ function OemItemTypesSettingsPanel() {
         editTypeId={editTypeId}
         onClose={() => setModalOpen(false)}
         onSaved={() => {
+          const editingId = editTypeId;
+          if (editingId != null) {
+            captureViewForRestore(editingId, currentPage);
+          }
           setModalOpen(false);
-          void loadTypes();
+          void loadTypes(
+            editingId != null ? { preserveView: true } : undefined
+          );
         }}
       />
     </>

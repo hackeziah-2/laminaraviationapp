@@ -43,6 +43,7 @@ import {
 } from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -2266,47 +2267,76 @@ export function Settings() {
     [roles, formatReadableDateTime]
   );
 
-  const fetchUsersList = useCallback(async () => {
-    setUsersLoading(true);
-    setUsersError(null);
-    try {
-      const res = await accountApi.getAccountsPaged(
-        currentPage,
-        itemsPerPage,
-        searchDebounced,
-        selectedUserRoleFilter === "all" ? "" : selectedUserRoleFilter
-      );
-      setUsers(res.items.map(mapAccountToUser));
-      setTotalUsers(res.total);
-      setTotalPages(Math.max(1, res.pages));
-    } catch (err) {
-      const msg =
-        (
-          err as {
-            response?: { data?: { message?: string; detail?: string } };
-            message?: string;
-          }
-        )?.response?.data?.message ??
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ??
-        (err as Error)?.message ??
-        "Failed to load users";
-      setUsersError(msg);
-      setUsers((prev) => {
-        setTotalUsers(prev.length);
-        setTotalPages(Math.max(1, Math.ceil(prev.length / itemsPerPage)));
-        return prev;
-      });
-    } finally {
-      setUsersLoading(false);
-    }
-  }, [
-    currentPage,
-    itemsPerPage,
-    mapAccountToUser,
-    searchDebounced,
-    selectedUserRoleFilter,
-  ]);
+  const {
+    listScrollRef,
+    captureViewForRestore,
+    beginPreserveViewSettle,
+    getPendingPage,
+  } = usePreserveListView({
+    isEditOpen: showEditUserModal || showEditRoleModal,
+    loading: usersLoading || rolesLoading,
+    listDeps: [users, roles],
+  });
+
+  const fetchUsersList = useCallback(
+    async (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
+      if (!preserveView) {
+        setUsersLoading(true);
+      }
+      setUsersError(null);
+      try {
+        const res = await accountApi.getAccountsPaged(
+          pageToFetch,
+          itemsPerPage,
+          searchDebounced,
+          selectedUserRoleFilter === "all" ? "" : selectedUserRoleFilter
+        );
+        setUsers(res.items.map(mapAccountToUser));
+        setTotalUsers(res.total);
+        setTotalPages(Math.max(1, res.pages));
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
+        }
+      } catch (err) {
+        const msg =
+          (
+            err as {
+              response?: { data?: { message?: string; detail?: string } };
+              message?: string;
+            }
+          )?.response?.data?.message ??
+          (err as { response?: { data?: { detail?: string } } })?.response?.data
+            ?.detail ??
+          (err as Error)?.message ??
+          "Failed to load users";
+        setUsersError(msg);
+        setUsers((prev) => {
+          setTotalUsers(prev.length);
+          setTotalPages(Math.max(1, Math.ceil(prev.length / itemsPerPage)));
+          return prev;
+        });
+      } finally {
+        if (!preserveView) {
+          setUsersLoading(false);
+        } else {
+          beginPreserveViewSettle();
+        }
+      }
+    },
+    [
+      currentPage,
+      itemsPerPage,
+      mapAccountToUser,
+      searchDebounced,
+      selectedUserRoleFilter,
+      getPendingPage,
+      beginPreserveViewSettle,
+    ]
+  );
 
   useEffect(() => {
     fetchUsersList();
@@ -2316,21 +2346,33 @@ export function Settings() {
     setCurrentPage(1);
   }, [selectedUserRoleFilter]);
 
-  const fetchRoles = useCallback(() => {
-    setRolesLoading(true);
-    setRolesError(null);
-    rolesApi
-      .getRoles()
-      .then((data) => {
-        setRoles(data.length ? data : defaultRoles);
-        setRolesError(null);
-      })
-      .catch((err) => {
-        setRoles(defaultRoles);
-        setRolesError((err as Error)?.message ?? "Failed to load roles");
-      })
-      .finally(() => setRolesLoading(false));
-  }, []);
+  const fetchRoles = useCallback(
+    (options?: { preserveView?: boolean }) => {
+      const preserveView = Boolean(options?.preserveView);
+      if (!preserveView) {
+        setRolesLoading(true);
+      }
+      setRolesError(null);
+      rolesApi
+        .getRoles()
+        .then((data) => {
+          setRoles(data.length ? data : defaultRoles);
+          setRolesError(null);
+        })
+        .catch((err) => {
+          setRoles(defaultRoles);
+          setRolesError((err as Error)?.message ?? "Failed to load roles");
+        })
+        .finally(() => {
+          if (!preserveView) {
+            setRolesLoading(false);
+          } else {
+            beginPreserveViewSettle();
+          }
+        });
+    },
+    [beginPreserveViewSettle]
+  );
 
   useEffect(() => {
     fetchRoles();
@@ -2839,6 +2881,11 @@ export function Settings() {
                       <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
                     </div>
                   ) : (
+                    <div
+                      ref={listScrollRef}
+                      data-atl-list-scroll
+                      className="overflow-x-auto"
+                    >
                     <table className="w-full">
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-200">
@@ -3023,6 +3070,7 @@ export function Settings() {
                         )}
                       </tbody>
                     </table>
+                    </div>
                   )}
                   {!usersLoading &&
                     (filteredUsers.length > 0 || totalUsers > 0) && (
@@ -3055,7 +3103,11 @@ export function Settings() {
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  <div
+                    ref={listScrollRef}
+                    data-atl-list-scroll
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6"
+                  >
                     {roles.map((role) => (
                       <div
                         key={role.id}
@@ -3426,8 +3478,9 @@ export function Settings() {
             auth_initial_doi: updatedUser.auth_initial_doi || null,
             auth_stamp: updatedUser.auth_stamp ?? null,
           });
+          captureViewForRestore(updatedUser.id, currentPage);
           setSelectedUser(null);
-          await fetchUsersList();
+          void fetchUsersList({ preserveView: true });
         }}
       />
 
@@ -3536,7 +3589,11 @@ export function Settings() {
           setRoles((prev) =>
             prev.map((r) => (r.id === savedRole.id ? savedRole : r))
           );
-          fetchRoles();
+          captureViewForRestore(
+            selectedRoleForEdit?.id ?? savedRole.id,
+            currentPage
+          );
+          fetchRoles({ preserveView: true });
           setCustomPermissions((prev) => {
             const next = { ...prev };
             const oldName = selectedRoleForEdit?.name;
