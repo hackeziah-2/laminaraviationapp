@@ -2420,7 +2420,11 @@ export function Operation() {
                               rowSpan={2}
                               className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
-                              Total Flight hours
+                              Total
+                              <br />
+                              Flight
+                              <br />
+                              hours
                             </th>
                             <th
                               rowSpan={2}

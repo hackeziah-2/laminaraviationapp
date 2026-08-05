@@ -29,6 +29,7 @@ import { getMe } from "../api/authApi";
 import {
   resolvePreviousAtlForNewEntry,
   getLatestAircraftTechnicalLog,
+  getPreviousATL,
   AircraftTechnicalLog,
   createAircraftTechnicalLog,
   AircraftTechnicalLogCreate,
@@ -195,13 +196,81 @@ function resolveHobbsMeterStartFromLatest(
   return String(end).trim();
 }
 
+/**
+ * Create-only: NEXT INSP. DUE / TACH TIME DUE from the previous ATL
+ * (sequenceNo === form Sequence No. - 1). Missing previous → both empty.
+ * Preserves tachTimeDue 0 as valid.
+ */
+function inspectionDueFieldsFromPreviousAtl(
+  previousAtl: AircraftTechnicalLog | null
+): { nextInspectionDue: string; tachTimeDue: string } {
+  if (!previousAtl) {
+    return { nextInspectionDue: "", tachTimeDue: "" };
+  }
+
+  const raw = previousAtl as AircraftTechnicalLog & Record<string, unknown>;
+  const inspRaw =
+    previousAtl.nextInspectionDue ??
+    raw.next_inspection_due ??
+    raw.nextInspDue;
+  const nextInspectionDue =
+    inspRaw != null && String(inspRaw).trim() !== ""
+      ? String(inspRaw).trim()
+      : "";
+
+  const rawTach =
+    previousAtl.tachTimeDue ?? raw.tach_time_due ?? raw.tachDue;
+  let tachTimeDue = "";
+  if (rawTach != null && rawTach !== "") {
+    if (typeof rawTach === "number") {
+      tachTimeDue = Number.isFinite(rawTach) ? String(rawTach) : "";
+    } else {
+      tachTimeDue = String(rawTach).trim();
+    }
+  }
+
+  return { nextInspectionDue, tachTimeDue };
+}
+
+/** Numeric sequence for previous-seq checks (e.g. "0126" → 126). */
+function parseAtlSequenceNumber(
+  value: string | number | null | undefined
+): number | null {
+  const match = String(value ?? "")
+    .trim()
+    .match(/(\d+)/);
+  if (!match) return null;
+  const n = Number.parseInt(match[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** True when previousSeq is exactly currentSeq - 1. */
+function isImmediatePreviousAtlSequence(
+  previousSequenceNo: string | number | null | undefined,
+  currentSequenceNo: string | number
+): boolean {
+  const prev = parseAtlSequenceNumber(previousSequenceNo);
+  const curr = parseAtlSequenceNumber(currentSequenceNo);
+  return prev != null && curr != null && prev === curr - 1;
+}
+
 /** Nature of Flight values that force End = Start (zero meter totals). */
-const ZERO_FLIGHT_METER_NATURES = new Set(["PRF", "PSF", "VOID"]);
+const ZERO_FLIGHT_METER_NATURES = new Set([
+  "PRF",
+  "PSF",
+  "VOID",
+  "ME",
+  "ATL_REPL",
+]);
 
 function isZeroFlightMeterNature(
   natureOfFlight: string | undefined | null
 ): boolean {
-  return ZERO_FLIGHT_METER_NATURES.has(String(natureOfFlight ?? "").trim());
+  const normalized = String(natureOfFlight ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_");
+  return ZERO_FLIGHT_METER_NATURES.has(normalized);
 }
 
 /** Set tachometerEnd / hobbsMeterEnd from their Start values (totals → 0). */
@@ -218,6 +287,54 @@ function applyZeroFlightMeterEndsFromStarts<
     tachometerEnd: form.tachometerStart,
     hobbsMeterEnd: form.hobbsMeterStart,
   };
+}
+
+/**
+ * Aircraft base location for Off Blocks Station defaults.
+ * Prefers nested aircraftDetails.baseLocation; falls back to profile `base`.
+ */
+function resolveAircraftBaseLocation(aircraft: unknown): string {
+  if (!aircraft || typeof aircraft !== "object") return "";
+  const root = aircraft as Record<string, unknown>;
+  const details =
+    root.aircraftDetails && typeof root.aircraftDetails === "object"
+      ? (root.aircraftDetails as Record<string, unknown>)
+      : null;
+  const candidates = [
+    details?.baseLocation,
+    details?.base_location,
+    details?.base,
+    root.baseLocation,
+    root.base_location,
+    root.base,
+  ];
+  for (const value of candidates) {
+    const trimmed = String(value ?? "").trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+/**
+ * Apply aircraft base location to offBlocksStation.
+ * - fillIfEmpty: only when the field is blank (create load / edit empty station)
+ * - replace: when the selected aircraft changes
+ */
+function applyOffBlocksStationFromBaseLocation<
+  T extends { offBlocksStation: string },
+>(
+  form: T,
+  baseLocation: string | undefined | null,
+  mode: "fillIfEmpty" | "replace"
+): T {
+  const base = String(baseLocation ?? "").trim();
+  if (mode === "replace") {
+    return { ...form, offBlocksStation: base };
+  }
+  if (!form.offBlocksStation?.trim() && base) {
+    return { ...form, offBlocksStation: base };
+  }
+  return form;
 }
 
 /**
@@ -1868,10 +1985,28 @@ export function AddTechnicalLogbookEntryModal({
               previousAtl.aircraft?.registration ||
               aircrafts.find((ac) => ac.id === aircraftId)?.registration ||
               "";
-            setFormData((prev) => ({
-              ...prev,
-              acReg: registration,
-            }));
+            let baseLocation = "";
+            try {
+              const response = await getAircraftById(aircraftId);
+              baseLocation = resolveAircraftBaseLocation(
+                toCamel(response.data)
+              );
+            } catch (baseErr) {
+              console.error(
+                "Could not load aircraft base location for ATL create:",
+                baseErr
+              );
+            }
+            setFormData((prev) =>
+              applyOffBlocksStationFromBaseLocation(
+                {
+                  ...prev,
+                  acReg: registration,
+                },
+                baseLocation,
+                "fillIfEmpty"
+              )
+            );
             setSelectedAircraftId(aircraftId);
             return;
           }
@@ -1895,10 +2030,17 @@ export function AddTechnicalLogbookEntryModal({
               onClose();
               return;
             }
-            setFormData((prev) => ({
-              ...prev,
-              acReg: aircraftData.registration || "",
-            }));
+            const baseLocation = resolveAircraftBaseLocation(aircraftCamel);
+            setFormData((prev) =>
+              applyOffBlocksStationFromBaseLocation(
+                {
+                  ...prev,
+                  acReg: aircraftData.registration || "",
+                },
+                baseLocation,
+                "fillIfEmpty"
+              )
+            );
             setSelectedAircraftId(aircraftId);
           } catch (error) {
             console.error("Error fetching aircraft by ID:", error);
@@ -1921,13 +2063,20 @@ export function AddTechnicalLogbookEntryModal({
                 onClose();
                 return;
               }
+              const baseLocation = resolveAircraftBaseLocation(aircraftCamel);
+              setFormData((prev) =>
+                applyOffBlocksStationFromBaseLocation(
+                  {
+                    ...prev,
+                    acReg: aircraft.registration,
+                  },
+                  baseLocation,
+                  "fillIfEmpty"
+                )
+              );
             } catch {
               return;
             }
-            setFormData((prev) => ({
-              ...prev,
-              acReg: aircraft.registration,
-            }));
             setSelectedAircraftId(aircraftId);
           }
         } catch (error) {
@@ -2238,31 +2387,40 @@ export function AddTechnicalLogbookEntryModal({
             setPreviousEngineTsn(enginePrev);
             setPreviousPropellerTsn(propellerPrev);
 
-            setFormData((prev) => ({
-              ...prev,
-              lifeTimeLimitEngine: aircraftFallback.lifeTimeLimitEngine,
-              lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
-              engineTsn: gate.engineTsnEnabled ? prev.engineTsn : "",
-              propellerTsn: gate.propellerTsnEnabled ? prev.propellerTsn : "",
-              engineTbo:
-                prev.engineTbo.trim() !== ""
-                  ? prev.engineTbo
-                  : resolveAtlPersistedOrComputedTbo(
-                      editEntry,
-                      "engineTbo",
-                      aircraftFallback.lifeTimeLimitEngine,
-                      prev.engineTso
-                    ),
-              propellerTbo:
-                prev.propellerTbo.trim() !== ""
-                  ? prev.propellerTbo
-                  : resolveAtlPersistedOrComputedTbo(
-                      editEntry,
-                      "propellerTbo",
-                      aircraftFallback.lifeTimeLimitPropeller,
-                      prev.propellerTso
-                    ),
-            }));
+            setFormData((prev) =>
+              applyOffBlocksStationFromBaseLocation(
+                {
+                  ...prev,
+                  lifeTimeLimitEngine: aircraftFallback.lifeTimeLimitEngine,
+                  lifeTimeLimitPropeller:
+                    aircraftFallback.lifeTimeLimitPropeller,
+                  engineTsn: gate.engineTsnEnabled ? prev.engineTsn : "",
+                  propellerTsn: gate.propellerTsnEnabled
+                    ? prev.propellerTsn
+                    : "",
+                  engineTbo:
+                    prev.engineTbo.trim() !== ""
+                      ? prev.engineTbo
+                      : resolveAtlPersistedOrComputedTbo(
+                          editEntry,
+                          "engineTbo",
+                          aircraftFallback.lifeTimeLimitEngine,
+                          prev.engineTso
+                        ),
+                  propellerTbo:
+                    prev.propellerTbo.trim() !== ""
+                      ? prev.propellerTbo
+                      : resolveAtlPersistedOrComputedTbo(
+                          editEntry,
+                          "propellerTbo",
+                          aircraftFallback.lifeTimeLimitPropeller,
+                          prev.propellerTso
+                        ),
+                },
+                resolveAircraftBaseLocation(aircraftCamel),
+                "fillIfEmpty"
+              )
+            );
             syncAtlAircraftLifeLimitsRef({
               engine: aircraftFallback.lifeTimeLimitEngine,
               propeller: aircraftFallback.lifeTimeLimitPropeller,
@@ -2490,6 +2648,46 @@ export function AddTechnicalLogbookEntryModal({
         );
       }
 
+      // Create-only: copy NEXT INSP. DUE / TACH TIME DUE from previous sequence ATL
+      // (current Sequence No. - 1). Prefer /previous endpoint; fall back to latest
+      // when that row is exactly the immediate previous sequence.
+      let previousBySequenceAtl: AircraftTechnicalLog | null = null;
+      if (isAddEntry && nextSeqNo) {
+        const batchForPrevious =
+          batchFk != null && Number.isFinite(batchFk) && batchFk > 0
+            ? batchFk
+            : defaultAtlBatchFk != null &&
+                Number.isFinite(defaultAtlBatchFk) &&
+                defaultAtlBatchFk > 0
+              ? defaultAtlBatchFk
+              : undefined;
+
+        if (batchForPrevious != null) {
+          try {
+            previousBySequenceAtl = await getPreviousATL({
+              aircraftId: aircraftFk,
+              batchId: batchForPrevious,
+              sequenceNo: nextSeqNo,
+            });
+          } catch (previousAtlErr) {
+            console.error(
+              "Could not load previous-sequence ATL for inspection due fields:",
+              previousAtlErr
+            );
+            previousBySequenceAtl = null;
+          }
+          if (atlInitRequestIdRef.current !== requestId) return;
+        }
+
+        if (
+          !previousBySequenceAtl &&
+          latestEntry &&
+          isImmediatePreviousAtlSequence(latestEntry.sequenceNo, nextSeqNo)
+        ) {
+          previousBySequenceAtl = latestEntry;
+        }
+      }
+
       const prevTimes = getPrevTimesFromLatestAtl(latestEntry);
 
       // Aircraft Profile TSN gates (GET /api/v1/aircraft/{id}) — independent of previous ATL.
@@ -2556,18 +2754,22 @@ export function AddTechnicalLogbookEntryModal({
 
         setFormData((prev) => {
           if (editEntry) {
-            return {
-              ...prev,
-              ...prevTimes,
-              lifeTimeLimitEngine:
-                lifeTimeLimitEngine || prev.lifeTimeLimitEngine,
-              lifeTimeLimitPropeller:
-                lifeTimeLimitPropeller || prev.lifeTimeLimitPropeller,
-              engineTsn: tsnGate.engineTsnEnabled ? prev.engineTsn : "",
-              propellerTsn: tsnGate.propellerTsnEnabled
-                ? prev.propellerTsn
-                : "",
-            };
+            return applyOffBlocksStationFromBaseLocation(
+              {
+                ...prev,
+                ...prevTimes,
+                lifeTimeLimitEngine:
+                  lifeTimeLimitEngine || prev.lifeTimeLimitEngine,
+                lifeTimeLimitPropeller:
+                  lifeTimeLimitPropeller || prev.lifeTimeLimitPropeller,
+                engineTsn: tsnGate.engineTsnEnabled ? prev.engineTsn : "",
+                propellerTsn: tsnGate.propellerTsnEnabled
+                  ? prev.propellerTsn
+                  : "",
+              },
+              resolveAircraftBaseLocation(aircraftCamelForInit),
+              "fillIfEmpty"
+            );
           }
 
           // Add Entry: assign only from latest Previous ATL response (no stale form cache).
@@ -2600,11 +2802,18 @@ export function AddTechnicalLogbookEntryModal({
             propellerTbo: comp.propellerTbo,
             lifeTimeLimitEngine,
             lifeTimeLimitPropeller,
+            // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
+            ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
           };
-          // Create + PRF/PSF/VOID: keep End in sync with Start after aircraft init
+          // Create + PRF/PSF/VOID/ME/ATL_REPL: keep End in sync with Start after aircraft init
           if (isZeroFlightMeterNature(prev.natureOfFlight)) {
             withBase = applyZeroFlightMeterEndsFromStarts(withBase);
           }
+          withBase = applyOffBlocksStationFromBaseLocation(
+            withBase,
+            resolveAircraftBaseLocation(aircraftCamelForInit),
+            "fillIfEmpty"
+          );
           const tachStart = parseFiniteFloatField(withBase.tachometerStart);
           const tachEnd = parseFiniteFloatField(withBase.tachometerEnd);
           const tachometerTotal =
@@ -2655,19 +2864,24 @@ export function AddTechnicalLogbookEntryModal({
       setFormData((prev) => {
         if (editEntry) {
           // Edit base refresh: keep persisted component metrics; only refresh prev times / life limits.
-          return {
-            ...prev,
-            ...prevTimes,
-            lifeTimeLimitEngine:
-              aircraftFallback.lifeTimeLimitEngine || prev.lifeTimeLimitEngine,
-            lifeTimeLimitPropeller:
-              aircraftFallback.lifeTimeLimitPropeller ||
-              prev.lifeTimeLimitPropeller,
-            engineTsn: tsnGate.engineTsnEnabled ? prev.engineTsn : "",
-            propellerTsn: tsnGate.propellerTsnEnabled
-              ? prev.propellerTsn
-              : "",
-          };
+          return applyOffBlocksStationFromBaseLocation(
+            {
+              ...prev,
+              ...prevTimes,
+              lifeTimeLimitEngine:
+                aircraftFallback.lifeTimeLimitEngine ||
+                prev.lifeTimeLimitEngine,
+              lifeTimeLimitPropeller:
+                aircraftFallback.lifeTimeLimitPropeller ||
+                prev.lifeTimeLimitPropeller,
+              engineTsn: tsnGate.engineTsnEnabled ? prev.engineTsn : "",
+              propellerTsn: tsnGate.propellerTsnEnabled
+                ? prev.propellerTsn
+                : "",
+            },
+            resolveAircraftBaseLocation(aircraftCamelForInit),
+            "fillIfEmpty"
+          );
         }
 
         const baseCtx: AtlComponentMetricsContext = {
@@ -2705,10 +2919,17 @@ export function AddTechnicalLogbookEntryModal({
           propellerTbo: aircraftFallback.propellerTbo,
           lifeTimeLimitEngine: aircraftFallback.lifeTimeLimitEngine,
           lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
+          // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
+          ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
         };
         if (isZeroFlightMeterNature(prev.natureOfFlight)) {
           withBase = applyZeroFlightMeterEndsFromStarts(withBase);
         }
+        withBase = applyOffBlocksStationFromBaseLocation(
+          withBase,
+          resolveAircraftBaseLocation(aircraftCamelForInit),
+          "fillIfEmpty"
+        );
         const tachStart = parseFiniteFloatField(withBase.tachometerStart);
         const tachEnd = parseFiniteFloatField(withBase.tachometerEnd);
         const tachometerTotal =
@@ -2762,6 +2983,102 @@ export function AddTechnicalLogbookEntryModal({
     const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
     void fetchLatestTechnicalLog(selectedAircraftId, batchId);
   }, [isOpen, editEntry, selectedAircraftId, formData.atlBatchFk]);
+
+  /**
+   * Create-only: keep NEXT INSP. DUE / TACH TIME DUE in sync with the
+   * Sequence No. field (previous = sequenceNo - 1, same aircraft + batch).
+   */
+  useEffect(() => {
+    if (!isOpen || editEntry || isInitializing) return;
+
+    const aircraftId = selectedAircraftId;
+    const sequenceNo = String(formData.seqNo ?? "").trim();
+    const batchId =
+      parseAtlBatchFkForLatest(formData.atlBatchFk) ??
+      (defaultAtlBatchFk != null &&
+      Number.isFinite(defaultAtlBatchFk) &&
+      defaultAtlBatchFk > 0
+        ? defaultAtlBatchFk
+        : undefined);
+
+    if (aircraftId == null || sequenceNo === "" || !/^\d+$/.test(sequenceNo)) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        let previousAtl: AircraftTechnicalLog | null = null;
+
+        if (batchId != null) {
+          try {
+            previousAtl = await getPreviousATL({
+              aircraftId,
+              batchId,
+              sequenceNo,
+            });
+          } catch (err) {
+            console.error(
+              "Could not load previous-sequence ATL for inspection due fields:",
+              err
+            );
+            previousAtl = null;
+          }
+        }
+
+        // Fallback when /previous is unavailable: latest ATL if it is seq - 1
+        if (!previousAtl) {
+          try {
+            const latest =
+              batchId != null
+                ? await getLatestAircraftTechnicalLog(aircraftId, batchId)
+                : await getLatestAircraftTechnicalLog(aircraftId);
+            if (
+              latest &&
+              isImmediatePreviousAtlSequence(latest.sequenceNo, sequenceNo)
+            ) {
+              previousAtl = latest;
+            }
+          } catch (err) {
+            console.error(
+              "Could not load latest ATL fallback for inspection due fields:",
+              err
+            );
+          }
+        }
+
+        if (cancelled) return;
+
+        const fields = inspectionDueFieldsFromPreviousAtl(previousAtl);
+        setFormData((prev) => {
+          if (String(prev.seqNo ?? "").trim() !== sequenceNo) return prev;
+          if (
+            prev.nextInspectionDue === fields.nextInspectionDue &&
+            prev.tachTimeDue === fields.tachTimeDue
+          ) {
+            return prev;
+          }
+          return {
+            ...prev,
+            ...fields,
+          };
+        });
+      })();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    isOpen,
+    editEntry,
+    isInitializing,
+    selectedAircraftId,
+    formData.atlBatchFk,
+    formData.seqNo,
+    defaultAtlBatchFk,
+  ]);
 
   // Debounce remarks search
   useEffect(() => {
@@ -2904,13 +3221,14 @@ export function AddTechnicalLogbookEntryModal({
   );
 
   const handleAircraftSelect = async (id: number, registration: string) => {
+    let aircraftCamel: Aircraft | null = null;
     if (!editEntry) {
       try {
         const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
         const previousAtl = await resolvePreviousAtlForNewEntry(id, batchId);
         if (previousAtl == null) {
           const res = await getAircraftById(id);
-          const aircraftCamel = toCamel(res.data) as Aircraft;
+          aircraftCamel = toCamel(res.data) as Aircraft;
           const missing = getMissingAircraftFieldsForNewAtlWhenNoPrevious(
             previousAtl,
             aircraftCamel
@@ -2937,7 +3255,30 @@ export function AddTechnicalLogbookEntryModal({
       }
     }
 
-    setFormData({ ...formData, acReg: registration });
+    if (!aircraftCamel) {
+      try {
+        const res = await getAircraftById(id);
+        aircraftCamel = toCamel(res.data) as Aircraft;
+      } catch (baseErr) {
+        console.error(
+          "Could not load aircraft base location for Off Blocks Station:",
+          baseErr
+        );
+      }
+    }
+
+    const baseLocation = resolveAircraftBaseLocation(aircraftCamel);
+    const aircraftChanged = selectedAircraftId !== id;
+    setFormData((prev) =>
+      applyOffBlocksStationFromBaseLocation(
+        {
+          ...prev,
+          acReg: registration,
+        },
+        baseLocation,
+        aircraftChanged ? "replace" : "fillIfEmpty"
+      )
+    );
     setSelectedAircraftId(id);
     setAircraftSearchTerm("");
     setIsAircraftDropdownOpen(false);
@@ -3341,9 +3682,8 @@ export function AddTechnicalLogbookEntryModal({
         [field]: value,
       };
 
-      // Create + PRF/PSF/VOID: keep End synchronized when Start changes
+      // PRF/PSF/VOID/ME/ATL_REPL: keep End synchronized when Start changes
       if (
-        !editEntry &&
         isZeroFlightMeterNature(prev.natureOfFlight) &&
         (field === "tachometerStart" || field === "hobbsMeterStart")
       ) {
@@ -3396,7 +3736,6 @@ export function AddTechnicalLogbookEntryModal({
       // Blocks / Hobbs (and other meter fields)
       const changedFields: AtlCalculationField[] = [field];
       if (
-        !editEntry &&
         isZeroFlightMeterNature(prev.natureOfFlight) &&
         field === "hobbsMeterStart"
       ) {
@@ -3411,7 +3750,6 @@ export function AddTechnicalLogbookEntryModal({
       );
 
       if (
-        !editEntry &&
         isZeroFlightMeterNature(prev.natureOfFlight) &&
         field === "hobbsMeterStart"
       ) {
@@ -3435,15 +3773,11 @@ export function AddTechnicalLogbookEntryModal({
   };
 
   /**
-   * Create-only Nature of Flight change:
-   * - PRF / PSF / VOID → End = Start (totals 0)
+   * Nature of Flight change (create + edit):
+   * - PRF / PSF / VOID / ME / ATL_REPL → End = Start (totals 0)
    * - Any other value → clear End fields back to blank
    */
   const handleNatureOfFlightChange = (natureOfFlight: string) => {
-    if (editEntry) {
-      setFormData((prev) => ({ ...prev, natureOfFlight }));
-      return;
-    }
     if (editAtlInitialHydrationRef.current) {
       setFormData((prev) => ({ ...prev, natureOfFlight }));
       return;
@@ -6312,168 +6646,6 @@ export function AddTechnicalLogbookEntryModal({
 
               {/* Signatures Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Pilot Signature */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Name
-                      </label>
-                      <div className="relative" ref={pilotDropdownRef}>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={
-                              isPilotDropdownOpen
-                                ? pilotSearchTerm
-                                : getSelectedPilot()
-                            }
-                            onChange={(e) => {
-                              setPilotSearchTerm(e.target.value);
-                              setIsPilotDropdownOpen(true);
-                              // Clear error when user starts typing
-                              if (validationErrors.pilotFk) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  pilotFk: "",
-                                });
-                              }
-                            }}
-                            onFocus={() => {
-                              setIsPilotDropdownOpen(true);
-                              // If there's a selected value, use it as initial search term, otherwise clear
-                              if (formData.pilotName) {
-                                setPilotSearchTerm(formData.pilotName);
-                              } else {
-                                setPilotSearchTerm("");
-                              }
-                              // Fetch accounts if not already loaded
-                              if (pilotAccounts.length === 0) {
-                                fetchPilotAccounts("");
-                              }
-                            }}
-                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                              validationErrors.pilotFk
-                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                            }`}
-                            placeholder="Search pilot..."
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsPilotDropdownOpen(!isPilotDropdownOpen);
-                              // Fetch accounts if opening and not already loaded
-                              if (
-                                !isPilotDropdownOpen &&
-                                pilotAccounts.length === 0
-                              ) {
-                                fetchPilotAccounts("");
-                              }
-                            }}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                          >
-                            <ChevronDown
-                              className={`w-4 h-4 transition-transform ${
-                                isPilotDropdownOpen ? "rotate-180" : ""
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        {isPilotDropdownOpen && (
-                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                            {loadingPilotAccounts ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                                Loading pilots...
-                              </div>
-                            ) : filteredPilotAccounts.length === 0 ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                                {pilotSearchTerm
-                                  ? "No pilots found"
-                                  : "No pilots available"}
-                              </div>
-                            ) : (
-                              <ul className="py-1">
-                                {filteredPilotAccounts.map((account) => (
-                                  <li
-                                    key={account.id}
-                                    onClick={() =>
-                                      handlePilotSelect(
-                                        account.id.toString(),
-                                        formatAccountNameLicense(account.fullName, account.licenseNo)
-                                      )
-                                    }
-                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      formData.pilotFk === account.id.toString()
-                                        ? "bg-blue-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <span className="text-gray-900 text-sm">
-                                      {formatAccountNameLicense(account.fullName, account.licenseNo)}
-                                    </span>
-                                    {formData.pilotFk ===
-                                      account.id.toString() && (
-                                      <Check className="w-4 h-4 text-blue-600" />
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {validationErrors.pilotFk && (
-                        <p className="mt-1 text-xs text-red-600">
-                          {validationErrors.pilotFk}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Date
-                      </label>
-                      <DateInput
-                        value={formData.pilotAcceptDate}
-                        onChange={(pilotAcceptDate) =>
-                          setFormData({
-                            ...formData,
-                            pilotAcceptDate,
-                          })
-                        }
-                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Time (Zulu)
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.pilotAcceptTime}
-                        onChange={(e) => {
-                          const formatted = formatTimeInput(e.target.value);
-                          setFormData({
-                            ...formData,
-                            pilotAcceptTime: formatted,
-                          });
-                          if (validationErrors.pilotAcceptTime) {
-                            setValidationErrors({
-                              ...validationErrors,
-                              pilotAcceptTime: "",
-                            });
-                          }
-                        }}
-                        placeholder="HH:MM"
-                        maxLength={5}
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
                 {/* Return to Service */}
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                   <h3 className="text-gray-900 mb-3">Return to Service</h3>
@@ -6626,6 +6798,168 @@ export function AddTechnicalLogbookEntryModal({
                             setValidationErrors({
                               ...validationErrors,
                               rtsTime: "",
+                            });
+                          }
+                        }}
+                        placeholder="HH:MM"
+                        maxLength={5}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pilot Signature */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                  <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Name
+                      </label>
+                      <div className="relative" ref={pilotDropdownRef}>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={
+                              isPilotDropdownOpen
+                                ? pilotSearchTerm
+                                : getSelectedPilot()
+                            }
+                            onChange={(e) => {
+                              setPilotSearchTerm(e.target.value);
+                              setIsPilotDropdownOpen(true);
+                              // Clear error when user starts typing
+                              if (validationErrors.pilotFk) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  pilotFk: "",
+                                });
+                              }
+                            }}
+                            onFocus={() => {
+                              setIsPilotDropdownOpen(true);
+                              // If there's a selected value, use it as initial search term, otherwise clear
+                              if (formData.pilotName) {
+                                setPilotSearchTerm(formData.pilotName);
+                              } else {
+                                setPilotSearchTerm("");
+                              }
+                              // Fetch accounts if not already loaded
+                              if (pilotAccounts.length === 0) {
+                                fetchPilotAccounts("");
+                              }
+                            }}
+                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                              validationErrors.pilotFk
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
+                            placeholder="Search pilot..."
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsPilotDropdownOpen(!isPilotDropdownOpen);
+                              // Fetch accounts if opening and not already loaded
+                              if (
+                                !isPilotDropdownOpen &&
+                                pilotAccounts.length === 0
+                              ) {
+                                fetchPilotAccounts("");
+                              }
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform ${
+                                isPilotDropdownOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {isPilotDropdownOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {loadingPilotAccounts ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                Loading pilots...
+                              </div>
+                            ) : filteredPilotAccounts.length === 0 ? (
+                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                                {pilotSearchTerm
+                                  ? "No pilots found"
+                                  : "No pilots available"}
+                              </div>
+                            ) : (
+                              <ul className="py-1">
+                                {filteredPilotAccounts.map((account) => (
+                                  <li
+                                    key={account.id}
+                                    onClick={() =>
+                                      handlePilotSelect(
+                                        account.id.toString(),
+                                        formatAccountNameLicense(account.fullName, account.licenseNo)
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      formData.pilotFk === account.id.toString()
+                                        ? "bg-blue-50"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900 text-sm">
+                                      {formatAccountNameLicense(account.fullName, account.licenseNo)}
+                                    </span>
+                                    {formData.pilotFk ===
+                                      account.id.toString() && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {validationErrors.pilotFk && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {validationErrors.pilotFk}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Date
+                      </label>
+                      <DateInput
+                        value={formData.pilotAcceptDate}
+                        onChange={(pilotAcceptDate) =>
+                          setFormData({
+                            ...formData,
+                            pilotAcceptDate,
+                          })
+                        }
+                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Time (Zulu)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.pilotAcceptTime}
+                        onChange={(e) => {
+                          const formatted = formatTimeInput(e.target.value);
+                          setFormData({
+                            ...formData,
+                            pilotAcceptTime: formatted,
+                          });
+                          if (validationErrors.pilotAcceptTime) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              pilotAcceptTime: "",
                             });
                           }
                         }}
