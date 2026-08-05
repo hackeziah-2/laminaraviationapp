@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Plane,
   Wrench,
@@ -6,6 +7,7 @@ import {
   Activity,
   TrendingUp,
   AlertTriangle,
+  Fuel,
 } from "lucide-react";
 import { getDashboard } from "../api/dashboardApi";
 import type {
@@ -89,6 +91,7 @@ const DEFAULT_ALERTS: DashboardMaintenanceAlert[] = [
 ];
 
 export function Dashboard() {
+  const navigate = useNavigate();
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,14 +187,16 @@ export function Dashboard() {
       <div className="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-6 pt-7 shadow-sm sm:p-8 sm:pt-8">
         <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gradient-to-br from-sky-100/90 to-indigo-50/50 blur-2xl" />
         <div className="pointer-events-none absolute -bottom-8 left-1/3 h-32 w-64 rounded-full bg-gradient-to-tr from-rose-50 to-transparent blur-2xl" />
-        <div className="relative">
-          <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
-            {today}
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-gray-900 sm:text-3xl">
-            Dashboard
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-gray-600 sm:text-base"></p>
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">
+              {today}
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-gray-900 sm:text-3xl">
+              Dashboard
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-gray-600 sm:text-base"></p>
+          </div>
         </div>
       </div>
 
@@ -236,6 +241,15 @@ export function Dashboard() {
                 </div>
               );
             })}
+
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard/aircraft-fuel-report")}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+            >
+              <Fuel className="h-4 w-4" />
+              Fuel Consumption Report
+            </button>
           </div>
 
           {/* Content grid — gap matches stats row so center gutter lines up on lg */}

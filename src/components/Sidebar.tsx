@@ -17,7 +17,6 @@ import {
   Building2,
   BookOpen,
   UserCheck,
-  Fuel,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -55,13 +54,6 @@ const MENU_ITEMS: SidebarMenuItem[] = [
     label: "Dashboard",
     icon: LayoutGrid,
     path: "/dashboard",
-  },
-  {
-    id: "aircraft-fuel-report",
-    moduleCode: "dashboard" as const,
-    label: "Fuel Consumption Report",
-    icon: Fuel,
-    path: "/dashboard/aircraft-fuel-report",
   },
   {
     id: "profile",
