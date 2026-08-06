@@ -5960,14 +5960,14 @@ export function AddTechnicalLogbookEntryModal({
               </div>
 
               {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
-              <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <div className="min-w-0 bg-white p-4 rounded-lg border border-gray-200">
                 <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                   <h3 className="text-white font-semibold">
                     AIRFRAME, ENGINE & PROPELLER TIMES
                   </h3>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
+                <div className="min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-[480px] border-collapse">
                     <thead>
                       <tr className="bg-gray-50">
                         <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-gray-700"></th>
@@ -6104,235 +6104,231 @@ export function AddTechnicalLogbookEntryModal({
                   </table>
                 </div>
 
-                {/* ATL component times: RUN TIME / AFTT / TSN / TSO / TBO — connected to ATL endpoint */}
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full border-collapse border border-gray-300">
-                    <thead>
-                      <tr>
-                        <th
-                          colSpan={2}
-                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
-                        >
-                          AIRFRAME
-                        </th>
-                        <th
-                          colSpan={4}
-                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
-                        >
-                          ENGINE
-                        </th>
-                        <th
-                          colSpan={4}
-                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
-                        >
-                          PROPELLER
-                        </th>
-                      </tr>
-                      <tr>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          RUN TIME
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          AFTT
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          RUN TIME
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          TSN
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          TSO
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          TBO
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          RUN TIME
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          TSN
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          TSO
-                        </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
-                          TBO
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-gray-300">
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.airframeRunTime}
-                            disabled
-                            readOnly
-                            aria-label="Airframe Run Time"
-                            title="Auto: Tach End − Tach Start"
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.airframeAftt}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "airframeAftt"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="AFTT"
-                            title="Auto: Prev AFTT + Airframe Run"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.engineRunTime}
-                            disabled
-                            readOnly
-                            aria-label="Engine Run Time"
-                            title="Auto: Tach End − Tach Start"
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={formData.engineTsn}
-                            onChange={(event) => {
-                              if (!engineTsnEnabled) return;
-                              handleCalculationFieldChange(event, "engineTsn");
-                            }}
-                            disabled={!engineTsnEnabled || mainFormLocked}
-                            className={`w-full px-2 py-1 border border-gray-300 rounded text-sm text-center ${
-                              !engineTsnEnabled || mainFormLocked
-                                ? "bg-gray-100 text-gray-600 cursor-not-allowed"
-                                : "bg-white"
-                            }`}
-                            placeholder={!engineTsnEnabled ? "UNK" : ""}
-                            title={
-                              !engineTsnEnabled
-                                ? "Aircraft Profile Engine TSN is empty (UNK)"
-                                : "Auto: Prev Engine TSN + Engine Run"
-                            }
-                          />
-                          {validationErrors.engineTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center">
-                              {validationErrors.engineTsn}
-                            </p>
-                          )}
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.engineTso}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(event, "engineTso")
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TSO"
-                            title="TBO auto-updates: life limit − TSO"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.engineTbo}
-                            onChange={(e) =>
-                              setFormData((previous) => ({
-                                ...previous,
-                                engineTbo: e.target.value,
-                              }))
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TBO"
-                            title="Auto: life limit − TSO"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.propellerRunTime}
-                            disabled
-                            readOnly
-                            aria-label="Propeller Run Time"
-                            title="Auto: Tach End − Tach Start"
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={formData.propellerTsn}
-                            onChange={(event) => {
-                              if (!propellerTsnEnabled) return;
-                              handleCalculationFieldChange(
-                                event,
-                                "propellerTsn"
-                              );
-                            }}
-                            disabled={!propellerTsnEnabled || mainFormLocked}
-                            className={`w-full px-2 py-1 border border-gray-300 rounded text-sm text-center ${
-                              !propellerTsnEnabled || mainFormLocked
-                                ? "bg-gray-100 text-gray-600 cursor-not-allowed"
-                                : "bg-white"
-                            }`}
-                            placeholder={!propellerTsnEnabled ? "UNK" : ""}
-                            title={
-                              !propellerTsnEnabled
-                                ? "Aircraft Profile Propeller TSN is empty (UNK)"
-                                : "Auto: Prev Propeller TSN + Prop Run"
-                            }
-                          />
-                          {validationErrors.propellerTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center">
-                              {validationErrors.propellerTsn}
-                            </p>
-                          )}
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.propellerTso}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "propellerTso"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TSO"
-                            title="TBO auto-updates: life limit − TSO"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
-                          <input
-                            type="text"
-                            value={formData.propellerTbo}
-                            onChange={(e) =>
-                              setFormData((previous) => ({
-                                ...previous,
-                                propellerTbo: e.target.value,
-                              }))
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TBO"
-                            title=""
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                {/* ATL component times: separate section tables avoid 10-col border/input overlap */}
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.45fr)_minmax(0,1.45fr)]">
+                  {/* AIRFRAME */}
+                  <div className="min-w-0 overflow-hidden rounded-md border border-gray-300">
+                    <div className="bg-gray-200 px-3 py-2 text-center text-xs font-semibold text-gray-900">
+                      AIRFRAME
+                    </div>
+                    <div className="grid grid-cols-2">
+                      <div className="border-r border-gray-300 bg-gray-100 px-2 py-1.5 text-center text-xs font-medium text-gray-700">
+                        RUN TIME
+                      </div>
+                      <div className="bg-gray-100 px-2 py-1.5 text-center text-xs font-medium text-gray-700">
+                        AFTT
+                      </div>
+                      <div className="border-r border-t border-gray-300 bg-white p-2">
+                        <input
+                          type="text"
+                          value={formData.airframeRunTime}
+                          disabled
+                          readOnly
+                          aria-label="Airframe Run Time"
+                          title="Auto: Tach End − Tach Start"
+                          className="box-border w-full max-w-full px-2 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div className="border-t border-gray-300 bg-white p-2">
+                        <input
+                          type="text"
+                          value={formData.airframeAftt}
+                          onChange={(event) =>
+                            handleCalculationFieldChange(
+                              event,
+                              "airframeAftt"
+                            )
+                          }
+                          className="box-border w-full max-w-full px-2 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="AFTT"
+                          title="Auto: Prev AFTT + Airframe Run"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ENGINE */}
+                  <div className="min-w-0 overflow-hidden rounded-md border border-gray-300">
+                    <div className="bg-gray-200 px-3 py-2 text-center text-xs font-semibold text-gray-900">
+                      ENGINE
+                    </div>
+                    <div className="grid grid-cols-4">
+                      <div className="border-r border-gray-300 bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        RUN TIME
+                      </div>
+                      <div className="border-r border-gray-300 bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        TSN
+                      </div>
+                      <div className="border-r border-gray-300 bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        TSO
+                      </div>
+                      <div className="bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        TBO
+                      </div>
+                      <div className="min-w-0 border-r border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          value={formData.engineRunTime}
+                          disabled
+                          readOnly
+                          aria-label="Engine Run Time"
+                          title="Auto: Tach End − Tach Start"
+                          className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div className="min-w-0 border-r border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={formData.engineTsn}
+                          onChange={(event) => {
+                            if (!engineTsnEnabled) return;
+                            handleCalculationFieldChange(event, "engineTsn");
+                          }}
+                          disabled={!engineTsnEnabled || mainFormLocked}
+                          className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
+                            !engineTsnEnabled || mainFormLocked
+                              ? "bg-gray-100 text-gray-600 cursor-not-allowed"
+                              : "bg-white"
+                          }`}
+                          placeholder={!engineTsnEnabled ? "UNK" : ""}
+                          title={
+                            !engineTsnEnabled
+                              ? "Aircraft Profile Engine TSN is empty (UNK)"
+                              : "Auto: Prev Engine TSN + Engine Run"
+                          }
+                        />
+                        {validationErrors.engineTsn && (
+                          <p className="text-red-500 text-xs mt-0.5 text-center break-words">
+                            {validationErrors.engineTsn}
+                          </p>
+                        )}
+                      </div>
+                      <div className="min-w-0 border-r border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          value={formData.engineTso}
+                          onChange={(event) =>
+                            handleCalculationFieldChange(event, "engineTso")
+                          }
+                          className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TSO"
+                          title="TBO auto-updates: life limit − TSO"
+                        />
+                      </div>
+                      <div className="min-w-0 border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          value={formData.engineTbo}
+                          onChange={(e) =>
+                            setFormData((previous) => ({
+                              ...previous,
+                              engineTbo: e.target.value,
+                            }))
+                          }
+                          className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TBO"
+                          title="Auto: life limit − TSO"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PROPELLER */}
+                  <div className="min-w-0 overflow-hidden rounded-md border border-gray-300">
+                    <div className="bg-gray-200 px-3 py-2 text-center text-xs font-semibold text-gray-900">
+                      PROPELLER
+                    </div>
+                    <div className="grid grid-cols-4">
+                      <div className="border-r border-gray-300 bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        RUN TIME
+                      </div>
+                      <div className="border-r border-gray-300 bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        TSN
+                      </div>
+                      <div className="border-r border-gray-300 bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        TSO
+                      </div>
+                      <div className="bg-gray-100 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700">
+                        TBO
+                      </div>
+                      <div className="min-w-0 border-r border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          value={formData.propellerRunTime}
+                          disabled
+                          readOnly
+                          aria-label="Propeller Run Time"
+                          title="Auto: Tach End − Tach Start"
+                          className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div className="min-w-0 border-r border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={formData.propellerTsn}
+                          onChange={(event) => {
+                            if (!propellerTsnEnabled) return;
+                            handleCalculationFieldChange(
+                              event,
+                              "propellerTsn"
+                            );
+                          }}
+                          disabled={!propellerTsnEnabled || mainFormLocked}
+                          className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
+                            !propellerTsnEnabled || mainFormLocked
+                              ? "bg-gray-100 text-gray-600 cursor-not-allowed"
+                              : "bg-white"
+                          }`}
+                          placeholder={!propellerTsnEnabled ? "UNK" : ""}
+                          title={
+                            !propellerTsnEnabled
+                              ? "Aircraft Profile Propeller TSN is empty (UNK)"
+                              : "Auto: Prev Propeller TSN + Prop Run"
+                          }
+                        />
+                        {validationErrors.propellerTsn && (
+                          <p className="text-red-500 text-xs mt-0.5 text-center break-words">
+                            {validationErrors.propellerTsn}
+                          </p>
+                        )}
+                      </div>
+                      <div className="min-w-0 border-r border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          value={formData.propellerTso}
+                          onChange={(event) =>
+                            handleCalculationFieldChange(
+                              event,
+                              "propellerTso"
+                            )
+                          }
+                          className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TSO"
+                          title="TBO auto-updates: life limit − TSO"
+                        />
+                      </div>
+                      <div className="min-w-0 border-t border-gray-300 bg-white p-1.5">
+                        <input
+                          type="text"
+                          value={formData.propellerTbo}
+                          onChange={(e) =>
+                            setFormData((previous) => ({
+                              ...previous,
+                              propellerTbo: e.target.value,
+                            }))
+                          }
+                          className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                          placeholder="TBO"
+                          title=""
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
