@@ -16,6 +16,8 @@ export function useAircraftFuelReport(
     queryKey: aircraftFuelReportQueryKeys.report(params),
     queryFn: () => getAircraftFuelReport(params),
     enabled: options?.enabled ?? true,
-    placeholderData: (previous) => previous,
+    // Don't keep previous filtered/unfiltered data when the query key changes —
+    // that made aircraft filters look like they did nothing.
+    placeholderData: undefined,
   });
 }

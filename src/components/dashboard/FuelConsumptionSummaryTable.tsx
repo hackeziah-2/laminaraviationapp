@@ -2,7 +2,8 @@ import { Skeleton } from "../ui/skeleton";
 import {
   formatReportNumber,
   type AircraftFuelReportResponse,
-  type PeriodTotals,
+  type FuelReportSummary,
+  type MonthlyFuelRow,
 } from "../../types/dashboardReport.types";
 
 type FuelConsumptionSummaryTableProps = {
@@ -18,30 +19,22 @@ type SummaryRow = {
   isTotal?: boolean;
 };
 
-function buildRows(
-  data: AircraftFuelReportResponse
-): SummaryRow[] {
-  const hoursSeries = data.series.find((item) => item.key === "flight_hours");
-  const fuelSeries = data.series.find((item) => item.key === "fuel_gallons");
-  const burnSeries = data.series.find(
-    (item) => item.key === "fuel_burn_per_hour"
-  );
-
-  return data.categories.map((category, index) => ({
-    period: category,
-    hours: hoursSeries?.data[index] ?? null,
-    fuel: fuelSeries?.data[index] ?? null,
-    burn: burnSeries?.data[index] ?? null,
+function buildRows(monthly: MonthlyFuelRow[]): SummaryRow[] {
+  return monthly.map((row) => ({
+    period: row.monthLabel,
+    hours: row.hours,
+    fuel: row.fuelGal,
+    burn: row.fuelBurnPerHour,
   }));
 }
 
-function totalRow(grandTotal: PeriodTotals): SummaryRow {
+function totalRow(summary: FuelReportSummary): SummaryRow {
   return {
     period: "TOTAL",
-    hours: grandTotal.totalFlightHours,
-    fuel: grandTotal.totalFuelGallons,
-    // Must use grand_total.fuel_burn_per_hour (SUM fuel ÷ SUM hours), not an average of period rates
-    burn: grandTotal.fuelBurnPerHour,
+    hours: summary.totalHours,
+    fuel: summary.totalFuelGal,
+    // Must use summary.avg_fuel_burn_per_hour (SUM fuel ÷ SUM hours)
+    burn: summary.avgFuelBurnPerHour,
     isTotal: true,
   };
 }
@@ -65,8 +58,8 @@ export function FuelConsumptionSummaryTable({
 
   if (!data) return null;
 
-  const rows = buildRows(data);
-  const total = totalRow(data.grandTotal);
+  const rows = buildRows(data.monthly ?? []);
+  const total = totalRow(data.summary);
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -78,7 +71,7 @@ export function FuelConsumptionSummaryTable({
           <thead className="sticky top-0 z-10">
             <tr className="bg-[#061B50] text-white">
               <th className="border border-gray-300 px-3 py-2.5 text-center text-xs font-bold tracking-wide">
-                Period
+                Month
               </th>
               <th className="border border-gray-300 px-3 py-2.5 text-center text-xs font-bold tracking-wide">
                 ATL Hours

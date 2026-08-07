@@ -22,8 +22,13 @@ export type UsePreserveListViewOptions = {
 };
 
 const DEFAULT_SCROLL_SELECTOR = "[data-atl-list-scroll]";
-/** Covers soft refresh reflow + SweetAlert confirm/success close (~1.5s toast). */
-const SETTLE_MS = [0, 50, 150, 300, 600, 1000, 1600, 2200, 2800] as const;
+/**
+ * Covers soft refresh reflow + SweetAlert confirm/success close (~1.5s toast).
+ * Keep applying past the success toast so viewport is not left at top.
+ */
+const SETTLE_MS = [
+  0, 50, 150, 300, 600, 1000, 1600, 2000, 2500, 3200, 4000,
+] as const;
 
 function isSwalLikelyOpen(): boolean {
   return Boolean(document.querySelector(".swal2-container"));
@@ -69,38 +74,76 @@ export function usePreserveListView({
       tableEl.scrollTop = pending.tableTop;
     }
 
-    // Prefer anchoring to the edited row when present (survives minor layout shifts).
+    // Anchor the edited row inside the list scroller without letting the browser
+    // drag the window to an unexpected position.
     if (pending.entryId != null) {
       const row = document.querySelector(
         `[data-list-entry-id="${pending.entryId}"]`
       ) as HTMLElement | null;
-      if (row) {
-        row.scrollIntoView({ block: "nearest", inline: "nearest" });
-        if (tableEl) {
-          tableEl.scrollLeft = pending.tableLeft;
+      if (row && tableEl && tableEl.contains(row)) {
+        const rowTop = row.offsetTop;
+        const rowBottom = rowTop + row.offsetHeight;
+        const viewTop = tableEl.scrollTop;
+        const viewBottom = viewTop + tableEl.clientHeight;
+        if (rowTop < viewTop) {
+          tableEl.scrollTop = rowTop;
+        } else if (rowBottom > viewBottom) {
+          tableEl.scrollTop = rowBottom - tableEl.clientHeight;
         }
-        window.scrollTo({
-          left: pending.windowX,
-          top: pending.windowY,
-          behavior: "auto",
-        });
+        tableEl.scrollLeft = pending.tableLeft;
+      } else if (row) {
+        row.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
     }
+
+    window.scrollTo({
+      left: pending.windowX,
+      top: pending.windowY,
+      behavior: "auto",
+    });
   }, [getListScrollEl]);
 
+  /**
+   * Capture list/window position for later restore.
+   * When a dialog is open (or a prior open-time snapshot exists), keep the
+   * existing scroll coordinates — SweetAlert/modals often report scrollY=0.
+   */
   const captureViewForRestore = useCallback(
     (entryId?: number | null, page?: number) => {
+      const existing = pendingViewRestoreRef.current;
       const tableEl = getListScrollEl();
-      // While Swal is open, window.scrollY is often 0 — use pre-dialog memory.
       const remembered = getRememberedWindowScroll();
-      const useRemembered = isSwalLikelyOpen();
+      const dialogOpen = isSwalLikelyOpen();
+
+      // Dialog/modal open: never overwrite a good open-time scroll snapshot with 0.
+      if (existing && dialogOpen) {
+        pendingViewRestoreRef.current = {
+          ...existing,
+          entryId: entryId ?? existing.entryId,
+          page: page ?? existing.page,
+        };
+        return;
+      }
+
+      const windowX = dialogOpen ? remembered.x : window.scrollX;
+      const windowY = dialogOpen ? remembered.y : window.scrollY;
+      const tableLeft = tableEl?.scrollLeft ?? existing?.tableLeft ?? 0;
+      const tableTop = tableEl?.scrollTop ?? existing?.tableTop ?? 0;
+
+      // Prefer non-zero existing scroll if the live viewport was already reset.
+      const preferExistingWindow =
+        Boolean(existing) &&
+        windowY === 0 &&
+        (existing!.windowY > 0 || existing!.tableTop > 0);
+
       pendingViewRestoreRef.current = {
-        windowX: useRemembered ? remembered.x : window.scrollX,
-        windowY: useRemembered ? remembered.y : window.scrollY,
-        tableLeft: tableEl?.scrollLeft ?? 0,
-        tableTop: tableEl?.scrollTop ?? 0,
-        entryId: entryId ?? null,
-        page: page ?? 1,
+        windowX: preferExistingWindow ? existing!.windowX : windowX,
+        windowY: preferExistingWindow ? existing!.windowY : windowY,
+        tableLeft:
+          dialogOpen && existing ? existing.tableLeft : tableLeft,
+        tableTop: dialogOpen && existing ? existing.tableTop : tableTop,
+        entryId: entryId ?? existing?.entryId ?? null,
+        page: page ?? existing?.page ?? 1,
       };
     },
     [getListScrollEl]

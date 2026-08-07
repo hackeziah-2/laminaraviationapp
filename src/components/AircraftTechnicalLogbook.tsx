@@ -40,6 +40,7 @@ import { getAircraftList } from "../api/aircraftApi";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import {
   ATL_WORK_STATUS_KEYS,
   formatAtlWorkStatusLabel,
@@ -143,6 +144,8 @@ export function AircraftTechnicalLogbook() {
   const [showBulkStatusModal, setShowBulkStatusModal] = useState(false);
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const lastAppliedAtlQueryRef = useRef<string | null>(null);
+  /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
+  const skipNextPagedFetchRef = useRef(false);
 
   const {
     listScrollRef,
@@ -295,6 +298,7 @@ export function AircraftTechnicalLogbook() {
       );
       setTotalEntries(response.total);
       if (preserveView && pageToFetch !== currentPage) {
+        skipNextPagedFetchRef.current = true;
         setCurrentPage(pageToFetch);
       }
     } catch (err: any) {
@@ -346,6 +350,10 @@ export function AircraftTechnicalLogbook() {
   }, [searchTerm]);
 
   useEffect(() => {
+    if (skipNextPagedFetchRef.current) {
+      skipNextPagedFetchRef.current = false;
+      return;
+    }
     fetchEntries();
   }, [
     currentPage,
@@ -808,6 +816,8 @@ export function AircraftTechnicalLogbook() {
   // Handle edit entry – Edit modal fetches full details via READ
   const handleEditEntry = (entry: LogbookEntry) => {
     if (!canOpenAtlEditForEntry(entry)) return;
+    rememberWindowScroll();
+    captureViewForRestore(entry.id, currentPage);
     setSelectedEntry(entry);
     setIsEditModalOpen(true);
   };
@@ -934,14 +944,13 @@ export function AircraftTechnicalLogbook() {
 
   // Handle update entry success
   const handleUpdateSuccess = async () => {
-    const { rememberWindowScroll } = await import("../utils/windowScrollMemory");
-    rememberWindowScroll();
+    // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).
     captureViewForRestore(selectedEntry?.id, currentPage);
+    // Soft-refresh before unmounting the edit modal.
+    await fetchEntries({ preserveView: true });
     setIsEditModalOpen(false);
     setSelectedEntry(null);
     setSelectedFullEntry(null);
-    await fetchEntries({ preserveView: true });
-    // Success toast + final scroll restore are handled by confirmSaveEntry in the modal.
   };
 
   return (

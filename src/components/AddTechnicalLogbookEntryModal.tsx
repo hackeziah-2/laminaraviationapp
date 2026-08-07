@@ -232,6 +232,28 @@ function inspectionDueFieldsFromPreviousAtl(
   return { nextInspectionDue, tachTimeDue };
 }
 
+/**
+ * Create-only: Pilot's Acceptance Name (pilotAcceptedBy) from the previous ATL
+ * (highest numeric sequenceNo for aircraft + batch). Empty when missing / invalid.
+ * Edit must not use this — preserve the saved value.
+ */
+function pilotAcceptedByFromPreviousAtl(
+  previousAtl: AircraftTechnicalLog | null
+): string {
+  if (!previousAtl) return "";
+  const raw = previousAtl as AircraftTechnicalLog & Record<string, unknown>;
+  const value =
+    previousAtl.pilotAcceptedBy ??
+    raw.pilot_accepted_by ??
+    previousAtl.pilotFk ??
+    raw.pilot_fk;
+  if (value == null || String(value).trim() === "") return "";
+  const id =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(id) || id <= 0) return "";
+  return String(id);
+}
+
 /** Numeric sequence for previous-seq checks (e.g. "0126" → 126). */
 function parseAtlSequenceNumber(
   value: string | number | null | undefined
@@ -2751,6 +2773,11 @@ export function AddTechnicalLogbookEntryModal({
           latestEntry.tachometerEnd != null && latestEntry.tachometerEnd !== 0
             ? latestEntry.tachometerEnd.toString()
             : "0";
+        // Create-only: Pilot's Acceptance ← previous ATL (highest numeric sequenceNo)
+        // Source: latest for aircraft + batch; fall back to /previous row if needed.
+        const pilotAcceptedByFromPrevious =
+          pilotAcceptedByFromPreviousAtl(latestEntry) ||
+          pilotAcceptedByFromPreviousAtl(previousBySequenceAtl);
 
         setFormData((prev) => {
           if (editEntry) {
@@ -2804,6 +2831,9 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller,
             // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
             ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
+            // pilotAcceptedBy → form pilotFk (user may change before save)
+            pilotFk: pilotAcceptedByFromPrevious,
+            pilotName: "",
           };
           // Create + PRF/PSF/VOID/ME/ATL_REPL: keep End in sync with Start after aircraft init
           if (isZeroFlightMeterNature(prev.natureOfFlight)) {
@@ -2832,6 +2862,34 @@ export function AddTechnicalLogbookEntryModal({
             ),
           };
         });
+        // Create-only: resolve pilotAcceptedBy account → display label (user may change)
+        if (isAddEntry && pilotAcceptedByFromPrevious) {
+          void (async () => {
+            try {
+              const account = await getAccount(
+                Number(pilotAcceptedByFromPrevious)
+              );
+              if (atlInitRequestIdRef.current !== requestId) return;
+              const label = formatAccountNameLicense(
+                account.fullName,
+                account.licenseNo
+              );
+              setPilotAccounts((prev) => {
+                if (prev.some((a) => a.id === account.id)) return prev;
+                return [account, ...prev];
+              });
+              setFormData((prev) => {
+                if (prev.pilotFk !== pilotAcceptedByFromPrevious) return prev;
+                return { ...prev, pilotName: label };
+              });
+            } catch (err) {
+              console.error(
+                "Could not resolve previous ATL pilotAcceptedBy account:",
+                err
+              );
+            }
+          })();
+        }
         finishInit();
         return;
       }
@@ -2921,6 +2979,9 @@ export function AddTechnicalLogbookEntryModal({
           lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
           // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
           ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
+          // No previous ATL → leave pilotAcceptedBy / pilot empty
+          pilotFk: "",
+          pilotName: "",
         };
         if (isZeroFlightMeterNature(prev.natureOfFlight)) {
           withBase = applyZeroFlightMeterEndsFromStarts(withBase);
@@ -5960,14 +6021,14 @@ export function AddTechnicalLogbookEntryModal({
               </div>
 
               {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
-              <div className="bg-white p-4 rounded-lg border border-gray-200">
+              <div className="min-w-0 bg-white p-4 rounded-lg border border-gray-200">
                 <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                   <h3 className="text-white font-semibold">
                     AIRFRAME, ENGINE & PROPELLER TIMES
                   </h3>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
+                <div className="min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-[480px] border-collapse">
                     <thead>
                       <tr className="bg-gray-50">
                         <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-gray-700"></th>
@@ -6104,66 +6165,78 @@ export function AddTechnicalLogbookEntryModal({
                   </table>
                 </div>
 
-                {/* ATL component times: RUN TIME / AFTT / TSN / TSO / TBO — connected to ATL endpoint */}
-                <div className="mt-4 overflow-x-auto">
-                  <table className="w-full border-collapse border border-gray-300">
+                {/* ATL component times: single connected table (AIRFRAME | ENGINE | PROPELLER) */}
+                <div className="mt-4 min-w-0 overflow-x-auto">
+                  <table className="w-full min-w-[720px] table-fixed border-collapse border border-gray-300">
+                    <colgroup>
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[10%]" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th
                           colSpan={2}
-                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
                         >
                           AIRFRAME
                         </th>
                         <th
                           colSpan={4}
-                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
                         >
                           ENGINE
                         </th>
                         <th
                           colSpan={4}
-                          className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
                         >
                           PROPELLER
                         </th>
                       </tr>
                       <tr>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           RUN TIME
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           AFTT
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           RUN TIME
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           TSN
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           TSO
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           TBO
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           RUN TIME
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           TSN
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           TSO
                         </th>
-                        <th className="border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
                           TBO
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr className="border-b border-gray-300">
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                      <tr>
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.airframeRunTime}
@@ -6171,11 +6244,11 @@ export function AddTechnicalLogbookEntryModal({
                             readOnly
                             aria-label="Airframe Run Time"
                             title="Auto: Tach End − Tach Start"
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
                             placeholder="0"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.airframeAftt}
@@ -6185,12 +6258,12 @@ export function AddTechnicalLogbookEntryModal({
                                 "airframeAftt"
                               )
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="AFTT"
                             title="Auto: Prev AFTT + Airframe Run"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.engineRunTime}
@@ -6198,11 +6271,11 @@ export function AddTechnicalLogbookEntryModal({
                             readOnly
                             aria-label="Engine Run Time"
                             title="Auto: Tach End − Tach Start"
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
                             placeholder="0"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             inputMode="decimal"
@@ -6212,7 +6285,7 @@ export function AddTechnicalLogbookEntryModal({
                               handleCalculationFieldChange(event, "engineTsn");
                             }}
                             disabled={!engineTsnEnabled || mainFormLocked}
-                            className={`w-full px-2 py-1 border border-gray-300 rounded text-sm text-center ${
+                            className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
                               !engineTsnEnabled || mainFormLocked
                                 ? "bg-gray-100 text-gray-600 cursor-not-allowed"
                                 : "bg-white"
@@ -6225,24 +6298,24 @@ export function AddTechnicalLogbookEntryModal({
                             }
                           />
                           {validationErrors.engineTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center">
+                            <p className="text-red-500 text-xs mt-0.5 text-center break-words">
                               {validationErrors.engineTsn}
                             </p>
                           )}
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.engineTso}
                             onChange={(event) =>
                               handleCalculationFieldChange(event, "engineTso")
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="TSO"
                             title="TBO auto-updates: life limit − TSO"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.engineTbo}
@@ -6252,12 +6325,12 @@ export function AddTechnicalLogbookEntryModal({
                                 engineTbo: e.target.value,
                               }))
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="TBO"
                             title="Auto: life limit − TSO"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.propellerRunTime}
@@ -6265,11 +6338,11 @@ export function AddTechnicalLogbookEntryModal({
                             readOnly
                             aria-label="Propeller Run Time"
                             title="Auto: Tach End − Tach Start"
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
                             placeholder="0"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             inputMode="decimal"
@@ -6282,7 +6355,7 @@ export function AddTechnicalLogbookEntryModal({
                               );
                             }}
                             disabled={!propellerTsnEnabled || mainFormLocked}
-                            className={`w-full px-2 py-1 border border-gray-300 rounded text-sm text-center ${
+                            className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
                               !propellerTsnEnabled || mainFormLocked
                                 ? "bg-gray-100 text-gray-600 cursor-not-allowed"
                                 : "bg-white"
@@ -6295,12 +6368,12 @@ export function AddTechnicalLogbookEntryModal({
                             }
                           />
                           {validationErrors.propellerTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center">
+                            <p className="text-red-500 text-xs mt-0.5 text-center break-words">
                               {validationErrors.propellerTsn}
                             </p>
                           )}
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.propellerTso}
@@ -6310,12 +6383,12 @@ export function AddTechnicalLogbookEntryModal({
                                 "propellerTso"
                               )
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="TSO"
                             title="TBO auto-updates: life limit − TSO"
                           />
                         </td>
-                        <td className="border border-gray-300 px-2 py-1.5 bg-white">
+                        <td className="border border-gray-300 p-1.5 align-top">
                           <input
                             type="text"
                             value={formData.propellerTbo}
@@ -6325,9 +6398,9 @@ export function AddTechnicalLogbookEntryModal({
                                 propellerTbo: e.target.value,
                               }))
                             }
-                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-center bg-white"
+                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
                             placeholder="TBO"
-                            title=""
+                            title="Auto: life limit − TSO"
                           />
                         </td>
                       </tr>
