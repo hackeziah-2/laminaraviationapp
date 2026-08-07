@@ -248,8 +248,16 @@ export const CPCPMonitoring = forwardRef<
     aircraftDetails?.registration ?? registration
   );
   const headerMsn = fmtCpcpHeaderField(aircraftDetails?.msn ?? msn);
-  const headerAftt = fmtCpcpHeaderField(aircraftDetails?.airframeAftt ?? aftf);
-  const headerTach = fmtCpcpHeaderField(aircraftDetails?.tachometerEnd ?? tach);
+  // Latest ATL (or profile fallback) when details loaded; never keep demo props for a scoped aircraft.
+  const useLoadedMonitoringHours =
+    aircraftDetails != null ||
+    (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0);
+  const headerAftt = fmtCpcpHeaderField(
+    useLoadedMonitoringHours ? aircraftDetails?.airframeAftt : aftf
+  );
+  const headerTach = fmtCpcpHeaderField(
+    useLoadedMonitoringHours ? aircraftDetails?.tachometerEnd : tach
+  );
   const headerDate = fmtCpcpHeaderField(date);
 
   const handleCpcpExport = useCallback(

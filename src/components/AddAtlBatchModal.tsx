@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
@@ -132,14 +133,18 @@ export function AddAtlBatchModal({
 
   const titleId = isEdit ? "edit-atl-batch-title" : "create-atl-batch-title";
 
-  return (
+  // Portal + high z-index: sticky ATL headers (z-index in CSS) otherwise paint over the dialog.
+  // Arbitrary Tailwind z-[n] classes are not present in this project's compiled CSS.
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+      style={{ zIndex: 10000 }}
       role="presentation"
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white shadow-xl"
+        className="relative z-50 w-full max-w-md rounded-xl bg-white shadow-xl"
         role="dialog"
+        aria-modal="true"
         aria-labelledby={titleId}
       >
         <form onSubmit={handleSubmit}>
@@ -231,6 +236,7 @@ export function AddAtlBatchModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

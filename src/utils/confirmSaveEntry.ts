@@ -99,8 +99,19 @@ export async function confirmSaveEntry(
       timerProgressBar: true,
       scrollbarPadding: false,
       heightAuto: false,
+      didOpen: () => {
+        restoreRememberedWindowScroll();
+      },
+      didClose: () => {
+        restoreRememberedWindowScroll();
+      },
     });
     restoreRememberedWindowScroll();
+    // Extra frames: list soft-refresh + toast often fight scroll restore.
+    window.requestAnimationFrame(() => restoreRememberedWindowScroll());
+    window.setTimeout(() => restoreRememberedWindowScroll(), 50);
+    window.setTimeout(() => restoreRememberedWindowScroll(), 200);
+    window.setTimeout(() => restoreRememberedWindowScroll(), 500);
     return true;
   }
 

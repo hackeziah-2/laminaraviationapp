@@ -3022,7 +3022,8 @@ input[data-slot="date-input"] {
   inherits: false
 }
 
-/* ATL Operation — sticky multi-row table header */
+/* ATL Operation — sticky multi-row table header
+   Keep z-index low (below app modals at z-50) so headers never paint over dialogs. */
 .atl-all-columns-scroll {
   overflow: auto;
   max-height: calc(100vh - 250px);
@@ -3031,12 +3032,12 @@ input[data-slot="date-input"] {
 .atl-all-columns-table thead tr:first-child th {
   position: sticky;
   top: 0;
-  z-index: 25;
+  z-index: 2;
   background-color: #e5e7eb;
 }
 
 .atl-all-columns-table thead tr:first-child th:first-child {
-  z-index: 40;
+  z-index: 4;
 }
 
 .atl-all-columns-table thead tr:first-child th:first-child:hover {
@@ -3046,12 +3047,12 @@ input[data-slot="date-input"] {
 .atl-all-columns-table thead tr:nth-child(2) th {
   position: sticky;
   top: var(--atl-th-row1-h, 40px);
-  z-index: 25;
+  z-index: 2;
   background-color: #e5e7eb;
   box-shadow: 0 1px 0 0 #d1d5db;
 }
 
 .atl-all-columns-table tbody td.sticky {
-  z-index: 20;
+  z-index: 1;
   background-color: #f3f4f6;
 }

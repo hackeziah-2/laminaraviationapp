@@ -12,6 +12,7 @@ import { getMe, getPostLoginPath } from './api/authApi';
 import { Sidebar } from './components/Sidebar';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
+import { AircraftDashboardReport } from './components/AircraftDashboardReport';
 import { AircraftFleetProfile } from './components/AircraftFleetProfile';
 import { AircraftFleetDailyUpdate } from './components/AircraftFleetDailyUpdate';
 import { AircraftTechnicalLogbook } from './components/AircraftTechnicalLogbook';
@@ -204,6 +205,7 @@ function AuthenticatedShell({
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/login" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<ProtectedRoute moduleCode="dashboard"><Dashboard /></ProtectedRoute>} />
+          <Route path="/dashboard/aircraft-fuel-report" element={<ProtectedRoute moduleCode="dashboard"><AircraftDashboardReport /></ProtectedRoute>} />
           <Route path="/my-profile" element={<MyProfile />} />
           <Route path="/profile" element={<ProtectedRoute moduleCode="profile"><AircraftFleetProfile /></ProtectedRoute>} />
           <Route path="/profile/:id" element={<ProtectedRoute moduleCode="profile"><AircraftDetail /></ProtectedRoute>} />

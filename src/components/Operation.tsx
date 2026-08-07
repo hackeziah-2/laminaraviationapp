@@ -101,6 +101,7 @@ import {
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import * as XLSX from "xlsx";
 
 type GroupByOption =
@@ -118,9 +119,9 @@ type AtlComponentPartRow = ComponentPartsRecord & {
 };
 
 const STICKY_SEQ_CLASS =
-  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky top-0 left-0 z-40 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
+  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky top-0 left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
-  "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
+  "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
 
 const ATL_TABLE_SCROLL_CLASS = "atl-all-columns-scroll";
 const ATL_ALL_COLUMNS_TABLE_CLASS =
@@ -753,6 +754,8 @@ export function Operation() {
   const [atlHeaderRow1Height, setAtlHeaderRow1Height] = useState(40);
   /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
   const atlBatchFilterTouchedRef = useRef(false);
+  /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
+  const skipNextPagedFetchRef = useRef(false);
   const effectiveAircraftId =
     Number.isFinite(selectedAircraftId) && selectedAircraftId > 0
       ? selectedAircraftId
@@ -902,6 +905,11 @@ export function Operation() {
 
   // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
+    if (skipNextPagedFetchRef.current) {
+      skipNextPagedFetchRef.current = false;
+      return;
+    }
+
     const fetchRecords = async () => {
       if (!effectiveAircraftId) return;
 
@@ -1842,7 +1850,7 @@ export function Operation() {
     if (!effectiveAircraftId) return;
 
     const preserveView = Boolean(options?.preserveView);
-    // Prefer page captured at edit-success time; never reset to 1 on edit refresh.
+    // Prefer page captured at edit-open / edit-success; never reset to 1 on edit refresh.
     const pageToFetch = preserveView
       ? getPendingPage(currentPage)
       : currentPage;
@@ -1871,6 +1879,8 @@ export function Operation() {
       setTotalRecords(recordsRes.total);
       setTotalPages(recordsRes.pages);
       if (preserveView && pageToFetch !== currentPage) {
+        // Avoid the paged useEffect hard-reload (loading spinner unmounts the table).
+        skipNextPagedFetchRef.current = true;
         setCurrentPage(pageToFetch);
       }
     } catch (err: any) {
@@ -1887,6 +1897,14 @@ export function Operation() {
         beginPreserveViewSettle();
       }
     }
+  };
+
+  /** Open Edit while preserving list page/filters/scroll for restore after save. */
+  const openEditAtlEntry = (record: AircraftTechnicalLog) => {
+    rememberWindowScroll();
+    captureViewForRestore(record.id, currentPage);
+    setSelectedEntry(record);
+    setShowEditModal(true);
   };
 
   return (
@@ -2420,7 +2438,11 @@ export function Operation() {
                               rowSpan={2}
                               className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                             >
-                              Total Flight hours
+                              Total
+                              <br />
+                              Flight
+                              <br />
+                              hours
                             </th>
                             <th
                               rowSpan={2}
@@ -2722,10 +2744,9 @@ export function Operation() {
                                             </span>
                                             <button
                                               type="button"
-                                              onClick={() => {
-                                                setSelectedEntry(record);
-                                                setShowEditModal(true);
-                                              }}
+                                              onClick={() =>
+                                                openEditAtlEntry(record)
+                                              }
                                               className="hover:text-blue-700 hover:underline transition-colors text-xs"
                                               title={atlEditButtonTitle(record)}
                                             >
@@ -3262,10 +3283,9 @@ export function Operation() {
                                           </span>
                                           <button
                                             type="button"
-                                            onClick={() => {
-                                              setSelectedEntry(record);
-                                              setShowEditModal(true);
-                                            }}
+                                            onClick={() =>
+                                              openEditAtlEntry(record)
+                                            }
                                             className="hover:underline text-xs"
                                             title={atlEditButtonTitle(record)}
                                           >
@@ -3441,10 +3461,9 @@ export function Operation() {
                                             disabled={
                                               !allowAtlEditForRecord(record)
                                             }
-                                            onClick={() => {
-                                              setSelectedEntry(record);
-                                              setShowEditModal(true);
-                                            }}
+                                            onClick={() =>
+                                              openEditAtlEntry(record)
+                                            }
                                             className="hover:underline text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:no-underline"
                                             title={atlEditButtonTitle(record)}
                                           >
@@ -3602,10 +3621,9 @@ export function Operation() {
                                           </span>
                                           <button
                                             type="button"
-                                            onClick={() => {
-                                              setSelectedEntry(record);
-                                              setShowEditModal(true);
-                                            }}
+                                            onClick={() =>
+                                              openEditAtlEntry(record)
+                                            }
                                             className="hover:underline text-xs"
                                             title={atlEditButtonTitle(record)}
                                           >
@@ -3854,15 +3872,12 @@ export function Operation() {
             selectedEntry.workStatus
           )}
           onSuccess={async () => {
-            const { rememberWindowScroll } = await import(
-              "../utils/windowScrollMemory"
-            );
-            rememberWindowScroll();
+            // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).
             captureViewForRestore(selectedEntry?.id, currentPage);
+            // Soft-refresh before unmounting the edit modal.
+            await refreshPage({ preserveView: true });
             setShowEditModal(false);
             setSelectedEntry(null);
-            await refreshPage({ preserveView: true });
-            // Success toast + final scroll restore are handled by confirmSaveEntry in the modal.
           }}
         />
       )}

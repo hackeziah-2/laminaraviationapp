@@ -864,6 +864,74 @@ export const getLatestAircraftTechnicalLog = async (
 };
 
 /**
+ * Previous ATL by immediate sequence for Add Entry auto-fill.
+ * GET /api/v1/aircraft-technical-log/previous
+ *   ?aircraft_id={aircraftId}&batch_id={batchId}&sequence_no={currentSequenceNo}
+ *
+ * Backend resolves previous_sequence_no = sequence_no - 1 for the same aircraft + batch
+ * (non-deleted). Returns null when that row does not exist (404 / empty body).
+ */
+export const getPreviousATL = async (args: {
+  aircraftId: number;
+  batchId: number;
+  sequenceNo: string | number;
+}): Promise<AircraftTechnicalLog | null> => {
+  const aircraftId = Number(args.aircraftId);
+  const batchId = Number(args.batchId);
+  const sequenceNo = String(args.sequenceNo ?? "").trim();
+  if (
+    !Number.isFinite(aircraftId) ||
+    aircraftId <= 0 ||
+    !Number.isFinite(batchId) ||
+    batchId <= 0 ||
+    sequenceNo === ""
+  ) {
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams({
+      aircraft_id: String(aircraftId),
+      batch_id: String(batchId),
+      sequence_no: sequenceNo,
+    });
+    const response = await apiClient.get(
+      `aircraft-technical-log/previous?${params.toString()}`
+    );
+    const payload = response.data;
+    const raw =
+      payload?.data ??
+      payload?.result ??
+      payload?.previous ??
+      payload?.previous_atl ??
+      payload;
+    if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
+    }
+    // Empty object / no identity fields → treat as not found
+    const camel = toCamelDeep(raw) as AircraftTechnicalLog;
+    if (
+      camel.id == null &&
+      camel.sequenceNo == null &&
+      camel.nextInspectionDue == null &&
+      camel.tachTimeDue == null
+    ) {
+      const keys = Object.keys(raw as object);
+      if (keys.length === 0) return null;
+    }
+    return camel;
+  } catch (error) {
+    if (
+      (error as { response?: { status?: number } })?.response?.status === 404
+    ) {
+      return null;
+    }
+    console.error("getPreviousATL failed:", error);
+    return null;
+  }
+};
+
+/**
  * Resolve previous ATL data for a new entry (shared by Operation ATL & Technical Logbook):
  * 1. When batch_id is assigned: GET .../latest/batch/{batch_id}?aircraft_id=
  * 2. If batch returns nothing (or no batch): GET .../latest?aircraft_id=
