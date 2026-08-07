@@ -38,6 +38,7 @@ import {
   getAircraftDetails,
   type AircraftMaintenanceDetails,
 } from "../api/aircraftApi";
+import { displayTSN } from "../api/aircraftTechnicalLogApi";
 import { Spinner } from "./ui/spinner";
 import {
   formatDisplayDate,
@@ -105,7 +106,7 @@ export interface ComponentItem {
   remainingAftt?: number | null;
 }
 
-/** Display aircraft detail field; empty → em dash. TSN fields use displayTSN (UNK). */
+/** Display aircraft detail field; empty → em dash. 0 is kept. TSN uses displayTSN (UNK). */
 function fmtAircraftDetail(v: unknown): string {
   if (v == null) return "—";
   const s = String(v).trim();
@@ -113,8 +114,7 @@ function fmtAircraftDetail(v: unknown): string {
 }
 
 function fmtAircraftTsn(v: unknown): string {
-  if (v == null || v === "") return "UNK";
-  return String(v);
+  return displayTSN(v as string | number | null | undefined);
 }
 
 /** Parses numeric string to number; returns NaN if invalid */
@@ -688,21 +688,23 @@ export const TCCDetailContent = forwardRef<
   const paginatedData = tccItems;
 
   const currentDate = useMemo(() => new Date(), []);
+  /** Current Tach ← latest ATL tachometerEnd; 0 is valid, missing → 0 (no demo fallback). */
   const currentTach = useMemo(() => {
     const n = parseNum(
       aircraftDetails?.tachometerEnd != null
         ? String(aircraftDetails.tachometerEnd)
         : undefined
     );
-    return Number.isFinite(n) ? n : 7561;
+    return Number.isFinite(n) ? n : 0;
   }, [aircraftDetails?.tachometerEnd]);
+  /** Current AFTT ← latest ATL airframeAftt; 0 is valid, missing → 0 (no demo fallback). */
   const currentAftt = useMemo(() => {
     const n = parseNum(
       aircraftDetails?.airframeAftt != null
         ? String(aircraftDetails.airframeAftt)
         : undefined
     );
-    return Number.isFinite(n) ? n : 11656;
+    return Number.isFinite(n) ? n : 0;
   }, [aircraftDetails?.airframeAftt]);
 
   const handleTccExport = useCallback(

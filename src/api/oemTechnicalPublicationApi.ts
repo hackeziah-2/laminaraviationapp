@@ -324,7 +324,7 @@ export async function getOemPublicationsPaged(
  */
 export async function createOemPublication(payload: {
   item: number;
-  category_type?: string | null;
+  category_type: string;
   date_of_expiration: string;
   web_link?: string | null;
 }): Promise<OemTechnicalPublication> {
@@ -332,7 +332,7 @@ export async function createOemPublication(payload: {
     `${PUBLICATIONS_BASE}/`,
     {
       item_fk: payload.item,
-      category_type: payload.category_type ?? null,
+      category_type: payload.category_type,
       date_of_expiration: payload.date_of_expiration,
       web_link: payload.web_link ?? null,
     },
@@ -352,14 +352,14 @@ export async function updateOemPublication(
   id: number,
   payload: {
     item: number;
-    category_type?: string | null;
+    category_type: string;
     date_of_expiration: string;
     web_link?: string | null;
   }
 ): Promise<OemTechnicalPublication> {
   const body: Record<string, unknown> = {
     item_fk: payload.item,
-    category_type: payload.category_type ?? "",
+    category_type: payload.category_type,
     date_of_expiration: payload.date_of_expiration,
     web_link: payload.web_link ?? "",
   };

@@ -215,11 +215,15 @@ export function OEMTechnicalPublication() {
   };
 
   const handleSaveDocument = async () => {
-    if (!addForm.itemFk || !addForm.expiryDate?.trim()) {
+    if (
+      !addForm.itemFk ||
+      !addForm.categoryType?.trim() ||
+      !addForm.expiryDate?.trim()
+    ) {
       await Swal.fire({
         icon: "warning",
         title: "Required",
-        text: "Please select an item type and enter expiry date.",
+        text: "Please select an item type, category type, and enter expiry date.",
       });
       return;
     }
@@ -233,11 +237,12 @@ export function OEMTechnicalPublication() {
         captureViewForRestore(editingPublication.id, currentPage);
       }
 
+      const categoryType = addForm.categoryType.trim();
       const saved = await confirmSaveEntry(isUpdate, async () => {
         if (editingPublication) {
           await updateOemPublication(editingPublication.id, {
             item: addForm.itemFk,
-            category_type: addForm.categoryType?.trim() || "",
+            category_type: categoryType,
             date_of_expiration: toApiDate(addForm.expiryDate),
             web_link: addForm.assignLink?.trim() || "",
           });
@@ -246,7 +251,7 @@ export function OEMTechnicalPublication() {
         } else {
           await createOemPublication({
             item: addForm.itemFk,
-            category_type: addForm.categoryType?.trim() || null,
+            category_type: categoryType,
             date_of_expiration: toApiDate(addForm.expiryDate),
             web_link: addForm.assignLink?.trim() || null,
           });
@@ -823,7 +828,7 @@ export function OEMTechnicalPublication() {
                 </div>
                 <div>
                   <label className="block text-gray-700 text-sm mb-1.5">
-                    Category Type
+                    Category Type <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={addForm.categoryType}
@@ -834,8 +839,9 @@ export function OEMTechnicalPublication() {
                       }))
                     }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
                   >
-                    <option value="">Select category (optional)</option>
+                    <option value="">Select Category Type</option>
                     {CATEGORY_TYPE_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
                         {opt.label}
@@ -893,7 +899,10 @@ export function OEMTechnicalPublication() {
                   type="button"
                   onClick={handleSaveDocument}
                   disabled={
-                    saving || !addForm.itemFk || !addForm.expiryDate?.trim()
+                    saving ||
+                    !addForm.itemFk ||
+                    !addForm.categoryType?.trim() ||
+                    !addForm.expiryDate?.trim()
                   }
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium inline-flex items-center justify-center gap-2"
                 >

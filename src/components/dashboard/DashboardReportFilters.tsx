@@ -1,55 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, RotateCcw } from "lucide-react";
 import {
   getAircraftListOrdered,
+  getAllAircraftOrdered,
   type AircraftListItem,
 } from "../../api/aircraftApi";
 import {
-  createDefaultFuelReportFilters,
-  getIsoWeeksInYear,
   type FuelReportFilterState,
-  type FuelReportPeriod,
 } from "../../types/dashboardReport.types";
 
+const INPUT_CLASS =
+  "h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
+
 const SELECT_CLASS =
-  "w-full cursor-pointer appearance-none rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-3 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
+  "h-10 w-full cursor-pointer appearance-none rounded-lg border border-gray-200 bg-white py-2 pl-3 pr-8 text-sm text-gray-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60";
 
 const SELECT_CHEVRON = `url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L6 6L11 1' stroke='%23374151' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`;
-
-const MONTH_OPTIONS = [
-  { value: 1, label: "January" },
-  { value: 2, label: "February" },
-  { value: 3, label: "March" },
-  { value: 4, label: "April" },
-  { value: 5, label: "May" },
-  { value: 6, label: "June" },
-  { value: 7, label: "July" },
-  { value: 8, label: "August" },
-  { value: 9, label: "September" },
-  { value: 10, label: "October" },
-  { value: 11, label: "November" },
-  { value: 12, label: "December" },
-];
 
 type DashboardReportFiltersProps = {
   value: FuelReportFilterState;
   onChange: (next: FuelReportFilterState) => void;
+  /** Called when aircraft selection changes — applies immediately. */
+  onAircraftFilterChange: (next: FuelReportFilterState) => void;
   onApply: () => void;
   onReset: () => void;
   loading?: boolean;
 };
 
-function yearOptions(centerYear: number): number[] {
-  const years: number[] = [];
-  for (let y = centerYear + 2; y >= centerYear - 10; y -= 1) {
-    years.push(y);
-  }
-  return years;
-}
-
 export function DashboardReportFilters({
   value,
   onChange,
+  onAircraftFilterChange,
   onApply,
   onReset,
   loading = false,
@@ -57,154 +38,136 @@ export function DashboardReportFilters({
   const [aircraftOptions, setAircraftOptions] = useState<AircraftListItem[]>(
     []
   );
+  const [aircraftLoading, setAircraftLoading] = useState(true);
   const [aircraftLoadError, setAircraftLoadError] = useState<string | null>(
     null
   );
 
   useEffect(() => {
     let cancelled = false;
-    getAircraftListOrdered()
-      .then((list) => {
-        if (!cancelled) {
-          setAircraftOptions(list);
-          setAircraftLoadError(null);
+    setAircraftLoading(true);
+    (async () => {
+      try {
+        let list = await getAircraftListOrdered();
+        if (list.length === 0) {
+          list = await getAllAircraftOrdered();
         }
-      })
-      .catch(() => {
+        if (cancelled) return;
+        setAircraftOptions(
+          list.filter((a) => a.id > 0 && a.registration?.trim())
+        );
+        setAircraftLoadError(null);
+      } catch {
         if (!cancelled) {
+          setAircraftOptions([]);
           setAircraftLoadError("Could not load aircraft list");
         }
-      });
+      } finally {
+        if (!cancelled) setAircraftLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const years = useMemo(() => yearOptions(new Date().getFullYear()), []);
-  const weekCount = getIsoWeeksInYear(value.year);
-  const weeks = useMemo(
-    () => Array.from({ length: weekCount }, (_, i) => i + 1),
-    [weekCount]
-  );
-
   const patch = (partial: Partial<FuelReportFilterState>) => {
     onChange({ ...value, ...partial });
   };
 
-  const handlePeriodChange = (period: FuelReportPeriod) => {
-    const defaults = createDefaultFuelReportFilters();
+  const applyAircraftSelection = (
+    id: number | null,
+    registration: string | null
+  ) => {
     const next: FuelReportFilterState = {
       ...value,
-      period,
+      aircraftIds: id != null && id > 0 ? [id] : [],
+      aircraftRegistrations:
+        registration != null && registration.trim()
+          ? [registration.trim()]
+          : [],
     };
-    if (period === "monthly") {
-      next.month = value.month || defaults.month;
-    }
-    if (period === "weekly") {
-      const maxWeek = getIsoWeeksInYear(next.year);
-      next.week = Math.min(value.week || defaults.week, maxWeek);
-    }
     onChange(next);
+    onAircraftFilterChange(next);
   };
 
-  const handleYearChange = (year: number) => {
-    const maxWeek = getIsoWeeksInYear(year);
-    onChange({
-      ...value,
-      year,
-      week: Math.min(value.week, maxWeek),
-    });
+  const handleAircraftChange = (raw: string) => {
+    if (!raw) {
+      applyAircraftSelection(null, null);
+      return;
+    }
+    const id = Number(raw);
+    const ac = aircraftOptions.find((a) => a.id === id);
+    if (!ac) {
+      applyAircraftSelection(null, null);
+      return;
+    }
+    applyAircraftSelection(ac.id, ac.registration);
   };
+
+  const selectedValue =
+    value.aircraftIds.length > 0 ? String(value.aircraftIds[0]) : "";
+
+  const rangeInvalid =
+    Boolean(value.startMonth && value.endMonth) &&
+    value.startMonth > value.endMonth;
 
   return (
     <section
       className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5"
       aria-label="Report filters"
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-gray-900">Filters</h2>
+        {loading ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            Updating…
+          </span>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="fuel-period" className="text-xs font-medium text-gray-600">
-            Period
-          </label>
-          <select
-            id="fuel-period"
-            value={value.period}
-            onChange={(e) =>
-              handlePeriodChange(e.target.value as FuelReportPeriod)
-            }
-            disabled={loading}
-            className={SELECT_CLASS}
-            style={{ backgroundImage: SELECT_CHEVRON, backgroundRepeat: "no-repeat", backgroundPosition: "right 0.75rem center" }}
+          <label
+            htmlFor="fuel-start-month"
+            className="text-xs font-medium text-gray-600"
           >
-            <option value="yearly">Yearly</option>
-            <option value="monthly">Monthly</option>
-            <option value="weekly">Weekly</option>
-          </select>
+            Start month
+          </label>
+          <input
+            id="fuel-start-month"
+            type="month"
+            value={value.startMonth}
+            onChange={(e) => patch({ startMonth: e.target.value })}
+            className={INPUT_CLASS}
+          />
+          <p className="text-[11px] text-gray-400">Leave blank for earliest</p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="fuel-year" className="text-xs font-medium text-gray-600">
-            Year
-          </label>
-          <select
-            id="fuel-year"
-            value={value.year}
-            onChange={(e) => handleYearChange(Number(e.target.value))}
-            disabled={loading}
-            className={SELECT_CLASS}
-            style={{ backgroundImage: SELECT_CHEVRON, backgroundRepeat: "no-repeat", backgroundPosition: "right 0.75rem center" }}
+          <label
+            htmlFor="fuel-end-month"
+            className="text-xs font-medium text-gray-600"
           >
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
+            End month
+          </label>
+          <input
+            id="fuel-end-month"
+            type="month"
+            value={value.endMonth}
+            onChange={(e) => patch({ endMonth: e.target.value })}
+            className={INPUT_CLASS}
+            aria-invalid={rangeInvalid}
+          />
+          {rangeInvalid ? (
+            <p className="text-xs text-red-600">
+              Start month must be on or before end month.
+            </p>
+          ) : (
+            <p className="text-[11px] text-gray-400">Leave blank for latest</p>
+          )}
         </div>
-
-        {value.period === "monthly" && (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="fuel-month" className="text-xs font-medium text-gray-600">
-              Month
-            </label>
-            <select
-              id="fuel-month"
-              value={value.month}
-              onChange={(e) => patch({ month: Number(e.target.value) })}
-              disabled={loading}
-              className={SELECT_CLASS}
-              style={{ backgroundImage: SELECT_CHEVRON, backgroundRepeat: "no-repeat", backgroundPosition: "right 0.75rem center" }}
-            >
-              {MONTH_OPTIONS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {value.period === "weekly" && (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="fuel-week" className="text-xs font-medium text-gray-600">
-              ISO Week
-            </label>
-            <select
-              id="fuel-week"
-              value={value.week}
-              onChange={(e) => patch({ week: Number(e.target.value) })}
-              disabled={loading}
-              className={SELECT_CLASS}
-              style={{ backgroundImage: SELECT_CHEVRON, backgroundRepeat: "no-repeat", backgroundPosition: "right 0.75rem center" }}
-            >
-              {weeks.map((w) => (
-                <option key={w} value={w}>
-                  Week {w}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
 
         <div className="flex flex-col gap-1.5">
           <label
@@ -215,49 +178,55 @@ export function DashboardReportFilters({
           </label>
           <select
             id="fuel-aircraft"
-            value={value.aircraftId ?? ""}
-            onChange={(e) => {
-              const raw = e.target.value;
-              patch({ aircraftId: raw === "" ? null : Number(raw) });
-            }}
-            disabled={loading}
+            value={selectedValue}
+            onChange={(e) => handleAircraftChange(e.target.value)}
+            disabled={aircraftLoading}
             className={SELECT_CLASS}
-            style={{ backgroundImage: SELECT_CHEVRON, backgroundRepeat: "no-repeat", backgroundPosition: "right 0.75rem center" }}
+            style={{
+              backgroundImage: SELECT_CHEVRON,
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "right 0.75rem center",
+            }}
             aria-describedby={
               aircraftLoadError ? "fuel-aircraft-error" : undefined
             }
           >
             <option value="">All Aircraft</option>
             {aircraftOptions.map((ac) => (
-              <option key={ac.id} value={ac.id}>
-                {ac.registration || `Aircraft #${ac.id}`}
+              <option key={ac.id} value={String(ac.id)}>
+                {ac.registration}
               </option>
             ))}
           </select>
-          {aircraftLoadError && (
+          {aircraftLoading ? (
+            <p className="text-[11px] text-gray-400">Loading aircraft…</p>
+          ) : aircraftLoadError ? (
             <p id="fuel-aircraft-error" className="text-xs text-amber-600">
               {aircraftLoadError}
+            </p>
+          ) : aircraftOptions.length === 0 ? (
+            <p className="text-xs text-amber-600">No aircraft available</p>
+          ) : (
+            <p className="text-[11px] text-gray-400">
+              Select an aircraft to filter the report
             </p>
           )}
         </div>
 
-        <div className="flex flex-col justify-end gap-2 sm:flex-row sm:items-end xl:col-span-2">
+        <div className="flex flex-col justify-end gap-2 sm:flex-row sm:items-end">
           <button
             type="button"
             onClick={onApply}
-            disabled={loading}
-            className="inline-flex h-10 items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading || rangeInvalid}
+            className="inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
           >
             Apply Filter
           </button>
           <button
             type="button"
-            onClick={() => {
-              onChange(createDefaultFuelReportFilters());
-              onReset();
-            }}
+            onClick={onReset}
             disabled={loading}
-            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden />
             Reset

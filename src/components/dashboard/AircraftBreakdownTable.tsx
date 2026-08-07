@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Download,
@@ -15,78 +14,59 @@ import {
 import { DataTablePagination } from "../ui/DataTablePagination";
 import { Skeleton } from "../ui/skeleton";
 import {
-  formatReportInteger,
   formatReportNumber,
-  type AircraftFuelMetrics,
-  type AircraftPeriodBreakdown,
+  type AircraftFuelBreakdown,
+  type MonthlyFuelRow,
 } from "../../types/dashboardReport.types";
 
 type AircraftBreakdownTableProps = {
-  breakdown: AircraftPeriodBreakdown[];
+  monthly: MonthlyFuelRow[];
   loading?: boolean;
 };
 
 type FlatRow = {
   periodKey: string;
   periodLabel: string;
-  aircraftId: number;
-  aircraftRegistration: string;
-  totalFlightHours: number;
-  leftFuelGallons: number;
-  rightFuelGallons: number;
-  totalFuelGallons: number;
+  tailNumber: string;
+  hours: number;
+  fuelGal: number;
   fuelBurnPerHour: number | null;
-  totalOilQuarts: number;
-  atlRecordCount: number;
-  incompleteRecordCount: number;
-  invalidRecordCount: number;
+  oilUsageQrts: number;
 };
 
 type SortKey =
   | "periodLabel"
-  | "aircraftRegistration"
-  | "totalFlightHours"
-  | "leftFuelGallons"
-  | "rightFuelGallons"
-  | "totalFuelGallons"
+  | "tailNumber"
+  | "hours"
+  | "fuelGal"
   | "fuelBurnPerHour"
-  | "totalOilQuarts"
-  | "atlRecordCount"
-  | "incompleteRecordCount"
-  | "invalidRecordCount";
+  | "oilUsageQrts";
 
-const COLUMNS: { key: SortKey; label: string; align?: "left" | "right" | "center" }[] = [
-  { key: "periodLabel", label: "Period", align: "center" },
-  { key: "aircraftRegistration", label: "Aircraft Registration", align: "left" },
-  { key: "totalFlightHours", label: "ATL Hours", align: "right" },
-  { key: "leftFuelGallons", label: "Left Fuel Used", align: "right" },
-  { key: "rightFuelGallons", label: "Right Fuel Used", align: "right" },
-  { key: "totalFuelGallons", label: "Total Fuel Used", align: "right" },
+const COLUMNS: {
+  key: SortKey;
+  label: string;
+  align?: "left" | "right" | "center";
+}[] = [
+  { key: "periodLabel", label: "Month", align: "center" },
+  { key: "tailNumber", label: "Aircraft Registration", align: "left" },
+  { key: "hours", label: "ATL Hours", align: "right" },
+  { key: "fuelGal", label: "Fuel (Gal)", align: "right" },
   { key: "fuelBurnPerHour", label: "Fuel Burn / Hour", align: "right" },
-  { key: "totalOilQuarts", label: "Oil Usage", align: "right" },
-  { key: "atlRecordCount", label: "ATL Record Count", align: "right" },
-  { key: "incompleteRecordCount", label: "Incomplete", align: "right" },
-  { key: "invalidRecordCount", label: "Invalid", align: "right" },
+  { key: "oilUsageQrts", label: "Oil Usage", align: "right" },
 ];
 
-function flattenBreakdown(breakdown: AircraftPeriodBreakdown[]): FlatRow[] {
+function flattenMonthly(monthly: MonthlyFuelRow[]): FlatRow[] {
   const rows: FlatRow[] = [];
-  for (const period of breakdown) {
-    for (const ac of period.aircraft) {
+  for (const period of monthly) {
+    for (const ac of period.aircraftBreakdown ?? []) {
       rows.push({
-        periodKey: period.periodKey,
-        periodLabel: period.periodLabel,
-        aircraftId: ac.aircraftId,
-        aircraftRegistration: ac.aircraftRegistration,
-        totalFlightHours: ac.totalFlightHours,
-        leftFuelGallons: ac.leftFuelGallons,
-        rightFuelGallons: ac.rightFuelGallons,
-        totalFuelGallons: ac.totalFuelGallons,
+        periodKey: period.month,
+        periodLabel: period.monthLabel,
+        tailNumber: ac.tailNumber,
+        hours: ac.hours,
+        fuelGal: ac.fuelGal,
         fuelBurnPerHour: ac.fuelBurnPerHour,
-        totalOilQuarts: ac.totalOilQuarts,
-        atlRecordCount: ac.atlRecordCount,
-        incompleteRecordCount: ac.incompleteRecordCount,
-        invalidRecordCount: ac.invalidRecordCount,
+        oilUsageQrts: ac.oilUsageQrts,
       });
     }
   }
@@ -115,15 +95,8 @@ function compareValues(
 
 function cellValue(row: FlatRow, key: SortKey): string {
   const v = row[key];
-  if (key === "periodLabel" || key === "aircraftRegistration") {
+  if (key === "periodLabel" || key === "tailNumber") {
     return String(v ?? "N/A");
-  }
-  if (
-    key === "atlRecordCount" ||
-    key === "incompleteRecordCount" ||
-    key === "invalidRecordCount"
-  ) {
-    return formatReportInteger(v as number);
   }
   return formatReportNumber(v as number | null);
 }
@@ -147,22 +120,20 @@ function PeriodGroup({
   period,
   search,
 }: {
-  period: AircraftPeriodBreakdown;
+  period: MonthlyFuelRow;
   search: string;
 }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return period.aircraft;
-    return period.aircraft.filter((ac) =>
-      ac.aircraftRegistration.toLowerCase().includes(q)
+    const aircraft = period.aircraftBreakdown ?? [];
+    if (!q) return aircraft;
+    return aircraft.filter((ac) =>
+      ac.tailNumber.toLowerCase().includes(q)
     );
-  }, [period.aircraft, search]);
+  }, [period.aircraftBreakdown, search]);
 
   const [open, setOpen] = useState(true);
   if (filtered.length === 0) return null;
-
-  const hasIssues =
-    period.totals.incompleteRecordCount + period.totals.invalidRecordCount > 0;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -177,25 +148,17 @@ function PeriodGroup({
             ) : (
               <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" />
             )}
-            <span>{period.periodLabel}</span>
+            <span>{period.monthLabel}</span>
             <span className="ml-auto text-xs font-normal text-gray-500">
               {filtered.length} aircraft ·{" "}
-              {formatReportNumber(period.totals.totalFlightHours)} hrs ·{" "}
-              {formatReportNumber(period.totals.totalFuelGallons)} gal
-              {hasIssues ? (
-                <span className="ml-2 text-amber-600">
-                  ·{" "}
-                  {period.totals.incompleteRecordCount +
-                    period.totals.invalidRecordCount}{" "}
-                  excluded
-                </span>
-              ) : null}
+              {formatReportNumber(period.hours)} hrs ·{" "}
+              {formatReportNumber(period.fuelGal)} gal
             </span>
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] border-collapse text-sm">
+            <table className="w-full min-w-[800px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1]">
                 <tr className="bg-[#061B50] text-white">
                   {COLUMNS.map((col) => (
@@ -210,17 +173,15 @@ function PeriodGroup({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((ac: AircraftFuelMetrics, idx) => {
+                {filtered.map((ac: AircraftFuelBreakdown, idx) => {
                   const row: FlatRow = {
-                    periodKey: period.periodKey,
-                    periodLabel: period.periodLabel,
+                    periodKey: period.month,
+                    periodLabel: period.monthLabel,
                     ...ac,
                   };
-                  const issues =
-                    ac.incompleteRecordCount + ac.invalidRecordCount;
                   return (
                     <tr
-                      key={`${period.periodKey}-${ac.aircraftId}`}
+                      key={`${period.month}-${ac.tailNumber}`}
                       className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
                     >
                       {COLUMNS.map((col) => (
@@ -235,13 +196,6 @@ function PeriodGroup({
                           } text-gray-800`}
                         >
                           {cellValue(row, col.key)}
-                          {col.key === "invalidRecordCount" && issues > 0 ? (
-                            <AlertTriangle
-                              className="ml-1 inline h-3.5 w-3.5 text-amber-500"
-                              title="Excluded incomplete/invalid ATL records"
-                              aria-label="Has excluded records"
-                            />
-                          ) : null}
                         </td>
                       ))}
                     </tr>
@@ -257,7 +211,7 @@ function PeriodGroup({
 }
 
 export function AircraftBreakdownTable({
-  breakdown,
+  monthly,
   loading = false,
 }: AircraftBreakdownTableProps) {
   const [open, setOpen] = useState(true);
@@ -268,15 +222,13 @@ export function AircraftBreakdownTable({
   const [pageSize, setPageSize] = useState(10);
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
 
-  const flatRows = useMemo(() => flattenBreakdown(breakdown), [breakdown]);
+  const flatRows = useMemo(() => flattenMonthly(monthly), [monthly]);
 
   const filteredSorted = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = flatRows;
     if (q) {
-      rows = rows.filter((r) =>
-        r.aircraftRegistration.toLowerCase().includes(q)
-      );
+      rows = rows.filter((r) => r.tailNumber.toLowerCase().includes(q));
     }
     return [...rows].sort((a, b) => compareValues(a, b, sortKey, sortDir));
   }, [flatRows, search, sortKey, sortDir]);
@@ -290,16 +242,16 @@ export function AircraftBreakdownTable({
 
   const visiblePeriods = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return breakdown;
-    return breakdown
+    if (!q) return monthly;
+    return monthly
       .map((p) => ({
         ...p,
-        aircraft: p.aircraft.filter((ac) =>
-          ac.aircraftRegistration.toLowerCase().includes(q)
+        aircraftBreakdown: (p.aircraftBreakdown ?? []).filter((ac) =>
+          ac.tailNumber.toLowerCase().includes(q)
         ),
       }))
-      .filter((p) => p.aircraft.length > 0);
-  }, [breakdown, search]);
+      .filter((p) => (p.aircraftBreakdown ?? []).length > 0);
+  }, [monthly, search]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -367,7 +319,7 @@ export function AircraftBreakdownTable({
               }
               className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="grouped">By period</option>
+              <option value="grouped">By month</option>
               <option value="flat">Flat table</option>
             </select>
 
@@ -392,7 +344,7 @@ export function AircraftBreakdownTable({
             <div className="max-h-[520px] overflow-y-auto">
               {visiblePeriods.map((period) => (
                 <PeriodGroup
-                  key={period.periodKey}
+                  key={period.month}
                   period={period}
                   search={search}
                 />
@@ -401,7 +353,7 @@ export function AircraftBreakdownTable({
           ) : (
             <>
               <div className="max-h-[520px] overflow-auto">
-                <table className="w-full min-w-[1100px] border-collapse text-sm">
+                <table className="w-full min-w-[800px] border-collapse text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-[#061B50] text-white">
                       {COLUMNS.map((col) => (
@@ -426,39 +378,27 @@ export function AircraftBreakdownTable({
                     </tr>
                   </thead>
                   <tbody>
-                    {paged.map((row, idx) => {
-                      const issues =
-                        row.incompleteRecordCount + row.invalidRecordCount;
-                      return (
-                        <tr
-                          key={`${row.periodKey}-${row.aircraftId}-${idx}`}
-                          className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
-                        >
-                          {COLUMNS.map((col) => (
-                            <td
-                              key={col.key}
-                              className={`border border-gray-200 px-3 py-2 ${
-                                col.align === "right"
-                                  ? "text-right tabular-nums"
-                                  : col.align === "left"
-                                    ? "text-left"
-                                    : "text-center"
-                              } text-gray-800`}
-                            >
-                              {cellValue(row, col.key)}
-                              {col.key === "invalidRecordCount" &&
-                              issues > 0 ? (
-                                <AlertTriangle
-                                  className="ml-1 inline h-3.5 w-3.5 text-amber-500"
-                                  title="Excluded incomplete/invalid ATL records"
-                                  aria-label="Has excluded records"
-                                />
-                              ) : null}
-                            </td>
-                          ))}
-                        </tr>
-                      );
-                    })}
+                    {paged.map((row, idx) => (
+                      <tr
+                        key={`${row.periodKey}-${row.tailNumber}-${idx}`}
+                        className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
+                      >
+                        {COLUMNS.map((col) => (
+                          <td
+                            key={col.key}
+                            className={`border border-gray-200 px-3 py-2 ${
+                              col.align === "right"
+                                ? "text-right tabular-nums"
+                                : col.align === "left"
+                                  ? "text-left"
+                                  : "text-center"
+                            } text-gray-800`}
+                          >
+                            {cellValue(row, col.key)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

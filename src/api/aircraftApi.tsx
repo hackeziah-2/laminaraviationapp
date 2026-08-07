@@ -1,17 +1,23 @@
 import apiClient from "./index";
 import { Aircraft } from "../types/Aircraft";
 import { toCamel, toCamelDeep } from "../utility/utils";
+import {
+  getLatestAircraftTechnicalLog,
+  type AircraftTechnicalLog,
+} from "./aircraftTechnicalLogApi";
 
 /**
- * Normalized maintenance snapshot for TCC / monitoring UIs.
- * Built from GET /aircraft/{id}/details/ whether the API returns a nested or flat body.
+ * Normalized maintenance snapshot for TCC / CPCP monitoring UIs.
+ * Hours come from the latest ATL (highest numeric sequenceNo); identity from Aircraft Profile.
  */
 export type AircraftMaintenanceDetails = {
   registration?: string | null;
   msn?: string | null;
   engineSerialNumber?: string | null;
   propellerSerialNumber?: string | null;
+  /** Current Tach ← latest ATL tachometerEnd (tachEnd) */
   tachometerEnd?: string | number | null;
+  /** AFTT ← latest ATL airframeAftt */
   airframeAftt?: string | number | null;
   engineTsn?: string | number | null;
   engineTbo?: string | number | null;
@@ -19,81 +25,129 @@ export type AircraftMaintenanceDetails = {
   propellerTsn?: string | number | null;
   propellerTbo?: string | number | null;
   propellerTso?: string | number | null;
-  /** Latest ATL sequence when provided under `atl` */
+  /** Latest ATL sequence when an ATL exists */
   sequenceNo?: string | null;
+  /** LATEST_ATL when hours come from ATL; AIRCRAFT_PROFILE when no ATL */
+  source?: "LATEST_ATL" | "AIRCRAFT_PROFILE";
 };
 
 /**
- * API body shape (after `toCamelDeep`):
- * {
- *   aircraft: { aircraftId, registration, msn, engineSerialNumber, propellerSerialNumber },
- *   atl: { tachometerEnd, airframeAftt, engineTsn, engineTbo, engineTso, propellerTsn, propellerTbo, propellerTso, sequenceNo }
- * }
+ * Null/empty → null for monitoring display. Never treat 0 as empty.
  */
-type AircraftDetailsNestedCamel = {
-  aircraft?: {
-    aircraftId?: number;
-    registration?: string | null;
-    msn?: string | null;
-    engineSerialNumber?: string | null;
-    propellerSerialNumber?: string | null;
+function monitoringValueOrNull(
+  value: unknown
+): string | number | null {
+  if (value == null) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  return value as string | number;
+}
+
+function profileHoursFallback(
+  data: Record<string, unknown>
+): Pick<
+  AircraftMaintenanceDetails,
+  | "tachometerEnd"
+  | "airframeAftt"
+  | "engineTsn"
+  | "engineTbo"
+  | "engineTso"
+  | "propellerTsn"
+  | "propellerTbo"
+  | "propellerTso"
+  | "sequenceNo"
+  | "source"
+> {
+  return {
+    // Tach is ATL-only; profile has no tachometerEnd.
+    tachometerEnd: null,
+    airframeAftt: monitoringValueOrNull(
+      data.airframe_aftt ?? data.airframeAftt
+    ),
+    engineTsn: monitoringValueOrNull(data.engine_tsn ?? data.engineTsn),
+    engineTbo: null,
+    engineTso: monitoringValueOrNull(data.engine_tso ?? data.engineTso),
+    propellerTsn: monitoringValueOrNull(
+      data.propeller_tsn ?? data.propellerTsn
+    ),
+    propellerTbo: null,
+    propellerTso: monitoringValueOrNull(
+      data.propeller_tso ?? data.propellerTso
+    ),
+    sequenceNo: null,
+    source: "AIRCRAFT_PROFILE",
   };
-  atl?: {
-    tachometerEnd?: string | number | null;
-    airframeAftt?: string | number | null;
-    engineTsn?: string | number | null;
-    engineTbo?: string | number | null;
-    engineTso?: string | number | null;
-    propellerTsn?: string | number | null;
-    propellerTbo?: string | number | null;
-    propellerTso?: string | number | null;
-    sequenceNo?: string | null;
+}
+
+function hoursFromLatestAtl(
+  atl: AircraftTechnicalLog
+): Pick<
+  AircraftMaintenanceDetails,
+  | "tachometerEnd"
+  | "airframeAftt"
+  | "engineTsn"
+  | "engineTbo"
+  | "engineTso"
+  | "propellerTsn"
+  | "propellerTbo"
+  | "propellerTso"
+  | "sequenceNo"
+  | "source"
+> {
+  return {
+    tachometerEnd: monitoringValueOrNull(atl.tachometerEnd),
+    airframeAftt: monitoringValueOrNull(atl.airframeAftt),
+    engineTsn: monitoringValueOrNull(atl.engineTsn),
+    engineTbo: monitoringValueOrNull(atl.engineTbo),
+    engineTso: monitoringValueOrNull(atl.engineTso),
+    propellerTsn: monitoringValueOrNull(atl.propellerTsn),
+    propellerTbo: monitoringValueOrNull(atl.propellerTbo),
+    propellerTso: monitoringValueOrNull(atl.propellerTso),
+    sequenceNo:
+      atl.sequenceNo != null && String(atl.sequenceNo).trim() !== ""
+        ? String(atl.sequenceNo).trim()
+        : null,
+    source: "LATEST_ATL",
   };
-};
-
-function normalizeAircraftDetailsPayload(
-  raw: Record<string, unknown>
-): AircraftMaintenanceDetails {
-  const deep = toCamelDeep(raw) as AircraftDetailsNestedCamel &
-    AircraftMaintenanceDetails;
-
-  const { aircraft, atl, ...rest } = deep;
-
-  if (aircraft != null || atl != null) {
-    return {
-      registration: aircraft?.registration ?? null,
-      msn: aircraft?.msn ?? null,
-      engineSerialNumber: aircraft?.engineSerialNumber ?? null,
-      propellerSerialNumber: aircraft?.propellerSerialNumber ?? null,
-      tachometerEnd: atl?.tachometerEnd ?? null,
-      airframeAftt: atl?.airframeAftt ?? null,
-      engineTsn: atl?.engineTsn ?? null,
-      engineTbo: atl?.engineTbo ?? null,
-      engineTso: atl?.engineTso ?? null,
-      propellerTsn: atl?.propellerTsn ?? null,
-      propellerTbo: atl?.propellerTbo ?? null,
-      propellerTso: atl?.propellerTso ?? null,
-      sequenceNo: atl?.sequenceNo ?? null,
-    };
-  }
-
-  return rest as AircraftMaintenanceDetails;
 }
 
 /**
- * GET /api/v1/aircraft/{aircraft_id}/details/
- *
- * Supports nested `{ aircraft, atl }` and legacy flat objects.
+ * Monitoring hours for TCC / CPCP:
+ * - Latest ATL = highest numeric sequenceNo for the aircraft (not createdAt/updatedAt).
+ * - Null/empty ATL fields stay null (TSN displays as UNK); 0 is kept.
+ * - If no ATL exists, fall back to Aircraft Profile hours when available.
  */
 export const getAircraftDetails = async (
   aircraftId: number
 ): Promise<AircraftMaintenanceDetails> => {
-  const response = await apiClient.get(`aircraft/${aircraftId}/details/`);
-  const raw = response.data?.data ?? response.data;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return {};
-  }
-  return normalizeAircraftDetailsPayload(raw as Record<string, unknown>);
+  const [profileRes, latestAtl] = await Promise.all([
+    getAircraftById(aircraftId).catch(() => null),
+    getLatestAircraftTechnicalLog(aircraftId).catch(() => null),
+  ]);
+
+  const data =
+    profileRes?.data != null && typeof profileRes.data === "object"
+      ? (profileRes.data as Record<string, unknown>)
+      : {};
+
+  const identity = {
+    registration: (data.registration as string | null | undefined) ?? null,
+    msn: (data.msn as string | null | undefined) ?? null,
+    engineSerialNumber:
+      (data.engine_serial_number as string | null | undefined) ??
+      (data.engineSerialNumber as string | null | undefined) ??
+      null,
+    propellerSerialNumber:
+      (data.propeller_serial_number as string | null | undefined) ??
+      (data.propellerSerialNumber as string | null | undefined) ??
+      null,
+  };
+
+  const hours =
+    latestAtl != null
+      ? hoursFromLatestAtl(latestAtl)
+      : profileHoursFallback(data);
+
+  return { ...identity, ...hours };
 };
 
 export const getAircrafts = (
