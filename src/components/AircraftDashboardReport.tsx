@@ -1,11 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
 import { ChevronRight, RefreshCw } from "lucide-react";
-import { useAircraftFuelReport } from "../hooks/useAircraftFuelReport";
+import {
+  useAircraftFuelReport,
+  useYoyFlyingHoursReport,
+} from "../hooks/useAircraftFuelReport";
 import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 import {
   aircraftBreadcrumbLabel,
   buildFuelReportQueryParams,
   createDefaultFuelReportFilters,
+  resolveFuelUnit,
+  yoyYearsFromMonthRange,
   type FuelReportFilterState,
 } from "../types/dashboardReport.types";
 import { AircraftBreakdownTable } from "./dashboard/AircraftBreakdownTable";
@@ -13,6 +18,7 @@ import { AircraftFuelChart } from "./dashboard/AircraftFuelChart";
 import { DashboardReportFilters } from "./dashboard/DashboardReportFilters";
 import { DashboardSummaryCards } from "./dashboard/DashboardSummaryCards";
 import { FuelConsumptionSummaryTable } from "./dashboard/FuelConsumptionSummaryTable";
+import { YoyFlyingHoursSection } from "./dashboard/YoyFlyingHoursSection";
 
 export function AircraftDashboardReport() {
   const defaults = useMemo(() => createDefaultFuelReportFilters(), []);
@@ -28,6 +34,58 @@ export function AircraftDashboardReport() {
 
   const { data, isLoading, isFetching, isError, error, refetch } =
     useAircraftFuelReport(queryParams);
+
+  /** YoY years follow the month filter; with no bounds, prefer main-report meta range. */
+  const yoyYears = useMemo(() => {
+    const hasMonthFilter =
+      Boolean(appliedFilters.startMonth?.trim()) ||
+      Boolean(appliedFilters.endMonth?.trim());
+    if (hasMonthFilter) {
+      return yoyYearsFromMonthRange(
+        appliedFilters.startMonth,
+        appliedFilters.endMonth
+      );
+    }
+    const metaStart = data?.meta?.range?.start ?? "";
+    const metaEnd = data?.meta?.range?.end ?? "";
+    if (metaStart.trim() || metaEnd.trim()) {
+      return yoyYearsFromMonthRange(metaStart, metaEnd);
+    }
+    return yoyYearsFromMonthRange("", "");
+  }, [
+    appliedFilters.startMonth,
+    appliedFilters.endMonth,
+    data?.meta?.range?.start,
+    data?.meta?.range?.end,
+  ]);
+
+  const yoyQueryParams = useMemo(
+    () =>
+      buildFuelReportQueryParams(
+        {
+          // Full calendar years for YoY — month slice is encoded in `years`.
+          startMonth: "",
+          endMonth: "",
+          aircraftIds: appliedFilters.aircraftIds,
+          aircraftRegistrations: appliedFilters.aircraftRegistrations,
+        },
+        { years: yoyYears }
+      ),
+    [appliedFilters.aircraftIds, appliedFilters.aircraftRegistrations, yoyYears]
+  );
+
+  const {
+    data: yoyData,
+    isLoading: yoyLoading,
+    isError: yoyIsError,
+    error: yoyError,
+    refetch: refetchYoy,
+  } = useYoyFlyingHoursReport(yoyQueryParams);
+
+  const rangeStart =
+    data?.meta?.range?.start ?? yoyData?.meta?.range?.start ?? null;
+  const rangeEnd =
+    data?.meta?.range?.end ?? yoyData?.meta?.range?.end ?? null;
 
   const initialLoading = isLoading && !data;
   const applying = isFetching;
@@ -63,15 +121,17 @@ export function AircraftDashboardReport() {
   const errorMessage = isError
     ? formatApiErrorMessage(error, "Failed to load aircraft fuel report")
     : null;
+  const yoyErrorMessage = yoyIsError
+    ? formatApiErrorMessage(yoyError, "Failed to load YoY flying hours")
+    : null;
 
-  const showReport = data != null || showSkeletons;
+  const showReport = data != null || showSkeletons || isError;
   const breadcrumb = aircraftBreadcrumbLabel(
     appliedFilters.aircraftRegistrations
   );
   const rangeLabel = useMemo(() => {
-    const start =
-      appliedFilters.startMonth || data?.meta?.range?.start || null;
-    const end = appliedFilters.endMonth || data?.meta?.range?.end || null;
+    const start = appliedFilters.startMonth || rangeStart || null;
+    const end = appliedFilters.endMonth || rangeEnd || null;
     if (start && end) return `${start} → ${end}`;
     if (start) return `From ${start}`;
     if (end) return `Until ${end}`;
@@ -79,9 +139,15 @@ export function AircraftDashboardReport() {
   }, [
     appliedFilters.startMonth,
     appliedFilters.endMonth,
-    data?.meta?.range?.start,
-    data?.meta?.range?.end,
+    rangeStart,
+    rangeEnd,
   ]);
+
+  const fuelUnit = resolveFuelUnit(
+    yoyData?.meta?.fuelUnit ?? data?.meta?.fuelUnit
+  );
+
+  const yoySection = yoyData?.yoyFlyingHours ?? data?.yoyFlyingHours ?? null;
 
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[1400px] flex-col gap-5 pb-8 sm:gap-6">
@@ -146,17 +212,33 @@ export function AircraftDashboardReport() {
               <FuelConsumptionSummaryTable
                 data={data ?? null}
                 loading={showSkeletons}
+                fuelUnit={fuelUnit}
               />
-              <AircraftFuelChart data={data ?? null} loading={showSkeletons} />
+              <AircraftFuelChart
+                data={data ?? null}
+                loading={showSkeletons}
+                fuelUnit={fuelUnit}
+              />
             </div>
           </div>
 
           <AircraftBreakdownTable
             monthly={data?.monthly ?? []}
             loading={showSkeletons}
+            fuelUnit={fuelUnit}
           />
         </>
       )}
+
+      <YoyFlyingHoursSection
+        data={yoySection}
+        dataQualityFlags={
+          yoyData?.dataQualityFlags ?? data?.dataQualityFlags ?? []
+        }
+        loading={yoyLoading && !yoyData && !data?.yoyFlyingHours}
+        errorMessage={yoyErrorMessage}
+        onRetry={() => void refetchYoy()}
+      />
 
       {data && applying && (
         <p className="sr-only" aria-live="polite">

@@ -1850,10 +1850,8 @@ export function AddTechnicalLogbookEntryModal({
     nomenclature: string;
     removedPartNo: string;
     removedSerialNo: string;
-    partRemovedRemainingTime: string;
     installedPartNo: string;
     installedSerialNo: string;
-    partInstalledRemainingTime: string;
     ataChapter: string;
     partRemark: string;
   }
@@ -2489,20 +2487,10 @@ export function AddTechnicalLogbookEntryModal({
             removedPartNo: part.removedPartNo || part.removed_part_no || "",
             removedSerialNo:
               part.removedSerialNo || part.removed_serial_no || "",
-            partRemovedRemainingTime: String(
-              part.partRemovedRemainingTime ??
-                part.part_removed_remaining_time ??
-                ""
-            ),
             installedPartNo:
               part.installedPartNo || part.installed_part_no || "",
             installedSerialNo:
               part.installedSerialNo || part.installed_serial_no || "",
-            partInstalledRemainingTime: String(
-              part.partInstalledRemainingTime ??
-                part.part_installed_remaining_time ??
-                ""
-            ),
             ataChapter: part.ataChapter || part.ata_chapter || "",
             partRemark: part.partRemark || part.part_remark || "",
           }));
@@ -3609,54 +3597,10 @@ export function AddTechnicalLogbookEntryModal({
     return "";
   };
 
-  // Format time from API (HHMM) to display format (HH:MM)
+  // Format time from API to display format (HH:MM only — no seconds)
   const formatTimeFromAPI = (timeStr: string | undefined): string => {
-    if (!timeStr) return "";
-    try {
-      // Remove any existing "Z" suffix, colons, and whitespace
-      const cleaned = timeStr.replace(/[Z\s:]/g, "");
-
-      // Handle HHMM format (4 digits) - convert to HH:MM
-      if (cleaned.length === 4 && /^\d{4}$/.test(cleaned)) {
-        const hours = cleaned.substring(0, 2);
-        const minutes = cleaned.substring(2, 4);
-        // Validate hours (0-23) and minutes (0-59)
-        const hoursNum = parseInt(hours, 10);
-        const minutesNum = parseInt(minutes, 10);
-        if (
-          hoursNum >= 0 &&
-          hoursNum <= 23 &&
-          minutesNum >= 0 &&
-          minutesNum <= 59
-        ) {
-          return `${hours}:${minutes}`;
-        }
-      }
-
-      // Handle HH:MM format - return as is
-      if (timeStr.includes(":")) {
-        const parts = timeStr.split(":");
-        if (parts.length >= 2) {
-          const hours = parts[0].padStart(2, "0");
-          const minutes = parts[1].padStart(2, "0");
-          // Validate hours (0-23) and minutes (0-59)
-          const hoursNum = parseInt(hours, 10);
-          const minutesNum = parseInt(minutes, 10);
-          if (
-            hoursNum >= 0 &&
-            hoursNum <= 23 &&
-            minutesNum >= 0 &&
-            minutesNum <= 59
-          ) {
-            return `${hours}:${minutes}`;
-          }
-        }
-      }
-
-      return ""; // Return empty if invalid
-    } catch {
-      return "";
-    }
+    const formatted = zuluTimeToTimeInputValue(timeStr);
+    return formatted;
   };
 
   // Total flight time = destination − origin using UTC dates + Zulu times when dates are set;
@@ -4451,21 +4395,40 @@ export function AddTechnicalLogbookEntryModal({
                     : {}),
                 }
             : {}),
-          componentParts: componentRecords.map((record) => ({
-            qty: parseFloat(record.qty) || 0,
-            unit: record.unit,
-            nomenclature: record.nomenclature,
-            removedPartNo: record.removedPartNo || undefined,
-            removedSerialNo: record.removedSerialNo || undefined,
-            partRemovedRemainingTime:
-              record.partRemovedRemainingTime?.trim() || undefined,
-            installedPartNo: record.installedPartNo || undefined,
-            installedSerialNo: record.installedSerialNo || undefined,
-            partInstalledRemainingTime:
-              record.partInstalledRemainingTime?.trim() || undefined,
-            ataChapter: record.ataChapter || undefined,
-            partRemark: record.partRemark?.trim() || undefined,
-          })),
+          componentParts: componentRecords.map((record, index) => {
+            const original = editEntry?.componentParts?.[index] as
+              | Record<string, unknown>
+              | undefined;
+            const preservedRemoved =
+              original?.partRemovedRemainingTime ??
+              original?.part_removed_remaining_time;
+            const preservedInstalled =
+              original?.partInstalledRemainingTime ??
+              original?.part_installed_remaining_time;
+            return {
+              qty: parseFloat(record.qty) || 0,
+              unit: record.unit,
+              nomenclature: record.nomenclature,
+              removedPartNo: record.removedPartNo || undefined,
+              removedSerialNo: record.removedSerialNo || undefined,
+              installedPartNo: record.installedPartNo || undefined,
+              installedSerialNo: record.installedSerialNo || undefined,
+              ataChapter: record.ataChapter || undefined,
+              partRemark: record.partRemark?.trim() || undefined,
+              // Preserve backend values on edit so existing DB columns stay intact
+              ...(preservedRemoved != null &&
+              String(preservedRemoved).trim() !== ""
+                ? { partRemovedRemainingTime: preservedRemoved as string | number }
+                : {}),
+              ...(preservedInstalled != null &&
+              String(preservedInstalled).trim() !== ""
+                ? {
+                    partInstalledRemainingTime:
+                      preservedInstalled as string | number,
+                  }
+                : {}),
+            };
+          }),
           // Fleet Time Monitoring: on update send work_status from form (connected to update API); on create overwritten to FOR_REVIEW below
           workStatus: formData.workStatus || undefined,
           ...(() => {
@@ -4818,10 +4781,8 @@ export function AddTechnicalLogbookEntryModal({
       nomenclature: "",
       removedPartNo: "",
       removedSerialNo: "",
-      partRemovedRemainingTime: "",
       installedPartNo: "",
       installedSerialNo: "",
-      partInstalledRemainingTime: "",
       ataChapter: "",
       partRemark: "",
     };
@@ -6434,16 +6395,10 @@ export function AddTechnicalLogbookEntryModal({
                           REMOVED S/N
                         </th>
                         <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                          REMOVED REMAINING TIME
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                           INSTALLED P/N
                         </th>
                         <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                           INSTALLED S/N
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
-                          INSTALLED REMAINING TIME
                         </th>
                         <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
                           ATA CHAPTER
@@ -6460,7 +6415,7 @@ export function AddTechnicalLogbookEntryModal({
                       {componentRecords.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={12}
+                            colSpan={10}
                             className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
                           >
                             No component records added. Click "Add another
@@ -6543,20 +6498,6 @@ export function AddTechnicalLogbookEntryModal({
                             <td className="border border-gray-300 px-2 py-2">
                               <input
                                 type="text"
-                                value={record.partRemovedRemainingTime}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "partRemovedRemainingTime",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
                                 value={record.installedPartNo}
                                 onChange={(e) =>
                                   updateComponentRecord(
@@ -6576,20 +6517,6 @@ export function AddTechnicalLogbookEntryModal({
                                   updateComponentRecord(
                                     record.id,
                                     "installedSerialNo",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.partInstalledRemainingTime}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "partInstalledRemainingTime",
                                     e.target.value
                                   )
                                 }

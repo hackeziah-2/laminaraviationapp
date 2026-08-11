@@ -258,7 +258,18 @@ export const CPCPMonitoring = forwardRef<
   const headerTach = fmtCpcpHeaderField(
     useLoadedMonitoringHours ? aircraftDetails?.tachometerEnd : tach
   );
-  const headerDate = fmtCpcpHeaderField(date);
+  // DATE ← latest ATL originDate (same source as TACH / AFTT); format for display.
+  const headerDate = (() => {
+    if (useLoadedMonitoringHours) {
+      const raw = aircraftDetails?.originDate;
+      if (raw == null || String(raw).trim() === "") return "—";
+      const formatted = formatDisplayDate(String(raw), { fallback: "" });
+      return formatted.trim() !== ""
+        ? formatted
+        : fmtCpcpHeaderField(raw);
+    }
+    return fmtCpcpHeaderField(date);
+  })();
 
   const handleCpcpExport = useCallback(
     async (format: "csv" | "xlsx") => {

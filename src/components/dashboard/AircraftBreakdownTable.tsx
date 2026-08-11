@@ -15,6 +15,9 @@ import { DataTablePagination } from "../ui/DataTablePagination";
 import { Skeleton } from "../ui/skeleton";
 import {
   formatReportNumber,
+  fuelBurnLabel,
+  fuelQuantityLabel,
+  resolveFuelUnit,
   type AircraftFuelBreakdown,
   type MonthlyFuelRow,
 } from "../../types/dashboardReport.types";
@@ -22,6 +25,7 @@ import {
 type AircraftBreakdownTableProps = {
   monthly: MonthlyFuelRow[];
   loading?: boolean;
+  fuelUnit?: string;
 };
 
 type FlatRow = {
@@ -42,18 +46,25 @@ type SortKey =
   | "fuelBurnPerHour"
   | "oilUsageQrts";
 
-const COLUMNS: {
+function buildColumns(fuelUnit?: string): {
   key: SortKey;
   label: string;
   align?: "left" | "right" | "center";
-}[] = [
-  { key: "periodLabel", label: "Month", align: "center" },
-  { key: "tailNumber", label: "Aircraft Registration", align: "left" },
-  { key: "hours", label: "ATL Hours", align: "right" },
-  { key: "fuelGal", label: "Fuel (Gal)", align: "right" },
-  { key: "fuelBurnPerHour", label: "Fuel Burn / Hour", align: "right" },
-  { key: "oilUsageQrts", label: "Oil Usage", align: "right" },
-];
+}[] {
+  const unit = resolveFuelUnit(fuelUnit);
+  return [
+    { key: "periodLabel", label: "Month", align: "center" },
+    { key: "tailNumber", label: "Aircraft Registration", align: "left" },
+    { key: "hours", label: "ATL Hours", align: "right" },
+    { key: "fuelGal", label: fuelQuantityLabel(unit), align: "right" },
+    {
+      key: "fuelBurnPerHour",
+      label: fuelBurnLabel(unit),
+      align: "right",
+    },
+    { key: "oilUsageQrts", label: "Oil Usage", align: "right" },
+  ];
+}
 
 function flattenMonthly(monthly: MonthlyFuelRow[]): FlatRow[] {
   const rows: FlatRow[] = [];
@@ -101,11 +112,14 @@ function cellValue(row: FlatRow, key: SortKey): string {
   return formatReportNumber(v as number | null);
 }
 
-function exportRows(rows: FlatRow[]) {
-  const header = COLUMNS.map((c) => c.label);
+function exportRows(
+  rows: FlatRow[],
+  columns: ReturnType<typeof buildColumns>
+) {
+  const header = columns.map((c) => c.label);
   const aoa = [
     header,
-    ...rows.map((row) => COLUMNS.map((c) => cellValue(row, c.key))),
+    ...rows.map((row) => columns.map((c) => cellValue(row, c.key))),
   ];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
@@ -119,9 +133,13 @@ function exportRows(rows: FlatRow[]) {
 function PeriodGroup({
   period,
   search,
+  columns,
+  fuelUnit,
 }: {
   period: MonthlyFuelRow;
   search: string;
+  columns: ReturnType<typeof buildColumns>;
+  fuelUnit: string;
 }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -152,7 +170,7 @@ function PeriodGroup({
             <span className="ml-auto text-xs font-normal text-gray-500">
               {filtered.length} aircraft ·{" "}
               {formatReportNumber(period.hours)} hrs ·{" "}
-              {formatReportNumber(period.fuelGal)} gal
+              {formatReportNumber(period.fuelGal)} {fuelUnit}
             </span>
           </button>
         </CollapsibleTrigger>
@@ -161,7 +179,7 @@ function PeriodGroup({
             <table className="w-full min-w-[800px] border-collapse text-sm">
               <thead className="sticky top-0 z-[1]">
                 <tr className="bg-[#061B50] text-white">
-                  {COLUMNS.map((col) => (
+                  {columns.map((col) => (
                     <th
                       key={col.key}
                       className="border border-gray-300 px-3 py-2 text-xs font-bold tracking-wide"
@@ -184,7 +202,7 @@ function PeriodGroup({
                       key={`${period.month}-${ac.tailNumber}`}
                       className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
                     >
-                      {COLUMNS.map((col) => (
+                      {columns.map((col) => (
                         <td
                           key={col.key}
                           className={`border border-gray-200 px-3 py-2 ${
@@ -213,7 +231,10 @@ function PeriodGroup({
 export function AircraftBreakdownTable({
   monthly,
   loading = false,
+  fuelUnit,
 }: AircraftBreakdownTableProps) {
+  const unit = resolveFuelUnit(fuelUnit);
+  const columns = useMemo(() => buildColumns(unit), [unit]);
   const [open, setOpen] = useState(true);
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("periodLabel");
@@ -325,7 +346,7 @@ export function AircraftBreakdownTable({
 
             <button
               type="button"
-              onClick={() => exportRows(filteredSorted)}
+              onClick={() => exportRows(filteredSorted, columns)}
               disabled={filteredSorted.length === 0}
               className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -347,6 +368,8 @@ export function AircraftBreakdownTable({
                   key={period.month}
                   period={period}
                   search={search}
+                  columns={columns}
+                  fuelUnit={unit}
                 />
               ))}
             </div>
@@ -356,7 +379,7 @@ export function AircraftBreakdownTable({
                 <table className="w-full min-w-[800px] border-collapse text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-[#061B50] text-white">
-                      {COLUMNS.map((col) => (
+                      {columns.map((col) => (
                         <th
                           key={col.key}
                           className="border border-gray-300 px-0 text-xs font-bold tracking-wide"
@@ -383,7 +406,7 @@ export function AircraftBreakdownTable({
                         key={`${row.periodKey}-${row.tailNumber}-${idx}`}
                         className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
                       >
-                        {COLUMNS.map((col) => (
+                        {columns.map((col) => (
                           <td
                             key={col.key}
                             className={`border border-gray-200 px-3 py-2 ${
