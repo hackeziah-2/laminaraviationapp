@@ -9,6 +9,10 @@ export type AircraftFuelReportQueryParams = {
   aircraft?: string;
   /** Comma-separated aircraft PKs — preferred filter. */
   aircraftId?: string;
+  /** Comma-separated calendar years for YoY flying hours (e.g. "2023,2024,2025,2026"). */
+  years?: string;
+  /** Single month slicer YYYY-MM for per-aircraft breakdown. */
+  monthYear?: string;
 };
 
 export type FuelReportRange = {
@@ -20,6 +24,8 @@ export type FuelReportMeta = {
   source: string;
   range: FuelReportRange;
   generatedAt: string;
+  /** ATL fuel is unitless; product convention comes from API (e.g. "gallons"). */
+  fuelUnit: string;
 };
 
 export type FuelReportSummary = {
@@ -71,11 +77,40 @@ export type DataQualityFlagRow = DataQualityFlag & {
   dateDetected: string;
 };
 
+export type YoyFlyingHoursMonth = {
+  month: string;
+  values: Record<string, number>;
+  flag: string | null;
+};
+
+export type YoyFlyingHours = {
+  years: number[];
+  months: YoyFlyingHoursMonth[];
+  averageFh: Record<string, number>;
+  grandTotal: Record<string, number>;
+};
+
+export type AircraftMonthBreakdownRow = {
+  tailNumber: string;
+  hours: number;
+  fuel: number;
+  fuelBurnPerHour: number | null;
+  flag: string | null;
+};
+
+export type AircraftMonthBreakdown = {
+  /** Display label from API (e.g. "Apr-25"), or null when slicer omitted. */
+  monthYear: string | null;
+  aircraft: AircraftMonthBreakdownRow[];
+};
+
 export type AircraftFuelReportResponse = {
   meta: FuelReportMeta;
   summary: FuelReportSummary;
   monthly: MonthlyFuelRow[];
   dataQualityFlags: DataQualityFlag[];
+  yoyFlyingHours: YoyFlyingHours;
+  aircraftMonthBreakdown: AircraftMonthBreakdown;
 };
 
 /** Draft / applied filter form state (UI). */
@@ -144,7 +179,83 @@ const FLAG_META: Record<
     category: "Fuel Fields",
     severity: "Warning",
   },
+  large_yoy_variance: {
+    category: "YoY Flying Hours",
+    severity: "Warning",
+  },
+  fuel_burn_outlier: {
+    category: "Fuel Burn",
+    severity: "Warning",
+  },
 };
+
+/** Parse calendar year from a YYYY-MM month string. */
+export function parseYearFromMonthYear(monthYear: string): number | null {
+  const match = monthYear.trim().match(/^(\d{4})-\d{2}$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  return Number.isFinite(year) ? year : null;
+}
+
+/**
+ * Default YoY years when no month filter is set: trailing calendar span
+ * ending at the current year (default last 4 years, e.g. 2023–2026 in 2026).
+ */
+export function defaultYoyYears(today = new Date(), span = 4): number[] {
+  const end = today.getFullYear();
+  const safeSpan = Math.max(1, Math.floor(span));
+  const start = end - (safeSpan - 1);
+  return Array.from({ length: safeSpan }, (_, i) => start + i);
+}
+
+/**
+ * Inclusive calendar years for YoY flying hours from filter (or meta) month bounds.
+ * Empty start/end → {@link defaultYoyYears}. One bound alone expands to that year only
+ * until the other is known; both bounds use the inclusive year range.
+ */
+export function yoyYearsFromMonthRange(
+  startMonth: string,
+  endMonth: string,
+  today = new Date()
+): number[] {
+  const startY = parseYearFromMonthYear(startMonth);
+  const endY = parseYearFromMonthYear(endMonth);
+  if (startY == null && endY == null) {
+    return defaultYoyYears(today);
+  }
+  const from = startY ?? endY!;
+  const to = endY ?? startY!;
+  const lo = Math.min(from, to);
+  const hi = Math.max(from, to);
+  const years: number[] = [];
+  for (let y = lo; y <= hi; y += 1) years.push(y);
+  return years;
+}
+
+/** Current calendar month as YYYY-MM. */
+export function currentMonthYear(today = new Date()): string {
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+/** Display fuel unit from API (fallback gallons). */
+export function resolveFuelUnit(unit: string | null | undefined): string {
+  const trimmed = (unit ?? "").trim();
+  return trimmed || "gallons";
+}
+
+export function fuelQuantityLabel(unit: string | null | undefined): string {
+  return `Fuel (${resolveFuelUnit(unit)})`;
+}
+
+export function fuelBurnLabel(unit: string | null | undefined): string {
+  const u = resolveFuelUnit(unit);
+  // Shorten common plurals for axis/legend density.
+  const short =
+    u === "gallons" ? "gal" : u === "liters" || u === "litres" ? "liter" : u;
+  return `Fuel Burn/Hour (${short}/hr)`;
+}
 
 function humanizeFlagCode(code: string): string {
   const raw = (code || "").trim();
@@ -246,7 +357,8 @@ export function createDefaultFuelReportFilters(): FuelReportFilterState {
  * Sends `aircraft` (tails) and `aircraft_id` (PKs) when a filter is set.
  */
 export function buildFuelReportQueryParams(
-  filters: FuelReportFilterState
+  filters: FuelReportFilterState,
+  extras?: { years?: number[]; monthYear?: string }
 ): AircraftFuelReportQueryParams {
   const params: AircraftFuelReportQueryParams = {};
   if (filters.startMonth?.trim()) {
@@ -264,6 +376,12 @@ export function buildFuelReportQueryParams(
   }
   if (ids.length > 0) {
     params.aircraftId = ids.join(",");
+  }
+  if (extras?.years?.length) {
+    params.years = extras.years.join(",");
+  }
+  if (extras?.monthYear?.trim()) {
+    params.monthYear = extras.monthYear.trim();
   }
   return params;
 }
@@ -315,11 +433,75 @@ function unwrapFuelReportPayload(rawInput: unknown): Record<string, unknown> {
     typeof obj.data === "object" &&
     !Array.isArray(obj.data) &&
     obj.monthly == null &&
-    obj.summary == null
+    obj.summary == null &&
+    obj.yoy_flying_hours == null &&
+    obj.yoyFlyingHours == null
   ) {
     return obj.data as Record<string, unknown>;
   }
   return obj;
+}
+
+function normalizeStringNumberMap(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    out[String(k)] = num(v);
+  }
+  return out;
+}
+
+function normalizeYoyFlyingHours(raw: unknown): YoyFlyingHours {
+  const root = (raw ?? {}) as Record<string, unknown>;
+  const yearsRaw = Array.isArray(root.years) ? root.years : [];
+  const years = yearsRaw
+    .map((y) => Number(y))
+    .filter((y) => Number.isFinite(y))
+    .map((y) => Math.trunc(y));
+  const monthsRaw = Array.isArray(root.months) ? root.months : [];
+  const months: YoyFlyingHoursMonth[] = monthsRaw.map((item: unknown) => {
+    const m = (item ?? {}) as Record<string, unknown>;
+    return {
+      month: str(m.month),
+      values: normalizeStringNumberMap(m.values),
+      flag:
+        m.flag != null && String(m.flag).trim() !== ""
+          ? String(m.flag).trim()
+          : null,
+    };
+  });
+  return {
+    years,
+    months,
+    averageFh: normalizeStringNumberMap(root.average_fh ?? root.averageFh),
+    grandTotal: normalizeStringNumberMap(root.grand_total ?? root.grandTotal),
+  };
+}
+
+function normalizeAircraftMonthBreakdown(raw: unknown): AircraftMonthBreakdown {
+  const root = (raw ?? {}) as Record<string, unknown>;
+  const aircraftRaw = Array.isArray(root.aircraft) ? root.aircraft : [];
+  return {
+    monthYear:
+      root.month_year != null || root.monthYear != null
+        ? str(root.month_year ?? root.monthYear) || null
+        : null,
+    aircraft: aircraftRaw.map((item: unknown) => {
+      const ac = (item ?? {}) as Record<string, unknown>;
+      return {
+        tailNumber: str(ac.tail_number ?? ac.tailNumber),
+        hours: num(ac.hours),
+        fuel: num(ac.fuel),
+        fuelBurnPerHour: numOrNull(
+          ac.fuel_burn_per_hour ?? ac.fuelBurnPerHour
+        ),
+        flag:
+          ac.flag != null && String(ac.flag).trim() !== ""
+            ? String(ac.flag).trim()
+            : null,
+      };
+    }),
+  };
 }
 
 /**
@@ -409,6 +591,9 @@ export function normalizeAircraftFuelReport(
             : null,
       },
       generatedAt: str(metaRaw.generated_at ?? metaRaw.generatedAt),
+      fuelUnit: resolveFuelUnit(
+        str(metaRaw.fuel_unit ?? metaRaw.fuelUnit, "gallons")
+      ),
     },
     summary: {
       totalHours: num(summaryRaw.total_hours ?? summaryRaw.totalHours),
@@ -426,5 +611,11 @@ export function normalizeAircraftFuelReport(
     },
     monthly,
     dataQualityFlags,
+    yoyFlyingHours: normalizeYoyFlyingHours(
+      root.yoy_flying_hours ?? root.yoyFlyingHours
+    ),
+    aircraftMonthBreakdown: normalizeAircraftMonthBreakdown(
+      root.aircraft_month_breakdown ?? root.aircraftMonthBreakdown
+    ),
   };
 }

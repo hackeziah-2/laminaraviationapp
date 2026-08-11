@@ -18,6 +18,8 @@ import {
   formatBarWholeNumber,
   formatBurnLabel,
   formatReportNumber,
+  fuelBurnLabel,
+  fuelQuantityLabel,
   type AircraftFuelReportResponse,
   type DataQualityFlag,
   type MonthlyFuelRow,
@@ -26,6 +28,7 @@ import {
 type AircraftFuelChartProps = {
   data: AircraftFuelReportResponse | null;
   loading?: boolean;
+  fuelUnit?: string;
 };
 
 type ChartRow = {
@@ -39,18 +42,23 @@ type ChartRow = {
   flags: DataQualityFlag[];
 };
 
-const SERIES_META: Record<
-  string,
-  { label: string; color: string; unit: string }
-> = {
-  hours: { label: "Hours", color: "#55C2E8", unit: "hours" },
-  fuel: { label: "Fuel (Gal)", color: "#AFAFAF", unit: "gallons" },
-  burn: { label: "Fuel Burn/ Hour", color: "#F0A078", unit: "gal/hour" },
-};
-
 const HOURS_COLOR = "#55C2E8";
 const FUEL_COLOR = "#AFAFAF";
 const BURN_COLOR = "#F0A078";
+
+function seriesMeta(fuelUnit: string | undefined) {
+  const fuelLabel = fuelQuantityLabel(fuelUnit);
+  const burnLabel = fuelBurnLabel(fuelUnit);
+  return {
+    hours: { label: "Hours", color: HOURS_COLOR, unit: "hours" },
+    fuel: {
+      label: fuelLabel,
+      color: FUEL_COLOR,
+      unit: fuelUnit || "gallons",
+    },
+    burn: { label: burnLabel, color: BURN_COLOR, unit: burnLabel },
+  } as const;
+}
 
 function formatAxisTick(value: unknown): string {
   const n = Number(value);
@@ -121,6 +129,7 @@ function ChartTooltipContent({
   active,
   payload,
   label,
+  fuelUnit,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -131,10 +140,12 @@ function ChartTooltipContent({
     payload?: ChartRow;
   }>;
   label?: string;
+  fuelUnit?: string;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   const seen = new Set<string>();
+  const metaByKey = seriesMeta(fuelUnit);
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg">
@@ -144,9 +155,8 @@ function ChartTooltipContent({
           const key = String(entry.dataKey ?? "");
           if (seen.has(key)) return null;
           seen.add(key);
-          const meta = SERIES_META[key];
+          const meta = metaByKey[key as keyof typeof metaByKey];
           const seriesLabel = meta?.label ?? entry.name ?? key;
-          const unit = meta?.unit ?? "";
           const raw = entry.value;
           return (
             <li key={key} className="flex items-center gap-2 text-gray-700">
@@ -160,7 +170,6 @@ function ChartTooltipContent({
                 <span className="font-medium tabular-nums">
                   {raw == null ? "N/A" : formatReportNumber(Number(raw), 4)}
                 </span>
-                {unit ? ` ${unit}` : ""}
               </span>
             </li>
           );
@@ -233,7 +242,11 @@ function QualityFlagMarker(props: {
 export function AircraftFuelChart({
   data,
   loading = false,
+  fuelUnit,
 }: AircraftFuelChartProps) {
+  const unit = fuelUnit ?? data?.meta?.fuelUnit;
+  const fuelLabel = fuelQuantityLabel(unit);
+  const burnSeriesLabel = fuelBurnLabel(unit);
   const rows = useMemo(() => (data ? buildChartRows(data) : []), [data]);
   const leftDomain = useMemo(() => leftAxisDomain(rows), [rows]);
   const rightDomain = useMemo(() => rightAxisDomain(rows), [rows]);
@@ -333,6 +346,7 @@ export function AircraftFuelChart({
                     }>
                   }
                   label={label != null ? String(label) : undefined}
+                  fuelUnit={unit}
                 />
               )}
             />
@@ -345,13 +359,13 @@ export function AircraftFuelChart({
               payload={[
                 { value: "Hours", type: "square", color: HOURS_COLOR, id: "hours" },
                 {
-                  value: "Fuel (Gal)",
+                  value: fuelLabel,
                   type: "square",
                   color: FUEL_COLOR,
                   id: "fuel",
                 },
                 {
-                  value: "Fuel Burn/ Hour",
+                  value: burnSeriesLabel,
                   type: "line",
                   color: BURN_COLOR,
                   id: "burn",
@@ -399,7 +413,7 @@ export function AircraftFuelChart({
             <Bar
               yAxisId="left"
               dataKey="fuel"
-              name="Fuel (Gal)"
+              name={fuelLabel}
               fill={FUEL_COLOR}
               radius={[3, 3, 0, 0]}
               maxBarSize={36}
@@ -416,7 +430,7 @@ export function AircraftFuelChart({
               yAxisId="right"
               type="monotone"
               dataKey="burn"
-              name="Fuel Burn/ Hour"
+              name={burnSeriesLabel}
               stroke={BURN_COLOR}
               strokeWidth={2.5}
               dot={{ r: 4, fill: BURN_COLOR, strokeWidth: 0 }}
