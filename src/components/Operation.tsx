@@ -112,20 +112,35 @@ type GroupByOption =
 
 /** Nested `component_parts` from paged API may be camelCase or snake_case. */
 type AtlComponentPartRow = ComponentPartsRecord & {
-  part_removed_remaining_time?: string | number;
-  part_installed_remaining_time?: string | number;
   part_remark?: string;
   ata_chapter?: string;
 };
 
 const STICKY_SEQ_CLASS =
-  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 sticky top-0 left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
+  "atl-th-sticky-seq sticky top-0 left-0 z-[6] px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
-  "px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 sticky left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] font-medium";
+  "atl-td-sticky-seq sticky left-0 z-[1] px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 font-medium min-w-[140px] w-[140px]";
 
 const ATL_TABLE_SCROLL_CLASS = "atl-all-columns-scroll";
-const ATL_ALL_COLUMNS_TABLE_CLASS =
-  "atl-all-columns-table min-w-full border-collapse table-fixed";
+const ATL_ALL_COLUMNS_TABLE_CLASS = "atl-all-columns-table";
+
+/**
+ * ATL List View date columns (~2× prior fixed-table share).
+ * Applied only to: Off-Block Date, On-Block Date, Released Date,
+ * Return to Service Date, Pilot Acceptance Date.
+ * min-w prevents shrink below this width under table-fixed layout.
+ */
+const ATL_LIST_DATE_COL_CLASS = "min-w-[240px] w-[240px]";
+
+/** Sticky row-2 filler under single-row top headers (avoids rowspan+sticky bugs). */
+const ATL_TH_STICKY_FILL_CLASS =
+  "atl-th-sticky-fill px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200";
+const ATL_TH_BASE_CLASS =
+  "px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
+const ATL_TH_GROUP_CLASS =
+  "px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
+const ATL_TH_SUB_CLASS =
+  "px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
 
 /** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
 function formatFleetWorkStatus(status: string | undefined): string {
@@ -372,20 +387,12 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
       {
         id: "removed",
         label: "Removed Parts",
-        keys: [
-          "componentRemovedPn",
-          "componentRemovedSn",
-          "componentRemovedRemTime",
-        ],
+        keys: ["componentRemovedPn", "componentRemovedSn"],
       },
       {
         id: "installed",
         label: "Installed Parts",
-        keys: [
-          "componentInstalledPn",
-          "componentInstalledSn",
-          "componentInstalledRemTime",
-        ],
+        keys: ["componentInstalledPn", "componentInstalledSn"],
       },
       {
         id: "metadata",
@@ -401,10 +408,8 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
     keys: [
       "componentRemovedPn",
       "componentRemovedSn",
-      "componentRemovedRemTime",
       "componentInstalledPn",
       "componentInstalledSn",
-      "componentInstalledRemTime",
       "componentNomenclature",
       "componentAtaChapter",
       "componentPartRemarks",
@@ -778,13 +783,14 @@ export function Operation() {
     if (!firstRow) return;
 
     const updateHeight = () => {
-      const next = firstRow.getBoundingClientRect().height;
+      const next = Math.ceil(firstRow.getBoundingClientRect().height);
       setAtlHeaderRow1Height((prev) => (prev === next ? prev : next));
     };
     updateHeight();
 
     const observer = new ResizeObserver(updateHeight);
     observer.observe(firstRow);
+    if (thead) observer.observe(thead);
     return () => observer.disconnect();
   }, [groupBy, fleetTimeRecords, sequenceSort, loading]);
 
@@ -1201,15 +1207,6 @@ export function Operation() {
           formatComponentPartsField(record, (p) => p.removedSerialNo),
       },
       {
-        key: "componentRemovedRemTime",
-        label: "Removed Rem. Time",
-        getValue: (record) =>
-          formatComponentPartsField(
-            record,
-            (p) => p.partRemovedRemainingTime
-          ),
-      },
-      {
         key: "componentInstalledPn",
         label: "Installed P/N",
         getValue: (record) =>
@@ -1220,15 +1217,6 @@ export function Operation() {
         label: "Installed S/N",
         getValue: (record) =>
           formatComponentPartsField(record, (p) => p.installedSerialNo),
-      },
-      {
-        key: "componentInstalledRemTime",
-        label: "Inst. Rem. Time",
-        getValue: (record) =>
-          formatComponentPartsField(
-            record,
-            (p) => p.partInstalledRemainingTime
-          ),
       },
       {
         key: "componentNomenclature",
@@ -1271,7 +1259,7 @@ export function Operation() {
       {
         key: "rtsTime",
         label: "Return To Service Time (Zulu)",
-        getValue: (record) => formatAtlListCell(record.rtsTime),
+        getValue: (record) => formatTimeZulu(record.rtsTime),
       },
       {
         key: "pilotAcceptedBy",
@@ -1286,7 +1274,7 @@ export function Operation() {
       {
         key: "pilotAcceptTime",
         label: "Pilot Acceptance Time (Zulu)",
-        getValue: (record) => formatAtlListCell(record.pilotAcceptTime),
+        getValue: (record) => formatTimeZulu(record.pilotAcceptTime),
       },
     ],
     [accountsMap]
@@ -1346,10 +1334,8 @@ export function Operation() {
         "actionsTaken",
         "componentRemovedPn",
         "componentRemovedSn",
-        "componentRemovedRemTime",
         "componentInstalledPn",
         "componentInstalledSn",
-        "componentInstalledRemTime",
         "componentNomenclature",
         "componentAtaChapter",
         "componentPartRemarks",
@@ -2298,8 +2284,8 @@ export function Operation() {
             </div>
           </div>
 
-          {/* Fleet Time Table */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          {/* Fleet Time Table — do not use overflow-hidden here; it breaks position:sticky */}
+          <div className="bg-white rounded-lg border border-gray-200">
             {loading ? (
               <div className="flex items-center justify-center p-12">
                 <Spinner />
@@ -2357,20 +2343,18 @@ export function Operation() {
                   <div
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
-                    className={ATL_TABLE_SCROLL_CLASS}
+                    className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
                     style={
                       {
                         "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
                       } as CSSProperties
                     }
                   >
-                    <div className="inline-block min-w-full align-middle">
                       <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
                         <thead ref={atlAllColumnsTheadRef}>
                           <tr>
                             <th
-                              rowSpan={2}
-                              className={`${STICKY_SEQ_CLASS} cursor-pointer select-none hover:bg-gray-300 transition-colors`}
+                              className={`${STICKY_SEQ_CLASS} cursor-pointer select-none transition-colors`}
                               onClick={() => {
                                 setSequenceSort((s) =>
                                   s === "asc" ? "desc" : "asc"
@@ -2392,78 +2376,46 @@ export function Operation() {
                                 )}
                               </span>
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className={ATL_TH_BASE_CLASS}>
                               WORK
                               <br />
                               STATUS
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className={ATL_TH_BASE_CLASS}>
                               NATURE OF
                               <br />
                               FLIGHT
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className={ATL_TH_BASE_CLASS}>
                               NEXT INSP.
                               <br />
                               DATE
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              TACH TIME
-                            </th>
-                            <th
-                              colSpan={2}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className={ATL_TH_BASE_CLASS}>TACH TIME</th>
+                            <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
                               OFF BLOCKS/ORIGIN
                             </th>
-                            <th
-                              colSpan={2}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
                               ON BLOCKS/DESTINATION
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className={ATL_TH_BASE_CLASS}>
                               Total
                               <br />
                               Flight
                               <br />
                               hours
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className={ATL_TH_BASE_CLASS}>
                               NO. OF
                               <br />
                               LAND-
                               <br />
                               INGS
                             </th>
-                            <th
-                              colSpan={3}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th colSpan={3} className={ATL_TH_GROUP_CLASS}>
                               HOBBS METER
                             </th>
-                            <th
-                              colSpan={2}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
                               TACHOMETER
                             </th>
                             <th
@@ -2497,7 +2449,6 @@ export function Operation() {
                               OIL
                             </th>
                             <th
-                              rowSpan={2}
                               className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
                               style={{
                                 width: "360px",
@@ -2509,7 +2460,6 @@ export function Operation() {
                               REMARKS
                             </th>
                             <th
-                              rowSpan={2}
                               className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
                               style={{
                                 width: "220px",
@@ -2521,7 +2471,6 @@ export function Operation() {
                               REMARK PERSON
                             </th>
                             <th
-                              rowSpan={2}
                               className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
                               style={{
                                 width: "360px",
@@ -2534,32 +2483,24 @@ export function Operation() {
                               <br />
                               TAKEN
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               ACTION TAKEN
                               <br />
                               PERSON
                             </th>
                             <th
-                              colSpan={9}
-                              rowSpan={2}
+                              colSpan={7}
                               className="px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
                             >
                               COMPONENT RECORD
                             </th>
-                            <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
+                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               REPORTED
                               <br />
                               DATE
                             </th>
                             <th
-                              rowSpan={2}
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                              className={`px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
                             >
                               RELEASED
                               <br />
@@ -2579,21 +2520,44 @@ export function Operation() {
                             </th>
                           </tr>
                           <tr>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            {/* Sticky fillers under leading top-only headers */}
+                            <th
+                              className={`${ATL_TH_STICKY_FILL_CLASS} atl-th-sticky-seq min-w-[140px] w-[140px]`}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
+                              {"\u00a0"}
+                            </th>
+                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
+                              {"\u00a0"}
+                            </th>
+                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
+                              {"\u00a0"}
+                            </th>
+                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={`${ATL_TH_SUB_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
+                            >
                               DATE
                             </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TIME (ZULU)
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            <th className={ATL_TH_SUB_CLASS}>TIME (ZULU)</th>
+                            <th
+                              className={`${ATL_TH_SUB_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
+                            >
                               DATE
                             </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TIME (ZULU)
+                            <th className={ATL_TH_SUB_CLASS}>TIME (ZULU)</th>
+                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
+                              {"\u00a0"}
                             </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              START
+                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
+                              {"\u00a0"}
                             </th>
+                            <th className={ATL_TH_SUB_CLASS}>START</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               END
                             </th>
@@ -2673,10 +2637,60 @@ export function Operation() {
                               ON-BLKS
                             </th>
 
+                            {/* Sticky fillers under top-only headers (rowspan breaks sticky) */}
+                            <th
+                              className={ATL_TH_STICKY_FILL_CLASS}
+                              style={{ width: "360px", minWidth: "360px" }}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={ATL_TH_STICKY_FILL_CLASS}
+                              style={{ width: "220px", minWidth: "220px" }}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={ATL_TH_STICKY_FILL_CLASS}
+                              style={{ width: "360px", minWidth: "360px" }}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={ATL_TH_STICKY_FILL_CLASS}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              colSpan={7}
+                              className={`${ATL_TH_STICKY_FILL_CLASS} text-center`}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={ATL_TH_STICKY_FILL_CLASS}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               NAME
                             </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            <th
+                              className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                            >
                               DATE
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -2685,7 +2699,9 @@ export function Operation() {
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               NAME
                             </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            <th
+                              className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                            >
                               DATE
                             </th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -2703,7 +2719,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={55}
+                                colSpan={53}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -2789,13 +2805,17 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {formatAtlListCell(record.tachTimeDue)}
                                 </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                <td
+                                  className={`px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListDate(record.originDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatTimeZulu(record.originTime)}
                                 </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                <td
+                                  className={`px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListDate(record.destinationDate)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -2918,20 +2938,20 @@ export function Operation() {
                                   {formatAtlPersonCell(record)}
                                 </td>
                                 <td
-                                  colSpan={9}
+                                  colSpan={7}
                                   className="px-0 py-0 align-top border-r border-gray-200 bg-white"
                                 >
                                   <table className="w-full border-collapse min-w-full">
                                     <thead>
                                       <tr className="bg-gray-200">
                                         <th
-                                          colSpan={3}
+                                          colSpan={2}
                                           className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                         >
                                           PARTS REMOVED
                                         </th>
                                         <th
-                                          colSpan={3}
+                                          colSpan={2}
                                           className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                         >
                                           PARTS INSTALLED
@@ -2963,20 +2983,10 @@ export function Operation() {
                                           S/N
                                         </th>
                                         <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                          REMOVED
-                                          <br />
-                                          REM. TIME
-                                        </th>
-                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                           P/N
                                         </th>
                                         <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                           S/N
-                                        </th>
-                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                          INST.
-                                          <br />
-                                          REM. TIME
                                         </th>
                                       </tr>
                                     </thead>
@@ -3000,20 +3010,10 @@ export function Operation() {
                                                 {formatAtlListCell(part.removedSerialNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(
-                                                  part.partRemovedRemainingTime
-                                                )}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                                 {formatAtlListCell(part.installedPartNo)}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                                 {formatAtlListCell(part.installedSerialNo)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(
-                                                  part.partInstalledRemainingTime
-                                                )}
                                               </td>
                                               <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                                 {formatAtlListCell(part.nomenclature)}
@@ -3030,7 +3030,7 @@ export function Operation() {
                                       ) : (
                                         <tr>
                                           <td
-                                            colSpan={9}
+                                            colSpan={7}
                                             className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
                                           >
                                             -
@@ -3043,26 +3043,32 @@ export function Operation() {
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {formatAtlListOffBlocks(record)}
                                 </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                <td
+                                  className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListDateTime(record.dateTimeReleased)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.rtsSignedBy)}
                                 </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                                <td
+                                  className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListDate(record.rtsDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.rtsTime)}
+                                  {formatTimeZulu(record.rtsTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlListCell(record.pilotAcceptedBy)}
                                 </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                                <td
+                                  className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListDate(record.pilotAcceptDate)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.pilotAcceptTime)}
+                                  {formatTimeZulu(record.pilotAcceptTime)}
                                 </td>
                                 <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
                                   {(() => {
@@ -3152,7 +3158,6 @@ export function Operation() {
                           )}
                         </tbody>
                       </table>
-                    </div>
                   </div>
                 )}
 
@@ -3180,13 +3185,13 @@ export function Operation() {
                           </th>
                           <th
                             rowSpan={2}
-                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_LIST_DATE_COL_CLASS}`}
                           >
                             OFF BLOCKS
                           </th>
                           <th
                             rowSpan={2}
-                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_LIST_DATE_COL_CLASS}`}
                           >
                             ON BLOCKS
                           </th>
@@ -3312,10 +3317,14 @@ export function Operation() {
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.natureOfFlight)}
                               </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                              <td
+                                className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
                                 {formatAtlListOffBlocks(record)}
                               </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                              <td
+                                className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
                                 {formatAtlListOnBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
@@ -3379,10 +3388,14 @@ export function Operation() {
                             NATURE OF FLIGHT
                           </th>
 
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            className={`px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
                             DATE | OFF BLOCKS
                           </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            className={`px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
                             DATE | ON BLOCKS
                           </th>
                           <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -3492,10 +3505,14 @@ export function Operation() {
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.natureOfFlight)}
                                 </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                <td
+                                  className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListOffBlocks(record)}
                                 </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                                <td
+                                  className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                                >
                                   {formatAtlListOnBlocks(record)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
@@ -3554,7 +3571,9 @@ export function Operation() {
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             REPORTED DATE
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
                             RELEASED DATE
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -3653,7 +3672,9 @@ export function Operation() {
                               <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
                                 {formatAtlListOffBlocks(record)}
                               </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
+                              <td
+                                className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
                                 {formatAtlListDateTime(record.dateTimeReleased)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
@@ -3679,13 +3700,13 @@ export function Operation() {
                                   <thead>
                                     <tr className="bg-gray-200">
                                       <th
-                                        colSpan={3}
+                                        colSpan={2}
                                         className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                       >
                                         PARTS REMOVED
                                       </th>
                                       <th
-                                        colSpan={3}
+                                        colSpan={2}
                                         className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
                                       >
                                         PARTS INSTALLED
@@ -3717,20 +3738,10 @@ export function Operation() {
                                         S/N
                                       </th>
                                       <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                        REMOVED
-                                        <br />
-                                        REM. TIME
-                                      </th>
-                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                         P/N
                                       </th>
                                       <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
                                         S/N
-                                      </th>
-                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                        INST.
-                                        <br />
-                                        REM. TIME
                                       </th>
                                     </tr>
                                   </thead>
@@ -3754,20 +3765,10 @@ export function Operation() {
                                               {formatAtlListCell(part.removedSerialNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(
-                                                part.partRemovedRemainingTime
-                                              )}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                               {formatAtlListCell(part.installedPartNo)}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                               {formatAtlListCell(part.installedSerialNo)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(
-                                                part.partInstalledRemainingTime
-                                              )}
                                             </td>
                                             <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
                                               {formatAtlListCell(part.nomenclature)}
@@ -3784,7 +3785,7 @@ export function Operation() {
                                     ) : (
                                       <tr>
                                         <td
-                                          colSpan={9}
+                                          colSpan={7}
                                           className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
                                         >
                                           -

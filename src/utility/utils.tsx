@@ -546,33 +546,15 @@ export function formatAtlTboDisplay1dp(
 export function formatTimeZulu(timeStr: string | undefined | null): string {
   if (!timeStr) return "-";
   try {
-    // Remove any existing "Z" suffix, colons, and whitespace
-    const cleaned = timeStr.replace(/[Z\s:]/g, "");
-
-    // Handle HHMM format (4 digits) - convert to HH:MM
-    if (cleaned.length === 4 && /^\d{4}$/.test(cleaned)) {
-      const hours = cleaned.substring(0, 2);
-      const minutes = cleaned.substring(2, 4);
-      // Validate hours (0-23) and minutes (0-59)
-      const hoursNum = parseInt(hours, 10);
-      const minutesNum = parseInt(minutes, 10);
-      if (
-        hoursNum >= 0 &&
-        hoursNum <= 23 &&
-        minutesNum >= 0 &&
-        minutesNum <= 59
-      ) {
-        return `${hours}:${minutes}`;
-      }
-    }
-
-    // Handle HH:MM format - return as is (after validation)
+    // Prefer colon time (HH:MM or HH:MM:SS…) — always display HH:MM only (no seconds).
     if (timeStr.includes(":")) {
-      const parts = timeStr.split(":");
+      const timePart = timeStr.includes("T")
+        ? (timeStr.split("T")[1] ?? timeStr)
+        : timeStr;
+      const parts = timePart.replace(/Z$/i, "").trim().split(":");
       if (parts.length >= 2) {
-        const hours = parts[0].padStart(2, "0");
-        const minutes = parts[1].padStart(2, "0");
-        // Validate hours (0-23) and minutes (0-59)
+        const hours = parts[0].replace(/\D/g, "").slice(-2).padStart(2, "0");
+        const minutes = parts[1].replace(/\D/g, "").slice(0, 2).padStart(2, "0");
         const hoursNum = parseInt(hours, 10);
         const minutesNum = parseInt(minutes, 10);
         if (
@@ -583,6 +565,26 @@ export function formatTimeZulu(timeStr: string | undefined | null): string {
         ) {
           return `${hours}:${minutes}`;
         }
+      }
+    }
+
+    // Digits only: HHMM or HHMMSS (+ optional fractional) → HH:MM
+    const cleaned = timeStr.replace(/[Z\s:]/g, "").replace(/\D/g, "");
+    if (
+      (cleaned.length === 4 || cleaned.length >= 6) &&
+      /^\d+$/.test(cleaned)
+    ) {
+      const hours = cleaned.substring(0, 2);
+      const minutes = cleaned.substring(2, 4);
+      const hoursNum = parseInt(hours, 10);
+      const minutesNum = parseInt(minutes, 10);
+      if (
+        hoursNum >= 0 &&
+        hoursNum <= 23 &&
+        minutesNum >= 0 &&
+        minutesNum <= 59
+      ) {
+        return `${hours}:${minutes}`;
       }
     }
 

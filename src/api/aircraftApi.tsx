@@ -19,6 +19,8 @@ export type AircraftMaintenanceDetails = {
   tachometerEnd?: string | number | null;
   /** AFTT ← latest ATL airframeAftt */
   airframeAftt?: string | number | null;
+  /** Off-blocks / origin date ← latest ATL originDate */
+  originDate?: string | null;
   engineTsn?: string | number | null;
   engineTbo?: string | number | null;
   engineTso?: string | number | null;
@@ -48,6 +50,7 @@ function profileHoursFallback(
   AircraftMaintenanceDetails,
   | "tachometerEnd"
   | "airframeAftt"
+  | "originDate"
   | "engineTsn"
   | "engineTbo"
   | "engineTso"
@@ -63,6 +66,8 @@ function profileHoursFallback(
     airframeAftt: monitoringValueOrNull(
       data.airframe_aftt ?? data.airframeAftt
     ),
+    // Date is ATL-only (origin / off-blocks date).
+    originDate: null,
     engineTsn: monitoringValueOrNull(data.engine_tsn ?? data.engineTsn),
     engineTbo: null,
     engineTso: monitoringValueOrNull(data.engine_tso ?? data.engineTso),
@@ -84,6 +89,7 @@ function hoursFromLatestAtl(
   AircraftMaintenanceDetails,
   | "tachometerEnd"
   | "airframeAftt"
+  | "originDate"
   | "engineTsn"
   | "engineTbo"
   | "engineTso"
@@ -96,6 +102,7 @@ function hoursFromLatestAtl(
   return {
     tachometerEnd: monitoringValueOrNull(atl.tachometerEnd),
     airframeAftt: monitoringValueOrNull(atl.airframeAftt),
+    originDate: monitoringValueOrNull(atl.originDate),
     engineTsn: monitoringValueOrNull(atl.engineTsn),
     engineTbo: monitoringValueOrNull(atl.engineTbo),
     engineTso: monitoringValueOrNull(atl.engineTso),
@@ -113,8 +120,9 @@ function hoursFromLatestAtl(
 /**
  * Monitoring hours for TCC / CPCP:
  * - Latest ATL = highest numeric sequenceNo for the aircraft (not createdAt/updatedAt).
+ * - Tach, AFTT, and DATE (originDate) come from that ATL when present.
  * - Null/empty ATL fields stay null (TSN displays as UNK); 0 is kept.
- * - If no ATL exists, fall back to Aircraft Profile hours when available.
+ * - If no ATL exists, fall back to Aircraft Profile hours when available (DATE stays empty).
  */
 export const getAircraftDetails = async (
   aircraftId: number

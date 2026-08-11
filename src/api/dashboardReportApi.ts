@@ -35,6 +35,16 @@ export function toFuelReportApiParams(
       .filter(Boolean)
       .join(",");
   }
+  if (params.years?.trim()) {
+    out.years = params.years
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .join(",");
+  }
+  if (params.monthYear?.trim()) {
+    out.month_year = params.monthYear.trim();
+  }
   return out;
 }
 

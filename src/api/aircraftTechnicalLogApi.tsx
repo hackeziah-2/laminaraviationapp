@@ -17,7 +17,9 @@ export interface ComponentPartsRecord {
   installedPartNo?: string;
   installedSerialNo?: string;
   ataChapter?: string;
+  /** Backend column retained; no longer shown or edited in the UI. */
   partRemovedRemainingTime?: string | number;
+  /** Backend column retained; no longer shown or edited in the UI. */
   partInstalledRemainingTime?: string | number;
   partRemark?: string;
 }
@@ -31,7 +33,9 @@ export interface ComponentPartsRecordCreate {
   installedPartNo?: string;
   installedSerialNo?: string;
   ataChapter?: string;
+  /** Pass-through on update only so existing DB values are not cleared. */
   partRemovedRemainingTime?: string | number;
+  /** Pass-through on update only so existing DB values are not cleared. */
   partInstalledRemainingTime?: string | number;
   partRemark?: string;
 }
