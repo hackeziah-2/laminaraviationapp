@@ -44,6 +44,7 @@ import {
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
   formatAtlListCell,
+  formatAtlAssigneeListCell,
   displayTSN,
   formatAtlListOffBlocks,
   formatAtlListOnBlocks,
@@ -1249,7 +1250,7 @@ export function Operation() {
       {
         key: "rtsSignedBy",
         label: "Return To Service Name",
-        getValue: (record) => formatAtlListCell(record.rtsSignedBy),
+        getValue: (record) => formatAtlAssigneeListCell(record.rtsSignedBy),
       },
       {
         key: "rtsDate",
@@ -1264,7 +1265,8 @@ export function Operation() {
       {
         key: "pilotAcceptedBy",
         label: "Pilot Acceptance Name",
-        getValue: (record) => formatAtlListCell(record.pilotAcceptedBy),
+        getValue: (record) =>
+          formatAtlAssigneeListCell(record.pilotAcceptedBy),
       },
       {
         key: "pilotAcceptDate",
@@ -3049,7 +3051,7 @@ export function Operation() {
                                   {formatAtlListDateTime(record.dateTimeReleased)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.rtsSignedBy)}
+                                  {formatAtlAssigneeListCell(record.rtsSignedBy)}
                                 </td>
                                 <td
                                   className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
@@ -3060,7 +3062,9 @@ export function Operation() {
                                   {formatTimeZulu(record.rtsTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.pilotAcceptedBy)}
+                                  {formatAtlAssigneeListCell(
+                                    record.pilotAcceptedBy
+                                  )}
                                 </td>
                                 <td
                                   className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}

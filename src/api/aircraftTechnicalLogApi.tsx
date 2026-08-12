@@ -98,7 +98,16 @@ export interface AircraftTechnicalLog {
   remarks?: string;
   actionsTaken?: string;
   pilotFk?: number;
-  maintenanceFk?: number;
+  maintenanceFk?: number | null;
+  /** Remarks Name (remark_person); null when unassigned. */
+  remarkPerson?: number | string | null;
+  /**
+   * Actions Taken Name (actiontaken_person).
+   * Camel form of DB column actiontaken_person (not action_taken_person).
+   */
+  actiontakenPerson?: number | string | null;
+  /** @deprecated Prefer actiontakenPerson; kept for older payloads/UI keys. */
+  actionTakenPerson?: number | string | null;
   /** Nested maintenance person when API includes account join (display only). */
   maintenance?: {
     id?: number;
@@ -108,7 +117,8 @@ export interface AircraftTechnicalLog {
     lastName?: string;
     licenseNo?: string;
   };
-  pilotAcceptedBy?: number;
+  /** Account id or list display name; null/empty when unassigned. */
+  pilotAcceptedBy?: number | string | null;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
   airframeTotalTime?: number;
@@ -126,7 +136,8 @@ export interface AircraftTechnicalLog {
   propellerTbo?: number;
   lifeTimeLimitEngine?: number;
   lifeTimeLimitPropeller?: number;
-  rtsSignedBy?: number;
+  /** Account id or list display name; null/empty when unassigned. */
+  rtsSignedBy?: number | string | null;
   rtsDate?: string;
   rtsTime?: string;
   whiteAtl?: string;
@@ -192,9 +203,11 @@ export interface AircraftTechnicalLogCreate {
   oilQtyAfterOnBlks?: number;
   remarks?: string;
   actionsTaken?: string;
-  pilotFk?: number;
-  maintenanceFk?: number;
-  pilotAcceptedBy?: number;
+  pilotFk?: number | null;
+  maintenanceFk?: number | null;
+  remarkPerson?: number | null;
+  actiontakenPerson?: number | null;
+  pilotAcceptedBy?: number | null;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
   airframeRunTime?: number;
@@ -209,7 +222,7 @@ export interface AircraftTechnicalLogCreate {
   propellerTbo?: number;
   lifeTimeLimitEngine?: number;
   lifeTimeLimitPropeller?: number;
-  rtsSignedBy?: number;
+  rtsSignedBy?: number | null;
   rtsDate?: string;
   rtsTime?: string;
   whiteAtl?: string;
@@ -255,9 +268,11 @@ export interface AircraftTechnicalLogUpdate {
   oilQtyAfterOnBlks?: number;
   remarks?: string;
   actionsTaken?: string;
-  pilotFk?: number;
-  maintenanceFk?: number;
-  pilotAcceptedBy?: number;
+  pilotFk?: number | null;
+  maintenanceFk?: number | null;
+  remarkPerson?: number | null;
+  actiontakenPerson?: number | null;
+  pilotAcceptedBy?: number | null;
   pilotAcceptDate?: string;
   pilotAcceptTime?: string;
   airframeRunTime?: number;
@@ -272,7 +287,7 @@ export interface AircraftTechnicalLogUpdate {
   propellerTbo?: number;
   lifeTimeLimitEngine?: number;
   lifeTimeLimitPropeller?: number;
-  rtsSignedBy?: number;
+  rtsSignedBy?: number | null;
   rtsDate?: string;
   rtsTime?: string;
   whiteAtl?: string;
@@ -377,13 +392,41 @@ export function resolveAtlComponentMetric(
   return resolveAtlPersistedComponentMetric(entry, metric);
 }
 
+/** True when a value is missing or a sentinel empty token (None/null/undefined). */
+export function isAtlEmptyAssigneeValue(value: unknown): boolean {
+  if (value == null) return true;
+  const s = String(value).trim();
+  if (s === "") return true;
+  return /^(none|null|undefined)$/i.test(s);
+}
+
 /** Operation ATL list view: render API scalar as-is (null/empty → emptyLabel only). */
 export function formatAtlListCell(
   value: unknown,
   emptyLabel = "-"
 ): string {
-  if (value == null || value === "") return emptyLabel;
+  if (isAtlEmptyAssigneeValue(value)) return emptyLabel;
   return String(value);
+}
+
+/**
+ * RTS / Pilot Acceptance assignee cells: blank when unassigned.
+ * Never shows "-", "None", "null", or "undefined".
+ */
+export function formatAtlAssigneeListCell(value: unknown): string {
+  return formatAtlListCell(value, "");
+}
+
+/** Parse form account id for create/update; empty / invalid → null (persist NULL). */
+export function parseAtlAssigneeIdForApi(
+  value: string | number | null | undefined
+): number | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (raw === "" || /^(none|null|undefined)$/i.test(raw)) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
 }
 
 /**

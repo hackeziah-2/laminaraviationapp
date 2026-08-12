@@ -38,6 +38,7 @@ import {
   resolveAtlPersistedComponentMetric,
   getAtlBatchesForSelect,
   hasTsnValue,
+  parseAtlAssigneeIdForApi,
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
@@ -233,25 +234,31 @@ function inspectionDueFieldsFromPreviousAtl(
 }
 
 /**
- * Create-only: Pilot's Acceptance Name (pilotAcceptedBy) from the previous ATL
- * (highest numeric sequenceNo for aircraft + batch). Empty when missing / invalid.
- * Edit must not use this — preserve the saved value.
+ * Form account-id field: blank when missing / None / null / undefined / invalid.
  */
-function pilotAcceptedByFromPreviousAtl(
-  previousAtl: AircraftTechnicalLog | null
+function atlAssigneeIdToFormValue(
+  value: string | number | null | undefined
 ): string {
-  if (!previousAtl) return "";
-  const raw = previousAtl as AircraftTechnicalLog & Record<string, unknown>;
-  const value =
-    previousAtl.pilotAcceptedBy ??
-    raw.pilot_accepted_by ??
-    previousAtl.pilotFk ??
-    raw.pilot_fk;
-  if (value == null || String(value).trim() === "") return "";
-  const id =
-    typeof value === "number" ? value : Number.parseInt(String(value), 10);
-  if (!Number.isFinite(id) || id <= 0) return "";
-  return String(id);
+  const id = parseAtlAssigneeIdForApi(value);
+  return id != null ? String(id) : "";
+}
+
+/** Closed-select display label when pilotAcceptedBy / rtsSignedBy has no assignee. */
+const ATL_ASSIGNEE_NONE_LABEL = "None";
+
+function isAtlAssigneeNoneSelected(
+  accountId: string | undefined | null,
+  displayName: string | undefined | null
+): boolean {
+  const id = String(accountId ?? "").trim();
+  if (id) return false;
+  const name = String(displayName ?? "").trim();
+  return !name || /^(none|null|undefined)$/i.test(name);
+}
+
+function shouldShowAtlAssigneeNoneOption(searchTerm: string): boolean {
+  const q = searchTerm.trim().toLowerCase();
+  return !q || ATL_ASSIGNEE_NONE_LABEL.toLowerCase().includes(q);
 }
 
 /** Numeric sequence for previous-seq checks (e.g. "0126" → 126). */
@@ -2233,21 +2240,27 @@ export function AddTechnicalLogbookEntryModal({
             maintenanceEntry: split.maintenanceEntry,
           };
         })(),
-        remarksPerson: editEntry.maintenanceFk?.toString() || "",
+        remarksPerson: atlAssigneeIdToFormValue(
+          editEntry.remarkPerson ?? editEntry.maintenanceFk
+        ),
         remarksPersonName: "",
         actionsTaken: editEntry.actionsTaken || "",
-        actionsTakenPerson: editEntry.maintenanceFk?.toString() || "",
+        actionsTakenPerson: atlAssigneeIdToFormValue(
+          editEntry.actiontakenPerson ??
+            editEntry.actionTakenPerson ??
+            editEntry.maintenanceFk
+        ),
         actionsTakenPersonName: "",
         pilotName: "",
-        pilotFk:
-          editEntry.pilotFk?.toString() ||
-          editEntry.pilotAcceptedBy?.toString() ||
-          "",
+        // Pilot's Acceptance Name ← pilotAcceptedBy (same None/null behavior as RTS)
+        pilotFk: atlAssigneeIdToFormValue(
+          editEntry.pilotAcceptedBy ?? editEntry.pilotFk
+        ),
         pilotAcceptDate: editEntry.pilotAcceptDate || "",
         pilotAcceptTime: formatTimeFromAPI(editEntry.pilotAcceptTime),
         pilotSignature: null,
         rtsName: "",
-        rtsSignedBy: editEntry.rtsSignedBy?.toString() || "",
+        rtsSignedBy: atlAssigneeIdToFormValue(editEntry.rtsSignedBy),
         rtsDate: editEntry.rtsDate || "",
         rtsTime: formatTimeFromAPI(editEntry.rtsTime),
         mechanicAuth: "",
@@ -2293,7 +2306,7 @@ export function AddTechnicalLogbookEntryModal({
       // Resolve saved person IDs → formatted display labels (never show raw IDs)
       void (async () => {
         const resolveLabel = async (
-          accountId?: number | null,
+          accountId?: number | string | null,
           nested?: AircraftTechnicalLog["maintenance"]
         ): Promise<{ label: string; account: Account | null }> => {
           if (nested) {
@@ -2302,7 +2315,7 @@ export function AddTechnicalLogbookEntryModal({
               return {
                 label: fromNested,
                 account: {
-                  id: nested.id ?? accountId ?? 0,
+                  id: nested.id ?? parseAtlAssigneeIdForApi(accountId) ?? 0,
                   firstName: nested.firstName ?? "",
                   lastName: nested.lastName ?? "",
                   middleName: nested.middleName ?? "",
@@ -2319,11 +2332,12 @@ export function AddTechnicalLogbookEntryModal({
               };
             }
           }
-          if (accountId == null || !Number.isFinite(Number(accountId))) {
+          const normalizedId = parseAtlAssigneeIdForApi(accountId);
+          if (normalizedId == null) {
             return { label: "", account: null };
           }
           try {
-            const account = await getAccount(Number(accountId));
+            const account = await getAccount(normalizedId);
             return {
               label: formatAccountNameLicense(
                 account.fullName,
@@ -2337,26 +2351,43 @@ export function AddTechnicalLogbookEntryModal({
           }
         };
 
-        const maintenanceFk = editEntry.maintenanceFk ?? null;
-        const maintenanceResolved = await resolveLabel(
-          maintenanceFk,
+        const remarksPersonId =
+          editEntry.remarkPerson ?? editEntry.maintenanceFk ?? null;
+        const actionsTakenPersonId =
+          editEntry.actiontakenPerson ??
+          editEntry.actionTakenPerson ??
+          editEntry.maintenanceFk ??
+          null;
+        const remarksResolved = await resolveLabel(
+          remarksPersonId,
           editEntry.maintenance
         );
+        const actionsTakenResolved = await resolveLabel(
+          actionsTakenPersonId,
+          // Only reuse nested maintenance label when it matches this person id
+          editEntry.maintenanceFk != null &&
+            Number(editEntry.maintenanceFk) ===
+              Number(actionsTakenPersonId ?? NaN)
+            ? editEntry.maintenance
+            : undefined
+        );
         const pilotResolved = await resolveLabel(
-          editEntry.pilotFk ?? editEntry.pilotAcceptedBy ?? null
+          editEntry.pilotAcceptedBy ?? editEntry.pilotFk ?? null
         );
         const rtsResolved = await resolveLabel(editEntry.rtsSignedBy ?? null);
 
-        if (maintenanceResolved.account) {
+        if (remarksResolved.account) {
           setRemarksAccounts((prev) => {
-            if (prev.some((a) => a.id === maintenanceResolved.account!.id))
+            if (prev.some((a) => a.id === remarksResolved.account!.id))
               return prev;
-            return [maintenanceResolved.account!, ...prev];
+            return [remarksResolved.account!, ...prev];
           });
+        }
+        if (actionsTakenResolved.account) {
           setActionsTakenAccounts((prev) => {
-            if (prev.some((a) => a.id === maintenanceResolved.account!.id))
+            if (prev.some((a) => a.id === actionsTakenResolved.account!.id))
               return prev;
-            return [maintenanceResolved.account!, ...prev];
+            return [actionsTakenResolved.account!, ...prev];
           });
         }
         if (pilotResolved.account) {
@@ -2375,8 +2406,8 @@ export function AddTechnicalLogbookEntryModal({
 
         setFormData((prev) => ({
           ...prev,
-          remarksPersonName: maintenanceResolved.label,
-          actionsTakenPersonName: maintenanceResolved.label,
+          remarksPersonName: remarksResolved.label,
+          actionsTakenPersonName: actionsTakenResolved.label,
           pilotName: pilotResolved.label,
           rtsName: rtsResolved.label,
         }));
@@ -2761,11 +2792,6 @@ export function AddTechnicalLogbookEntryModal({
           latestEntry.tachometerEnd != null && latestEntry.tachometerEnd !== 0
             ? latestEntry.tachometerEnd.toString()
             : "0";
-        // Create-only: Pilot's Acceptance ← previous ATL (highest numeric sequenceNo)
-        // Source: latest for aircraft + batch; fall back to /previous row if needed.
-        const pilotAcceptedByFromPrevious =
-          pilotAcceptedByFromPreviousAtl(latestEntry) ||
-          pilotAcceptedByFromPreviousAtl(previousBySequenceAtl);
 
         setFormData((prev) => {
           if (editEntry) {
@@ -2819,9 +2845,11 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller,
             // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
             ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-            // pilotAcceptedBy → form pilotFk (user may change before save)
-            pilotFk: pilotAcceptedByFromPrevious,
+            // Create defaults: Pilot Acceptance / RTS Name → "None" (null on save)
+            pilotFk: "",
             pilotName: "",
+            rtsSignedBy: "",
+            rtsName: "",
           };
           // Create + PRF/PSF/VOID/ME/ATL_REPL: keep End in sync with Start after aircraft init
           if (isZeroFlightMeterNature(prev.natureOfFlight)) {
@@ -2850,34 +2878,6 @@ export function AddTechnicalLogbookEntryModal({
             ),
           };
         });
-        // Create-only: resolve pilotAcceptedBy account → display label (user may change)
-        if (isAddEntry && pilotAcceptedByFromPrevious) {
-          void (async () => {
-            try {
-              const account = await getAccount(
-                Number(pilotAcceptedByFromPrevious)
-              );
-              if (atlInitRequestIdRef.current !== requestId) return;
-              const label = formatAccountNameLicense(
-                account.fullName,
-                account.licenseNo
-              );
-              setPilotAccounts((prev) => {
-                if (prev.some((a) => a.id === account.id)) return prev;
-                return [account, ...prev];
-              });
-              setFormData((prev) => {
-                if (prev.pilotFk !== pilotAcceptedByFromPrevious) return prev;
-                return { ...prev, pilotName: label };
-              });
-            } catch (err) {
-              console.error(
-                "Could not resolve previous ATL pilotAcceptedBy account:",
-                err
-              );
-            }
-          })();
-        }
         finishInit();
         return;
       }
@@ -3422,6 +3422,17 @@ export function AddTechnicalLogbookEntryModal({
     setIsRemarksDropdownOpen(false);
   };
 
+  /** Select "None" → clear remarks person; API sends null. */
+  const handleRemarksPersonSelectNone = () => {
+    setFormData((prev) => ({
+      ...prev,
+      remarksPerson: "",
+      remarksPersonName: "",
+    }));
+    setRemarksSearchTerm("");
+    setIsRemarksDropdownOpen(false);
+  };
+
   // Handle actions taken person select
   const handleActionsTakenPersonSelect = (
     accountId: string,
@@ -3436,9 +3447,27 @@ export function AddTechnicalLogbookEntryModal({
     setIsActionsTakenDropdownOpen(false);
   };
 
-  // Get selected account display value (never show raw ID / null / undefined)
+  /** Select "None" → clear actions-taken person; API sends null. */
+  const handleActionsTakenPersonSelectNone = () => {
+    setFormData((prev) => ({
+      ...prev,
+      actionsTakenPerson: "",
+      actionsTakenPersonName: "",
+    }));
+    setActionsTakenSearchTerm("");
+    setIsActionsTakenDropdownOpen(false);
+  };
+
+  // Get selected account display value ("None" when unassigned)
   const getSelectedRemarksPerson = () => {
-    if (!formData.remarksPerson) return "";
+    if (
+      isAtlAssigneeNoneSelected(
+        formData.remarksPerson,
+        formData.remarksPersonName
+      )
+    ) {
+      return ATL_ASSIGNEE_NONE_LABEL;
+    }
     if (formData.remarksPersonName?.trim()) {
       return formData.remarksPersonName.trim();
     }
@@ -3447,11 +3476,18 @@ export function AddTechnicalLogbookEntryModal({
     );
     return account
       ? formatAccountNameLicense(account.fullName, account.licenseNo)
-      : "";
+      : ATL_ASSIGNEE_NONE_LABEL;
   };
 
   const getSelectedActionsTakenPerson = () => {
-    if (!formData.actionsTakenPerson) return "";
+    if (
+      isAtlAssigneeNoneSelected(
+        formData.actionsTakenPerson,
+        formData.actionsTakenPersonName
+      )
+    ) {
+      return ATL_ASSIGNEE_NONE_LABEL;
+    }
     if (formData.actionsTakenPersonName?.trim()) {
       return formData.actionsTakenPersonName.trim();
     }
@@ -3460,7 +3496,7 @@ export function AddTechnicalLogbookEntryModal({
     );
     return account
       ? formatAccountNameLicense(account.fullName, account.licenseNo)
-      : "";
+      : ATL_ASSIGNEE_NONE_LABEL;
   };
 
   // Handle pilot name select
@@ -3474,11 +3510,22 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Get selected pilot display value
+  /** Select "None" → clear assignee; API sends null for pilotAcceptedBy. */
+  const handlePilotSelectNone = () => {
+    setFormData((prev) => ({ ...prev, pilotFk: "", pilotName: "" }));
+    setPilotSearchTerm("");
+    setIsPilotDropdownOpen(false);
+    if (validationErrors.pilotFk) {
+      setValidationErrors((prev) => ({ ...prev, pilotFk: "" }));
+    }
+  };
+
+  // Get selected pilot display value ("None" when unassigned)
   const getSelectedPilot = () => {
-    // If pilotName is set, use it (it's set when pilot is selected / resolved on edit)
+    if (isAtlAssigneeNoneSelected(formData.pilotFk, formData.pilotName)) {
+      return ATL_ASSIGNEE_NONE_LABEL;
+    }
     if (formData.pilotName?.trim()) return formData.pilotName.trim();
-    // Otherwise try to find in accounts list
     if (formData.pilotFk && pilotAccounts.length > 0) {
       const account = pilotAccounts.find(
         (acc) => acc.id.toString() === formData.pilotFk
@@ -3486,7 +3533,7 @@ export function AddTechnicalLogbookEntryModal({
       if (account)
         return formatAccountNameLicense(account.fullName, account.licenseNo);
     }
-    return "";
+    return ATL_ASSIGNEE_NONE_LABEL;
   };
 
   // Filter pilot accounts based on search term
@@ -3507,11 +3554,22 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Get selected RTS display value
+  /** Select "None" → clear assignee; API sends null for rtsSignedBy. */
+  const handleRtsSelectNone = () => {
+    setFormData((prev) => ({ ...prev, rtsSignedBy: "", rtsName: "" }));
+    setRtsSearchTerm("");
+    setIsRtsDropdownOpen(false);
+    if (validationErrors.rtsSignedBy) {
+      setValidationErrors((prev) => ({ ...prev, rtsSignedBy: "" }));
+    }
+  };
+
+  // Get selected RTS display value ("None" when unassigned)
   const getSelectedRts = () => {
-    // If rtsName is set, use it (it's set when RTS is selected / resolved on edit)
+    if (isAtlAssigneeNoneSelected(formData.rtsSignedBy, formData.rtsName)) {
+      return ATL_ASSIGNEE_NONE_LABEL;
+    }
     if (formData.rtsName?.trim()) return formData.rtsName.trim();
-    // Otherwise try to find in accounts list
     if (formData.rtsSignedBy && rtsAccounts.length > 0) {
       const account = rtsAccounts.find(
         (acc) => acc.id.toString() === formData.rtsSignedBy
@@ -3519,7 +3577,7 @@ export function AddTechnicalLogbookEntryModal({
       if (account)
         return formatAccountNameLicense(account.fullName, account.licenseNo);
     }
-    return "";
+    return ATL_ASSIGNEE_NONE_LABEL;
   };
 
   // Filter RTS accounts based on search term
@@ -4342,22 +4400,25 @@ export function AddTechnicalLogbookEntryModal({
             formData.maintenanceEntry
           ),
           actionsTaken: formData.actionsTaken || undefined,
-          pilotFk: formData.pilotFk ? parseInt(formData.pilotFk) : undefined,
-          maintenanceFk: formData.remarksPerson
-            ? parseInt(formData.remarksPerson)
-            : formData.actionsTakenPerson
-            ? parseInt(formData.actionsTakenPerson)
-            : undefined,
-          pilotAcceptedBy: formData.pilotFk
-            ? parseInt(formData.pilotFk)
-            : undefined, // Connected to Pilot's Acceptance Name dropdown
+          // Keep pilot_fk in sync with Pilot's Acceptance (null when "None", same as rtsSignedBy)
+          pilotFk: parseAtlAssigneeIdForApi(formData.pilotFk),
+          // Remarks / Actions Taken Name: null when "None" (same as pilotAcceptedBy)
+          remarkPerson: parseAtlAssigneeIdForApi(formData.remarksPerson),
+          // DB column is actiontaken_person → camel key must be actiontakenPerson for snakeAllKeys
+          actiontakenPerson: parseAtlAssigneeIdForApi(
+            formData.actionsTakenPerson
+          ),
+          // Legacy shared FK for list display; null when both Names are None
+          maintenanceFk: parseAtlAssigneeIdForApi(
+            formData.remarksPerson || formData.actionsTakenPerson
+          ),
+          // Always send null when cleared so create/update persist NULL (omit would keep prior on edit)
+          pilotAcceptedBy: parseAtlAssigneeIdForApi(formData.pilotFk),
           pilotAcceptDate: formData.pilotAcceptDate || undefined,
           pilotAcceptTime: formData.pilotAcceptTime
             ? convertTimeToAPIFormat(formData.pilotAcceptTime)
             : undefined,
-          rtsSignedBy: formData.rtsSignedBy
-            ? parseInt(formData.rtsSignedBy)
-            : undefined, // Connected to Return to Service Name dropdown
+          rtsSignedBy: parseAtlAssigneeIdForApi(formData.rtsSignedBy),
           rtsDate: formData.rtsDate || undefined,
           rtsTime: formData.rtsTime
             ? convertTimeToAPIFormat(formData.rtsTime)
@@ -5815,7 +5876,17 @@ export function AddTechnicalLogbookEntryModal({
                         }}
                         onFocus={() => {
                           setIsRemarksDropdownOpen(true);
-                          setRemarksSearchTerm("");
+                          if (
+                            !isAtlAssigneeNoneSelected(
+                              formData.remarksPerson,
+                              formData.remarksPersonName
+                            ) &&
+                            formData.remarksPersonName
+                          ) {
+                            setRemarksSearchTerm(formData.remarksPersonName);
+                          } else {
+                            setRemarksSearchTerm("");
+                          }
                         }}
                         className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         placeholder="Search name..."
@@ -5841,39 +5912,86 @@ export function AddTechnicalLogbookEntryModal({
                           <div className="px-4 py-3 text-sm text-gray-500 text-center">
                             Loading...
                           </div>
-                        ) : remarksAccounts.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                            {remarksSearchTerm
-                              ? "No accounts found"
-                              : "No accounts available"}
-                          </div>
                         ) : (
                           <ul className="py-1">
-                            {remarksAccounts.map((account) => (
+                            {shouldShowAtlAssigneeNoneOption(
+                              remarksSearchTerm
+                            ) && (
                               <li
-                                key={account.id}
-                                onClick={() =>
-                                  handleRemarksPersonSelect(
-                                    account.id.toString(),
-                                    formatAccountNameLicense(account.fullName, account.licenseNo)
-                                  )
-                                }
+                                onClick={handleRemarksPersonSelectNone}
                                 className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                  formData.remarksPerson ===
-                                  account.id.toString()
+                                  isAtlAssigneeNoneSelected(
+                                    formData.remarksPerson,
+                                    formData.remarksPersonName
+                                  )
                                     ? "bg-blue-50"
                                     : ""
                                 }`}
                               >
                                 <span className="text-gray-900 text-sm">
-                                  {formatAccountNameLicense(account.fullName, account.licenseNo)}
+                                  {ATL_ASSIGNEE_NONE_LABEL}
                                 </span>
-                                {formData.remarksPerson ===
-                                  account.id.toString() && (
+                                {isAtlAssigneeNoneSelected(
+                                  formData.remarksPerson,
+                                  formData.remarksPersonName
+                                ) && (
                                   <Check className="w-4 h-4 text-blue-600" />
                                 )}
                               </li>
-                            ))}
+                            )}
+                            {remarksAccounts.length === 0 &&
+                            !shouldShowAtlAssigneeNoneOption(
+                              remarksSearchTerm
+                            ) ? (
+                              <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                {remarksSearchTerm
+                                  ? "No accounts found"
+                                  : "No accounts available"}
+                              </li>
+                            ) : (
+                              remarksAccounts
+                                .filter((account) =>
+                                  formatAccountNameLicense(
+                                    account.fullName,
+                                    account.licenseNo
+                                  )
+                                    .toLowerCase()
+                                    .includes(
+                                      remarksSearchTerm.toLowerCase()
+                                    )
+                                )
+                                .map((account) => (
+                                  <li
+                                    key={account.id}
+                                    onClick={() =>
+                                      handleRemarksPersonSelect(
+                                        account.id.toString(),
+                                        formatAccountNameLicense(
+                                          account.fullName,
+                                          account.licenseNo
+                                        )
+                                      )
+                                    }
+                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                      formData.remarksPerson ===
+                                      account.id.toString()
+                                        ? "bg-blue-50"
+                                        : ""
+                                    }`}
+                                  >
+                                    <span className="text-gray-900 text-sm">
+                                      {formatAccountNameLicense(
+                                        account.fullName,
+                                        account.licenseNo
+                                      )}
+                                    </span>
+                                    {formData.remarksPerson ===
+                                      account.id.toString() && (
+                                      <Check className="w-4 h-4 text-blue-600" />
+                                    )}
+                                  </li>
+                                ))
+                            )}
                           </ul>
                         )}
                       </div>
@@ -5911,7 +6029,19 @@ export function AddTechnicalLogbookEntryModal({
                           }}
                           onFocus={() => {
                             setIsActionsTakenDropdownOpen(true);
-                            setActionsTakenSearchTerm("");
+                            if (
+                              !isAtlAssigneeNoneSelected(
+                                formData.actionsTakenPerson,
+                                formData.actionsTakenPersonName
+                              ) &&
+                              formData.actionsTakenPersonName
+                            ) {
+                              setActionsTakenSearchTerm(
+                                formData.actionsTakenPersonName
+                              );
+                            } else {
+                              setActionsTakenSearchTerm("");
+                            }
                           }}
                           className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                           placeholder="Search name..."
@@ -5939,39 +6069,86 @@ export function AddTechnicalLogbookEntryModal({
                             <div className="px-4 py-3 text-sm text-gray-500 text-center">
                               Loading...
                             </div>
-                          ) : actionsTakenAccounts.length === 0 ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              {actionsTakenSearchTerm
-                                ? "No accounts found"
-                                : "No accounts available"}
-                            </div>
                           ) : (
                             <ul className="py-1">
-                              {actionsTakenAccounts.map((account) => (
+                              {shouldShowAtlAssigneeNoneOption(
+                                actionsTakenSearchTerm
+                              ) && (
                                 <li
-                                  key={account.id}
-                                  onClick={() =>
-                                    handleActionsTakenPersonSelect(
-                                      account.id.toString(),
-                                      formatAccountNameLicense(account.fullName, account.licenseNo)
-                                    )
-                                  }
+                                  onClick={handleActionsTakenPersonSelectNone}
                                   className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                    formData.actionsTakenPerson ===
-                                    account.id.toString()
+                                    isAtlAssigneeNoneSelected(
+                                      formData.actionsTakenPerson,
+                                      formData.actionsTakenPersonName
+                                    )
                                       ? "bg-blue-50"
                                       : ""
                                   }`}
                                 >
                                   <span className="text-gray-900 text-sm">
-                                    {formatAccountNameLicense(account.fullName, account.licenseNo)}
+                                    {ATL_ASSIGNEE_NONE_LABEL}
                                   </span>
-                                  {formData.actionsTakenPerson ===
-                                    account.id.toString() && (
+                                  {isAtlAssigneeNoneSelected(
+                                    formData.actionsTakenPerson,
+                                    formData.actionsTakenPersonName
+                                  ) && (
                                     <Check className="w-4 h-4 text-blue-600" />
                                   )}
                                 </li>
-                              ))}
+                              )}
+                              {actionsTakenAccounts.length === 0 &&
+                              !shouldShowAtlAssigneeNoneOption(
+                                actionsTakenSearchTerm
+                              ) ? (
+                                <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                  {actionsTakenSearchTerm
+                                    ? "No accounts found"
+                                    : "No accounts available"}
+                                </li>
+                              ) : (
+                                actionsTakenAccounts
+                                  .filter((account) =>
+                                    formatAccountNameLicense(
+                                      account.fullName,
+                                      account.licenseNo
+                                    )
+                                      .toLowerCase()
+                                      .includes(
+                                        actionsTakenSearchTerm.toLowerCase()
+                                      )
+                                  )
+                                  .map((account) => (
+                                    <li
+                                      key={account.id}
+                                      onClick={() =>
+                                        handleActionsTakenPersonSelect(
+                                          account.id.toString(),
+                                          formatAccountNameLicense(
+                                            account.fullName,
+                                            account.licenseNo
+                                          )
+                                        )
+                                      }
+                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                        formData.actionsTakenPerson ===
+                                        account.id.toString()
+                                          ? "bg-blue-50"
+                                          : ""
+                                      }`}
+                                    >
+                                      <span className="text-gray-900 text-sm">
+                                        {formatAccountNameLicense(
+                                          account.fullName,
+                                          account.licenseNo
+                                        )}
+                                      </span>
+                                      {formData.actionsTakenPerson ===
+                                        account.id.toString() && (
+                                        <Check className="w-4 h-4 text-blue-600" />
+                                      )}
+                                    </li>
+                                  ))
+                              )}
                             </ul>
                           )}
                         </div>
@@ -6676,8 +6853,14 @@ export function AddTechnicalLogbookEntryModal({
                             }}
                             onFocus={() => {
                               setIsRtsDropdownOpen(true);
-                              // If there's a selected value, use it as initial search term, otherwise clear
-                              if (formData.rtsName) {
+                              // Seed search with current assignee name (not "None")
+                              if (
+                                !isAtlAssigneeNoneSelected(
+                                  formData.rtsSignedBy,
+                                  formData.rtsName
+                                ) &&
+                                formData.rtsName
+                              ) {
                                 setRtsSearchTerm(formData.rtsName);
                               } else {
                                 setRtsSearchTerm("");
@@ -6722,39 +6905,75 @@ export function AddTechnicalLogbookEntryModal({
                               <div className="px-4 py-3 text-sm text-gray-500 text-center">
                                 Loading...
                               </div>
-                            ) : filteredRtsAccounts.length === 0 ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                                {rtsSearchTerm
-                                  ? "No accounts found"
-                                  : "No accounts available"}
-                              </div>
                             ) : (
                               <ul className="py-1">
-                                {filteredRtsAccounts.map((account) => (
+                                {shouldShowAtlAssigneeNoneOption(
+                                  rtsSearchTerm
+                                ) && (
                                   <li
-                                    key={account.id}
-                                    onClick={() =>
-                                      handleRtsSelect(
-                                        account.id.toString(),
-                                        formatAccountNameLicense(account.fullName, account.licenseNo)
-                                      )
-                                    }
+                                    onClick={handleRtsSelectNone}
                                     className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      formData.rtsSignedBy ===
-                                      account.id.toString()
+                                      isAtlAssigneeNoneSelected(
+                                        formData.rtsSignedBy,
+                                        formData.rtsName
+                                      )
                                         ? "bg-blue-50"
                                         : ""
                                     }`}
                                   >
                                     <span className="text-gray-900 text-sm">
-                                      {formatAccountNameLicense(account.fullName, account.licenseNo)}
+                                      {ATL_ASSIGNEE_NONE_LABEL}
                                     </span>
-                                    {formData.rtsSignedBy ===
-                                      account.id.toString() && (
+                                    {isAtlAssigneeNoneSelected(
+                                      formData.rtsSignedBy,
+                                      formData.rtsName
+                                    ) && (
                                       <Check className="w-4 h-4 text-blue-600" />
                                     )}
                                   </li>
-                                ))}
+                                )}
+                                {filteredRtsAccounts.length === 0 &&
+                                !shouldShowAtlAssigneeNoneOption(
+                                  rtsSearchTerm
+                                ) ? (
+                                  <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                    {rtsSearchTerm
+                                      ? "No accounts found"
+                                      : "No accounts available"}
+                                  </li>
+                                ) : (
+                                  filteredRtsAccounts.map((account) => (
+                                    <li
+                                      key={account.id}
+                                      onClick={() =>
+                                        handleRtsSelect(
+                                          account.id.toString(),
+                                          formatAccountNameLicense(
+                                            account.fullName,
+                                            account.licenseNo
+                                          )
+                                        )
+                                      }
+                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                        formData.rtsSignedBy ===
+                                        account.id.toString()
+                                          ? "bg-blue-50"
+                                          : ""
+                                      }`}
+                                    >
+                                      <span className="text-gray-900 text-sm">
+                                        {formatAccountNameLicense(
+                                          account.fullName,
+                                          account.licenseNo
+                                        )}
+                                      </span>
+                                      {formData.rtsSignedBy ===
+                                        account.id.toString() && (
+                                        <Check className="w-4 h-4 text-blue-600" />
+                                      )}
+                                    </li>
+                                  ))
+                                )}
                               </ul>
                             )}
                           </div>
@@ -6839,8 +7058,14 @@ export function AddTechnicalLogbookEntryModal({
                             }}
                             onFocus={() => {
                               setIsPilotDropdownOpen(true);
-                              // If there's a selected value, use it as initial search term, otherwise clear
-                              if (formData.pilotName) {
+                              // Seed search with current assignee name (not "None")
+                              if (
+                                !isAtlAssigneeNoneSelected(
+                                  formData.pilotFk,
+                                  formData.pilotName
+                                ) &&
+                                formData.pilotName
+                              ) {
                                 setPilotSearchTerm(formData.pilotName);
                               } else {
                                 setPilotSearchTerm("");
@@ -6885,38 +7110,75 @@ export function AddTechnicalLogbookEntryModal({
                               <div className="px-4 py-3 text-sm text-gray-500 text-center">
                                 Loading pilots...
                               </div>
-                            ) : filteredPilotAccounts.length === 0 ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                                {pilotSearchTerm
-                                  ? "No pilots found"
-                                  : "No pilots available"}
-                              </div>
                             ) : (
                               <ul className="py-1">
-                                {filteredPilotAccounts.map((account) => (
+                                {shouldShowAtlAssigneeNoneOption(
+                                  pilotSearchTerm
+                                ) && (
                                   <li
-                                    key={account.id}
-                                    onClick={() =>
-                                      handlePilotSelect(
-                                        account.id.toString(),
-                                        formatAccountNameLicense(account.fullName, account.licenseNo)
-                                      )
-                                    }
+                                    onClick={handlePilotSelectNone}
                                     className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      formData.pilotFk === account.id.toString()
+                                      isAtlAssigneeNoneSelected(
+                                        formData.pilotFk,
+                                        formData.pilotName
+                                      )
                                         ? "bg-blue-50"
                                         : ""
                                     }`}
                                   >
                                     <span className="text-gray-900 text-sm">
-                                      {formatAccountNameLicense(account.fullName, account.licenseNo)}
+                                      {ATL_ASSIGNEE_NONE_LABEL}
                                     </span>
-                                    {formData.pilotFk ===
-                                      account.id.toString() && (
+                                    {isAtlAssigneeNoneSelected(
+                                      formData.pilotFk,
+                                      formData.pilotName
+                                    ) && (
                                       <Check className="w-4 h-4 text-blue-600" />
                                     )}
                                   </li>
-                                ))}
+                                )}
+                                {filteredPilotAccounts.length === 0 &&
+                                !shouldShowAtlAssigneeNoneOption(
+                                  pilotSearchTerm
+                                ) ? (
+                                  <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                    {pilotSearchTerm
+                                      ? "No pilots found"
+                                      : "No pilots available"}
+                                  </li>
+                                ) : (
+                                  filteredPilotAccounts.map((account) => (
+                                    <li
+                                      key={account.id}
+                                      onClick={() =>
+                                        handlePilotSelect(
+                                          account.id.toString(),
+                                          formatAccountNameLicense(
+                                            account.fullName,
+                                            account.licenseNo
+                                          )
+                                        )
+                                      }
+                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                        formData.pilotFk ===
+                                        account.id.toString()
+                                          ? "bg-blue-50"
+                                          : ""
+                                      }`}
+                                    >
+                                      <span className="text-gray-900 text-sm">
+                                        {formatAccountNameLicense(
+                                          account.fullName,
+                                          account.licenseNo
+                                        )}
+                                      </span>
+                                      {formData.pilotFk ===
+                                        account.id.toString() && (
+                                        <Check className="w-4 h-4 text-blue-600" />
+                                      )}
+                                    </li>
+                                  ))
+                                )}
                               </ul>
                             )}
                           </div>
