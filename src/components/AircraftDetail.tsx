@@ -17,6 +17,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { getAircraftById, updateAircraft } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import { Spinner } from "./ui/spinner";
+import { NatureOfFlightDescriptions } from "./NatureOfFlightDescriptions";
 import { Aircraft } from "../types/Aircraft";
 import { snakeAllKeys } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
@@ -1180,6 +1181,10 @@ export function AircraftDetail() {
                 </div>
               </div>
             </div>
+
+            {id && Number(id) > 0 ? (
+              <NatureOfFlightDescriptions aircraftId={Number(id)} />
+            ) : null}
           </>
         ) : (
           <Spinner />

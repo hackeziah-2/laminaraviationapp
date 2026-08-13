@@ -22,6 +22,7 @@ import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
   getAccountsByDesignation,
   getAllAccounts,
+  getAccount,
   getAccountInformationById,
   Account,
 } from "../api/accountApi";
@@ -67,12 +68,31 @@ import {
   type ComponentPart,
   type Mechanic,
 } from "../api/logbooksApi";
-import { Spinner } from "./ui/spinner";
+import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { snakeAllKeys } from "../utility/utils";
 import apiClient from "../api/index";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import {
+  searchAircraftAtlBySequenceNumber,
+  getExactAircraftAtlBySequenceNumber,
+  type AtlItem,
+} from "../api/atlApi";
+
+/** Closed-select display when mechanic is unassigned (same pattern as ATL pilotAcceptedBy). */
+const LOGBOOK_MECHANIC_NONE_LABEL = "None";
+
+function isLogbookMechanicNoneSelected(
+  mechanicFk: string | undefined | null
+): boolean {
+  return !String(mechanicFk ?? "").trim();
+}
+
+function shouldShowLogbookMechanicNoneOption(searchTerm: string): boolean {
+  const q = searchTerm.trim().toLowerCase();
+  return !q || LOGBOOK_MECHANIC_NONE_LABEL.toLowerCase().includes(q);
+}
 
 interface LogEntry {
   id: number;
@@ -569,6 +589,7 @@ export function MaintenanceLogbook() {
   // Form state for Add/Edit modal
   const [formData, setFormData] = useState({
     date: "",
+    logbookSeqNo: "",
     sequenceNo: "",
     tachTime: "",
     airframeTime: "",
@@ -605,6 +626,20 @@ export function MaintenanceLogbook() {
   const [loadingMechanicAccounts, setLoadingMechanicAccounts] = useState(false);
   const [debouncedMechanicSearch, setDebouncedMechanicSearch] = useState("");
   const mechanicDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Airframe Logbook Seq. No. — ATL suggestions + free numeric assign
+  const [sequenceAtlOptions, setSequenceAtlOptions] = useState<AtlItem[]>([]);
+  const [sequenceSearch, setSequenceSearch] = useState("");
+  const [debouncedSequenceSearch, setDebouncedSequenceSearch] = useState("");
+  const [isSequenceDropdownOpen, setIsSequenceDropdownOpen] = useState(false);
+  const [loadingSequenceAtl, setLoadingSequenceAtl] = useState(false);
+  const [sequenceAtlError, setSequenceAtlError] = useState<string | null>(null);
+  /** Loading/error for post-select ATL autofill (all logbook categories). */
+  const [loadingAtlPopulate, setLoadingAtlPopulate] = useState(false);
+  const [atlPopulateError, setAtlPopulateError] = useState<string | null>(null);
+  const sequenceDropdownRef = useRef<HTMLDivElement>(null);
+  const sequenceSearchRequestIdRef = useRef(0);
+  const atlPopulateRequestIdRef = useRef(0);
 
   // File upload state
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -666,6 +701,93 @@ export function MaintenanceLogbook() {
     return () => clearTimeout(timer);
   }, [mechanicSearchTerm]);
 
+  // Debounce Seq. No. ATL search (400ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSequenceSearch(sequenceSearch);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [sequenceSearch]);
+
+  // Clear selected sequenceNo + ATL-populated fields when aircraft changes
+  const prevAircraftIdForSequenceRef = useRef(aircraftId);
+  useEffect(() => {
+    if (prevAircraftIdForSequenceRef.current === aircraftId) return;
+    prevAircraftIdForSequenceRef.current = aircraftId;
+    setFormData((prev) => ({
+      ...prev,
+      sequenceNo: "",
+      tachTime: "",
+      airframeTime: "",
+      engineTsn: "",
+      engineTso: "",
+      engineTbo: "",
+      propellerTsn: "",
+      propellerTso: "",
+      propellerTbo: "",
+      description: "",
+      mechanicFk: "",
+      mechanicName: "",
+      licenseNumber: "",
+    }));
+    setComponentRecords([]);
+    setSequenceSearch("");
+    setDebouncedSequenceSearch("");
+    setSequenceAtlOptions([]);
+    setSequenceAtlError(null);
+    setAtlPopulateError(null);
+    setLoadingAtlPopulate(false);
+    setIsSequenceDropdownOpen(false);
+    sequenceSearchRequestIdRef.current += 1;
+    atlPopulateRequestIdRef.current += 1;
+  }, [aircraftId]);
+
+  // Fetch ATL by sequence_number only when aircraft + non-blank search (max 5)
+  useEffect(() => {
+    const q = debouncedSequenceSearch.trim();
+    if (!isSequenceDropdownOpen || !aircraftId || aircraftId <= 0 || !q) {
+      setSequenceAtlOptions([]);
+      setSequenceAtlError(null);
+      setLoadingSequenceAtl(false);
+      return;
+    }
+
+    const requestId = ++sequenceSearchRequestIdRef.current;
+    let cancelled = false;
+
+    const run = async () => {
+      setLoadingSequenceAtl(true);
+      setSequenceAtlError(null);
+      try {
+        const list = await searchAircraftAtlBySequenceNumber(
+          aircraftId,
+          q,
+          5
+        );
+        if (cancelled || sequenceSearchRequestIdRef.current !== requestId) {
+          return;
+        }
+        setSequenceAtlOptions(list);
+      } catch (err) {
+        if (cancelled || sequenceSearchRequestIdRef.current !== requestId) {
+          return;
+        }
+        console.error("Error searching ATL by sequence number:", err);
+        setSequenceAtlOptions([]);
+        setSequenceAtlError("Failed to search sequence numbers. Try again.");
+      } finally {
+        if (!cancelled && sequenceSearchRequestIdRef.current === requestId) {
+          setLoadingSequenceAtl(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSequenceSearch, aircraftId, isSequenceDropdownOpen]);
+
   // Fetch mechanic accounts when dropdown opens or search changes
   useEffect(() => {
     if (isMechanicDropdownOpen) {
@@ -700,16 +822,231 @@ export function MaintenanceLogbook() {
       ) {
         setIsMechanicDropdownOpen(false);
       }
+      if (
+        sequenceDropdownRef.current &&
+        !sequenceDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsSequenceDropdownOpen(false);
+      }
     };
 
-    if (isMechanicDropdownOpen) {
+    if (isMechanicDropdownOpen || isSequenceDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isMechanicDropdownOpen]);
+  }, [isMechanicDropdownOpen, isSequenceDropdownOpen]);
+
+  const resetSequenceAtlSearchState = () => {
+    setSequenceSearch("");
+    setDebouncedSequenceSearch("");
+    setSequenceAtlOptions([]);
+    setSequenceAtlError(null);
+    setIsSequenceDropdownOpen(false);
+    setLoadingSequenceAtl(false);
+    setLoadingAtlPopulate(false);
+    setAtlPopulateError(null);
+    sequenceSearchRequestIdRef.current += 1;
+    atlPopulateRequestIdRef.current += 1;
+  };
+
+  const mapAtlPartsToComponentRecords = (
+    parts: unknown[] | undefined
+  ): ComponentRecordRow[] => {
+    if (!Array.isArray(parts) || parts.length === 0) return [];
+    return parts.map((p: any, i: number) => {
+      const sn = (p ?? {}) as Record<string, unknown>;
+      return {
+        id: `cr-atl-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
+        qty: String(p?.qty ?? ""),
+        unit: String(p?.unit ?? ""),
+        nomenclature: String(p?.nomenclature ?? ""),
+        removedPartNo: String(p?.removedPartNo ?? sn.removed_part_no ?? ""),
+        removedSerialNo: String(
+          p?.removedSerialNo ?? sn.removed_serial_no ?? ""
+        ),
+        installedPartNo: String(
+          p?.installedPartNo ?? sn.installed_part_no ?? ""
+        ),
+        installedSerialNo: String(
+          p?.installedSerialNo ?? sn.installed_serial_no ?? ""
+        ),
+        ataChapter: String(p?.ataChapter ?? sn.ata_chapter ?? ""),
+      };
+    });
+  };
+
+  const atlBlank = (v: string | undefined | null): string => {
+    if (v == null) return "";
+    const s = String(v).trim();
+    if (!s || /^(null|undefined)$/i.test(s)) return "";
+    return s;
+  };
+
+  const resolveMechanicFromRts = async (
+    rtsId: number | null | undefined,
+    seq: string,
+    requestId: number
+  ) => {
+    if (rtsId == null) {
+      setFormData((prev) => {
+        if (prev.sequenceNo !== seq) return prev;
+        return {
+          ...prev,
+          mechanicFk: "",
+          mechanicName: "",
+          licenseNumber: "",
+        };
+      });
+      return;
+    }
+    try {
+      const account = await getAccount(rtsId);
+      if (atlPopulateRequestIdRef.current !== requestId) return;
+      let authStamp = (account.authStamp ?? "").trim();
+      if (!authStamp && account.id) {
+        try {
+          const info = await getAccountInformationById(account.id);
+          authStamp = (info.auth_stamp ?? "").trim();
+        } catch {
+          // keep empty stamp
+        }
+      }
+      if (atlPopulateRequestIdRef.current !== requestId) return;
+      setMechanicAccounts((prev) => {
+        if (prev.some((a) => a.id === account.id)) return prev;
+        return [account, ...prev];
+      });
+      setFormData((prev) => {
+        if (prev.sequenceNo !== seq) return prev;
+        return {
+          ...prev,
+          mechanicFk: account.id.toString(),
+          mechanicName: account.fullName || "",
+          licenseNumber: account.licenseNo || "",
+          signature: authStamp || prev.signature,
+        };
+      });
+    } catch (err) {
+      console.error("Could not resolve ATL rts_signed_by for mechanic:", err);
+      if (atlPopulateRequestIdRef.current !== requestId) return;
+      setFormData((prev) => {
+        if (prev.sequenceNo !== seq) return prev;
+        return {
+          ...prev,
+          mechanicFk: String(rtsId),
+          mechanicName: "",
+          licenseNumber: "",
+        };
+      });
+    }
+  };
+
+  /**
+   * After user selects a sequenceNo (Create or Edit manual change only):
+   * clear prior ATL values, fetch exact ATL, populate category fields.
+   */
+  const selectSequenceNoAndPopulateFromAtl = async (raw: string) => {
+    const seq = String(raw ?? "").replace(/\D/g, "");
+    if (!seq) return;
+
+    const requestId = ++atlPopulateRequestIdRef.current;
+
+    // Assign sequenceNo and clear previously populated ATL-mapped fields
+    setFormData((prev) => ({
+      ...prev,
+      sequenceNo: seq,
+      tachTime: "",
+      airframeTime: "",
+      engineTsn: "",
+      engineTso: "",
+      engineTbo: "",
+      propellerTsn: "",
+      propellerTso: "",
+      propellerTbo: "",
+      description: "",
+      mechanicFk: "",
+      mechanicName: "",
+      licenseNumber: "",
+    }));
+    setComponentRecords([]);
+
+    setSequenceSearch("");
+    setIsSequenceDropdownOpen(false);
+    setSequenceAtlOptions([]);
+    setSequenceAtlError(null);
+    setAtlPopulateError(null);
+    if (validationErrors.sequenceNo) {
+      setValidationErrors((prev) => ({ ...prev, sequenceNo: "" }));
+    }
+
+    if (!aircraftId || aircraftId <= 0) {
+      setAtlPopulateError("Select an aircraft to load ATL details.");
+      return;
+    }
+
+    setLoadingAtlPopulate(true);
+    try {
+      const atl = await getExactAircraftAtlBySequenceNumber(aircraftId, seq);
+      if (atlPopulateRequestIdRef.current !== requestId) return;
+
+      if (!atl) {
+        setAtlPopulateError(
+          "No ATL record found for this sequence number. Fields were left blank."
+        );
+        setComponentRecords([]);
+        return;
+      }
+
+      const category = activeCategory;
+      setFormData((prev) => {
+        if (prev.sequenceNo !== seq) return prev;
+        const next = { ...prev, sequenceNo: seq };
+
+        if (category === "AIRFRAME") {
+          next.tachTime = atlBlank(atl.tachTimeDue);
+          next.airframeTime = atlBlank(atl.airframeAftt);
+          next.description = atlBlank(atl.actionsTaken);
+        } else if (category === "AVIONICS") {
+          next.description = atlBlank(atl.actionsTaken);
+        } else if (category === "ENGINE") {
+          next.engineTsn = atlBlank(atl.engineTsn);
+          next.engineTso = atlBlank(atl.engineTso);
+          next.engineTbo = atlBlank(atl.engineTbo);
+          next.tachTime = atlBlank(atl.tachTimeDue);
+          next.description = atlBlank(atl.actionsTaken);
+        } else if (category === "PROPELLER") {
+          next.propellerTsn = atlBlank(atl.propellerTsn);
+          next.propellerTso = atlBlank(atl.propellerTso);
+          next.propellerTbo = atlBlank(atl.propellerTbo);
+          next.description = atlBlank(atl.actionsTaken);
+        }
+
+        if (atl.rtsSignedBy == null) {
+          next.mechanicFk = "";
+          next.mechanicName = "";
+          next.licenseNumber = "";
+        }
+        return next;
+      });
+
+      setComponentRecords(mapAtlPartsToComponentRecords(atl.componentParts));
+      await resolveMechanicFromRts(atl.rtsSignedBy ?? null, seq, requestId);
+    } catch (err) {
+      if (atlPopulateRequestIdRef.current !== requestId) return;
+      console.error("Failed to load ATL for logbook autofill:", err);
+      setAtlPopulateError(
+        "Failed to load ATL record. You can still edit fields manually."
+      );
+      setComponentRecords([]);
+    } finally {
+      if (atlPopulateRequestIdRef.current === requestId) {
+        setLoadingAtlPopulate(false);
+      }
+    }
+  };
 
   /** On mechanic pick: set mechanic FK and fill Auth Stamp from account auth_stamp. */
   const handleSelectMechanicAccount = async (account: Account) => {
@@ -733,9 +1070,23 @@ export function MaintenanceLogbook() {
     setIsMechanicDropdownOpen(false);
   };
 
-  // Get selected mechanic display text (matching ATL pattern)
+  /** Select "None" → clear mechanic; API sends null for mechanicFk. */
+  const handleSelectMechanicNone = () => {
+    setFormData((prev) => ({
+      ...prev,
+      mechanicFk: "",
+      mechanicName: "",
+      licenseNumber: "",
+    }));
+    setMechanicSearchTerm("");
+    setIsMechanicDropdownOpen(false);
+  };
+
+  // Get selected mechanic display text ("None" when unassigned, matching ATL assignees)
   const getSelectedMechanic = () => {
-    if (!formData.mechanicFk) return "";
+    if (isLogbookMechanicNoneSelected(formData.mechanicFk)) {
+      return LOGBOOK_MECHANIC_NONE_LABEL;
+    }
     const selectedAccount = mechanicAccounts.find(
       (account) => account.id.toString() === formData.mechanicFk
     );
@@ -748,7 +1099,7 @@ export function MaintenanceLogbook() {
         formData.mechanicName && formData.licenseNumber ? "-" : ""
       }${formData.licenseNumber || ""}`;
     }
-    return "";
+    return LOGBOOK_MECHANIC_NONE_LABEL;
   };
 
   // Helper function to construct file URL
@@ -893,7 +1244,13 @@ export function MaintenanceLogbook() {
         // Populate form with editing entry data
         setFormData({
           date: editingEntry.date || "",
-          sequenceNo: editingEntry.sequenceNo || "",
+          logbookSeqNo: String(
+            (editingEntry as { logbookSeqNo?: string; logbook_seq_no?: string })
+              .logbookSeqNo ??
+              (editingEntry as { logbook_seq_no?: string }).logbook_seq_no ??
+              ""
+          ).slice(0, 50),
+          sequenceNo: String(editingEntry.sequenceNo || "").replace(/\D/g, ""),
           tachTime: (editingEntry as any).tachTime?.toString() || "",
           airframeTime:
             (editingEntry as AirframeLogbook).airframeTime?.toString() || "",
@@ -946,10 +1303,17 @@ export function MaintenanceLogbook() {
           setUploadFileName("");
         }
         setUploadFile(null); // No new file selected yet
+        setSequenceSearch("");
+        setDebouncedSequenceSearch("");
+        setSequenceAtlOptions([]);
+        setSequenceAtlError(null);
+        setIsSequenceDropdownOpen(false);
+        setLoadingSequenceAtl(false);
         const entryWithParts = editingEntry as
           | AirframeLogbook
           | AvionicsLogbook
-          | EngineLogbook;
+          | EngineLogbook
+          | PropellerLogbook;
         const parts = entryWithParts.componentParts;
         if (Array.isArray(parts) && parts.length > 0) {
           setComponentRecords(
@@ -984,6 +1348,7 @@ export function MaintenanceLogbook() {
         // Reset form for new entry
         setFormData({
           date: "",
+          logbookSeqNo: "",
           sequenceNo: "",
           tachTime: "",
           airframeTime: "",
@@ -1015,6 +1380,7 @@ export function MaintenanceLogbook() {
         setUploadFileName("");
         setExistingUploadFile(null);
         setComponentRecords([]);
+        resetSequenceAtlSearchState();
       }
     } else {
       // Reset when modal closes
@@ -1026,14 +1392,25 @@ export function MaintenanceLogbook() {
       setUploadFile(null);
       setUploadFileName("");
       setExistingUploadFile(null);
+      resetSequenceAtlSearchState();
     }
   }, [showAddEntryModal, showEditEntryModal, editingEntry]);
 
   const validateMaintenanceLogbookForm = (): Record<string, string> => {
     const errors: Record<string, string> = {};
 
-    if (!editingEntry && !formData.sequenceNo?.trim()) {
+    const logbookSeqNo = formData.logbookSeqNo?.trim() ?? "";
+    if (!logbookSeqNo) {
+      errors.logbookSeqNo = "Logbook Seq. No. is required";
+    } else if (logbookSeqNo.length > 50) {
+      errors.logbookSeqNo = "Logbook Seq. No. must be at most 50 characters";
+    }
+
+    const sequenceNo = formData.sequenceNo?.trim() ?? "";
+    if (!editingEntry && !sequenceNo) {
       errors.sequenceNo = "Sequence Number is required";
+    } else if (sequenceNo && !/^\d+$/.test(sequenceNo)) {
+      errors.sequenceNo = "Sequence Number must be a valid number";
     }
 
     const webLinkTrimmed = formData.webLink.trim();
@@ -1117,17 +1494,30 @@ export function MaintenanceLogbook() {
         (account) => account.id.toString() === formData.mechanicFk
       );
 
+      const mechanicFkParsed = formData.mechanicFk?.trim()
+        ? parseInt(formData.mechanicFk, 10)
+        : null;
+      const hasMechanicFk =
+        mechanicFkParsed != null &&
+        Number.isFinite(mechanicFkParsed) &&
+        mechanicFkParsed > 0;
+
       // aircraft_fk is required for create and must be sent for update (backend expects it)
+      // sequenceNo: digits-only; may be a number that does not yet exist in ATL
+      const sequenceNoDigits = formData.sequenceNo?.replace(/\D/g, "").trim();
+      const logbookSeqNo = formData.logbookSeqNo?.trim().slice(0, 50) || "";
       const baseData: any = {
-        sequenceNo: formData.sequenceNo?.trim() || undefined,
+        logbookSeqNo,
+        sequenceNo: sequenceNoDigits || undefined,
         description: formData.description || undefined,
-        mechanicFk: formData.mechanicFk
-          ? parseInt(formData.mechanicFk)
-          : undefined,
-        mechanicName:
-          selectedMechanic?.fullName || formData.mechanicName || undefined,
-        licenseNumber:
-          selectedMechanic?.licenseNo || formData.licenseNumber || undefined,
+        // Always send null when "None" so create/update persist NULL (omit would keep prior on edit)
+        mechanicFk: hasMechanicFk ? mechanicFkParsed : null,
+        mechanicName: hasMechanicFk
+          ? selectedMechanic?.fullName || formData.mechanicName || undefined
+          : null,
+        licenseNumber: hasMechanicFk
+          ? selectedMechanic?.licenseNo || formData.licenseNumber || undefined
+          : null,
         signature: formData.signature || undefined,
         webLink: formData.webLink.trim()
           ? normalizeWebLink(formData.webLink) ?? undefined
@@ -1215,8 +1605,16 @@ export function MaintenanceLogbook() {
       const cleanData = Object.fromEntries(
         Object.entries(data).filter(([key, v]) => {
           if (v === undefined) return false;
-          // Allow clearing web link on update
-          if (key === "webLink" && v === null) return true;
+          // Allow clearing web link / mechanic on update
+          if (
+            (key === "webLink" ||
+              key === "mechanicFk" ||
+              key === "mechanicName" ||
+              key === "licenseNumber") &&
+            v === null
+          ) {
+            return true;
+          }
           if (v === null) return false;
           // Keep numbers including 0
           if (typeof v === "number") return true;
@@ -1232,6 +1630,7 @@ export function MaintenanceLogbook() {
                 "serialNo",
                 "signature",
                 "sequenceNo",
+                "logbookSeqNo",
                 "webLink",
               ].includes(key)
             ) {
@@ -1257,7 +1656,8 @@ export function MaintenanceLogbook() {
       const isComponentCategory =
         activeCategory === "AIRFRAME" ||
         activeCategory === "AVIONICS" ||
-        activeCategory === "ENGINE";
+        activeCategory === "ENGINE" ||
+        activeCategory === "PROPELLER";
       // Backend schema: qty (number), unit, nomenclature, removed_part_no, removed_serial_no, installed_part_no, installed_serial_no, ata_chapter
       const componentPartsPayload = isComponentCategory
         ? componentRecords.map((r) => {
@@ -2782,48 +3182,257 @@ export function MaintenanceLogbook() {
                   </h3>
                 </div>
 
-                {/* Date and Seq Info Row */}
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Date:
-                    </label>
-                    <DateInput
-                      value={formData.date}
-                      onChange={(date) =>
-                        setFormData({ ...formData, date })
-                      }
-                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                    />
+                {/* Logbook Seq. No. (half width, left); Date + ATL Seq. No. on same row below */}
+                <div className="mb-6 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-start-2">
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Logbook Seq. No.
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.logbookSeqNo}
+                        maxLength={50}
+                        onChange={(e) => {
+                          const value = e.target.value.slice(0, 50);
+                          setFormData({ ...formData, logbookSeqNo: value });
+                          if (validationErrors.logbookSeqNo) {
+                            setValidationErrors((prev) => ({
+                              ...prev,
+                              logbookSeqNo: "",
+                            }));
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-1 bg-white focus:ring-gray-400 focus:border-gray-400 ${
+                          validationErrors.logbookSeqNo
+                            ? "border-red-500 text-red-700"
+                            : "border-gray-300 text-gray-900"
+                        }`}
+                        placeholder="Enter logbook sequence number"
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-label="Logbook sequence number"
+                      />
+                      {validationErrors.logbookSeqNo && (
+                        <p className="text-red-500 text-xs mt-1">
+                          {validationErrors.logbookSeqNo}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Seq. No.
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.sequenceNo}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setFormData({ ...formData, sequenceNo: value });
-                        if (validationErrors.sequenceNo) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            sequenceNo: "",
-                          });
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Date:
+                      </label>
+                      <DateInput
+                        value={formData.date}
+                        onChange={(date) =>
+                          setFormData({ ...formData, date })
                         }
-                      }}
-                      className={`w-full px-3 py-2 text-sm border rounded focus:outline-none focus:ring-1 bg-white focus:ring-gray-400 focus:border-gray-400 ${
-                        validationErrors.sequenceNo
-                          ? "border-red-500 text-red-700"
-                          : "border-gray-300 text-red-700"
-                      }`}
-                    />
-                    {validationErrors.sequenceNo && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {validationErrors.sequenceNo}
-                      </p>
-                    )}
+                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        ATL Seq. No.
+                      </label>
+                      <div className="relative" ref={sequenceDropdownRef}>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={
+                              isSequenceDropdownOpen
+                                ? sequenceSearch
+                                : formData.sequenceNo
+                            }
+                            onChange={(e) => {
+                              const digitsOnly = e.target.value.replace(
+                                /\D/g,
+                                ""
+                              );
+                              setSequenceSearch(digitsOnly);
+                              setIsSequenceDropdownOpen(true);
+                              if (validationErrors.sequenceNo) {
+                                setValidationErrors((prev) => ({
+                                  ...prev,
+                                  sequenceNo: "",
+                                }));
+                              }
+                            }}
+                            onFocus={() => {
+                              setIsSequenceDropdownOpen(true);
+                              if (!sequenceSearch && formData.sequenceNo) {
+                                setSequenceSearch(
+                                  formData.sequenceNo.replace(/\D/g, "")
+                                );
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const digits = sequenceSearch.replace(/\D/g, "");
+                                if (digits)
+                                  void selectSequenceNoAndPopulateFromAtl(
+                                    digits
+                                  );
+                              }
+                            }}
+                            placeholder={
+                              aircraftId > 0
+                                ? "Enter sequence number..."
+                                : "Select an aircraft first"
+                            }
+                            disabled={!aircraftId || aircraftId <= 0}
+                            autoComplete="off"
+                            spellCheck={false}
+                            className={`w-full px-3 py-2 pr-10 text-sm border rounded focus:outline-none focus:ring-1 bg-white focus:ring-gray-400 focus:border-gray-400 disabled:bg-gray-100 disabled:cursor-not-allowed ${
+                              validationErrors.sequenceNo
+                                ? "border-red-500 text-red-700"
+                                : "border-gray-300 text-gray-900"
+                            }`}
+                            aria-label="Sequence number"
+                            aria-expanded={isSequenceDropdownOpen}
+                            aria-haspopup="listbox"
+                          />
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            disabled={!aircraftId || aircraftId <= 0}
+                            onClick={() => {
+                              if (!aircraftId || aircraftId <= 0) return;
+                              setIsSequenceDropdownOpen((open) => !open);
+                            }}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 disabled:opacity-40"
+                            aria-label={
+                              isSequenceDropdownOpen
+                                ? "Close sequence list"
+                                : "Open sequence list"
+                            }
+                          >
+                            <ChevronDown
+                              className={`w-4 h-4 transition-transform ${
+                                isSequenceDropdownOpen ? "rotate-180" : ""
+                              }`}
+                            />
+                          </button>
+                        </div>
+                        {isSequenceDropdownOpen && (
+                          <div
+                            className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto"
+                            role="listbox"
+                          >
+                            {!aircraftId || aircraftId <= 0 ? (
+                              <div className="px-4 py-3 text-sm text-amber-700">
+                                Select an aircraft to search sequence numbers.
+                              </div>
+                            ) : !sequenceSearch.trim() ? (
+                              <div className="px-4 py-3 text-sm text-gray-500">
+                                Type a sequence number to search or assign.
+                              </div>
+                            ) : (
+                              <>
+                                <ul className="py-1 border-b border-gray-100">
+                                  <li>
+                                    <button
+                                      type="button"
+                                      role="option"
+                                      aria-selected={
+                                        formData.sequenceNo ===
+                                        sequenceSearch.trim()
+                                      }
+                                      className={`w-full px-3 py-2 text-left text-sm transition-colors ${
+                                        formData.sequenceNo ===
+                                        sequenceSearch.trim()
+                                          ? "bg-blue-50 text-blue-700 font-medium"
+                                          : "text-gray-900 hover:bg-gray-50"
+                                      }`}
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        void selectSequenceNoAndPopulateFromAtl(
+                                          sequenceSearch
+                                        );
+                                      }}
+                                    >
+                                      Use sequence number:{" "}
+                                      {sequenceSearch.trim()}
+                                    </button>
+                                  </li>
+                                </ul>
+                                {loadingSequenceAtl ||
+                                sequenceSearch.trim() !==
+                                  debouncedSequenceSearch.trim() ? (
+                                  <div className="px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
+                                    <SpinnerIcon size="sm" aria-hidden />
+                                    Searching existing ATL records...
+                                  </div>
+                                ) : sequenceAtlError ? (
+                                  <div className="px-4 py-3 text-sm text-red-600">
+                                    {sequenceAtlError}
+                                  </div>
+                                ) : sequenceAtlOptions.length === 0 ? (
+                                  <div className="px-4 py-3 text-sm text-gray-500">
+                                    No matching sequence number in ATL. You can
+                                    still use the entered number above.
+                                  </div>
+                                ) : (
+                                  <ul className="py-1">
+                                    {sequenceAtlOptions.map((opt) => {
+                                      const seqValue = String(
+                                        opt.sequenceNo ?? ""
+                                      ).replace(/\D/g, "");
+                                      if (!seqValue) return null;
+                                      const isSelected =
+                                        formData.sequenceNo === seqValue;
+                                      return (
+                                        <li key={`${opt.id}-${seqValue}`}>
+                                          <button
+                                            type="button"
+                                            role="option"
+                                            aria-selected={isSelected}
+                                            className={`w-full px-3 py-2 text-left text-sm transition-colors tabular-nums ${
+                                              isSelected
+                                                ? "bg-blue-50 text-blue-700 font-medium"
+                                                : "text-gray-900 hover:bg-gray-50"
+                                            }`}
+                                            onMouseDown={(e) => {
+                                              e.preventDefault();
+                                              void selectSequenceNoAndPopulateFromAtl(
+                                                seqValue
+                                              );
+                                            }}
+                                          >
+                                            {seqValue}
+                                          </button>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {validationErrors.sequenceNo && (
+                        <p className="text-red-500 text-xs mt-1">
+                          {validationErrors.sequenceNo}
+                        </p>
+                      )}
+                      {loadingAtlPopulate && (
+                        <p className="text-gray-500 text-xs mt-1 flex items-center gap-1.5">
+                          <SpinnerIcon size="sm" aria-hidden />
+                          Loading ATL details...
+                        </p>
+                      )}
+                      {atlPopulateError && !loadingAtlPopulate && (
+                        <p className="text-red-600 text-xs mt-1">
+                          {atlPopulateError}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -3086,10 +3695,11 @@ export function MaintenanceLogbook() {
                   </>
                 )}
 
-                {/* COMPONENT RECORD – Airframe, Avionics, Engine only */}
+                {/* COMPONENT RECORD – Airframe, Avionics, Engine, Propeller */}
                 {(activeCategory === "AIRFRAME" ||
                   activeCategory === "AVIONICS" ||
-                  activeCategory === "ENGINE") && (
+                  activeCategory === "ENGINE" ||
+                  activeCategory === "PROPELLER") && (
                   <div className="mb-6">
                     <div className="bg-white p-4 rounded-lg border border-gray-200">
                       <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
@@ -3367,14 +3977,6 @@ export function MaintenanceLogbook() {
                             </div>
                           ) : (
                             (() => {
-                              // Debug: Log accounts for troubleshooting
-                              if (mechanicAccounts.length > 0) {
-                                console.log(
-                                  "Mechanic accounts available:",
-                                  mechanicAccounts.length
-                                );
-                              }
-
                               // Client-side filtering for better UX
                               const filtered = mechanicAccounts.filter(
                                 (account) => {
@@ -3395,20 +3997,44 @@ export function MaintenanceLogbook() {
                                 }
                               );
 
-                              if (filtered.length === 0) {
+                              const showNone =
+                                shouldShowLogbookMechanicNoneOption(
+                                  mechanicSearchTerm
+                                );
+                              const noneSelected =
+                                isLogbookMechanicNoneSelected(
+                                  formData.mechanicFk
+                                );
+
+                              if (!showNone && filtered.length === 0) {
                                 return (
                                   <div className="px-4 py-3 text-sm text-gray-500 text-center">
                                     {mechanicSearchTerm.trim()
                                       ? "No mechanics found"
                                       : mechanicAccounts.length === 0
-                                      ? "No mechanics available"
-                                      : "No mechanics found"}
+                                        ? "No mechanics available"
+                                        : "No mechanics found"}
                                   </div>
                                 );
                               }
 
                               return (
                                 <ul className="py-1">
+                                  {showNone && (
+                                    <li
+                                      onClick={handleSelectMechanicNone}
+                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                        noneSelected ? "bg-blue-50" : ""
+                                      }`}
+                                    >
+                                      <span className="text-gray-900 text-sm">
+                                        {LOGBOOK_MECHANIC_NONE_LABEL}
+                                      </span>
+                                      {noneSelected && (
+                                        <Check className="w-4 h-4 text-blue-600" />
+                                      )}
+                                    </li>
+                                  )}
                                   {filtered.map((account) => (
                                     <li
                                       key={account.id}
