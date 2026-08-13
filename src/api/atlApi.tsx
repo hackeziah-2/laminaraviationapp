@@ -17,6 +17,7 @@ export function formatNatureOfFlightForDisplay(
     ME: "ME - Maintenance Entry",
     TR_WITH_PIREM: "TR W/ PIREM - Training Flight with Pilot Remarks",
     ATL_REPL: "ATL REPL",
+    CANCELLED_FLT: "CANCELLED FLT - Cancelled Flight",
     VE: "VE - Vehicle",
     EOR: "EOR - End of Run",
     OTHER: "OTHER",
@@ -146,9 +147,251 @@ export interface AtlItem {
   cpcpLastDoneTach?: string;
   cpcpLastDoneAftt?: string;
   cpcpLastDoneDate?: string;
+  /** Airframe / Engine / Propeller Logbook Seq. No. picker autofill from ATL row */
+  tachTimeDue?: string;
+  airframeAftt?: string;
+  actionsTaken?: string;
+  rtsSignedBy?: number | null;
+  componentParts?: unknown[];
+  engineTsn?: string;
+  engineTso?: string;
+  engineTbo?: string;
+  propellerTsn?: string;
+  propellerTso?: string;
+  propellerTbo?: string;
 }
 
 const ATL_PATH = "atl/";
+
+/** Form-safe string: never "null" / "undefined"; blank when missing. */
+function atlNumericToFormString(v: unknown): string {
+  if (v == null || v === "") return "";
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  const s = String(v).trim();
+  if (
+    !s ||
+    s === "-" ||
+    s === "—" ||
+    /^(null|undefined)$/i.test(s)
+  ) {
+    return "";
+  }
+  return s;
+}
+
+function atlTextToFormString(v: unknown): string {
+  if (v == null) return "";
+  const s = String(v).trim();
+  if (!s || /^(null|undefined)$/i.test(s)) return "";
+  return s;
+}
+
+function parseAtlAssigneeId(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "object") {
+    const id =
+      (raw as { id?: unknown; pk?: unknown }).id ??
+      (raw as { pk?: unknown }).pk;
+    const n = Number(id);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (typeof raw === "string" && /^(null|undefined|none)$/i.test(raw.trim())) {
+    return null;
+  }
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function digitsOnlySequence(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+export function findExactAtlBySequenceNumber(
+  items: AtlItem[],
+  sequenceNumber: string
+): AtlItem | null {
+  const want = digitsOnlySequence(sequenceNumber);
+  if (!want) return null;
+  return (
+    items.find((i) => digitsOnlySequence(i.sequenceNo) === want) ?? null
+  );
+}
+
+function mapAtlListResponse(
+  list: unknown[],
+  lineStyle: AtlListOptions["resultLineStyle"] = "standard"
+): AtlItem[] {
+  return (Array.isArray(list) ? list : []).map((r: any) => {
+    const id = r.id ?? r.pk ?? 0;
+    const seqNo = r.sequence_no ?? r.sequence_number ?? r.sequenceNo ?? "";
+    const code = r.code ?? r.atl_code ?? "";
+    const ref = r.reference ?? r.atl_ref ?? r.atl_reference ?? "";
+    const aircraftRaw = r.aircraft ?? r.aircraft_fk;
+    const reg =
+      typeof aircraftRaw === "object" && aircraftRaw != null
+        ? String(
+            aircraftRaw.registration ??
+              aircraftRaw.registration_mark ??
+              aircraftRaw.ident ??
+              ""
+          ).trim()
+        : String(
+            r.aircraft_registration ?? r.ac_reg ?? r.registration ?? ""
+          ).trim();
+    const natureRaw = String(
+      r.nature_of_flight ?? r.natureOfFlight ?? ""
+    ).trim();
+    const natureOfFlightDisplay = formatNatureOfFlightForDisplay(
+      natureRaw || undefined
+    );
+    const seqPart =
+      seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
+    const tachRaw =
+      r.tachometer_end ?? r.tachometerEnd ?? r.tach_end ?? r.tachEnd;
+    const afttRaw =
+      r.auto_airframe_aftt ??
+      r.autoAirframeAftt ??
+      r.airframe_aftt ??
+      r.airframeAftt;
+    const originDateRaw =
+      r.origin_date ?? r.originDate ?? r.date_of_origin ?? r.dateOfOrigin;
+    const label =
+      lineStyle === "cpcp"
+        ? buildAtlCpcpSearchLabel(seqPart, tachRaw, afttRaw, originDateRaw)
+        : lineStyle === "adWorkOrder"
+          ? buildAtlAdWorkOrderSearchLabel(
+              seqPart,
+              afttRaw,
+              tachRaw,
+              originDateRaw
+            )
+          : `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
+    const tachTimeDue = atlNumericToFormString(
+      r.tach_time_due ?? r.tachTimeDue
+    );
+    const airframeAftt = atlNumericToFormString(
+      r.airframe_aftt ??
+        r.airframeAftt ??
+        r.auto_airframe_aftt ??
+        r.autoAirframeAftt
+    );
+    const actionsTaken = atlTextToFormString(
+      r.actions_taken ?? r.actionsTaken
+    );
+    const rtsSignedBy = parseAtlAssigneeId(r.rts_signed_by ?? r.rtsSignedBy);
+    const componentPartsRaw =
+      r.component_parts ?? r.componentParts ?? r.component_part ?? null;
+    const componentParts = Array.isArray(componentPartsRaw)
+      ? componentPartsRaw
+      : undefined;
+    const engineTsn = atlNumericToFormString(
+      r.engine_tsn ?? r.engineTsn ?? r.auto_engine_tsn ?? r.autoEngineTsn
+    );
+    const engineTso = atlNumericToFormString(
+      r.engine_tso ?? r.engineTso ?? r.auto_engine_tso ?? r.autoEngineTso
+    );
+    const engineTbo = atlNumericToFormString(
+      r.engine_tbo ?? r.engineTbo ?? r.auto_engine_tbo ?? r.autoEngineTbo
+    );
+    const propellerTsn = atlNumericToFormString(
+      r.propeller_tsn ??
+        r.propellerTsn ??
+        r.auto_propeller_tsn ??
+        r.autoPropellerTsn
+    );
+    const propellerTso = atlNumericToFormString(
+      r.propeller_tso ??
+        r.propellerTso ??
+        r.auto_propeller_tso ??
+        r.autoPropellerTso
+    );
+    const propellerTbo = atlNumericToFormString(
+      r.propeller_tbo ??
+        r.propellerTbo ??
+        r.auto_propeller_tbo ??
+        r.autoPropellerTbo
+    );
+    return {
+      id,
+      sequenceNo: String(seqNo ?? "").trim() || undefined,
+      code,
+      reference: ref,
+      label,
+      natureOfFlight: natureRaw || undefined,
+      natureOfFlightDisplay,
+      aircraftRegistration: reg || undefined,
+      tachTimeDue: tachTimeDue || undefined,
+      airframeAftt: airframeAftt || undefined,
+      actionsTaken: actionsTaken || undefined,
+      rtsSignedBy,
+      componentParts,
+      engineTsn: engineTsn || undefined,
+      engineTso: engineTso || undefined,
+      engineTbo: engineTbo || undefined,
+      propellerTsn: propellerTsn || undefined,
+      propellerTso: propellerTso || undefined,
+      propellerTbo: propellerTbo || undefined,
+      ...cpcpAutofillFromRaw(lineStyle, tachRaw, afttRaw, originDateRaw),
+    };
+  });
+}
+
+/**
+ * Aircraft-scoped ATL search by sequence number (Airframe Logbook Seq. No. picker).
+ * GET /api/v1/aircraft/{aircraft_id}/atl/?sequence_number={sequence_no}&limit=5
+ * Does not call the API when aircraftId is invalid or search is blank.
+ * Throws on HTTP/network failure so callers can show an error state.
+ */
+export const searchAircraftAtlBySequenceNumber = async (
+  aircraftId: number,
+  sequenceNumber: string,
+  limit = 5
+): Promise<AtlItem[]> => {
+  const q = String(sequenceNumber ?? "").trim();
+  const aid = Number(aircraftId);
+  if (!q || !Number.isFinite(aid) || aid <= 0) return [];
+
+  const params = new URLSearchParams();
+  params.append("sequence_number", q);
+  params.append("limit", String(Math.max(1, Math.min(limit, 5))));
+
+  const res = await apiClient.get(
+    `aircraft/${aid}/atl/?${params.toString()}`,
+    { headers: { Accept: "application/json" } }
+  );
+  const data = res.data?.data ?? res.data;
+  const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
+  const list = Array.isArray(raw) ? raw : [];
+  return mapAtlListResponse(list, "standard").slice(0, 5);
+};
+
+/**
+ * Fetch the exact ATL row for logbook autofill.
+ * GET /api/v1/aircraft/{aircraft_id}/atl/?sequence_number={sequence_no}
+ */
+export const getExactAircraftAtlBySequenceNumber = async (
+  aircraftId: number,
+  sequenceNumber: string
+): Promise<AtlItem | null> => {
+  const q = digitsOnlySequence(sequenceNumber);
+  const aid = Number(aircraftId);
+  if (!q || !Number.isFinite(aid) || aid <= 0) return null;
+
+  const params = new URLSearchParams();
+  params.append("sequence_number", q);
+
+  const res = await apiClient.get(
+    `aircraft/${aid}/atl/?${params.toString()}`,
+    { headers: { Accept: "application/json" } }
+  );
+  const data = res.data?.data ?? res.data;
+  const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
+  const list = Array.isArray(raw) ? raw : [];
+  return findExactAtlBySequenceNumber(
+    mapAtlListResponse(list, "standard"),
+    q
+  );
+};
 
 /**
  * Get list of ATL for select/search dropdown. Search uses sequence number.
@@ -180,63 +423,7 @@ export const getAtlList = async (
     const data = res.data?.data ?? res.data;
     const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
     const list = Array.isArray(raw) ? raw : [];
-    return list.map((r: any) => {
-      const id = r.id ?? r.pk ?? 0;
-      const seqNo = r.sequence_no ?? r.sequence_number ?? r.sequenceNo ?? "";
-      const code = r.code ?? r.atl_code ?? "";
-      const ref = r.reference ?? r.atl_ref ?? r.atl_reference ?? "";
-      const aircraftRaw = r.aircraft ?? r.aircraft_fk;
-      const reg =
-        typeof aircraftRaw === "object" && aircraftRaw != null
-          ? String(
-              aircraftRaw.registration ??
-                aircraftRaw.registration_mark ??
-                aircraftRaw.ident ??
-                ""
-            ).trim()
-          : String(
-              r.aircraft_registration ?? r.ac_reg ?? r.registration ?? ""
-            ).trim();
-      const natureRaw = String(
-        r.nature_of_flight ?? r.natureOfFlight ?? ""
-      ).trim();
-      const natureOfFlightDisplay = formatNatureOfFlightForDisplay(
-        natureRaw || undefined
-      );
-      const seqPart =
-        seqNo || [code, ref].filter(Boolean).join(" - ") || String(id);
-      const tachRaw =
-        r.tachometer_end ?? r.tachometerEnd ?? r.tach_end ?? r.tachEnd;
-      const afttRaw =
-        r.auto_airframe_aftt ??
-        r.autoAirframeAftt ??
-        r.airframe_aftt ??
-        r.airframeAftt;
-      const originDateRaw =
-        r.origin_date ?? r.originDate ?? r.date_of_origin ?? r.dateOfOrigin;
-      const label =
-        lineStyle === "cpcp"
-          ? buildAtlCpcpSearchLabel(seqPart, tachRaw, afttRaw, originDateRaw)
-          : lineStyle === "adWorkOrder"
-            ? buildAtlAdWorkOrderSearchLabel(
-                seqPart,
-                afttRaw,
-                tachRaw,
-                originDateRaw
-              )
-            : `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
-      return {
-        id,
-        sequenceNo: seqNo,
-        code,
-        reference: ref,
-        label,
-        natureOfFlight: natureRaw || undefined,
-        natureOfFlightDisplay,
-        aircraftRegistration: reg || undefined,
-        ...cpcpAutofillFromRaw(lineStyle, tachRaw, afttRaw, originDateRaw),
-      };
-    });
+    return mapAtlListResponse(list, lineStyle);
   } catch {
     return [];
   }

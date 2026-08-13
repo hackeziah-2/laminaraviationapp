@@ -45,13 +45,9 @@ import {
   snakeAllKeys,
   computeTotalBlockTimeFromUtc,
   toCamel,
-  formatAtlDateReportedManilaFromParts,
-  formatPhilippinesDateTime,
   formatOptionalNumber2dp,
   formatAtlTboDisplay1dp,
   formatTotalFlightTimeForDisplay,
-  getManilaDateTimeParts,
-  splitAtlDateTimeReportedFromApi,
   formatZuluTimeKeyboardInput,
   normalizeOptionalZuluTimeInput,
   validateOptionalZuluTime,
@@ -59,7 +55,9 @@ import {
   resolveAtlRemarksSectionVisibility,
   formatAccountNameLicense,
   resolveAccountNameLicenseDisplay,
+  formatApiErrorForSwal,
 } from "../utility/utils";
+import { getNatureOfFlightDescriptionByNature } from "../api/natureOfFlightDescriptionsApi";
 import { DateInput } from "./ui/DateInput";
 import {
   getMissingAircraftFieldsForNewAtlWhenNoPrevious,
@@ -234,6 +232,26 @@ function inspectionDueFieldsFromPreviousAtl(
 }
 
 /**
+ * Create-only: Pilot's Acceptance Name (pilotAcceptedBy) from the previous/latest ATL
+ * (highest numeric sequenceNo for aircraft + batch). Empty/"None" when missing / invalid.
+ * Edit must not use this — preserve the saved value.
+ */
+function pilotAcceptedByFromPreviousAtl(
+  previousAtl: AircraftTechnicalLog | null
+): string {
+  if (!previousAtl) return "";
+  const raw = previousAtl as AircraftTechnicalLog & Record<string, unknown>;
+  const value =
+    previousAtl.pilotAcceptedBy ??
+    raw.pilot_accepted_by ??
+    previousAtl.pilotFk ??
+    raw.pilot_fk;
+  return atlAssigneeIdToFormValue(
+    value as string | number | null | undefined
+  );
+}
+
+/**
  * Form account-id field: blank when missing / None / null / undefined / invalid.
  */
 function atlAssigneeIdToFormValue(
@@ -393,6 +411,30 @@ function combineAtlRemarks(
   if (!maint) return pilot;
   if (!pilot) return `\n${maint}`;
   return `${pilot}\n${maint}`;
+}
+
+/** Map NOF description remarks into the currently visible ATL remarks field. */
+function atlRemarksFromNofDescription(
+  remarks: string,
+  natureOfFlight: string
+): { pilotReport: string; maintenanceEntry: string } {
+  const section = resolveAtlRemarksSectionVisibility(natureOfFlight);
+  if (section === "maintenanceEntry") {
+    return { pilotReport: "", maintenanceEntry: remarks };
+  }
+  return { pilotReport: remarks, maintenanceEntry: "" };
+}
+
+function resolveAtlFormAircraftId(
+  selectedAircraftId: number | null,
+  editEntry?: AircraftTechnicalLog | null
+): number | null {
+  if (selectedAircraftId != null && selectedAircraftId > 0) {
+    return selectedAircraftId;
+  }
+  const fromEntry = Number(editEntry?.aircraftFk ?? editEntry?.aircraft?.id);
+  if (Number.isFinite(fromEntry) && fromEntry > 0) return fromEntry;
+  return null;
 }
 
 /**
@@ -1457,15 +1499,6 @@ function recomputeAllAffectedFields(
   return next;
 }
 
-function hasAtlDateReportedValue(
-  formDate: string,
-  formTime: string,
-  apiValue?: string | null
-): boolean {
-  if (apiValue != null && String(apiValue).trim() !== "") return true;
-  return Boolean(formDate?.trim() && formTime?.trim());
-}
-
 function hasTechPubAttachmentOrLinkUpdate(
   form: {
     whiteAtl: File | null;
@@ -1533,13 +1566,18 @@ export function AddTechnicalLogbookEntryModal({
   const [isInitializing, setIsInitializing] = useState(false);
   /** Increments on each Previous ATL init fetch so stale responses cannot unlock/overwrite. */
   const atlInitRequestIdRef = useRef(0);
+  /** Increments on each Nature of Flight defaults fetch so stale responses cannot overwrite. */
+  const nofDefaultsRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!isOpen) {
       setAtlAuthRole(undefined);
       skipInitialEditBaseRefreshRef.current = true;
       atlInitRequestIdRef.current += 1;
+      nofDefaultsRequestIdRef.current += 1;
       setIsInitializing(false);
+      setLoadingNofDefaults(false);
+      setNofDefaultsMessage(null);
       return;
     }
     if (!editEntry) {
@@ -1586,10 +1624,13 @@ export function AddTechnicalLogbookEntryModal({
     [editEntry, atlRoleForWorkStatus]
   );
 
-  /** Original `date_time_reported` from API; never overwritten once set. */
-  const preservedDateReportedRef = useRef<string | null>(null);
   /** Blocks reactive calc while edit form is hydrating from GET API. */
   const editAtlInitialHydrationRef = useRef(false);
+  /**
+   * Edit Entry: skip NOF remarks/action auto-fill until the user changes
+   * Nature of Flight or Aircraft (do not overwrite saved values on load).
+   */
+  const skipNofDefaultsOnEditLoadRef = useRef(false);
   /** Prevent first edit recompute-base refresh triggered by hydration wiring. */
   const skipInitialEditBaseRefreshRef = useRef(true);
 
@@ -1724,10 +1765,6 @@ export function AddTechnicalLogbookEntryModal({
     dfp: null as File | null,
     whiteAtlWebLink: "",
     dfpWebLink: "",
-    dateTimeReportedDate: "",
-    dateTimeReportedTime: "",
-    dateTimeReleasedDate: "",
-    dateTimeReleasedTime: "",
     // Airframe & Component Times
 
     airframePrevTime: DEFAULT_ATL_PREV_TIME,
@@ -1753,24 +1790,6 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitEngine: "",
     lifeTimeLimitPropeller: "",
   });
-
-  const [philippinesNow, setPhilippinesNow] = useState(() =>
-    formatPhilippinesDateTime()
-  );
-
-  const dateReportedIsSet = useMemo(
-    () =>
-      hasAtlDateReportedValue(
-        formData.dateTimeReportedDate,
-        formData.dateTimeReportedTime,
-        preservedDateReportedRef.current ?? editEntry?.dateTimeReported
-      ),
-    [
-      formData.dateTimeReportedDate,
-      formData.dateTimeReportedTime,
-      editEntry?.dateTimeReported,
-    ]
-  );
 
   const techPubCanSubmitAttachmentsOnlyEdit = useMemo(() => {
     if (!attachmentsOnlyLocked || !canUploadAtlInCurrentMode) return false;
@@ -1878,6 +1897,10 @@ export function AddTechnicalLogbookEntryModal({
     null
   );
   const aircraftDropdownRef = useRef<HTMLDivElement>(null);
+  const [loadingNofDefaults, setLoadingNofDefaults] = useState(false);
+  const [nofDefaultsMessage, setNofDefaultsMessage] = useState<string | null>(
+    null
+  );
 
   const [atlBatchOptions, setAtlBatchOptions] = useState<AtlBatch[]>([]);
 
@@ -1965,16 +1988,6 @@ export function AddTechnicalLogbookEntryModal({
       fetchAircrafts();
     }
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || !canUseTechPubView || dateReportedIsSet) return;
-    setPhilippinesNow(formatPhilippinesDateTime());
-    const id = window.setInterval(
-      () => setPhilippinesNow(formatPhilippinesDateTime()),
-      1000
-    );
-    return () => window.clearInterval(id);
-  }, [isOpen, canUseTechPubView, dateReportedIsSet]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2122,6 +2135,9 @@ export function AddTechnicalLogbookEntryModal({
       setIsFirstAtlCreate(false);
       const comp = resolveAtlEditComponentSources(editEntry);
       editAtlInitialHydrationRef.current = true;
+      skipNofDefaultsOnEditLoadRef.current = true;
+      setNofDefaultsMessage(null);
+      setLoadingNofDefaults(false);
       const tachStart = Number(editEntry.tachometerStart) || 0;
       const tachEnd = Number(editEntry.tachometerEnd) || 0;
       const run = tachEnd - tachStart;
@@ -2140,14 +2156,6 @@ export function AddTechnicalLogbookEntryModal({
       setPreviousAirframeAftt(
         Math.max(0, (parseFloat(comp.airframeAftt) || 0) - run)
       );
-      const reported = splitAtlDateTimeReportedFromApi(
-        editEntry.dateTimeReported
-      );
-      const released = splitAtlDateTimeReportedFromApi(
-        editEntry.dateTimeReleased
-      );
-      preservedDateReportedRef.current =
-        editEntry.dateTimeReported?.trim() || null;
       initialTechPubLinksRef.current = {
         whiteAtlWebLink: editEntry.whiteAtlWebLink?.toString().trim() || "",
         dfpWebLink: editEntry.dfpWebLink?.toString().trim() || "",
@@ -2269,12 +2277,6 @@ export function AddTechnicalLogbookEntryModal({
         dfp: null,
         whiteAtlWebLink: editEntry.whiteAtlWebLink?.toString() || "",
         dfpWebLink: editEntry.dfpWebLink?.toString() || "",
-        dateTimeReportedDate: reported.date,
-        dateTimeReportedTime: reported.time,
-        dateTimeReleasedDate: released.date,
-        dateTimeReleasedTime: released.time
-          ? zuluTimeToTimeInputValue(released.time) || released.time.slice(0, 5)
-          : "",
         airframePrevTime: (editEntry as any).airframePrevTime?.toString() || "",
         airframeFlightTime:
           (editEntry as any).airframeFlightTime?.toString() || "",
@@ -2535,7 +2537,8 @@ export function AddTechnicalLogbookEntryModal({
       });
     } else if (!editEntry && isOpen) {
       editAtlInitialHydrationRef.current = false;
-      preservedDateReportedRef.current = null;
+      skipNofDefaultsOnEditLoadRef.current = false;
+      setNofDefaultsMessage(null);
       setIsFirstAtlCreate(false);
       setIsInitializing(true);
       atlAircraftLifeLimitsRef.current = { engine: "", propeller: "" };
@@ -2613,10 +2616,6 @@ export function AddTechnicalLogbookEntryModal({
         dfp: null,
         whiteAtlWebLink: "",
         dfpWebLink: "",
-        dateTimeReportedDate: "",
-        dateTimeReportedTime: "",
-        dateTimeReleasedDate: "",
-        dateTimeReleasedTime: "",
         airframePrevTime: DEFAULT_ATL_PREV_TIME,
         airframeFlightTime: "",
         airframeTotalTime: "",
@@ -2642,6 +2641,85 @@ export function AddTechnicalLogbookEntryModal({
       setComponentRecords([]);
     }
   }, [editEntry, isOpen, defaultAtlBatchFk]);
+
+  // Auto-fill Remarks / Action Taken from Nature of Flight description defaults.
+  useEffect(() => {
+    if (!isOpen || forceReadOnly) {
+      nofDefaultsRequestIdRef.current += 1;
+      setLoadingNofDefaults(false);
+      return;
+    }
+
+    const resolvedAircraftId = resolveAtlFormAircraftId(
+      selectedAircraftId,
+      editEntry
+    );
+    const nature = String(formData.natureOfFlight ?? "").trim();
+
+    if (resolvedAircraftId == null || !nature) {
+      nofDefaultsRequestIdRef.current += 1;
+      setLoadingNofDefaults(false);
+      return;
+    }
+
+    if (editEntry && skipNofDefaultsOnEditLoadRef.current) {
+      return;
+    }
+
+    const requestId = ++nofDefaultsRequestIdRef.current;
+    setLoadingNofDefaults(true);
+    setNofDefaultsMessage(null);
+
+    void (async () => {
+      try {
+        const description = await getNatureOfFlightDescriptionByNature(
+          resolvedAircraftId,
+          nature
+        );
+        if (nofDefaultsRequestIdRef.current !== requestId) return;
+
+        if (!description) {
+          setFormData((prev) => ({
+            ...prev,
+            ...atlRemarksFromNofDescription("", prev.natureOfFlight),
+            actionsTaken: "",
+          }));
+          setNofDefaultsMessage(
+            "No default remarks and action found for the selected Nature of Flight."
+          );
+          return;
+        }
+
+        setFormData((prev) => ({
+          ...prev,
+          ...atlRemarksFromNofDescription(
+            description.remarks,
+            prev.natureOfFlight
+          ),
+          actionsTaken: description.actionTaken,
+        }));
+        setNofDefaultsMessage(null);
+      } catch (err) {
+        if (nofDefaultsRequestIdRef.current !== requestId) return;
+        const swal = formatApiErrorForSwal(err, {
+          defaultTitle: "Could not load default remarks",
+          fallbackMessage:
+            "Failed to retrieve default remarks and action taken. Existing values were kept.",
+        });
+        void Swal.fire(swal);
+      } finally {
+        if (nofDefaultsRequestIdRef.current === requestId) {
+          setLoadingNofDefaults(false);
+        }
+      }
+    })();
+  }, [
+    isOpen,
+    forceReadOnly,
+    selectedAircraftId,
+    editEntry,
+    formData.natureOfFlight,
+  ]);
 
   // Previous ATL first (latest API); Aircraft Details only when none exists.
   const fetchLatestTechnicalLog = async (
@@ -2792,6 +2870,11 @@ export function AddTechnicalLogbookEntryModal({
           latestEntry.tachometerEnd != null && latestEntry.tachometerEnd !== 0
             ? latestEntry.tachometerEnd.toString()
             : "0";
+        // Create-only: Pilot's Acceptance ← latest ATL (highest sequenceNo for aircraft + batch)
+        // Fall back to /previous row when latest has no assignee.
+        const pilotAcceptedByFromPrevious =
+          pilotAcceptedByFromPreviousAtl(latestEntry) ||
+          pilotAcceptedByFromPreviousAtl(previousBySequenceAtl);
 
         setFormData((prev) => {
           if (editEntry) {
@@ -2845,9 +2928,10 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller,
             // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
             ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-            // Create defaults: Pilot Acceptance / RTS Name → "None" (null on save)
-            pilotFk: "",
+            // Create: inherit pilotAcceptedBy from latest ATL; empty → "None" (null on save)
+            pilotFk: pilotAcceptedByFromPrevious,
             pilotName: "",
+            // RTS Name stays "None" by default on create
             rtsSignedBy: "",
             rtsName: "",
           };
@@ -2878,6 +2962,34 @@ export function AddTechnicalLogbookEntryModal({
             ),
           };
         });
+        // Create-only: resolve inherited pilotAcceptedBy → display label (user may change)
+        if (isAddEntry && pilotAcceptedByFromPrevious) {
+          void (async () => {
+            try {
+              const account = await getAccount(
+                Number(pilotAcceptedByFromPrevious)
+              );
+              if (atlInitRequestIdRef.current !== requestId) return;
+              const label = formatAccountNameLicense(
+                account.fullName,
+                account.licenseNo
+              );
+              setPilotAccounts((prev) => {
+                if (prev.some((a) => a.id === account.id)) return prev;
+                return [account, ...prev];
+              });
+              setFormData((prev) => {
+                if (prev.pilotFk !== pilotAcceptedByFromPrevious) return prev;
+                return { ...prev, pilotName: label };
+              });
+            } catch (err) {
+              console.error(
+                "Could not resolve previous ATL pilotAcceptedBy account:",
+                err
+              );
+            }
+          })();
+        }
         finishInit();
         return;
       }
@@ -2967,7 +3079,7 @@ export function AddTechnicalLogbookEntryModal({
           lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
           // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
           ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-          // No previous ATL → leave pilotAcceptedBy / pilot empty
+          // No previous ATL → Pilot's Acceptance defaults to "None"
           pilotFk: "",
           pilotName: "",
         };
@@ -3318,6 +3430,9 @@ export function AddTechnicalLogbookEntryModal({
 
     const baseLocation = resolveAircraftBaseLocation(aircraftCamel);
     const aircraftChanged = selectedAircraftId !== id;
+    if (aircraftChanged) {
+      skipNofDefaultsOnEditLoadRef.current = false;
+    }
     setFormData((prev) =>
       applyOffBlocksStationFromBaseLocation(
         {
@@ -3846,6 +3961,8 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
 
+    skipNofDefaultsOnEditLoadRef.current = false;
+
     setFormData((prev) => {
       const isZeroNature = isZeroFlightMeterNature(natureOfFlight);
       const ctx = atlComponentMetricsCtxRef.current;
@@ -4089,13 +4206,7 @@ export function AddTechnicalLogbookEntryModal({
       if (!techPubCanSubmitAttachmentsOnlyEdit) {
         return;
       }
-      const dateReportedAlreadySet = hasAtlDateReportedValue(
-        formData.dateTimeReportedDate,
-        formData.dateTimeReportedTime,
-        preservedDateReportedRef.current ?? editEntry?.dateTimeReported
-      );
       if (
-        !dateReportedAlreadySet &&
         !hasTechPubAttachmentOrLinkUpdate(
           formData,
           initialTechPubLinksRef.current
@@ -4200,56 +4311,6 @@ export function AddTechnicalLogbookEntryModal({
         }
 
         // Transform formData to API format (camelCase). ATL table → database via aircraft-technical-log endpoint (create/update).
-        let reportedDate = formData.dateTimeReportedDate;
-        let reportedTime = formData.dateTimeReportedTime;
-        const dateReportedAlreadySet = hasAtlDateReportedValue(
-          reportedDate,
-          reportedTime,
-          preservedDateReportedRef.current ?? editEntry?.dateTimeReported
-        );
-        if (
-          !dateReportedAlreadySet &&
-          isTechPubRole &&
-          (hasTechPubAttachmentOrLinkUpdate(
-            formData,
-            initialTechPubLinksRef.current
-          ) ||
-            formData.whiteAtl instanceof File ||
-            formData.dfp instanceof File)
-        ) {
-          const now = getManilaDateTimeParts();
-          reportedDate = now.date;
-          reportedTime = now.time;
-          setFormData((prev) => ({
-            ...prev,
-            dateTimeReportedDate: now.date,
-            dateTimeReportedTime: now.time,
-          }));
-        }
-
-        const buildDateTimeForApi = (
-          dateStr: string,
-          timeStr: string
-        ): string | undefined => {
-          const d = (dateStr ?? "").trim();
-          const t = (timeStr ?? "").trim();
-          if (!d) return undefined;
-          if (!t) return `${d}T00:00:00`;
-          const apiT = convertTimeToAPIFormat(t);
-          if (!apiT) return `${d}T00:00:00`;
-          const parts = apiT.split(":");
-          if (parts.length >= 3) {
-            const h0 = parts[0].padStart(2, "0");
-            const m0 = parts[1].padStart(2, "0");
-            const s0 = (parts[2] || "00").replace(/\D/g, "").slice(0, 2);
-            return `${d}T${h0}:${m0}:${s0.padStart(2, "0")}`;
-          }
-          return `${d}T${parts[0].padStart(2, "0")}:${parts[1].padStart(
-            2,
-            "0"
-          )}:00`;
-        };
-
         const apiDataCamel: any = {
           aircraftFk: aircraftFkValue!,
           sequenceNo: formData.seqNo.trim(),
@@ -4423,11 +4484,6 @@ export function AddTechnicalLogbookEntryModal({
           rtsTime: formData.rtsTime
             ? convertTimeToAPIFormat(formData.rtsTime)
             : undefined,
-          dateTimeReported: buildDateTimeForApi(reportedDate, reportedTime),
-          dateTimeReleased: buildDateTimeForApi(
-            formData.dateTimeReleasedDate,
-            formData.dateTimeReleasedTime
-          ),
           // When uploading new file: omit from JSON (sent via multipart). When editing: omit whiteAtl/dfp from JSON so backend keeps existing files (sending string URL causes "value is not a valid dict").
           ...(!editEntry &&
           formData.whiteAtl !== undefined &&
@@ -4621,10 +4677,6 @@ export function AddTechnicalLogbookEntryModal({
           dfp: null,
           whiteAtlWebLink: "",
           dfpWebLink: "",
-          dateTimeReportedDate: "",
-          dateTimeReportedTime: "",
-          dateTimeReleasedDate: "",
-          dateTimeReleasedTime: "",
           airframePrevTime: DEFAULT_ATL_PREV_TIME,
           airframeFlightTime: "",
           airframeTotalTime: "",
@@ -4673,23 +4725,6 @@ export function AddTechnicalLogbookEntryModal({
     }
     setFormData((prev) => {
       let next: typeof prev = { ...prev, [field]: file };
-      if (
-        (field === "whiteAtl" || field === "dfp") &&
-        file instanceof File &&
-        isTechPubRole &&
-        !hasAtlDateReportedValue(
-          next.dateTimeReportedDate,
-          next.dateTimeReportedTime,
-          preservedDateReportedRef.current ?? editEntry?.dateTimeReported
-        )
-      ) {
-        const now = getManilaDateTimeParts();
-        next = {
-          ...next,
-          dateTimeReportedDate: now.date,
-          dateTimeReportedTime: now.time,
-        };
-      }
       if (
         attachmentsOnlyLocked &&
         editEntry &&
@@ -5791,7 +5826,15 @@ export function AddTechnicalLogbookEntryModal({
               </div>
 
               {/* Remarks Section — visibility by Nature of Flight (UI only) */}
-              <div className="space-y-4">
+              <div className="relative space-y-4" aria-busy={loadingNofDefaults}>
+                {loadingNofDefaults && (
+                  <div className="absolute inset-0 z-10 flex items-start justify-end pt-1 pr-1 pointer-events-none">
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs text-gray-600 shadow-sm border border-gray-200">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Loading defaults…
+                    </span>
+                  </div>
+                )}
                 {resolveAtlRemarksSectionVisibility(
                   formData.natureOfFlight
                 ) === "pilotReport" && (
@@ -5808,7 +5851,8 @@ export function AddTechnicalLogbookEntryModal({
                         })
                       }
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
+                      disabled={loadingNofDefaults}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
                 )}
@@ -5828,7 +5872,8 @@ export function AddTechnicalLogbookEntryModal({
                         })
                       }
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
+                      disabled={loadingNofDefaults}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
                 )}
@@ -5853,7 +5898,8 @@ export function AddTechnicalLogbookEntryModal({
                         });
                       }}
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
+                      disabled={loadingNofDefaults}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
                 )}
@@ -6008,8 +6054,14 @@ export function AddTechnicalLogbookEntryModal({
                       setFormData({ ...formData, actionsTaken: e.target.value })
                     }
                     rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none"
+                    disabled={loadingNofDefaults}
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
                   />
+                  {nofDefaultsMessage && (
+                    <p className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                      {nofDefaultsMessage}
+                    </p>
+                  )}
                   <div className="mt-2">
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Name
@@ -6754,72 +6806,6 @@ export function AddTechnicalLogbookEntryModal({
                 </div>
               </div>
 
-              {/* Date Time Reported / Released — below COMPONENT RECORD */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1">
-                    Date Time Reported
-                  </label>
-                  <input
-                    type="text"
-                    readOnly
-                    disabled
-                    value={
-                      [formData.offBlocksDate, formData.offBlocksTime]
-                        .map((v) => (v ?? "").trim())
-                        .filter(Boolean)
-                        .join(" | ") || ""
-                    }
-                    placeholder="From Off Blocks date | time"
-                    className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-700 text-sm cursor-not-allowed"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1">
-                    Date Time Released
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <DateInput
-                      value={formData.dateTimeReleasedDate}
-                      onChange={(dateTimeReleasedDate) =>
-                        setFormData({
-                          ...formData,
-                          dateTimeReleasedDate,
-                        })
-                      }
-                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                    />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      value={formData.dateTimeReleasedTime}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          dateTimeReleasedTime: formatZuluTimeKeyboardInput(
-                            e.target.value
-                          ),
-                        })
-                      }
-                      onBlur={(e) => {
-                        const normalized = normalizeOptionalZuluTimeInput(
-                          e.target.value
-                        );
-                        setFormData((prev) => ({
-                          ...prev,
-                          dateTimeReleasedTime: normalized,
-                        }));
-                      }}
-                      maxLength={5}
-                      title="HH:mm (UTC)"
-                      placeholder="HH:mm"
-                      pattern="[0-9]{2}:[0-9]{2}"
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
 
               {/* Signatures Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -7235,7 +7221,7 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             </div>
 
-            {/* White ATL, DFP, Date Reported — view when data exists; update: Admin / Tech Pub / Maint Manager */}
+            {/* White ATL / DFP — view when data exists; update: Admin / Tech Pub / Maint Manager */}
             {canUseTechPubView && (
               <div id="TechPubView">
                 <div className="bg-white p-4 rounded-lg border border-gray-200">
@@ -7471,70 +7457,6 @@ export function AddTechnicalLogbookEntryModal({
                         }`}
                       />
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="space-y-2">
-                      <span className="block text-sm font-medium text-gray-800">
-                        Date Reported
-                      </span>
-
-                      <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
-                        {!hasAtlDateReportedValue(
-                          formData.dateTimeReportedDate,
-                          formData.dateTimeReportedTime,
-                          preservedDateReportedRef.current ??
-                            editEntry?.dateTimeReported
-                        ) ? (
-                          isTechPubRole ? (
-                            <div>
-                              <p className="text-gray-700 tabular-nums">
-                                {/* {philippinesNow} */}
-                              </p>
-                              <p className="mt-1 text-gray-500 text-xs">
-                                Philippines (Asia/Manila) — set automatically on
-                                first attachment upload
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="text-gray-500">Not set yet.</p>
-                          )
-                        ) : (
-                          <p className="text-gray-700 tabular-nums">
-                            {formatAtlDateReportedManilaFromParts(
-                              formData.dateTimeReportedDate,
-                              formData.dateTimeReportedTime,
-                              preservedDateReportedRef.current ??
-                                editEntry?.dateTimeReported
-                            )}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    {/* <div className="space-y-2">
-                      <span className="block text-sm font-medium text-gray-800">
-                        Date Reported
-                      </span>
-                      <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
-                        {hasAtlDateReportedValue(
-                          formData.dateTimeReportedDate,
-                          formData.dateTimeReportedTime,
-                          preservedDateReportedRef.current ??
-                            editEntry?.dateTimeReported
-                        ) ? (
-                          <p className="text-gray-500">
-                            {isTechPubRole ? (
-                              <>
-                                <span className="mt-1 block text-gray-700 tabular-nums">
-                                  Set automatically on first attachment upload
-                                </span>
-                              </>
-                            ) : (
-                              "Not set yet."
-                            )}
-                          </p>
-                        )}
-                      </div>
-                    </div> */}
                   </div>
                 </div>
               </div>
