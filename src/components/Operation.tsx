@@ -44,6 +44,7 @@ import {
   getAtlBatchesForSelect,
   pickLatestAtlBatchId,
   formatAtlListCell,
+  formatAtlAssigneeListCell,
   displayTSN,
   formatAtlListOffBlocks,
   formatAtlListOnBlocks,
@@ -66,7 +67,6 @@ import {
   formatApiErrorForSwal,
   formatAtlExcelImportErrorForSwal,
   formatAtlListDate,
-  formatAtlListDateTime,
   formatAtlUtcTimestampManila,
   formatTimeZulu,
   isAtlExcelImportFailureStatus,
@@ -414,15 +414,6 @@ const EXPORT_COLUMN_CATEGORIES: ExportColumnCategory[] = [
       "componentAtaChapter",
       "componentPartRemarks",
     ],
-  },
-  {
-    id: "reporting",
-    label: "Reporting",
-    shortLabel: "Reporting",
-    description: "Defect reported and released timestamps.",
-    accent: "bg-sky-500",
-    accentText: "text-sky-600",
-    keys: ["dateTimeReported", "dateTimeReleased"],
   },
   {
     id: "release",
@@ -1237,19 +1228,9 @@ export function Operation() {
           formatComponentPartsField(record, (p) => p.partRemark),
       },
       {
-        key: "dateTimeReported",
-        label: "Reported Date",
-        getValue: (record) => formatAtlListOffBlocks(record),
-      },
-      {
-        key: "dateTimeReleased",
-        label: "Released Date",
-        getValue: (record) => formatAtlListDateTime(record.dateTimeReleased),
-      },
-      {
         key: "rtsSignedBy",
         label: "Return To Service Name",
-        getValue: (record) => formatAtlListCell(record.rtsSignedBy),
+        getValue: (record) => formatAtlAssigneeListCell(record.rtsSignedBy),
       },
       {
         key: "rtsDate",
@@ -1264,7 +1245,8 @@ export function Operation() {
       {
         key: "pilotAcceptedBy",
         label: "Pilot Acceptance Name",
-        getValue: (record) => formatAtlListCell(record.pilotAcceptedBy),
+        getValue: (record) =>
+          formatAtlAssigneeListCell(record.pilotAcceptedBy),
       },
       {
         key: "pilotAcceptDate",
@@ -1324,9 +1306,7 @@ export function Operation() {
       reliabilityMonitoring: [
         "sequenceNo",
         "natureOfFlight",
-        "dateTimeReported",
-        "dateTimeReleased",
-        "airframeRun",
+                "airframeRun",
         "airframeAftt",
         "totalFlightHours",
         "numberOfLandings",
@@ -2494,18 +2474,6 @@ export function Operation() {
                             >
                               COMPONENT RECORD
                             </th>
-                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              REPORTED
-                              <br />
-                              DATE
-                            </th>
-                            <th
-                              className={`px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                            >
-                              RELEASED
-                              <br />
-                              DATE
-                            </th>
                             <th
                               colSpan={3}
                               className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
@@ -2672,18 +2640,6 @@ export function Operation() {
                             >
                               {"\u00a0"}
                             </th>
-                            <th
-                              className={ATL_TH_STICKY_FILL_CLASS}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
 
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               NAME
@@ -2719,7 +2675,7 @@ export function Operation() {
                           {paginatedRecords.length === 0 ? (
                             <tr>
                               <td
-                                colSpan={53}
+                                colSpan={51}
                                 className="px-6 py-12 text-center text-gray-500"
                               >
                                 {searchQuery
@@ -3040,16 +2996,8 @@ export function Operation() {
                                     </tbody>
                                   </table>
                                 </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListOffBlocks(record)}
-                                </td>
-                                <td
-                                  className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                                >
-                                  {formatAtlListDateTime(record.dateTimeReleased)}
-                                </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.rtsSignedBy)}
+                                  {formatAtlAssigneeListCell(record.rtsSignedBy)}
                                 </td>
                                 <td
                                   className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
@@ -3060,7 +3008,9 @@ export function Operation() {
                                   {formatTimeZulu(record.rtsTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.pilotAcceptedBy)}
+                                  {formatAtlAssigneeListCell(
+                                    record.pilotAcceptedBy
+                                  )}
                                 </td>
                                 <td
                                   className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
@@ -3569,14 +3519,6 @@ export function Operation() {
                             NATURE OF FLIGHT
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            REPORTED DATE
-                          </th>
-                          <th
-                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                          >
-                            RELEASED DATE
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             AIRFRAME (RUN TIME)
                           </th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -3603,7 +3545,7 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={11}
+                              colSpan={9}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
@@ -3668,14 +3610,6 @@ export function Operation() {
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.natureOfFlight)}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap">
-                                {formatAtlListOffBlocks(record)}
-                              </td>
-                              <td
-                                className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                              >
-                                {formatAtlListDateTime(record.dateTimeReleased)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.airframeRunTime)}

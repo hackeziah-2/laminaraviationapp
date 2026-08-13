@@ -44,6 +44,8 @@ export interface EngineLogbook {
   date?: string;
   engineTsn?: number;
   sequenceNo?: string;
+  /** Backend: logbook_seq_no (String(50)) */
+  logbookSeqNo?: string;
   tachTime?: number;
   engineTso?: number;
   engineTbo?: number;
@@ -66,6 +68,7 @@ export interface EngineLogbookCreate {
   date?: string;
   engineTsn?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   tachTime?: number;
   engineTso?: number;
   engineTbo?: number;
@@ -84,6 +87,7 @@ export interface EngineLogbookUpdate {
   date?: string;
   engineTsn?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   tachTime?: number;
   engineTso?: number;
   engineTbo?: number;
@@ -104,6 +108,8 @@ export interface AirframeLogbook {
   date?: string;
   tachTime?: number;
   sequenceNo?: string;
+  /** Backend: logbook_seq_no (String(50)) */
+  logbookSeqNo?: string;
   airframeTime?: number;
   description?: string;
   mechanicFk?: number;
@@ -124,6 +130,7 @@ export interface AirframeLogbookCreate {
   date?: string;
   tachTime?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   airframeTime?: number;
   description?: string;
   mechanicFk?: number;
@@ -140,6 +147,7 @@ export interface AirframeLogbookUpdate {
   date?: string;
   tachTime?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   airframeTime?: number;
   description?: string;
   mechanicFk?: number;
@@ -158,6 +166,8 @@ export interface AvionicsLogbook {
   date?: string;
   airframeTsn?: number;
   sequenceNo?: string;
+  /** Backend: logbook_seq_no (String(50)) */
+  logbookSeqNo?: string;
   component?: string;
   partNo?: string;
   serialNo?: string;
@@ -180,6 +190,7 @@ export interface AvionicsLogbookCreate {
   date?: string;
   airframeTsn?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   component?: string;
   partNo?: string;
   serialNo?: string;
@@ -198,6 +209,7 @@ export interface AvionicsLogbookUpdate {
   date?: string;
   airframeTsn?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   component?: string;
   partNo?: string;
   serialNo?: string;
@@ -218,6 +230,8 @@ export interface PropellerLogbook {
   date?: string;
   propellerTsn?: number;
   sequenceNo?: string;
+  /** Backend: logbook_seq_no (String(50)) */
+  logbookSeqNo?: string;
   tachTime?: number;
   propellerTso?: number;
   propellerTbo?: number;
@@ -228,6 +242,7 @@ export interface PropellerLogbook {
   signature?: string;
   uploadFile?: string;
   webLink?: string;
+  componentParts?: ComponentPart[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -238,6 +253,7 @@ export interface PropellerLogbookCreate {
   date?: string;
   propellerTsn?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   tachTime?: number;
   propellerTso?: number;
   propellerTbo?: number;
@@ -247,6 +263,7 @@ export interface PropellerLogbookCreate {
   licenseNumber?: string;
   signature?: string;
   webLink?: string | null;
+  componentParts?: ComponentPart[];
 }
 
 export interface PropellerLogbookUpdate {
@@ -255,6 +272,7 @@ export interface PropellerLogbookUpdate {
   date?: string;
   propellerTsn?: number;
   sequenceNo?: string;
+  logbookSeqNo?: string;
   tachTime?: number;
   propellerTso?: number;
   propellerTbo?: number;
@@ -264,6 +282,7 @@ export interface PropellerLogbookUpdate {
   licenseNumber?: string;
   signature?: string;
   webLink?: string | null;
+  componentParts?: ComponentPart[];
 }
 
 // Transform response to camelCase (recursively handle nested objects and arrays)
