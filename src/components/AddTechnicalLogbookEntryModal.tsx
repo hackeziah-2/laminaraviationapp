@@ -234,9 +234,9 @@ function inspectionDueFieldsFromPreviousAtl(
 }
 
 /**
- * Create-only: Pilot's Acceptance Name (pilotAcceptedBy) from the previous/latest ATL
- * (highest numeric sequenceNo for aircraft + batch). Empty/"No Selected Name" when missing / invalid.
- * Edit must not use this — preserve the saved value.
+ * Create-only: Pilot's Acceptance Name and Pilot Remarks Name (pilotAcceptedBy)
+ * from the previous/latest ATL (highest numeric sequenceNo for aircraft + batch).
+ * Empty/"No Selected Name" when missing / invalid. Edit must not use this.
  */
 function pilotAcceptedByFromPreviousAtl(
   previousAtl: AircraftTechnicalLog | null
@@ -2935,6 +2935,9 @@ export function AddTechnicalLogbookEntryModal({
             // Create: inherit pilotAcceptedBy from latest ATL; empty → "No Selected Name" (null on save)
             pilotFk: pilotAcceptedByFromPrevious,
             pilotName: "",
+            // Create: Pilot Remarks Name ← previous ATL pilot_accepted_by (editable; blank if missing)
+            remarksPerson: pilotAcceptedByFromPrevious,
+            remarksPersonName: "",
             // RTS Name stays unassigned ("No Selected Name") by default on create
             rtsSignedBy: "",
             rtsName: "",
@@ -2966,7 +2969,7 @@ export function AddTechnicalLogbookEntryModal({
             ),
           };
         });
-        // Create-only: resolve inherited pilotAcceptedBy → display label (user may change)
+        // Create-only: resolve inherited pilotAcceptedBy → display labels (user may change)
         if (isAddEntry && pilotAcceptedByFromPrevious) {
           void (async () => {
             try {
@@ -2982,9 +2985,22 @@ export function AddTechnicalLogbookEntryModal({
                 if (prev.some((a) => a.id === account.id)) return prev;
                 return [account, ...prev];
               });
+              setRemarksAccounts((prev) => {
+                if (prev.some((a) => a.id === account.id)) return prev;
+                return [account, ...prev];
+              });
               setFormData((prev) => {
-                if (prev.pilotFk !== pilotAcceptedByFromPrevious) return prev;
-                return { ...prev, pilotName: label };
+                const next = { ...prev };
+                let changed = false;
+                if (prev.pilotFk === pilotAcceptedByFromPrevious) {
+                  next.pilotName = label;
+                  changed = true;
+                }
+                if (prev.remarksPerson === pilotAcceptedByFromPrevious) {
+                  next.remarksPersonName = label;
+                  changed = true;
+                }
+                return changed ? next : prev;
               });
             } catch (err) {
               console.error(
@@ -3083,9 +3099,11 @@ export function AddTechnicalLogbookEntryModal({
           lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
           // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
           ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-          // No previous ATL → Pilot's Acceptance defaults to "No Selected Name"
+          // No previous ATL → Pilot's Acceptance / Remarks Name stay unassigned
           pilotFk: "",
           pilotName: "",
+          remarksPerson: "",
+          remarksPersonName: "",
         };
         if (isZeroFlightMeterNature(prev.natureOfFlight)) {
           withBase = applyZeroFlightMeterEndsFromStarts(withBase);
