@@ -392,12 +392,15 @@ export function resolveAtlComponentMetric(
   return resolveAtlPersistedComponentMetric(entry, metric);
 }
 
-/** True when a value is missing or a sentinel empty token (None/null/undefined). */
+/** Closed-select / empty-record display when no mechanic or pilot is assigned. */
+export const UNASSIGNED_PERSON_NAME_LABEL = "No Selected Name";
+
+/** True when a value is missing or a sentinel empty token (not a real person name). */
 export function isAtlEmptyAssigneeValue(value: unknown): boolean {
   if (value == null) return true;
   const s = String(value).trim();
   if (s === "") return true;
-  return /^(none|null|undefined)$/i.test(s);
+  return /^(none|null|undefined|no selected name)$/i.test(s);
 }
 
 /** Operation ATL list view: render API scalar as-is (null/empty → emptyLabel only). */
@@ -410,21 +413,19 @@ export function formatAtlListCell(
 }
 
 /**
- * RTS / Pilot Acceptance assignee cells: blank when unassigned.
+ * RTS / Pilot Acceptance assignee cells: unassigned → "No Selected Name".
  * Never shows "-", "None", "null", or "undefined".
  */
 export function formatAtlAssigneeListCell(value: unknown): string {
-  return formatAtlListCell(value, "");
+  return formatAtlListCell(value, UNASSIGNED_PERSON_NAME_LABEL);
 }
 
 /** Parse form account id for create/update; empty / invalid → null (persist NULL). */
 export function parseAtlAssigneeIdForApi(
   value: string | number | null | undefined
 ): number | null {
-  if (value == null) return null;
-  const raw = String(value).trim();
-  if (raw === "" || /^(none|null|undefined)$/i.test(raw)) return null;
-  const n = Number.parseInt(raw, 10);
+  if (isAtlEmptyAssigneeValue(value)) return null;
+  const n = Number.parseInt(String(value).trim(), 10);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
 }

@@ -68,6 +68,7 @@ import {
   type ComponentPart,
   type Mechanic,
 } from "../api/logbooksApi";
+import { getLogbookSeqNoPrefix } from "../utility/logbookSeqNo";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { snakeAllKeys } from "../utility/utils";
@@ -79,19 +80,26 @@ import {
   getExactAircraftAtlBySequenceNumber,
   type AtlItem,
 } from "../api/atlApi";
+import {
+  isAtlEmptyAssigneeValue,
+  UNASSIGNED_PERSON_NAME_LABEL,
+} from "../api/aircraftTechnicalLogApi";
 
 /** Closed-select display when mechanic is unassigned (same pattern as ATL pilotAcceptedBy). */
-const LOGBOOK_MECHANIC_NONE_LABEL = "None";
+const LOGBOOK_MECHANIC_NONE_LABEL = UNASSIGNED_PERSON_NAME_LABEL;
 
 function isLogbookMechanicNoneSelected(
   mechanicFk: string | undefined | null
 ): boolean {
-  return !String(mechanicFk ?? "").trim();
+  return isAtlEmptyAssigneeValue(mechanicFk);
 }
 
 function shouldShowLogbookMechanicNoneOption(searchTerm: string): boolean {
   const q = searchTerm.trim().toLowerCase();
-  return !q || LOGBOOK_MECHANIC_NONE_LABEL.toLowerCase().includes(q);
+  if (!q) return true;
+  return (
+    LOGBOOK_MECHANIC_NONE_LABEL.toLowerCase().includes(q) || "none".includes(q)
+  );
 }
 
 interface LogEntry {
@@ -173,15 +181,21 @@ function getMechanicDisplay(
       .join(" ")
       .trim();
     const lic = entry.mechanic.licenseNo || "";
-    return lic ? `${name}-${lic}` : name || "-";
+    if (name && !isAtlEmptyAssigneeValue(name)) {
+      return lic ? `${name}-${lic}` : name;
+    }
+    if (lic) return lic;
   }
   if (entry.mechanicFk && accountsMap?.has(entry.mechanicFk)) {
     const a = accountsMap.get(entry.mechanicFk)!;
     return `${a.fullName}-${a.licenseNo}`;
   }
-  if (entry.mechanicName && entry.licenseNumber)
-    return `${entry.mechanicName}-${entry.licenseNumber}`;
-  return entry.mechanicName || entry.licenseNumber || "-";
+  const name = String(entry.mechanicName ?? "").trim();
+  const lic = String(entry.licenseNumber ?? "").trim();
+  if (name && !isAtlEmptyAssigneeValue(name) && lic) return `${name}-${lic}`;
+  if (name && !isAtlEmptyAssigneeValue(name)) return name;
+  if (lic) return lic;
+  return LOGBOOK_MECHANIC_NONE_LABEL;
 }
 
 const LOGBOOK_WEB_LINK_MAX_LENGTH = 2048;
@@ -1070,7 +1084,7 @@ export function MaintenanceLogbook() {
     setIsMechanicDropdownOpen(false);
   };
 
-  /** Select "None" → clear mechanic; API sends null for mechanicFk. */
+  /** Select "No Selected Name" → clear mechanic; API sends null for mechanicFk. */
   const handleSelectMechanicNone = () => {
     setFormData((prev) => ({
       ...prev,
@@ -1082,7 +1096,7 @@ export function MaintenanceLogbook() {
     setIsMechanicDropdownOpen(false);
   };
 
-  // Get selected mechanic display text ("None" when unassigned, matching ATL assignees)
+  // Get selected mechanic display text ("No Selected Name" when unassigned)
   const getSelectedMechanic = () => {
     if (isLogbookMechanicNoneSelected(formData.mechanicFk)) {
       return LOGBOOK_MECHANIC_NONE_LABEL;
@@ -1094,11 +1108,11 @@ export function MaintenanceLogbook() {
       return `${selectedAccount.fullName}-${selectedAccount.licenseNo}`;
     }
     // Fallback to formData values if account not found in list yet
-    if (formData.mechanicName || formData.licenseNumber) {
-      return `${formData.mechanicName || ""}${
-        formData.mechanicName && formData.licenseNumber ? "-" : ""
-      }${formData.licenseNumber || ""}`;
-    }
+    const name = String(formData.mechanicName ?? "").trim();
+    const lic = String(formData.licenseNumber ?? "").trim();
+    if (name && !isAtlEmptyAssigneeValue(name) && lic) return `${name}-${lic}`;
+    if (name && !isAtlEmptyAssigneeValue(name)) return name;
+    if (lic) return lic;
     return LOGBOOK_MECHANIC_NONE_LABEL;
   };
 
@@ -1348,7 +1362,7 @@ export function MaintenanceLogbook() {
         // Reset form for new entry
         setFormData({
           date: "",
-          logbookSeqNo: "",
+          logbookSeqNo: getLogbookSeqNoPrefix(activeCategory),
           sequenceNo: "",
           tachTime: "",
           airframeTime: "",
@@ -1425,6 +1439,8 @@ export function MaintenanceLogbook() {
 
   // Handle save entry
   const handleSaveEntry = async () => {
+    if (isSaving) return;
+
     const formErrors = validateMaintenanceLogbookForm();
     if (Object.keys(formErrors).length > 0) {
       setValidationErrors(formErrors);
@@ -1502,6 +1518,13 @@ export function MaintenanceLogbook() {
         Number.isFinite(mechanicFkParsed) &&
         mechanicFkParsed > 0;
 
+      const resolvedMechanicName = hasMechanicFk
+        ? selectedMechanic?.fullName || formData.mechanicName || ""
+        : "";
+      const resolvedLicenseNumber = hasMechanicFk
+        ? selectedMechanic?.licenseNo || formData.licenseNumber || ""
+        : "";
+
       // aircraft_fk is required for create and must be sent for update (backend expects it)
       // sequenceNo: digits-only; may be a number that does not yet exist in ATL
       const sequenceNoDigits = formData.sequenceNo?.replace(/\D/g, "").trim();
@@ -1510,13 +1533,14 @@ export function MaintenanceLogbook() {
         logbookSeqNo,
         sequenceNo: sequenceNoDigits || undefined,
         description: formData.description || undefined,
-        // Always send null when "None" so create/update persist NULL (omit would keep prior on edit)
+        // Always send null when unassigned so create/update persist NULL (omit would keep prior on edit)
         mechanicFk: hasMechanicFk ? mechanicFkParsed : null,
-        mechanicName: hasMechanicFk
-          ? selectedMechanic?.fullName || formData.mechanicName || undefined
-          : null,
+        mechanicName:
+          hasMechanicFk && !isAtlEmptyAssigneeValue(resolvedMechanicName)
+            ? resolvedMechanicName
+            : null,
         licenseNumber: hasMechanicFk
-          ? selectedMechanic?.licenseNo || formData.licenseNumber || undefined
+          ? resolvedLicenseNumber || undefined
           : null,
         signature: formData.signature || undefined,
         webLink: formData.webLink.trim()
@@ -3208,7 +3232,7 @@ export function MaintenanceLogbook() {
                             ? "border-red-500 text-red-700"
                             : "border-gray-300 text-gray-900"
                         }`}
-                        placeholder="Enter logbook sequence number"
+                        placeholder={getLogbookSeqNoPrefix(activeCategory)}
                         autoComplete="off"
                         spellCheck={false}
                         aria-label="Logbook sequence number"

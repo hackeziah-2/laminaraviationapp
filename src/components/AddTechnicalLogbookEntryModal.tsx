@@ -39,6 +39,8 @@ import {
   getAtlBatchesForSelect,
   hasTsnValue,
   parseAtlAssigneeIdForApi,
+  isAtlEmptyAssigneeValue,
+  UNASSIGNED_PERSON_NAME_LABEL,
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
@@ -233,7 +235,7 @@ function inspectionDueFieldsFromPreviousAtl(
 
 /**
  * Create-only: Pilot's Acceptance Name (pilotAcceptedBy) from the previous/latest ATL
- * (highest numeric sequenceNo for aircraft + batch). Empty/"None" when missing / invalid.
+ * (highest numeric sequenceNo for aircraft + batch). Empty/"No Selected Name" when missing / invalid.
  * Edit must not use this — preserve the saved value.
  */
 function pilotAcceptedByFromPreviousAtl(
@@ -252,7 +254,7 @@ function pilotAcceptedByFromPreviousAtl(
 }
 
 /**
- * Form account-id field: blank when missing / None / null / undefined / invalid.
+ * Form account-id field: blank when missing / unassigned / null / undefined / invalid.
  */
 function atlAssigneeIdToFormValue(
   value: string | number | null | undefined
@@ -262,7 +264,7 @@ function atlAssigneeIdToFormValue(
 }
 
 /** Closed-select display label when pilotAcceptedBy / rtsSignedBy has no assignee. */
-const ATL_ASSIGNEE_NONE_LABEL = "None";
+const ATL_ASSIGNEE_NONE_LABEL = UNASSIGNED_PERSON_NAME_LABEL;
 
 function isAtlAssigneeNoneSelected(
   accountId: string | undefined | null,
@@ -270,13 +272,15 @@ function isAtlAssigneeNoneSelected(
 ): boolean {
   const id = String(accountId ?? "").trim();
   if (id) return false;
-  const name = String(displayName ?? "").trim();
-  return !name || /^(none|null|undefined)$/i.test(name);
+  return isAtlEmptyAssigneeValue(displayName);
 }
 
 function shouldShowAtlAssigneeNoneOption(searchTerm: string): boolean {
   const q = searchTerm.trim().toLowerCase();
-  return !q || ATL_ASSIGNEE_NONE_LABEL.toLowerCase().includes(q);
+  if (!q) return true;
+  return (
+    ATL_ASSIGNEE_NONE_LABEL.toLowerCase().includes(q) || "none".includes(q)
+  );
 }
 
 /** Numeric sequence for previous-seq checks (e.g. "0126" → 126). */
@@ -2260,7 +2264,7 @@ export function AddTechnicalLogbookEntryModal({
         ),
         actionsTakenPersonName: "",
         pilotName: "",
-        // Pilot's Acceptance Name ← pilotAcceptedBy (same None/null behavior as RTS)
+        // Pilot's Acceptance Name ← pilotAcceptedBy (same unassigned/null behavior as RTS)
         pilotFk: atlAssigneeIdToFormValue(
           editEntry.pilotAcceptedBy ?? editEntry.pilotFk
         ),
@@ -2928,10 +2932,10 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller,
             // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
             ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-            // Create: inherit pilotAcceptedBy from latest ATL; empty → "None" (null on save)
+            // Create: inherit pilotAcceptedBy from latest ATL; empty → "No Selected Name" (null on save)
             pilotFk: pilotAcceptedByFromPrevious,
             pilotName: "",
-            // RTS Name stays "None" by default on create
+            // RTS Name stays unassigned ("No Selected Name") by default on create
             rtsSignedBy: "",
             rtsName: "",
           };
@@ -3079,7 +3083,7 @@ export function AddTechnicalLogbookEntryModal({
           lifeTimeLimitPropeller: aircraftFallback.lifeTimeLimitPropeller,
           // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
           ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-          // No previous ATL → Pilot's Acceptance defaults to "None"
+          // No previous ATL → Pilot's Acceptance defaults to "No Selected Name"
           pilotFk: "",
           pilotName: "",
         };
@@ -3537,7 +3541,7 @@ export function AddTechnicalLogbookEntryModal({
     setIsRemarksDropdownOpen(false);
   };
 
-  /** Select "None" → clear remarks person; API sends null. */
+  /** Select "No Selected Name" → clear remarks person; API sends null. */
   const handleRemarksPersonSelectNone = () => {
     setFormData((prev) => ({
       ...prev,
@@ -3562,7 +3566,7 @@ export function AddTechnicalLogbookEntryModal({
     setIsActionsTakenDropdownOpen(false);
   };
 
-  /** Select "None" → clear actions-taken person; API sends null. */
+  /** Select "No Selected Name" → clear actions-taken person; API sends null. */
   const handleActionsTakenPersonSelectNone = () => {
     setFormData((prev) => ({
       ...prev,
@@ -3573,7 +3577,7 @@ export function AddTechnicalLogbookEntryModal({
     setIsActionsTakenDropdownOpen(false);
   };
 
-  // Get selected account display value ("None" when unassigned)
+  // Get selected account display value ("No Selected Name" when unassigned)
   const getSelectedRemarksPerson = () => {
     if (
       isAtlAssigneeNoneSelected(
@@ -3625,7 +3629,7 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  /** Select "None" → clear assignee; API sends null for pilotAcceptedBy. */
+  /** Select "No Selected Name" → clear assignee; API sends null for pilotAcceptedBy. */
   const handlePilotSelectNone = () => {
     setFormData((prev) => ({ ...prev, pilotFk: "", pilotName: "" }));
     setPilotSearchTerm("");
@@ -3635,7 +3639,7 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Get selected pilot display value ("None" when unassigned)
+  // Get selected pilot display value ("No Selected Name" when unassigned)
   const getSelectedPilot = () => {
     if (isAtlAssigneeNoneSelected(formData.pilotFk, formData.pilotName)) {
       return ATL_ASSIGNEE_NONE_LABEL;
@@ -3669,7 +3673,7 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  /** Select "None" → clear assignee; API sends null for rtsSignedBy. */
+  /** Select "No Selected Name" → clear assignee; API sends null for rtsSignedBy. */
   const handleRtsSelectNone = () => {
     setFormData((prev) => ({ ...prev, rtsSignedBy: "", rtsName: "" }));
     setRtsSearchTerm("");
@@ -3679,7 +3683,7 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Get selected RTS display value ("None" when unassigned)
+  // Get selected RTS display value ("No Selected Name" when unassigned)
   const getSelectedRts = () => {
     if (isAtlAssigneeNoneSelected(formData.rtsSignedBy, formData.rtsName)) {
       return ATL_ASSIGNEE_NONE_LABEL;
@@ -4461,15 +4465,15 @@ export function AddTechnicalLogbookEntryModal({
             formData.maintenanceEntry
           ),
           actionsTaken: formData.actionsTaken || undefined,
-          // Keep pilot_fk in sync with Pilot's Acceptance (null when "None", same as rtsSignedBy)
+          // Keep pilot_fk in sync with Pilot's Acceptance (null when unassigned, same as rtsSignedBy)
           pilotFk: parseAtlAssigneeIdForApi(formData.pilotFk),
-          // Remarks / Actions Taken Name: null when "None" (same as pilotAcceptedBy)
+          // Remarks / Actions Taken Name: null when unassigned (same as pilotAcceptedBy)
           remarkPerson: parseAtlAssigneeIdForApi(formData.remarksPerson),
           // DB column is actiontaken_person → camel key must be actiontakenPerson for snakeAllKeys
           actiontakenPerson: parseAtlAssigneeIdForApi(
             formData.actionsTakenPerson
           ),
-          // Legacy shared FK for list display; null when both Names are None
+          // Legacy shared FK for list display; null when both Names are unassigned
           maintenanceFk: parseAtlAssigneeIdForApi(
             formData.remarksPerson || formData.actionsTakenPerson
           ),
@@ -6839,7 +6843,7 @@ export function AddTechnicalLogbookEntryModal({
                             }}
                             onFocus={() => {
                               setIsRtsDropdownOpen(true);
-                              // Seed search with current assignee name (not "None")
+                              // Seed search with current assignee name (not the unassigned label)
                               if (
                                 !isAtlAssigneeNoneSelected(
                                   formData.rtsSignedBy,
@@ -7044,7 +7048,7 @@ export function AddTechnicalLogbookEntryModal({
                             }}
                             onFocus={() => {
                               setIsPilotDropdownOpen(true);
-                              // Seed search with current assignee name (not "None")
+                              // Seed search with current assignee name (not the unassigned label)
                               if (
                                 !isAtlAssigneeNoneSelected(
                                   formData.pilotFk,
