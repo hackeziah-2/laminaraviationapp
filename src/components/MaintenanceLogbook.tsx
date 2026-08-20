@@ -68,6 +68,12 @@ import {
   type ComponentPart,
   type Mechanic,
 } from "../api/logbooksApi";
+import { getLogbookSeqNoPrefix } from "../utility/logbookSeqNo";
+import {
+  EMPTY_MAINTENANCE_LOGBOOK_ATL_FIELDS,
+  mapAtlToMaintenanceLogbookFields,
+  parseLogbookOptionalNumber,
+} from "../utility/maintenanceLogbookAtlMapping";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { snakeAllKeys } from "../utility/utils";
@@ -79,19 +85,26 @@ import {
   getExactAircraftAtlBySequenceNumber,
   type AtlItem,
 } from "../api/atlApi";
+import {
+  isAtlEmptyAssigneeValue,
+  UNASSIGNED_PERSON_NAME_LABEL,
+} from "../api/aircraftTechnicalLogApi";
 
 /** Closed-select display when mechanic is unassigned (same pattern as ATL pilotAcceptedBy). */
-const LOGBOOK_MECHANIC_NONE_LABEL = "None";
+const LOGBOOK_MECHANIC_NONE_LABEL = UNASSIGNED_PERSON_NAME_LABEL;
 
 function isLogbookMechanicNoneSelected(
   mechanicFk: string | undefined | null
 ): boolean {
-  return !String(mechanicFk ?? "").trim();
+  return isAtlEmptyAssigneeValue(mechanicFk);
 }
 
 function shouldShowLogbookMechanicNoneOption(searchTerm: string): boolean {
   const q = searchTerm.trim().toLowerCase();
-  return !q || LOGBOOK_MECHANIC_NONE_LABEL.toLowerCase().includes(q);
+  if (!q) return true;
+  return (
+    LOGBOOK_MECHANIC_NONE_LABEL.toLowerCase().includes(q) || "none".includes(q)
+  );
 }
 
 interface LogEntry {
@@ -173,15 +186,21 @@ function getMechanicDisplay(
       .join(" ")
       .trim();
     const lic = entry.mechanic.licenseNo || "";
-    return lic ? `${name}-${lic}` : name || "-";
+    if (name && !isAtlEmptyAssigneeValue(name)) {
+      return lic ? `${name}-${lic}` : name;
+    }
+    if (lic) return lic;
   }
   if (entry.mechanicFk && accountsMap?.has(entry.mechanicFk)) {
     const a = accountsMap.get(entry.mechanicFk)!;
     return `${a.fullName}-${a.licenseNo}`;
   }
-  if (entry.mechanicName && entry.licenseNumber)
-    return `${entry.mechanicName}-${entry.licenseNumber}`;
-  return entry.mechanicName || entry.licenseNumber || "-";
+  const name = String(entry.mechanicName ?? "").trim();
+  const lic = String(entry.licenseNumber ?? "").trim();
+  if (name && !isAtlEmptyAssigneeValue(name) && lic) return `${name}-${lic}`;
+  if (name && !isAtlEmptyAssigneeValue(name)) return name;
+  if (lic) return lic;
+  return LOGBOOK_MECHANIC_NONE_LABEL;
 }
 
 const LOGBOOK_WEB_LINK_MAX_LENGTH = 2048;
@@ -717,14 +736,9 @@ export function MaintenanceLogbook() {
     setFormData((prev) => ({
       ...prev,
       sequenceNo: "",
+      date: "",
       tachTime: "",
-      airframeTime: "",
-      engineTsn: "",
-      engineTso: "",
-      engineTbo: "",
-      propellerTsn: "",
-      propellerTso: "",
-      propellerTbo: "",
+      ...EMPTY_MAINTENANCE_LOGBOOK_ATL_FIELDS,
       description: "",
       mechanicFk: "",
       mechanicName: "",
@@ -944,34 +958,36 @@ export function MaintenanceLogbook() {
     }
   };
 
+  /** Clear ATL Seq. No. and the fields that ATL selection populates. */
+  const clearAtlSequenceSelection = () => {
+    atlPopulateRequestIdRef.current += 1;
+    setLoadingAtlPopulate(false);
+    setAtlPopulateError(null);
+    setFormData((prev) => ({
+      ...prev,
+      sequenceNo: "",
+      ...EMPTY_MAINTENANCE_LOGBOOK_ATL_FIELDS,
+    }));
+  };
+
   /**
-   * After user selects a sequenceNo (Create or Edit manual change only):
-   * clear prior ATL values, fetch exact ATL, populate category fields.
+   * After user selects a sequenceNo (Create or Edit):
+   * fetch exact ATL and populate mapped fields. On request failure, leave
+   * existing field values unchanged and show an error.
    */
   const selectSequenceNoAndPopulateFromAtl = async (raw: string) => {
     const seq = String(raw ?? "").replace(/\D/g, "");
-    if (!seq) return;
+    if (!seq) {
+      clearAtlSequenceSelection();
+      return;
+    }
 
     const requestId = ++atlPopulateRequestIdRef.current;
 
-    // Assign sequenceNo and clear previously populated ATL-mapped fields
     setFormData((prev) => ({
       ...prev,
       sequenceNo: seq,
-      tachTime: "",
-      airframeTime: "",
-      engineTsn: "",
-      engineTso: "",
-      engineTbo: "",
-      propellerTsn: "",
-      propellerTso: "",
-      propellerTbo: "",
-      description: "",
-      mechanicFk: "",
-      mechanicName: "",
-      licenseNumber: "",
     }));
-    setComponentRecords([]);
 
     setSequenceSearch("");
     setIsSequenceDropdownOpen(false);
@@ -994,33 +1010,25 @@ export function MaintenanceLogbook() {
 
       if (!atl) {
         setAtlPopulateError(
-          "No ATL record found for this sequence number. Fields were left blank."
+          "No ATL record found for this sequence number. Existing fields were not changed."
         );
-        setComponentRecords([]);
         return;
       }
 
+      const mapped = mapAtlToMaintenanceLogbookFields(atl);
       const category = activeCategory;
       setFormData((prev) => {
         if (prev.sequenceNo !== seq) return prev;
-        const next = { ...prev, sequenceNo: seq };
+        const next = { ...prev, sequenceNo: seq, ...mapped };
+        next.date = atlBlank(atl.originDate);
+        next.tachTime = atlBlank(atl.tachEnd);
 
-        if (category === "AIRFRAME") {
-          next.tachTime = atlBlank(atl.tachTimeDue);
-          next.airframeTime = atlBlank(atl.airframeAftt);
-          next.description = atlBlank(atl.actionsTaken);
-        } else if (category === "AVIONICS") {
-          next.description = atlBlank(atl.actionsTaken);
-        } else if (category === "ENGINE") {
-          next.engineTsn = atlBlank(atl.engineTsn);
-          next.engineTso = atlBlank(atl.engineTso);
-          next.engineTbo = atlBlank(atl.engineTbo);
-          next.tachTime = atlBlank(atl.tachTimeDue);
-          next.description = atlBlank(atl.actionsTaken);
-        } else if (category === "PROPELLER") {
-          next.propellerTsn = atlBlank(atl.propellerTsn);
-          next.propellerTso = atlBlank(atl.propellerTso);
-          next.propellerTbo = atlBlank(atl.propellerTbo);
+        if (
+          category === "AIRFRAME" ||
+          category === "AVIONICS" ||
+          category === "ENGINE" ||
+          category === "PROPELLER"
+        ) {
           next.description = atlBlank(atl.actionsTaken);
         }
 
@@ -1038,9 +1046,8 @@ export function MaintenanceLogbook() {
       if (atlPopulateRequestIdRef.current !== requestId) return;
       console.error("Failed to load ATL for logbook autofill:", err);
       setAtlPopulateError(
-        "Failed to load ATL record. You can still edit fields manually."
+        "Failed to load ATL record. Existing fields were not changed."
       );
-      setComponentRecords([]);
     } finally {
       if (atlPopulateRequestIdRef.current === requestId) {
         setLoadingAtlPopulate(false);
@@ -1070,7 +1077,7 @@ export function MaintenanceLogbook() {
     setIsMechanicDropdownOpen(false);
   };
 
-  /** Select "None" → clear mechanic; API sends null for mechanicFk. */
+  /** Select "No Selected Name" → clear mechanic; API sends null for mechanicFk. */
   const handleSelectMechanicNone = () => {
     setFormData((prev) => ({
       ...prev,
@@ -1082,7 +1089,7 @@ export function MaintenanceLogbook() {
     setIsMechanicDropdownOpen(false);
   };
 
-  // Get selected mechanic display text ("None" when unassigned, matching ATL assignees)
+  // Get selected mechanic display text ("No Selected Name" when unassigned)
   const getSelectedMechanic = () => {
     if (isLogbookMechanicNoneSelected(formData.mechanicFk)) {
       return LOGBOOK_MECHANIC_NONE_LABEL;
@@ -1094,11 +1101,11 @@ export function MaintenanceLogbook() {
       return `${selectedAccount.fullName}-${selectedAccount.licenseNo}`;
     }
     // Fallback to formData values if account not found in list yet
-    if (formData.mechanicName || formData.licenseNumber) {
-      return `${formData.mechanicName || ""}${
-        formData.mechanicName && formData.licenseNumber ? "-" : ""
-      }${formData.licenseNumber || ""}`;
-    }
+    const name = String(formData.mechanicName ?? "").trim();
+    const lic = String(formData.licenseNumber ?? "").trim();
+    if (name && !isAtlEmptyAssigneeValue(name) && lic) return `${name}-${lic}`;
+    if (name && !isAtlEmptyAssigneeValue(name)) return name;
+    if (lic) return lic;
     return LOGBOOK_MECHANIC_NONE_LABEL;
   };
 
@@ -1348,7 +1355,7 @@ export function MaintenanceLogbook() {
         // Reset form for new entry
         setFormData({
           date: "",
-          logbookSeqNo: "",
+          logbookSeqNo: getLogbookSeqNoPrefix(activeCategory),
           sequenceNo: "",
           tachTime: "",
           airframeTime: "",
@@ -1425,6 +1432,8 @@ export function MaintenanceLogbook() {
 
   // Handle save entry
   const handleSaveEntry = async () => {
+    if (isSaving) return;
+
     const formErrors = validateMaintenanceLogbookForm();
     if (Object.keys(formErrors).length > 0) {
       setValidationErrors(formErrors);
@@ -1502,6 +1511,13 @@ export function MaintenanceLogbook() {
         Number.isFinite(mechanicFkParsed) &&
         mechanicFkParsed > 0;
 
+      const resolvedMechanicName = hasMechanicFk
+        ? selectedMechanic?.fullName || formData.mechanicName || ""
+        : "";
+      const resolvedLicenseNumber = hasMechanicFk
+        ? selectedMechanic?.licenseNo || formData.licenseNumber || ""
+        : "";
+
       // aircraft_fk is required for create and must be sent for update (backend expects it)
       // sequenceNo: digits-only; may be a number that does not yet exist in ATL
       const sequenceNoDigits = formData.sequenceNo?.replace(/\D/g, "").trim();
@@ -1510,13 +1526,14 @@ export function MaintenanceLogbook() {
         logbookSeqNo,
         sequenceNo: sequenceNoDigits || undefined,
         description: formData.description || undefined,
-        // Always send null when "None" so create/update persist NULL (omit would keep prior on edit)
+        // Always send null when unassigned so create/update persist NULL (omit would keep prior on edit)
         mechanicFk: hasMechanicFk ? mechanicFkParsed : null,
-        mechanicName: hasMechanicFk
-          ? selectedMechanic?.fullName || formData.mechanicName || undefined
-          : null,
+        mechanicName:
+          hasMechanicFk && !isAtlEmptyAssigneeValue(resolvedMechanicName)
+            ? resolvedMechanicName
+            : null,
         licenseNumber: hasMechanicFk
-          ? selectedMechanic?.licenseNo || formData.licenseNumber || undefined
+          ? resolvedLicenseNumber || undefined
           : null,
         signature: formData.signature || undefined,
         webLink: formData.webLink.trim()
@@ -1545,20 +1562,14 @@ export function MaintenanceLogbook() {
         case "AIRFRAME":
           data = {
             ...baseData,
-            tachTime: formData.tachTime
-              ? parseFloat(formData.tachTime)
-              : undefined,
-            airframeTime: formData.airframeTime
-              ? parseFloat(formData.airframeTime)
-              : undefined,
+            tachTime: parseLogbookOptionalNumber(formData.tachTime),
+            airframeTime: parseLogbookOptionalNumber(formData.airframeTime),
           };
           break;
         case "AVIONICS":
           data = {
             ...baseData,
-            airframeTsn: formData.airframeTsn
-              ? parseFloat(formData.airframeTsn)
-              : undefined,
+            airframeTsn: parseLogbookOptionalNumber(formData.airframeTsn),
             component: formData.component || undefined,
             partNo: formData.partNo || undefined,
             serialNo: formData.serialNo || undefined,
@@ -1567,35 +1578,19 @@ export function MaintenanceLogbook() {
         case "ENGINE":
           data = {
             ...baseData,
-            engineTsn: formData.engineTsn
-              ? parseFloat(formData.engineTsn)
-              : undefined,
-            tachTime: formData.tachTime
-              ? parseFloat(formData.tachTime)
-              : undefined,
-            engineTso: formData.engineTso
-              ? parseFloat(formData.engineTso)
-              : undefined,
-            engineTbo: formData.engineTbo
-              ? parseFloat(formData.engineTbo)
-              : undefined,
+            engineTsn: parseLogbookOptionalNumber(formData.engineTsn),
+            tachTime: parseLogbookOptionalNumber(formData.tachTime),
+            engineTso: parseLogbookOptionalNumber(formData.engineTso),
+            engineTbo: parseLogbookOptionalNumber(formData.engineTbo),
           };
           break;
         case "PROPELLER":
           data = {
             ...baseData,
-            propellerTsn: formData.propellerTsn
-              ? parseFloat(formData.propellerTsn)
-              : undefined,
-            tachTime: formData.tachTime
-              ? parseFloat(formData.tachTime)
-              : undefined,
-            propellerTso: formData.propellerTso
-              ? parseFloat(formData.propellerTso)
-              : undefined,
-            propellerTbo: formData.propellerTbo
-              ? parseFloat(formData.propellerTbo)
-              : undefined,
+            propellerTsn: parseLogbookOptionalNumber(formData.propellerTsn),
+            tachTime: parseLogbookOptionalNumber(formData.tachTime),
+            propellerTso: parseLogbookOptionalNumber(formData.propellerTso),
+            propellerTbo: parseLogbookOptionalNumber(formData.propellerTbo),
           };
           break;
       }
@@ -3208,7 +3203,7 @@ export function MaintenanceLogbook() {
                             ? "border-red-500 text-red-700"
                             : "border-gray-300 text-gray-900"
                         }`}
-                        placeholder="Enter logbook sequence number"
+                        placeholder={getLogbookSeqNoPrefix(activeCategory)}
                         autoComplete="off"
                         spellCheck={false}
                         aria-label="Logbook sequence number"
@@ -3255,6 +3250,9 @@ export function MaintenanceLogbook() {
                               );
                               setSequenceSearch(digitsOnly);
                               setIsSequenceDropdownOpen(true);
+                              if (!digitsOnly) {
+                                clearAtlSequenceSelection();
+                              }
                               if (validationErrors.sequenceNo) {
                                 setValidationErrors((prev) => ({
                                   ...prev,
@@ -3274,10 +3272,9 @@ export function MaintenanceLogbook() {
                               if (e.key === "Enter") {
                                 e.preventDefault();
                                 const digits = sequenceSearch.replace(/\D/g, "");
-                                if (digits)
-                                  void selectSequenceNoAndPopulateFromAtl(
-                                    digits
-                                  );
+                                void selectSequenceNoAndPopulateFromAtl(
+                                  digits
+                                );
                               }
                             }}
                             placeholder={
@@ -3480,8 +3477,8 @@ export function MaintenanceLogbook() {
                           Engine TSN:
                         </label>
                         <input
-                          type="number"
-                          step="0.1"
+                          type="text"
+                          inputMode="decimal"
                           value={formData.engineTsn}
                           onChange={(e) =>
                             setFormData({
@@ -3489,6 +3486,7 @@ export function MaintenanceLogbook() {
                               engineTsn: e.target.value,
                             })
                           }
+                          placeholder="UNK"
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
                         />
                       </div>
@@ -3626,8 +3624,8 @@ export function MaintenanceLogbook() {
                           Propeller TSN:
                         </label>
                         <input
-                          type="number"
-                          step="0.1"
+                          type="text"
+                          inputMode="decimal"
                           value={formData.propellerTsn}
                           onChange={(e) =>
                             setFormData({
@@ -3635,6 +3633,7 @@ export function MaintenanceLogbook() {
                               propellerTsn: e.target.value,
                             })
                           }
+                          placeholder="UNK"
                           className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
                         />
                       </div>

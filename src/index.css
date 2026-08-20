@@ -3025,7 +3025,8 @@ input[data-slot="date-input"] {
 /* ATL Operation — sticky multi-row table header (vertical + horizontal)
    Scroll lives ONLY on .atl-all-columns-scroll.
    Ancestor overflow:hidden breaks sticky — keep parents overflow:visible.
-   border-collapse:separate is required for position:sticky on th/td. */
+   border-collapse:separate is required for position:sticky on th/td.
+   Use child combinators so nested Component Record tables do not inherit sticky. */
 .atl-all-columns-scroll {
   overflow: auto;
   max-height: calc(100vh - 250px);
@@ -3043,7 +3044,7 @@ input[data-slot="date-input"] {
   min-width: 100%;
 }
 
-.atl-all-columns-table thead th {
+.atl-all-columns-table > thead > tr > th {
   position: sticky;
   background-color: #e5e7eb !important;
   background-clip: padding-box;
@@ -3051,36 +3052,42 @@ input[data-slot="date-input"] {
 }
 
 /* Row 1 — stick to top of scroll container */
-.atl-all-columns-table thead tr:first-child th {
+.atl-all-columns-table > thead > tr:first-child > th {
   top: 0;
   z-index: 3;
 }
 
 /* Row 2 — stick just under row 1 */
-.atl-all-columns-table thead tr:nth-child(2) th {
+.atl-all-columns-table > thead > tr:nth-child(2) > th {
   top: var(--atl-th-row1-h, 40px);
   z-index: 2;
   box-shadow: 0 1px 0 0 #d1d5db;
 }
 
+/* Main COMPONENT RECORD title: stay above nested part rows, not its inner subheaders */
+.atl-all-columns-table > thead > tr:first-child > th.atl-th-component-record {
+  z-index: 4;
+  background-color: #e5e7eb !important;
+}
+
 /* Sequence corner: sticky top + left (both axes) */
-.atl-all-columns-table thead tr:first-child th.atl-th-sticky-seq {
+.atl-all-columns-table > thead > tr:first-child > th.atl-th-sticky-seq {
   left: 0;
   z-index: 6;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12), 0 1px 0 0 #d1d5db;
 }
 
-.atl-all-columns-table thead tr:nth-child(2) th.atl-th-sticky-seq {
+.atl-all-columns-table > thead > tr:nth-child(2) > th.atl-th-sticky-seq {
   left: 0;
   z-index: 5;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12), 0 1px 0 0 #d1d5db;
 }
 
-.atl-all-columns-table thead tr:first-child th.atl-th-sticky-seq:hover {
+.atl-all-columns-table > thead > tr:first-child > th.atl-th-sticky-seq:hover {
   background-color: #d1d5db !important;
 }
 
-.atl-all-columns-table thead tr:nth-child(2) th.atl-th-sticky-fill {
+.atl-all-columns-table > thead > tr:nth-child(2) > th.atl-th-sticky-fill {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
   line-height: 0;
@@ -3090,9 +3097,19 @@ input[data-slot="date-input"] {
   user-select: none;
 }
 
+/* Nested Component Record (PARTS REMOVED / P/N / S/N) — scroll with the row */
+.atl-all-columns-table > tbody table thead th {
+  position: static;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  box-shadow: none;
+  background-clip: border-box;
+}
+
 /* Body first column — sticky horizontally only */
-.atl-all-columns-table tbody td.atl-td-sticky-seq,
-.atl-all-columns-table tbody td.sticky {
+.atl-all-columns-table > tbody > tr > td.atl-td-sticky-seq,
+.atl-all-columns-table > tbody > tr > td.sticky {
   position: sticky;
   left: 0;
   z-index: 1;
