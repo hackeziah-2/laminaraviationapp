@@ -149,6 +149,10 @@ export interface AtlItem {
   cpcpLastDoneDate?: string;
   /** Airframe / Engine / Propeller Logbook Seq. No. picker autofill from ATL row */
   tachTimeDue?: string;
+  /** ATL `tach_end` / `tachometer_end` — Maintenance Logbook Tach Time */
+  tachEnd?: string;
+  /** ATL `off_block_date` / `origin_date` (YYYY-MM-DD) — Maintenance Logbook Date */
+  originDate?: string;
   airframeAftt?: string;
   actionsTaken?: string;
   rtsSignedBy?: number | null;
@@ -254,7 +258,12 @@ function mapAtlListResponse(
       r.airframe_aftt ??
       r.airframeAftt;
     const originDateRaw =
-      r.origin_date ?? r.originDate ?? r.date_of_origin ?? r.dateOfOrigin;
+      r.off_block_date ??
+      r.offBlockDate ??
+      r.origin_date ??
+      r.originDate ??
+      r.date_of_origin ??
+      r.dateOfOrigin;
     const label =
       lineStyle === "cpcp"
         ? buildAtlCpcpSearchLabel(seqPart, tachRaw, afttRaw, originDateRaw)
@@ -266,6 +275,8 @@ function mapAtlListResponse(
               originDateRaw
             )
           : `${seqPart} · ${natureOfFlightDisplay} · ${reg || "—"}`;
+    const tachEnd = atlNumericToFormString(tachRaw);
+    const originDate = cpcpDateForLastDoneField(originDateRaw);
     const tachTimeDue = atlNumericToFormString(
       r.tach_time_due ?? r.tachTimeDue
     );
@@ -321,6 +332,8 @@ function mapAtlListResponse(
       natureOfFlightDisplay,
       aircraftRegistration: reg || undefined,
       tachTimeDue: tachTimeDue || undefined,
+      tachEnd: tachEnd || undefined,
+      originDate: originDate || undefined,
       airframeAftt: airframeAftt || undefined,
       actionsTaken: actionsTaken || undefined,
       rtsSignedBy,
@@ -334,6 +347,28 @@ function mapAtlListResponse(
       ...cpcpAutofillFromRaw(lineStyle, tachRaw, afttRaw, originDateRaw),
     };
   });
+}
+
+/** Logbook autofill: use the named ATL keys only (no auto_* fallbacks). */
+function atlNamedMetric(raw: any, snake: string, camel: string): string {
+  return atlNumericToFormString(raw?.[snake] ?? raw?.[camel]);
+}
+
+function applyNamedAtlLogbookMetrics(item: AtlItem, raw: any): AtlItem {
+  return {
+    ...item,
+    engineTsn: atlNamedMetric(raw, "engine_tsn", "engineTsn") || undefined,
+    engineTso: atlNamedMetric(raw, "engine_tso", "engineTso") || undefined,
+    engineTbo: atlNamedMetric(raw, "engine_tbo", "engineTbo") || undefined,
+    propellerTsn:
+      atlNamedMetric(raw, "propeller_tsn", "propellerTsn") || undefined,
+    propellerTso:
+      atlNamedMetric(raw, "propeller_tso", "propellerTso") || undefined,
+    propellerTbo:
+      atlNamedMetric(raw, "propeller_tbo", "propellerTbo") || undefined,
+    airframeAftt:
+      atlNamedMetric(raw, "airframe_aftt", "airframeAftt") || undefined,
+  };
 }
 
 /**
@@ -387,10 +422,15 @@ export const getExactAircraftAtlBySequenceNumber = async (
   const data = res.data?.data ?? res.data;
   const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
   const list = Array.isArray(raw) ? raw : [];
-  return findExactAtlBySequenceNumber(
-    mapAtlListResponse(list, "standard"),
-    q
-  );
+  const mapped = mapAtlListResponse(list, "standard");
+  const exact = findExactAtlBySequenceNumber(mapped, q);
+  if (!exact) return null;
+  const rawRow =
+    list.find((r: any) => {
+      const seq = r?.sequence_no ?? r?.sequence_number ?? r?.sequenceNo;
+      return digitsOnlySequence(seq) === q;
+    }) ?? null;
+  return rawRow ? applyNamedAtlLogbookMetrics(exact, rawRow) : exact;
 };
 
 /**
