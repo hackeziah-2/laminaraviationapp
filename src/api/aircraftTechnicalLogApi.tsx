@@ -403,21 +403,41 @@ export function isAtlEmptyAssigneeValue(value: unknown): boolean {
   return /^(none|null|undefined|no selected name)$/i.test(s);
 }
 
-/** Operation ATL list view: render API scalar as-is (null/empty → emptyLabel only). */
+/**
+ * Operation ATL list view: numeric 0 (including "0", "0.0", "0.00") is unassigned.
+ * Does not treat empty/null as zero — callers combine with isAtlEmptyAssigneeValue.
+ */
+export function isAtlListNumericZero(value: unknown): boolean {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value === 0;
+  }
+  const s = String(value ?? "").trim();
+  if (s === "") return false;
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(s)) return false;
+  return Number(s) === 0;
+}
+
+/**
+ * Operation ATL list view: render API scalar as-is.
+ * null / undefined / empty / 0 → emptyLabel. Non-zero values unchanged.
+ * Engine/propeller TSN uses displayTSN (UNK), not this helper.
+ */
 export function formatAtlListCell(
   value: unknown,
   emptyLabel = "-"
 ): string {
-  if (isAtlEmptyAssigneeValue(value)) return emptyLabel;
+  if (isAtlEmptyAssigneeValue(value) || isAtlListNumericZero(value)) {
+    return emptyLabel;
+  }
   return String(value);
 }
 
 /**
- * RTS / Pilot Acceptance assignee cells: unassigned → "No Selected Name".
- * Never shows "-", "None", "null", or "undefined".
+ * RTS / Pilot Acceptance assignee cells: unassigned → blank.
+ * Never shows "-", "None", "null", "undefined", or "No Selected Name".
  */
 export function formatAtlAssigneeListCell(value: unknown): string {
-  return formatAtlListCell(value, UNASSIGNED_PERSON_NAME_LABEL);
+  return formatAtlListCell(value, "");
 }
 
 /** Parse form account id for create/update; empty / invalid → null (persist NULL). */

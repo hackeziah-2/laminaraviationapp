@@ -3026,7 +3026,8 @@ input[data-slot="date-input"] {
    Scroll lives ONLY on .atl-all-columns-scroll.
    Ancestor overflow:hidden breaks sticky — keep parents overflow:visible.
    border-collapse:separate is required for position:sticky on th/td.
-   Use child combinators so nested Component Record tables do not inherit sticky. */
+   Three header rows: group titles, sub labels, Component Record P/N S/N.
+   Component Record leaf columns share widths via <colgroup> + matching th/td classes. */
 .atl-all-columns-scroll {
   overflow: auto;
   max-height: calc(100vh - 250px);
@@ -3044,6 +3045,22 @@ input[data-slot="date-input"] {
   min-width: 100%;
 }
 
+.atl-all-columns-table col.atl-col-cr-pn-sn {
+  width: 100px;
+}
+
+.atl-all-columns-table col.atl-col-cr-nom {
+  width: 160px;
+}
+
+.atl-all-columns-table col.atl-col-cr-ata {
+  width: 120px;
+}
+
+.atl-all-columns-table col.atl-col-cr-remarks {
+  width: 160px;
+}
+
 .atl-all-columns-table > thead > tr > th {
   position: sticky;
   background-color: #e5e7eb !important;
@@ -3054,32 +3071,44 @@ input[data-slot="date-input"] {
 /* Row 1 — stick to top of scroll container */
 .atl-all-columns-table > thead > tr:first-child > th {
   top: 0;
-  z-index: 3;
+  z-index: 4;
 }
 
 /* Row 2 — stick just under row 1 */
 .atl-all-columns-table > thead > tr:nth-child(2) > th {
   top: var(--atl-th-row1-h, 40px);
+  z-index: 3;
+}
+
+/* Row 3 — Component Record P/N S/N; stick under row 2 */
+.atl-all-columns-table > thead > tr:nth-child(3) > th {
+  top: calc(var(--atl-th-row1-h, 40px) + var(--atl-th-row2-h, 32px));
   z-index: 2;
   box-shadow: 0 1px 0 0 #d1d5db;
 }
 
-/* Main COMPONENT RECORD title: stay above nested part rows, not its inner subheaders */
+/* Main COMPONENT RECORD title */
 .atl-all-columns-table > thead > tr:first-child > th.atl-th-component-record {
-  z-index: 4;
+  z-index: 5;
   background-color: #e5e7eb !important;
 }
 
 /* Sequence corner: sticky top + left (both axes) */
 .atl-all-columns-table > thead > tr:first-child > th.atl-th-sticky-seq {
   left: 0;
-  z-index: 6;
+  z-index: 8;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12), 0 1px 0 0 #d1d5db;
 }
 
 .atl-all-columns-table > thead > tr:nth-child(2) > th.atl-th-sticky-seq {
   left: 0;
-  z-index: 5;
+  z-index: 7;
+  box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12);
+}
+
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-seq {
+  left: 0;
+  z-index: 6;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12), 0 1px 0 0 #d1d5db;
 }
 
@@ -3087,7 +3116,8 @@ input[data-slot="date-input"] {
   background-color: #d1d5db !important;
 }
 
-.atl-all-columns-table > thead > tr:nth-child(2) > th.atl-th-sticky-fill {
+.atl-all-columns-table > thead > tr:nth-child(2) > th.atl-th-sticky-fill,
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
   line-height: 0;
@@ -3097,14 +3127,30 @@ input[data-slot="date-input"] {
   user-select: none;
 }
 
-/* Nested Component Record (PARTS REMOVED / P/N / S/N) — scroll with the row */
-.atl-all-columns-table > tbody table thead th {
+/* Nested Component Record body tables — never sticky */
+.atl-all-columns-table > tbody table thead th,
+.atl-all-columns-table > tbody table td {
   position: static;
   top: auto;
   left: auto;
   z-index: auto;
   box-shadow: none;
   background-clip: border-box;
+}
+
+.atl-all-columns-table > tbody > tr > td.atl-td-cr {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  box-sizing: border-box;
+}
+
+/* Visible grid lines on body cells (tr divide-y does not paint in separate-collapse tables). */
+.atl-all-columns-table > tbody > tr > td {
+  border-right: 1px solid #d1d5db;
+  border-bottom: 1px solid #d1d5db;
+  box-sizing: border-box;
 }
 
 /* Body first column — sticky horizontally only */
