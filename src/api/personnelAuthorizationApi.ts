@@ -12,6 +12,7 @@ export const PERSONNEL_COMPLIANCE_ITEM_TYPES = [
   "HF_TRAINING",
   "CESSNA",
   "BARON",
+  "PIPER PA-34",
   "OTHERS",
 ] as const;
 
@@ -44,6 +45,7 @@ export interface PersonnelAuthorizationRecord {
   hfTrainingExpiry: string;
   typeTrainingCessna: string;
   typeTrainingBaron: string;
+  typeTrainingPiper: string;
   isWithhold?: boolean;
   /** List view: item type from API (item_type). */
   itemType: string;
@@ -95,7 +97,7 @@ function getScopeId(
   nestedKey: string
 ): number {
   const v = raw[idKey];
-  if (v != null && (typeof v === "number" && Number.isFinite(v))) return v;
+  if (v != null && typeof v === "number" && Number.isFinite(v)) return v;
   if (v != null && typeof v === "string") {
     const n = Number(v);
     if (Number.isFinite(n)) return n;
@@ -104,7 +106,7 @@ function getScopeId(
   if (nested != null && typeof nested === "object" && !Array.isArray(nested)) {
     const obj = nested as Record<string, unknown>;
     const id = obj.id ?? obj.pk;
-    if (id != null && (typeof id === "number" && Number.isFinite(id))) return id;
+    if (id != null && typeof id === "number" && Number.isFinite(id)) return id;
     if (id != null && typeof id === "string") {
       const n = Number(id);
       if (Number.isFinite(n)) return n;
@@ -150,8 +152,14 @@ function formatFullName(fullName: unknown): string {
   if (typeof fullName === "string") return fullName.trim();
   if (typeof fullName === "object" && !Array.isArray(fullName)) {
     const o = fullName as Record<string, unknown>;
-    const last = (o.last_name ?? o.lastName) != null ? String(o.last_name ?? o.lastName).trim() : "";
-    const first = (o.first_name ?? o.firstName) != null ? String(o.first_name ?? o.firstName).trim() : "";
+    const last =
+      (o.last_name ?? o.lastName) != null
+        ? String(o.last_name ?? o.lastName).trim()
+        : "";
+    const first =
+      (o.first_name ?? o.firstName) != null
+        ? String(o.first_name ?? o.firstName).trim()
+        : "";
     if (last && first) return `${last}, ${first}`;
     if (last) return last;
     if (first) return first;
@@ -182,29 +190,36 @@ function extractPagedItemsAndMeta(raw: Record<string, unknown>): {
 } {
   const data = raw ?? {};
   const envelope =
-    data?.data != null && typeof data.data === "object" && !Array.isArray(data.data)
+    data?.data != null &&
+    typeof data.data === "object" &&
+    !Array.isArray(data.data)
       ? (data.data as Record<string, unknown>)
       : data;
   const rawItems = Array.isArray(data)
     ? data
     : Array.isArray(envelope)
-      ? envelope
-      : (envelope?.items ??
-          envelope?.results ??
-          envelope?.data ??
-          data.items ??
-          data.results ??
-          []) as unknown;
+    ? envelope
+    : ((envelope?.items ??
+        envelope?.results ??
+        envelope?.data ??
+        data.items ??
+        data.results ??
+        []) as unknown);
   const list = Array.isArray(rawItems) ? rawItems : [];
   const limit = Number(envelope?.limit ?? data.limit ?? 10) || 10;
 
-  const totalRaw = envelope?.total ?? envelope?.count ?? data.total ?? data.count;
+  const totalRaw =
+    envelope?.total ?? envelope?.count ?? data.total ?? data.count;
   const total =
-    totalRaw != null && Number.isFinite(Number(totalRaw)) ? Number(totalRaw) : null;
+    totalRaw != null && Number.isFinite(Number(totalRaw))
+      ? Number(totalRaw)
+      : null;
 
   const pagesRaw = envelope?.pages ?? data.pages;
   const pages =
-    pagesRaw != null && Number.isFinite(Number(pagesRaw)) && Number(pagesRaw) >= 1
+    pagesRaw != null &&
+    Number.isFinite(Number(pagesRaw)) &&
+    Number(pagesRaw) >= 1
       ? Number(pagesRaw)
       : null;
 
@@ -231,6 +246,7 @@ function normalizeItem(
       hfTrainingExpiry: "",
       typeTrainingCessna: "",
       typeTrainingBaron: "",
+      typeTrainingPiper: "",
       isWithhold: false,
       itemType: "",
       authorizationScope: "",
@@ -240,8 +256,13 @@ function normalizeItem(
   }
   const id = Number(raw.id ?? 0);
   const accountInfo = raw.account_information;
-  const isAcc = accountInfo != null && typeof accountInfo === "object" && !Array.isArray(accountInfo);
-  const acc = isAcc ? (accountInfo as Record<string, unknown>) : ({} as Record<string, unknown>);
+  const isAcc =
+    accountInfo != null &&
+    typeof accountInfo === "object" &&
+    !Array.isArray(accountInfo);
+  const acc = isAcc
+    ? (accountInfo as Record<string, unknown>)
+    : ({} as Record<string, unknown>);
   const accountInformationId =
     Number(raw.account_information_id ?? 0) ||
     (isAcc ? Number(acc.id ?? acc.account_information_id ?? 0) : 0);
@@ -250,7 +271,7 @@ function normalizeItem(
     (isAcc ? getStrFromAccountInfo(acc, "auth_stamp", "Auth_stamp") : "") ||
     getStr(raw, "authorizationNo", "authorization_no");
   const name =
-    (isAcc ? (formatFullName(acc.full_name) || formatFullName(acc)) : "") ||
+    (isAcc ? formatFullName(acc.full_name) || formatFullName(acc) : "") ||
     getStr(raw, "name", "full_name");
   const position =
     (isAcc ? getStrFromAccountInfo(acc, "designation") : "") ||
@@ -259,9 +280,21 @@ function normalizeItem(
     (isAcc ? getStrFromAccountInfo(acc, "license") : "") ||
     getStr(raw, "licNoType", "license_no_type");
 
-  const scopeCessnaId = getScopeId(raw, "authorization_scope_cessna_id", "authorization_scope_cessna");
-  const scopeBaronId = getScopeId(raw, "authorization_scope_baron_id", "authorization_scope_baron");
-  const scopeOthersId = getScopeId(raw, "authorization_scope_others_id", "authorization_scope_others");
+  const scopeCessnaId = getScopeId(
+    raw,
+    "authorization_scope_cessna_id",
+    "authorization_scope_cessna"
+  );
+  const scopeBaronId = getScopeId(
+    raw,
+    "authorization_scope_baron_id",
+    "authorization_scope_baron"
+  );
+  const scopeOthersId = getScopeId(
+    raw,
+    "authorization_scope_others_id",
+    "authorization_scope_others"
+  );
 
   const scopeCessnaName = getScopeName(
     raw,
@@ -319,24 +352,69 @@ function normalizeItem(
     "OTHERS_EXPIRY_DATE"
   );
   let authExpiryDate = getStr(raw, "authExpiryDate", "auth_expiry_date");
-  let caapLicExpiry = getStr(raw, "caapLicExpiry", "caap_license_expiry", "caap_lic_expiry");
-  let hfTrainingExpiry = getStr(raw, "hfTrainingExpiry", "human_factors_training_expiry", "hf_training_expiry");
-  let typeTrainingCessna = getStr(raw, "typeTrainingCessna", "type_training_expiry_cessna", "type_training_cessna");
-  let typeTrainingBaron = getStr(raw, "typeTrainingBaron", "type_training_expiry_baron", "type_training_baron");
+  let caapLicExpiry = getStr(
+    raw,
+    "caapLicExpiry",
+    "caap_license_expiry",
+    "caap_lic_expiry"
+  );
+  let hfTrainingExpiry = getStr(
+    raw,
+    "hfTrainingExpiry",
+    "human_factors_training_expiry",
+    "hf_training_expiry"
+  );
+  let typeTrainingCessna = getStr(
+    raw,
+    "typeTrainingCessna",
+    "type_training_expiry_cessna",
+    "type_training_cessna"
+  );
+  let typeTrainingBaron = getStr(
+    raw,
+    "typeTrainingBaron",
+    "type_training_expiry_baron",
+    "type_training_baron"
+  );
+  let typeTrainingPiper = getStr(
+    raw,
+    "typeTrainingPiper",
+    "type_training_expiry_piper",
+    "type_training_piper",
+    "type_training_expiry_piper_pa_34",
+    "type_training_piper_pa_34",
+    "typeTrainingExpiryPiperPa34",
+    "type_training_expiry_piper_pa34"
+  );
 
   if (expiryDateApi) {
-    const u = itemTypeStr.trim().toUpperCase().replace(/\s+/g, "_");
+    const itemTypeKey = itemTypeStr.trim().toUpperCase();
+    const u = itemTypeKey.replace(/\s+/g, "_");
+    const piperCompact = itemTypeKey.replace(/[\s_-]+/g, "");
     if (!authExpiryDate && u === "AUTH_EXPIRY") authExpiryDate = expiryDateApi;
     if (!othersExpiryDate && u === "OTHERS") othersExpiryDate = expiryDateApi;
     if (!caapLicExpiry && u === "CAAP_LICENSE") caapLicExpiry = expiryDateApi;
-    if (!hfTrainingExpiry && u === "HF_TRAINING") hfTrainingExpiry = expiryDateApi;
-    if (!typeTrainingCessna && u === "CESSNA") typeTrainingCessna = expiryDateApi;
+    if (!hfTrainingExpiry && u === "HF_TRAINING")
+      hfTrainingExpiry = expiryDateApi;
+    if (!typeTrainingCessna && u === "CESSNA")
+      typeTrainingCessna = expiryDateApi;
     if (!typeTrainingBaron && u === "BARON") typeTrainingBaron = expiryDateApi;
+    if (
+      !typeTrainingPiper &&
+      (itemTypeKey === "PIPER PA-34" ||
+        u === "PIPER_PA-34" ||
+        u === "PIPER_PA_34" ||
+        piperCompact === "PIPERPA34")
+    ) {
+      typeTrainingPiper = expiryDateApi;
+    }
   }
 
   return {
     id: isNaN(id) ? 0 : id,
-    accountInformationId: Number.isFinite(accountInformationId) ? accountInformationId : undefined,
+    accountInformationId: Number.isFinite(accountInformationId)
+      ? accountInformationId
+      : undefined,
     authorizationNo,
     name,
     position,
@@ -354,7 +432,10 @@ function normalizeItem(
     hfTrainingExpiry,
     typeTrainingCessna,
     typeTrainingBaron,
-    isWithhold: Boolean((raw as any).is_withhold ?? (raw as any).isWithhold ?? false),
+    typeTrainingPiper,
+    isWithhold: Boolean(
+      (raw as any).is_withhold ?? (raw as any).isWithhold ?? false
+    ),
     itemType: itemTypeStr,
     authorizationScope: authorizationScopeResolved,
     expiryDate: expiryDateApi,
@@ -400,9 +481,7 @@ export type GetPersonnelMatrix2ListOptions = Omit<
   "itemType"
 >;
 
-function sortParamFromExpiryOrder(
-  sortExpiry?: "asc" | "desc"
-): string {
+function sortParamFromExpiryOrder(sortExpiry?: "asc" | "desc"): string {
   if (sortExpiry === "asc") return "expiry_date";
   if (sortExpiry === "desc") return "-expiry_date";
   return "";
@@ -439,7 +518,12 @@ async function fetchPersonnelCompliancePagedAll(
         headers: { Accept: "application/json" },
       });
       const root = (res.data ?? {}) as Record<string, unknown>;
-      const { items, pages, total, limit: pageLimit } = extractPagedItemsAndMeta(root);
+      const {
+        items,
+        pages,
+        total,
+        limit: pageLimit,
+      } = extractPagedItemsAndMeta(root);
 
       if (items.length === 0) break;
 

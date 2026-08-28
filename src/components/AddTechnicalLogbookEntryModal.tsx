@@ -1,6 +1,5 @@
 import {
   X,
-  Upload,
   Plus,
   Trash2,
   ChevronDown,
@@ -15,6 +14,8 @@ import {
   useRef,
   useMemo,
   type ChangeEvent,
+  type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
@@ -40,7 +41,6 @@ import {
   hasTsnValue,
   parseAtlAssigneeIdForApi,
   isAtlEmptyAssigneeValue,
-  UNASSIGNED_PERSON_NAME_LABEL,
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
@@ -61,6 +61,7 @@ import {
 } from "../utility/utils";
 import { getNatureOfFlightDescriptionByNature } from "../api/natureOfFlightDescriptionsApi";
 import { DateInput } from "./ui/DateInput";
+import { FileDropzone } from "./ui/FileDropzone";
 import {
   getMissingAircraftFieldsForNewAtlWhenNoPrevious,
   buildAircraftDetailsRequiredForAtlHtml,
@@ -134,6 +135,22 @@ function formatAtlLifeLimitFromPrevious(value: unknown): string {
   return Number.isFinite(n) ? String(n) : "";
 }
 
+/**
+ * Fuel Qty. (Gals) keyboard order: Left then Right per row, then Oil Qty. Uplift.
+ * Enter advances to the next field and must not submit the form.
+ */
+function handleFuelQtyKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+  const form = event.currentTarget.form;
+  if (!form) return;
+  const next = form.querySelector<HTMLElement>(
+    `[tabindex="${event.currentTarget.tabIndex + 1}"]`
+  );
+  next?.focus();
+}
+
 function getPrevTimesFromLatestAtl(latestEntry: AircraftTechnicalLog | null): {
   airframePrevTime: string;
   enginePrevTime: string;
@@ -155,6 +172,19 @@ function getPrevTimesFromLatestAtl(latestEntry: AircraftTechnicalLog | null): {
       latestEntry.propellerTotalTime
     ),
   };
+}
+
+/**
+ * Modal title Sequence No. display, e.g. "ATL-001".
+ * If the value already has an ATL- prefix, it is kept as-is.
+ */
+function formatAtlSequenceNoForModalTitle(
+  sequenceNo: string | number | null | undefined
+): string {
+  const raw = String(sequenceNo ?? "").trim();
+  if (!raw) return "";
+  if (/^ATL-/i.test(raw)) return raw;
+  return `ATL-${raw}`;
 }
 
 /**
@@ -236,7 +266,7 @@ function inspectionDueFieldsFromPreviousAtl(
 /**
  * Create-only: Pilot's Acceptance Name and Pilot Remarks Name (pilotAcceptedBy)
  * from the previous/latest ATL (highest numeric sequenceNo for aircraft + batch).
- * Empty/"No Selected Name" when missing / invalid. Edit must not use this.
+ * Empty string when missing / invalid. Edit must not use this.
  */
 function pilotAcceptedByFromPreviousAtl(
   previousAtl: AircraftTechnicalLog | null
@@ -263,8 +293,8 @@ function atlAssigneeIdToFormValue(
   return id != null ? String(id) : "";
 }
 
-/** Closed-select display label when pilotAcceptedBy / rtsSignedBy has no assignee. */
-const ATL_ASSIGNEE_NONE_LABEL = UNASSIGNED_PERSON_NAME_LABEL;
+/** Closed-select display when no person is assigned — blank, never None/null/"No Selected Name". */
+const ATL_ASSIGNEE_NONE_LABEL = "";
 
 function isAtlAssigneeNoneSelected(
   accountId: string | undefined | null,
@@ -275,12 +305,188 @@ function isAtlAssigneeNoneSelected(
   return isAtlEmptyAssigneeValue(displayName);
 }
 
+function atlAssigneeClosedDisplay(
+  displayName: string | undefined | null
+): string {
+  if (isAtlEmptyAssigneeValue(displayName)) return ATL_ASSIGNEE_NONE_LABEL;
+  return String(displayName).trim();
+}
+
 function shouldShowAtlAssigneeNoneOption(searchTerm: string): boolean {
-  const q = searchTerm.trim().toLowerCase();
-  if (!q) return true;
+  return searchTerm.trim() === "";
+}
+
+const ATL_NAME_DROPDOWN_NONE_ID = "__none__";
+
+function buildAtlNameDropdownOptionIds(
+  searchTerm: string,
+  accountIds: string[]
+): string[] {
+  const ids: string[] = [];
+  if (shouldShowAtlAssigneeNoneOption(searchTerm)) {
+    ids.push(ATL_NAME_DROPDOWN_NONE_ID);
+  }
+  ids.push(...accountIds);
+  return ids;
+}
+
+function getAtlNameDropdownHighlightIndex(
+  optionIds: readonly string[],
+  selectedId: string
+): number {
+  if (optionIds.length === 0) return 0;
+  const selectedIndex = optionIds.findIndex((id) => id === selectedId);
+  return selectedIndex >= 0 ? selectedIndex : 0;
+}
+
+function atlNameDropdownOptionClassName(
+  highlighted: boolean,
+  selected: boolean
+): string {
+  return `px-4 py-2 cursor-pointer transition-colors flex items-center justify-between ${
+    highlighted ? "bg-blue-100" : selected ? "bg-blue-50" : ""
+  }`;
+}
+
+function focusAtlNameDropdownInput(container: HTMLDivElement | null) {
+  container?.querySelector("input")?.focus();
+}
+
+function scrollAtlNameOptionIntoView(el: HTMLElement | null) {
+  if (!el) return;
+  const container = el.closest(".overflow-auto") as HTMLElement | null;
+  if (!container) {
+    el.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  const elRect = el.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  if (elRect.bottom > containerRect.bottom) {
+    container.scrollTop += elRect.bottom - containerRect.bottom;
+  } else if (elRect.top < containerRect.top) {
+    container.scrollTop -= containerRect.top - elRect.top;
+  }
+}
+
+function AtlNameDropdownOption({
+  optionId,
+  highlighted,
+  selected,
+  onSelect,
+  onHighlight,
+  optionRef,
+  children,
+}: {
+  optionId: string;
+  highlighted: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onHighlight: () => void;
+  optionRef: (el: HTMLLIElement | null) => void;
+  children: ReactNode;
+}) {
   return (
-    ATL_ASSIGNEE_NONE_LABEL.toLowerCase().includes(q) || "none".includes(q)
+    <li
+      id={optionId}
+      ref={optionRef}
+      role="option"
+      aria-selected={selected}
+      onMouseDown={(event) => event.preventDefault()}
+      onMouseEnter={onHighlight}
+      onClick={onSelect}
+      className={atlNameDropdownOptionClassName(highlighted, selected)}
+    >
+      <span className="text-gray-900 text-sm">{children}</span>
+      {selected && <Check className="w-4 h-4 text-blue-600" />}
+    </li>
   );
+}
+
+function useAtlNameDropdownKeyboard({
+  isOpen,
+  optionIds,
+  selectedId,
+  onClose,
+  onSelectIndex,
+}: {
+  isOpen: boolean;
+  optionIds: readonly string[];
+  selectedId: string;
+  onClose: () => void;
+  onSelectIndex: (index: number) => void;
+}) {
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const highlightedIndexRef = useRef(0);
+  const optionRefs = useRef<Array<HTMLLIElement | null>>([]);
+  const optionIdsKey = optionIds.join("\0");
+  const optionIdsRef = useRef(optionIds);
+  const onCloseRef = useRef(onClose);
+  const onSelectIndexRef = useRef(onSelectIndex);
+  optionIdsRef.current = optionIds;
+  onCloseRef.current = onClose;
+  onSelectIndexRef.current = onSelectIndex;
+  highlightedIndexRef.current = highlightedIndex;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const nextIndex = getAtlNameDropdownHighlightIndex(
+      optionIdsRef.current,
+      selectedId
+    );
+    highlightedIndexRef.current = nextIndex;
+    setHighlightedIndex(nextIndex);
+  }, [isOpen, optionIdsKey, selectedId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    scrollAtlNameOptionIntoView(optionRefs.current[highlightedIndex]);
+  }, [highlightedIndex, isOpen, optionIdsKey]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (!isOpen || optionIdsRef.current.length === 0) return;
+      onSelectIndexRef.current(highlightedIndexRef.current);
+      return;
+    }
+    if (!isOpen) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (optionIdsRef.current.length === 0) return;
+      setHighlightedIndex((index) => {
+        const next = Math.min(index + 1, optionIdsRef.current.length - 1);
+        highlightedIndexRef.current = next;
+        return next;
+      });
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (optionIdsRef.current.length === 0) return;
+      setHighlightedIndex((index) => {
+        const next = Math.max(index - 1, 0);
+        highlightedIndexRef.current = next;
+        return next;
+      });
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onCloseRef.current();
+    }
+  };
+
+  const getOptionRef = (index: number) => (el: HTMLLIElement | null) => {
+    optionRefs.current[index] = el;
+  };
+
+  const setHighlightedIndexSafe = (index: number) => {
+    highlightedIndexRef.current = index;
+    setHighlightedIndex(index);
+  };
+
+  return {
+    highlightedIndex,
+    setHighlightedIndex: setHighlightedIndexSafe,
+    handleKeyDown,
+    getOptionRef,
+  };
 }
 
 /** Numeric sequence for previous-seq checks (e.g. "0126" → 126). */
@@ -1951,6 +2157,8 @@ export function AddTechnicalLogbookEntryModal({
   // File upload states
   const [whiteAtlFileName, setWhiteAtlFileName] = useState("");
   const [dfpFileName, setDfpFileName] = useState("");
+  const [whiteAtlFileError, setWhiteAtlFileError] = useState("");
+  const [dfpFileError, setDfpFileError] = useState("");
 
   // File view modal (View button for White ATL / DFP when editEntry has existing file)
   const [showFileViewModal, setShowFileViewModal] = useState(false);
@@ -1990,6 +2198,9 @@ export function AddTechnicalLogbookEntryModal({
   useEffect(() => {
     if (isOpen) {
       fetchAircrafts();
+    } else {
+      setWhiteAtlFileError("");
+      setDfpFileError("");
     }
   }, [isOpen]);
 
@@ -2932,13 +3143,13 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller,
             // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
             ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-            // Create: inherit pilotAcceptedBy from latest ATL; empty → "No Selected Name" (null on save)
+            // Create: inherit pilotAcceptedBy from latest ATL; empty → blank (null on save)
             pilotFk: pilotAcceptedByFromPrevious,
             pilotName: "",
             // Create: Pilot Remarks Name ← previous ATL pilot_accepted_by (editable; blank if missing)
             remarksPerson: pilotAcceptedByFromPrevious,
             remarksPersonName: "",
-            // RTS Name stays unassigned ("No Selected Name") by default on create
+            // RTS Name stays unassigned (blank) by default on create
             rtsSignedBy: "",
             rtsName: "",
           };
@@ -3559,7 +3770,7 @@ export function AddTechnicalLogbookEntryModal({
     setIsRemarksDropdownOpen(false);
   };
 
-  /** Select "No Selected Name" → clear remarks person; API sends null. */
+  /** Select blank → clear remarks person; API sends null. */
   const handleRemarksPersonSelectNone = () => {
     setFormData((prev) => ({
       ...prev,
@@ -3584,7 +3795,7 @@ export function AddTechnicalLogbookEntryModal({
     setIsActionsTakenDropdownOpen(false);
   };
 
-  /** Select "No Selected Name" → clear actions-taken person; API sends null. */
+  /** Select blank → clear actions-taken person; API sends null. */
   const handleActionsTakenPersonSelectNone = () => {
     setFormData((prev) => ({
       ...prev,
@@ -3595,7 +3806,7 @@ export function AddTechnicalLogbookEntryModal({
     setIsActionsTakenDropdownOpen(false);
   };
 
-  // Get selected account display value ("No Selected Name" when unassigned)
+  // Get selected account display value (blank when unassigned)
   const getSelectedRemarksPerson = () => {
     if (
       isAtlAssigneeNoneSelected(
@@ -3606,13 +3817,15 @@ export function AddTechnicalLogbookEntryModal({
       return ATL_ASSIGNEE_NONE_LABEL;
     }
     if (formData.remarksPersonName?.trim()) {
-      return formData.remarksPersonName.trim();
+      return atlAssigneeClosedDisplay(formData.remarksPersonName);
     }
     const account = remarksAccounts.find(
       (acc) => acc.id.toString() === formData.remarksPerson
     );
     return account
-      ? formatAccountNameLicense(account.fullName, account.licenseNo)
+      ? atlAssigneeClosedDisplay(
+          formatAccountNameLicense(account.fullName, account.licenseNo)
+        )
       : ATL_ASSIGNEE_NONE_LABEL;
   };
 
@@ -3626,13 +3839,15 @@ export function AddTechnicalLogbookEntryModal({
       return ATL_ASSIGNEE_NONE_LABEL;
     }
     if (formData.actionsTakenPersonName?.trim()) {
-      return formData.actionsTakenPersonName.trim();
+      return atlAssigneeClosedDisplay(formData.actionsTakenPersonName);
     }
     const account = actionsTakenAccounts.find(
       (acc) => acc.id.toString() === formData.actionsTakenPerson
     );
     return account
-      ? formatAccountNameLicense(account.fullName, account.licenseNo)
+      ? atlAssigneeClosedDisplay(
+          formatAccountNameLicense(account.fullName, account.licenseNo)
+        )
       : ATL_ASSIGNEE_NONE_LABEL;
   };
 
@@ -3647,7 +3862,7 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  /** Select "No Selected Name" → clear assignee; API sends null for pilotAcceptedBy. */
+  /** Select blank → clear assignee; API sends null for pilotAcceptedBy. */
   const handlePilotSelectNone = () => {
     setFormData((prev) => ({ ...prev, pilotFk: "", pilotName: "" }));
     setPilotSearchTerm("");
@@ -3657,18 +3872,22 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Get selected pilot display value ("No Selected Name" when unassigned)
+  // Get selected pilot display value (blank when unassigned)
   const getSelectedPilot = () => {
     if (isAtlAssigneeNoneSelected(formData.pilotFk, formData.pilotName)) {
       return ATL_ASSIGNEE_NONE_LABEL;
     }
-    if (formData.pilotName?.trim()) return formData.pilotName.trim();
+    if (formData.pilotName?.trim()) {
+      return atlAssigneeClosedDisplay(formData.pilotName);
+    }
     if (formData.pilotFk && pilotAccounts.length > 0) {
       const account = pilotAccounts.find(
         (acc) => acc.id.toString() === formData.pilotFk
       );
       if (account)
-        return formatAccountNameLicense(account.fullName, account.licenseNo);
+        return atlAssigneeClosedDisplay(
+          formatAccountNameLicense(account.fullName, account.licenseNo)
+        );
     }
     return ATL_ASSIGNEE_NONE_LABEL;
   };
@@ -3691,7 +3910,7 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  /** Select "No Selected Name" → clear assignee; API sends null for rtsSignedBy. */
+  /** Select blank → clear assignee; API sends null for rtsSignedBy. */
   const handleRtsSelectNone = () => {
     setFormData((prev) => ({ ...prev, rtsSignedBy: "", rtsName: "" }));
     setRtsSearchTerm("");
@@ -3701,18 +3920,22 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  // Get selected RTS display value ("No Selected Name" when unassigned)
+  // Get selected RTS display value (blank when unassigned)
   const getSelectedRts = () => {
     if (isAtlAssigneeNoneSelected(formData.rtsSignedBy, formData.rtsName)) {
       return ATL_ASSIGNEE_NONE_LABEL;
     }
-    if (formData.rtsName?.trim()) return formData.rtsName.trim();
+    if (formData.rtsName?.trim()) {
+      return atlAssigneeClosedDisplay(formData.rtsName);
+    }
     if (formData.rtsSignedBy && rtsAccounts.length > 0) {
       const account = rtsAccounts.find(
         (acc) => acc.id.toString() === formData.rtsSignedBy
       );
       if (account)
-        return formatAccountNameLicense(account.fullName, account.licenseNo);
+        return atlAssigneeClosedDisplay(
+          formatAccountNameLicense(account.fullName, account.licenseNo)
+        );
     }
     return ATL_ASSIGNEE_NONE_LABEL;
   };
@@ -3723,6 +3946,141 @@ export function AddTechnicalLogbookEntryModal({
       .toLowerCase()
       .includes(rtsSearchTerm.toLowerCase())
   );
+
+  const filteredRemarksAccounts = remarksAccounts.filter((account) =>
+    formatAccountNameLicense(account.fullName, account.licenseNo)
+      .toLowerCase()
+      .includes(remarksSearchTerm.toLowerCase())
+  );
+  const remarksOptionIds = buildAtlNameDropdownOptionIds(
+    remarksSearchTerm,
+    filteredRemarksAccounts.map((account) => account.id.toString())
+  );
+  const remarksNav = useAtlNameDropdownKeyboard({
+    isOpen: isRemarksDropdownOpen,
+    optionIds: remarksOptionIds,
+    selectedId: isAtlAssigneeNoneSelected(
+      formData.remarksPerson,
+      formData.remarksPersonName
+    )
+      ? ATL_NAME_DROPDOWN_NONE_ID
+      : formData.remarksPerson,
+    onClose: () => setIsRemarksDropdownOpen(false),
+    onSelectIndex: (index) => {
+      const id = remarksOptionIds[index];
+      if (!id) return;
+      if (id === ATL_NAME_DROPDOWN_NONE_ID) {
+        handleRemarksPersonSelectNone();
+        return;
+      }
+      const account = filteredRemarksAccounts.find(
+        (item) => item.id.toString() === id
+      );
+      if (!account) return;
+      handleRemarksPersonSelect(
+        id,
+        formatAccountNameLicense(account.fullName, account.licenseNo)
+      );
+    },
+  });
+
+  const filteredActionsTakenAccounts = actionsTakenAccounts.filter((account) =>
+    formatAccountNameLicense(account.fullName, account.licenseNo)
+      .toLowerCase()
+      .includes(actionsTakenSearchTerm.toLowerCase())
+  );
+  const actionsTakenOptionIds = buildAtlNameDropdownOptionIds(
+    actionsTakenSearchTerm,
+    filteredActionsTakenAccounts.map((account) => account.id.toString())
+  );
+  const actionsTakenNav = useAtlNameDropdownKeyboard({
+    isOpen: isActionsTakenDropdownOpen,
+    optionIds: actionsTakenOptionIds,
+    selectedId: isAtlAssigneeNoneSelected(
+      formData.actionsTakenPerson,
+      formData.actionsTakenPersonName
+    )
+      ? ATL_NAME_DROPDOWN_NONE_ID
+      : formData.actionsTakenPerson,
+    onClose: () => setIsActionsTakenDropdownOpen(false),
+    onSelectIndex: (index) => {
+      const id = actionsTakenOptionIds[index];
+      if (!id) return;
+      if (id === ATL_NAME_DROPDOWN_NONE_ID) {
+        handleActionsTakenPersonSelectNone();
+        return;
+      }
+      const account = filteredActionsTakenAccounts.find(
+        (item) => item.id.toString() === id
+      );
+      if (!account) return;
+      handleActionsTakenPersonSelect(
+        id,
+        formatAccountNameLicense(account.fullName, account.licenseNo)
+      );
+    },
+  });
+
+  const pilotOptionIds = buildAtlNameDropdownOptionIds(
+    pilotSearchTerm,
+    filteredPilotAccounts.map((account) => account.id.toString())
+  );
+  const pilotNav = useAtlNameDropdownKeyboard({
+    isOpen: isPilotDropdownOpen,
+    optionIds: pilotOptionIds,
+    selectedId: isAtlAssigneeNoneSelected(formData.pilotFk, formData.pilotName)
+      ? ATL_NAME_DROPDOWN_NONE_ID
+      : formData.pilotFk,
+    onClose: () => setIsPilotDropdownOpen(false),
+    onSelectIndex: (index) => {
+      const id = pilotOptionIds[index];
+      if (!id) return;
+      if (id === ATL_NAME_DROPDOWN_NONE_ID) {
+        handlePilotSelectNone();
+        return;
+      }
+      const account = filteredPilotAccounts.find(
+        (item) => item.id.toString() === id
+      );
+      if (!account) return;
+      handlePilotSelect(
+        id,
+        formatAccountNameLicense(account.fullName, account.licenseNo)
+      );
+    },
+  });
+
+  const rtsOptionIds = buildAtlNameDropdownOptionIds(
+    rtsSearchTerm,
+    filteredRtsAccounts.map((account) => account.id.toString())
+  );
+  const rtsNav = useAtlNameDropdownKeyboard({
+    isOpen: isRtsDropdownOpen,
+    optionIds: rtsOptionIds,
+    selectedId: isAtlAssigneeNoneSelected(
+      formData.rtsSignedBy,
+      formData.rtsName
+    )
+      ? ATL_NAME_DROPDOWN_NONE_ID
+      : formData.rtsSignedBy,
+    onClose: () => setIsRtsDropdownOpen(false),
+    onSelectIndex: (index) => {
+      const id = rtsOptionIds[index];
+      if (!id) return;
+      if (id === ATL_NAME_DROPDOWN_NONE_ID) {
+        handleRtsSelectNone();
+        return;
+      }
+      const account = filteredRtsAccounts.find(
+        (item) => item.id.toString() === id
+      );
+      if (!account) return;
+      handleRtsSelect(
+        id,
+        formatAccountNameLicense(account.fullName, account.licenseNo)
+      );
+    },
+  });
 
   // Format time input to HH:MM format
   const formatTimeInput = (value: string): string => {
@@ -4725,6 +5083,8 @@ export function AddTechnicalLogbookEntryModal({
         setSelectedAircraftId(null);
         setWhiteAtlFileName("");
         setDfpFileName("");
+        setWhiteAtlFileError("");
+        setDfpFileError("");
         setValidationErrors({});
 
         onClose();
@@ -4761,8 +5121,10 @@ export function AddTechnicalLogbookEntryModal({
     });
     if (field === "whiteAtl") {
       setWhiteAtlFileName(file ? file.name : "");
+      setWhiteAtlFileError("");
     } else if (field === "dfp") {
       setDfpFileName(file ? file.name : "");
+      setDfpFileError("");
     }
   };
 
@@ -4771,8 +5133,10 @@ export function AddTechnicalLogbookEntryModal({
     setFormData((prev) => ({ ...prev, [field]: null }));
     if (field === "whiteAtl") {
       setWhiteAtlFileName("");
+      setWhiteAtlFileError("");
     } else if (field === "dfp") {
       setDfpFileName("");
+      setDfpFileError("");
     }
   };
 
@@ -4866,22 +5230,6 @@ export function AddTechnicalLogbookEntryModal({
   );
   const existingDfpFilePath = getAtlStoredUploadFilePath(editEntry?.dfp);
 
-  const whiteAtlUploadLabel = (() => {
-    if (whiteAtlFileName) return formatShortDisplayFileName(whiteAtlFileName);
-    if (existingWhiteAtlFilePath) {
-      return formatShortDisplayFileName(existingWhiteAtlFilePath);
-    }
-    return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
-  })();
-
-  const dfpUploadLabel = (() => {
-    if (dfpFileName) return formatShortDisplayFileName(dfpFileName);
-    if (existingDfpFilePath) {
-      return formatShortDisplayFileName(existingDfpFilePath);
-    }
-    return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
-  })();
-
   const closeFileViewModal = () => {
     if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
     setShowFileViewModal(false);
@@ -4923,6 +5271,16 @@ export function AddTechnicalLogbookEntryModal({
     );
   };
 
+  const modalActionTitle = editEntry
+    ? atlFormReadOnly
+      ? "View Entry"
+      : "Edit Entry"
+    : "Add New Entry";
+  const modalSeqTitle = formatAtlSequenceNoForModalTitle(formData.seqNo);
+  const modalTitle = modalSeqTitle
+    ? `${modalActionTitle} – ${modalSeqTitle}`
+    : modalActionTitle;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Overlay with blur */}
@@ -4956,13 +5314,7 @@ export function AddTechnicalLogbookEntryModal({
         )}
         {/* Header */}
         <div className="relative z-[60] flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {editEntry
-              ? atlFormReadOnly
-                ? "View Entry"
-                : "Edit Entry"
-              : "Add New Entry"}
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900">{modalTitle}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -5711,13 +6063,14 @@ export function AddTechnicalLogbookEntryModal({
                               fuelQtyLeftUpliftQty: e.target.value,
                             })
                           }
+                          onKeyDown={handleFuelQtyKeyDown}
                           className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
                       <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          tabIndex={4}
+                          tabIndex={2}
                           value={formData.fuelQtyRightUpliftQty}
                           onChange={(e) =>
                             setFormData({
@@ -5725,6 +6078,7 @@ export function AddTechnicalLogbookEntryModal({
                               fuelQtyRightUpliftQty: e.target.value,
                             })
                           }
+                          onKeyDown={handleFuelQtyKeyDown}
                           className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
@@ -5778,7 +6132,7 @@ export function AddTechnicalLogbookEntryModal({
                       <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          tabIndex={2}
+                          tabIndex={3}
                           value={formData.fuelQtyLeftPriorDeparture}
                           onChange={(e) =>
                             setFormData({
@@ -5786,13 +6140,14 @@ export function AddTechnicalLogbookEntryModal({
                               fuelQtyLeftPriorDeparture: e.target.value,
                             })
                           }
+                          onKeyDown={handleFuelQtyKeyDown}
                           className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
                       <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          tabIndex={5}
+                          tabIndex={4}
                           value={formData.fuelQtyRightPriorDeparture}
                           onChange={(e) =>
                             setFormData({
@@ -5800,6 +6155,7 @@ export function AddTechnicalLogbookEntryModal({
                               fuelQtyRightPriorDeparture: e.target.value,
                             })
                           }
+                          onKeyDown={handleFuelQtyKeyDown}
                           className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
@@ -5814,7 +6170,7 @@ export function AddTechnicalLogbookEntryModal({
                       <td className="px-3 py-2 border-r border-gray-300">
                         <input
                           type="text"
-                          tabIndex={3}
+                          tabIndex={5}
                           value={formData.fuelQtyLeftAfterOnBlks}
                           onChange={(e) =>
                             setFormData({
@@ -5822,6 +6178,7 @@ export function AddTechnicalLogbookEntryModal({
                               fuelQtyLeftAfterOnBlks: e.target.value,
                             })
                           }
+                          onKeyDown={handleFuelQtyKeyDown}
                           className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
@@ -5836,6 +6193,7 @@ export function AddTechnicalLogbookEntryModal({
                               fuelQtyRightAfterOnBlks: e.target.value,
                             })
                           }
+                          onKeyDown={handleFuelQtyKeyDown}
                           className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </td>
@@ -5956,14 +6314,30 @@ export function AddTechnicalLogbookEntryModal({
                             setRemarksSearchTerm("");
                           }
                         }}
+                        onKeyDown={remarksNav.handleKeyDown}
+                        autoComplete="off"
+                        role="combobox"
+                        aria-expanded={isRemarksDropdownOpen}
+                        aria-controls="atl-name-remarks-list"
+                        aria-activedescendant={
+                          isRemarksDropdownOpen && remarksOptionIds.length > 0
+                            ? `atl-name-remarks-${remarksNav.highlightedIndex}`
+                            : undefined
+                        }
                         className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         placeholder="Search name..."
                       />
                       <button
                         type="button"
-                        onClick={() =>
-                          setIsRemarksDropdownOpen(!isRemarksDropdownOpen)
-                        }
+                        onClick={() => {
+                          const next = !isRemarksDropdownOpen;
+                          setIsRemarksDropdownOpen(next);
+                          if (next) {
+                            focusAtlNameDropdownInput(
+                              remarksDropdownRef.current
+                            );
+                          }
+                        }}
                         className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
                       >
                         <ChevronDown
@@ -5981,33 +6355,27 @@ export function AddTechnicalLogbookEntryModal({
                             Loading...
                           </div>
                         ) : (
-                          <ul className="py-1">
+                          <ul id="atl-name-remarks-list" className="py-1" role="listbox">
                             {shouldShowAtlAssigneeNoneOption(
                               remarksSearchTerm
                             ) && (
-                              <li
-                                onClick={handleRemarksPersonSelectNone}
-                                className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                  isAtlAssigneeNoneSelected(
-                                    formData.remarksPerson,
-                                    formData.remarksPersonName
-                                  )
-                                    ? "bg-blue-50"
-                                    : ""
-                                }`}
-                              >
-                                <span className="text-gray-900 text-sm">
-                                  {ATL_ASSIGNEE_NONE_LABEL}
-                                </span>
-                                {isAtlAssigneeNoneSelected(
+                              <AtlNameDropdownOption
+                                optionId="atl-name-remarks-0"
+                                highlighted={remarksNav.highlightedIndex === 0}
+                                selected={isAtlAssigneeNoneSelected(
                                   formData.remarksPerson,
                                   formData.remarksPersonName
-                                ) && (
-                                  <Check className="w-4 h-4 text-blue-600" />
                                 )}
-                              </li>
+                                onSelect={handleRemarksPersonSelectNone}
+                                onHighlight={() =>
+                                  remarksNav.setHighlightedIndex(0)
+                                }
+                                optionRef={remarksNav.getOptionRef(0)}
+                              >
+                                {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                              </AtlNameDropdownOption>
                             )}
-                            {remarksAccounts.length === 0 &&
+                            {filteredRemarksAccounts.length === 0 &&
                             !shouldShowAtlAssigneeNoneOption(
                               remarksSearchTerm
                             ) ? (
@@ -6017,21 +6385,26 @@ export function AddTechnicalLogbookEntryModal({
                                   : "No accounts available"}
                               </li>
                             ) : (
-                              remarksAccounts
-                                .filter((account) =>
-                                  formatAccountNameLicense(
-                                    account.fullName,
-                                    account.licenseNo
+                              filteredRemarksAccounts.map((account, index) => {
+                                const optionIndex =
+                                  (shouldShowAtlAssigneeNoneOption(
+                                    remarksSearchTerm
                                   )
-                                    .toLowerCase()
-                                    .includes(
-                                      remarksSearchTerm.toLowerCase()
-                                    )
-                                )
-                                .map((account) => (
-                                  <li
+                                    ? 1
+                                    : 0) + index;
+                                return (
+                                  <AtlNameDropdownOption
                                     key={account.id}
-                                    onClick={() =>
+                                    optionId={`atl-name-remarks-${optionIndex}`}
+                                    highlighted={
+                                      remarksNav.highlightedIndex ===
+                                      optionIndex
+                                    }
+                                    selected={
+                                      formData.remarksPerson ===
+                                      account.id.toString()
+                                    }
+                                    onSelect={() =>
                                       handleRemarksPersonSelect(
                                         account.id.toString(),
                                         formatAccountNameLicense(
@@ -6040,25 +6413,22 @@ export function AddTechnicalLogbookEntryModal({
                                         )
                                       )
                                     }
-                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      formData.remarksPerson ===
-                                      account.id.toString()
-                                        ? "bg-blue-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <span className="text-gray-900 text-sm">
-                                      {formatAccountNameLicense(
-                                        account.fullName,
-                                        account.licenseNo
-                                      )}
-                                    </span>
-                                    {formData.remarksPerson ===
-                                      account.id.toString() && (
-                                      <Check className="w-4 h-4 text-blue-600" />
+                                    onHighlight={() =>
+                                      remarksNav.setHighlightedIndex(
+                                        optionIndex
+                                      )
+                                    }
+                                    optionRef={remarksNav.getOptionRef(
+                                      optionIndex
                                     )}
-                                  </li>
-                                ))
+                                  >
+                                    {formatAccountNameLicense(
+                                      account.fullName,
+                                      account.licenseNo
+                                    )}
+                                  </AtlNameDropdownOption>
+                                );
+                              })
                             )}
                           </ul>
                         )}
@@ -6117,16 +6487,31 @@ export function AddTechnicalLogbookEntryModal({
                               setActionsTakenSearchTerm("");
                             }
                           }}
+                          onKeyDown={actionsTakenNav.handleKeyDown}
+                          autoComplete="off"
+                          role="combobox"
+                          aria-expanded={isActionsTakenDropdownOpen}
+                          aria-controls="atl-name-actions-taken-list"
+                          aria-activedescendant={
+                            isActionsTakenDropdownOpen &&
+                            actionsTakenOptionIds.length > 0
+                              ? `atl-name-actions-taken-${actionsTakenNav.highlightedIndex}`
+                              : undefined
+                          }
                           className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                           placeholder="Search name..."
                         />
                         <button
                           type="button"
-                          onClick={() =>
-                            setIsActionsTakenDropdownOpen(
-                              !isActionsTakenDropdownOpen
-                            )
-                          }
+                          onClick={() => {
+                            const next = !isActionsTakenDropdownOpen;
+                            setIsActionsTakenDropdownOpen(next);
+                            if (next) {
+                              focusAtlNameDropdownInput(
+                                actionsTakenDropdownRef.current
+                              );
+                            }
+                          }}
                           className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
                         >
                           <ChevronDown
@@ -6144,33 +6529,33 @@ export function AddTechnicalLogbookEntryModal({
                               Loading...
                             </div>
                           ) : (
-                            <ul className="py-1">
+                            <ul
+                              id="atl-name-actions-taken-list"
+                              className="py-1"
+                              role="listbox"
+                            >
                               {shouldShowAtlAssigneeNoneOption(
                                 actionsTakenSearchTerm
                               ) && (
-                                <li
-                                  onClick={handleActionsTakenPersonSelectNone}
-                                  className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                    isAtlAssigneeNoneSelected(
-                                      formData.actionsTakenPerson,
-                                      formData.actionsTakenPersonName
-                                    )
-                                      ? "bg-blue-50"
-                                      : ""
-                                  }`}
-                                >
-                                  <span className="text-gray-900 text-sm">
-                                    {ATL_ASSIGNEE_NONE_LABEL}
-                                  </span>
-                                  {isAtlAssigneeNoneSelected(
+                                <AtlNameDropdownOption
+                                  optionId="atl-name-actions-taken-0"
+                                  highlighted={
+                                    actionsTakenNav.highlightedIndex === 0
+                                  }
+                                  selected={isAtlAssigneeNoneSelected(
                                     formData.actionsTakenPerson,
                                     formData.actionsTakenPersonName
-                                  ) && (
-                                    <Check className="w-4 h-4 text-blue-600" />
                                   )}
-                                </li>
+                                  onSelect={handleActionsTakenPersonSelectNone}
+                                  onHighlight={() =>
+                                    actionsTakenNav.setHighlightedIndex(0)
+                                  }
+                                  optionRef={actionsTakenNav.getOptionRef(0)}
+                                >
+                                  {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                                </AtlNameDropdownOption>
                               )}
-                              {actionsTakenAccounts.length === 0 &&
+                              {filteredActionsTakenAccounts.length === 0 &&
                               !shouldShowAtlAssigneeNoneOption(
                                 actionsTakenSearchTerm
                               ) ? (
@@ -6180,48 +6565,52 @@ export function AddTechnicalLogbookEntryModal({
                                     : "No accounts available"}
                                 </li>
                               ) : (
-                                actionsTakenAccounts
-                                  .filter((account) =>
-                                    formatAccountNameLicense(
-                                      account.fullName,
-                                      account.licenseNo
-                                    )
-                                      .toLowerCase()
-                                      .includes(
-                                        actionsTakenSearchTerm.toLowerCase()
+                                filteredActionsTakenAccounts.map(
+                                  (account, index) => {
+                                    const optionIndex =
+                                      (shouldShowAtlAssigneeNoneOption(
+                                        actionsTakenSearchTerm
                                       )
-                                  )
-                                  .map((account) => (
-                                    <li
-                                      key={account.id}
-                                      onClick={() =>
-                                        handleActionsTakenPersonSelect(
-                                          account.id.toString(),
-                                          formatAccountNameLicense(
-                                            account.fullName,
-                                            account.licenseNo
+                                        ? 1
+                                        : 0) + index;
+                                    return (
+                                      <AtlNameDropdownOption
+                                        key={account.id}
+                                        optionId={`atl-name-actions-taken-${optionIndex}`}
+                                        highlighted={
+                                          actionsTakenNav.highlightedIndex ===
+                                          optionIndex
+                                        }
+                                        selected={
+                                          formData.actionsTakenPerson ===
+                                          account.id.toString()
+                                        }
+                                        onSelect={() =>
+                                          handleActionsTakenPersonSelect(
+                                            account.id.toString(),
+                                            formatAccountNameLicense(
+                                              account.fullName,
+                                              account.licenseNo
+                                            )
                                           )
-                                        )
-                                      }
-                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                        formData.actionsTakenPerson ===
-                                        account.id.toString()
-                                          ? "bg-blue-50"
-                                          : ""
-                                      }`}
-                                    >
-                                      <span className="text-gray-900 text-sm">
+                                        }
+                                        onHighlight={() =>
+                                          actionsTakenNav.setHighlightedIndex(
+                                            optionIndex
+                                          )
+                                        }
+                                        optionRef={actionsTakenNav.getOptionRef(
+                                          optionIndex
+                                        )}
+                                      >
                                         {formatAccountNameLicense(
                                           account.fullName,
                                           account.licenseNo
                                         )}
-                                      </span>
-                                      {formData.actionsTakenPerson ===
-                                        account.id.toString() && (
-                                        <Check className="w-4 h-4 text-blue-600" />
-                                      )}
-                                    </li>
-                                  ))
+                                      </AtlNameDropdownOption>
+                                    );
+                                  }
+                                )
                               )}
                             </ul>
                           )}
@@ -6878,6 +7267,16 @@ export function AddTechnicalLogbookEntryModal({
                                 fetchRtsAccounts("");
                               }
                             }}
+                            onKeyDown={rtsNav.handleKeyDown}
+                            autoComplete="off"
+                            role="combobox"
+                            aria-expanded={isRtsDropdownOpen}
+                            aria-controls="atl-name-rts-list"
+                            aria-activedescendant={
+                              isRtsDropdownOpen && rtsOptionIds.length > 0
+                                ? `atl-name-rts-${rtsNav.highlightedIndex}`
+                                : undefined
+                            }
                             className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
                               validationErrors.rtsSignedBy
                                 ? "border-red-500 focus:ring-red-400 focus:border-red-400"
@@ -6888,13 +7287,16 @@ export function AddTechnicalLogbookEntryModal({
                           <button
                             type="button"
                             onClick={() => {
-                              setIsRtsDropdownOpen(!isRtsDropdownOpen);
+                              const next = !isRtsDropdownOpen;
+                              setIsRtsDropdownOpen(next);
                               // Fetch accounts if opening and not already loaded
-                              if (
-                                !isRtsDropdownOpen &&
-                                rtsAccounts.length === 0
-                              ) {
+                              if (next && rtsAccounts.length === 0) {
                                 fetchRtsAccounts("");
+                              }
+                              if (next) {
+                                focusAtlNameDropdownInput(
+                                  rtsDropdownRef.current
+                                );
                               }
                             }}
                             className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
@@ -6914,31 +7316,25 @@ export function AddTechnicalLogbookEntryModal({
                                 Loading...
                               </div>
                             ) : (
-                              <ul className="py-1">
+                              <ul id="atl-name-rts-list" className="py-1" role="listbox">
                                 {shouldShowAtlAssigneeNoneOption(
                                   rtsSearchTerm
                                 ) && (
-                                  <li
-                                    onClick={handleRtsSelectNone}
-                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      isAtlAssigneeNoneSelected(
-                                        formData.rtsSignedBy,
-                                        formData.rtsName
-                                      )
-                                        ? "bg-blue-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <span className="text-gray-900 text-sm">
-                                      {ATL_ASSIGNEE_NONE_LABEL}
-                                    </span>
-                                    {isAtlAssigneeNoneSelected(
+                                  <AtlNameDropdownOption
+                                    optionId="atl-name-rts-0"
+                                    highlighted={rtsNav.highlightedIndex === 0}
+                                    selected={isAtlAssigneeNoneSelected(
                                       formData.rtsSignedBy,
                                       formData.rtsName
-                                    ) && (
-                                      <Check className="w-4 h-4 text-blue-600" />
                                     )}
-                                  </li>
+                                    onSelect={handleRtsSelectNone}
+                                    onHighlight={() =>
+                                      rtsNav.setHighlightedIndex(0)
+                                    }
+                                    optionRef={rtsNav.getOptionRef(0)}
+                                  >
+                                    {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                                  </AtlNameDropdownOption>
                                 )}
                                 {filteredRtsAccounts.length === 0 &&
                                 !shouldShowAtlAssigneeNoneOption(
@@ -6950,37 +7346,50 @@ export function AddTechnicalLogbookEntryModal({
                                       : "No accounts available"}
                                   </li>
                                 ) : (
-                                  filteredRtsAccounts.map((account) => (
-                                    <li
-                                      key={account.id}
-                                      onClick={() =>
-                                        handleRtsSelect(
-                                          account.id.toString(),
-                                          formatAccountNameLicense(
-                                            account.fullName,
-                                            account.licenseNo
+                                  filteredRtsAccounts.map((account, index) => {
+                                    const optionIndex =
+                                      (shouldShowAtlAssigneeNoneOption(
+                                        rtsSearchTerm
+                                      )
+                                        ? 1
+                                        : 0) + index;
+                                    return (
+                                      <AtlNameDropdownOption
+                                        key={account.id}
+                                        optionId={`atl-name-rts-${optionIndex}`}
+                                        highlighted={
+                                          rtsNav.highlightedIndex ===
+                                          optionIndex
+                                        }
+                                        selected={
+                                          formData.rtsSignedBy ===
+                                          account.id.toString()
+                                        }
+                                        onSelect={() =>
+                                          handleRtsSelect(
+                                            account.id.toString(),
+                                            formatAccountNameLicense(
+                                              account.fullName,
+                                              account.licenseNo
+                                            )
                                           )
-                                        )
-                                      }
-                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                        formData.rtsSignedBy ===
-                                        account.id.toString()
-                                          ? "bg-blue-50"
-                                          : ""
-                                      }`}
-                                    >
-                                      <span className="text-gray-900 text-sm">
+                                        }
+                                        onHighlight={() =>
+                                          rtsNav.setHighlightedIndex(
+                                            optionIndex
+                                          )
+                                        }
+                                        optionRef={rtsNav.getOptionRef(
+                                          optionIndex
+                                        )}
+                                      >
                                         {formatAccountNameLicense(
                                           account.fullName,
                                           account.licenseNo
                                         )}
-                                      </span>
-                                      {formData.rtsSignedBy ===
-                                        account.id.toString() && (
-                                        <Check className="w-4 h-4 text-blue-600" />
-                                      )}
-                                    </li>
-                                  ))
+                                      </AtlNameDropdownOption>
+                                    );
+                                  })
                                 )}
                               </ul>
                             )}
@@ -7083,6 +7492,16 @@ export function AddTechnicalLogbookEntryModal({
                                 fetchPilotAccounts("");
                               }
                             }}
+                            onKeyDown={pilotNav.handleKeyDown}
+                            autoComplete="off"
+                            role="combobox"
+                            aria-expanded={isPilotDropdownOpen}
+                            aria-controls="atl-name-pilot-list"
+                            aria-activedescendant={
+                              isPilotDropdownOpen && pilotOptionIds.length > 0
+                                ? `atl-name-pilot-${pilotNav.highlightedIndex}`
+                                : undefined
+                            }
                             className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
                               validationErrors.pilotFk
                                 ? "border-red-500 focus:ring-red-400 focus:border-red-400"
@@ -7093,13 +7512,16 @@ export function AddTechnicalLogbookEntryModal({
                           <button
                             type="button"
                             onClick={() => {
-                              setIsPilotDropdownOpen(!isPilotDropdownOpen);
+                              const next = !isPilotDropdownOpen;
+                              setIsPilotDropdownOpen(next);
                               // Fetch accounts if opening and not already loaded
-                              if (
-                                !isPilotDropdownOpen &&
-                                pilotAccounts.length === 0
-                              ) {
+                              if (next && pilotAccounts.length === 0) {
                                 fetchPilotAccounts("");
+                              }
+                              if (next) {
+                                focusAtlNameDropdownInput(
+                                  pilotDropdownRef.current
+                                );
                               }
                             }}
                             className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
@@ -7119,31 +7541,27 @@ export function AddTechnicalLogbookEntryModal({
                                 Loading pilots...
                               </div>
                             ) : (
-                              <ul className="py-1">
+                              <ul id="atl-name-pilot-list" className="py-1" role="listbox">
                                 {shouldShowAtlAssigneeNoneOption(
                                   pilotSearchTerm
                                 ) && (
-                                  <li
-                                    onClick={handlePilotSelectNone}
-                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      isAtlAssigneeNoneSelected(
-                                        formData.pilotFk,
-                                        formData.pilotName
-                                      )
-                                        ? "bg-blue-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <span className="text-gray-900 text-sm">
-                                      {ATL_ASSIGNEE_NONE_LABEL}
-                                    </span>
-                                    {isAtlAssigneeNoneSelected(
+                                  <AtlNameDropdownOption
+                                    optionId="atl-name-pilot-0"
+                                    highlighted={
+                                      pilotNav.highlightedIndex === 0
+                                    }
+                                    selected={isAtlAssigneeNoneSelected(
                                       formData.pilotFk,
                                       formData.pilotName
-                                    ) && (
-                                      <Check className="w-4 h-4 text-blue-600" />
                                     )}
-                                  </li>
+                                    onSelect={handlePilotSelectNone}
+                                    onHighlight={() =>
+                                      pilotNav.setHighlightedIndex(0)
+                                    }
+                                    optionRef={pilotNav.getOptionRef(0)}
+                                  >
+                                    {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                                  </AtlNameDropdownOption>
                                 )}
                                 {filteredPilotAccounts.length === 0 &&
                                 !shouldShowAtlAssigneeNoneOption(
@@ -7155,37 +7573,52 @@ export function AddTechnicalLogbookEntryModal({
                                       : "No pilots available"}
                                   </li>
                                 ) : (
-                                  filteredPilotAccounts.map((account) => (
-                                    <li
-                                      key={account.id}
-                                      onClick={() =>
-                                        handlePilotSelect(
-                                          account.id.toString(),
-                                          formatAccountNameLicense(
+                                  filteredPilotAccounts.map(
+                                    (account, index) => {
+                                      const optionIndex =
+                                        (shouldShowAtlAssigneeNoneOption(
+                                          pilotSearchTerm
+                                        )
+                                          ? 1
+                                          : 0) + index;
+                                      return (
+                                        <AtlNameDropdownOption
+                                          key={account.id}
+                                          optionId={`atl-name-pilot-${optionIndex}`}
+                                          highlighted={
+                                            pilotNav.highlightedIndex ===
+                                            optionIndex
+                                          }
+                                          selected={
+                                            formData.pilotFk ===
+                                            account.id.toString()
+                                          }
+                                          onSelect={() =>
+                                            handlePilotSelect(
+                                              account.id.toString(),
+                                              formatAccountNameLicense(
+                                                account.fullName,
+                                                account.licenseNo
+                                              )
+                                            )
+                                          }
+                                          onHighlight={() =>
+                                            pilotNav.setHighlightedIndex(
+                                              optionIndex
+                                            )
+                                          }
+                                          optionRef={pilotNav.getOptionRef(
+                                            optionIndex
+                                          )}
+                                        >
+                                          {formatAccountNameLicense(
                                             account.fullName,
                                             account.licenseNo
-                                          )
-                                        )
-                                      }
-                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                        formData.pilotFk ===
-                                        account.id.toString()
-                                          ? "bg-blue-50"
-                                          : ""
-                                      }`}
-                                    >
-                                      <span className="text-gray-900 text-sm">
-                                        {formatAccountNameLicense(
-                                          account.fullName,
-                                          account.licenseNo
-                                        )}
-                                      </span>
-                                      {formData.pilotFk ===
-                                        account.id.toString() && (
-                                        <Check className="w-4 h-4 text-blue-600" />
-                                      )}
-                                    </li>
-                                  ))
+                                          )}
+                                        </AtlNameDropdownOption>
+                                      );
+                                    }
+                                  )
                                 )}
                               </ul>
                             )}
@@ -7261,42 +7694,30 @@ export function AddTechnicalLogbookEntryModal({
                           White ATL
                         </label>
                         <div>
-                          <input
-                            type="file"
-                            id="white-atl-file"
-                            onChange={(e) =>
-                              handleFileChange(
-                                "whiteAtl",
-                                e.target.files?.[0] || null
-                              )
-                            }
-                            className="hidden"
+                          <FileDropzone
+                            inputId="white-atl-file"
                             disabled={!canUploadAtlInCurrentMode}
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                          />
-                          <label
-                            htmlFor={
-                              canUploadAtlInCurrentMode
-                                ? "white-atl-file"
-                                : undefined
+                            file={
+                              formData.whiteAtl instanceof File
+                                ? formData.whiteAtl
+                                : null
                             }
-                            className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
-                              canUploadAtlInCurrentMode
-                                ? "cursor-pointer hover:bg-gray-50 transition-colors"
-                                : "cursor-not-allowed opacity-60 pointer-events-none"
-                            }`}
-                          >
-                            <span
-                              className={
-                                whiteAtlFileName || existingWhiteAtlFilePath
-                                  ? "text-gray-900"
-                                  : "text-gray-400"
-                              }
-                            >
-                              {whiteAtlUploadLabel}
-                            </span>
-                            <Upload className="w-4 h-4 text-gray-400" />
-                          </label>
+                            existingLabel={
+                              existingWhiteAtlFilePath
+                                ? formatShortDisplayFileName(
+                                    existingWhiteAtlFilePath
+                                  )
+                                : canUploadAtlInCurrentMode
+                                  ? undefined
+                                  : "N/A"
+                            }
+                            error={whiteAtlFileError}
+                            onSelect={(selected) =>
+                              handleFileChange("whiteAtl", selected)
+                            }
+                            onError={setWhiteAtlFileError}
+                            onClearError={() => setWhiteAtlFileError("")}
+                          />
                           {canUploadAtlInCurrentMode && whiteAtlFileName && (
                             <button
                               type="button"
@@ -7345,40 +7766,26 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 mb-2">DFP</label>
                         <div>
-                          <input
-                            type="file"
-                            id="dfp-file"
-                            onChange={(e) =>
-                              handleFileChange(
-                                "dfp",
-                                e.target.files?.[0] || null
-                              )
-                            }
-                            className="hidden"
+                          <FileDropzone
+                            inputId="dfp-file"
                             disabled={!canUploadAtlInCurrentMode}
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                          />
-                          <label
-                            htmlFor={
-                              canUploadAtlInCurrentMode ? "dfp-file" : undefined
+                            file={
+                              formData.dfp instanceof File ? formData.dfp : null
                             }
-                            className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
-                              canUploadAtlInCurrentMode
-                                ? "cursor-pointer hover:bg-gray-50 transition-colors"
-                                : "cursor-not-allowed opacity-60 pointer-events-none"
-                            }`}
-                          >
-                            <span
-                              className={
-                                dfpFileName || existingDfpFilePath
-                                  ? "text-gray-900"
-                                  : "text-gray-400"
-                              }
-                            >
-                              {dfpUploadLabel}
-                            </span>
-                            <Upload className="w-4 h-4 text-gray-400" />
-                          </label>
+                            existingLabel={
+                              existingDfpFilePath
+                                ? formatShortDisplayFileName(existingDfpFilePath)
+                                : canUploadAtlInCurrentMode
+                                  ? undefined
+                                  : "N/A"
+                            }
+                            error={dfpFileError}
+                            onSelect={(selected) =>
+                              handleFileChange("dfp", selected)
+                            }
+                            onError={setDfpFileError}
+                            onClearError={() => setDfpFileError("")}
+                          />
                           {canUploadAtlInCurrentMode && dfpFileName && (
                             <button
                               type="button"
