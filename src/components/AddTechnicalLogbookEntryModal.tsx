@@ -1,6 +1,5 @@
 import {
   X,
-  Upload,
   Plus,
   Trash2,
   ChevronDown,
@@ -62,6 +61,7 @@ import {
 } from "../utility/utils";
 import { getNatureOfFlightDescriptionByNature } from "../api/natureOfFlightDescriptionsApi";
 import { DateInput } from "./ui/DateInput";
+import { FileDropzone } from "./ui/FileDropzone";
 import {
   getMissingAircraftFieldsForNewAtlWhenNoPrevious,
   buildAircraftDetailsRequiredForAtlHtml,
@@ -2157,6 +2157,8 @@ export function AddTechnicalLogbookEntryModal({
   // File upload states
   const [whiteAtlFileName, setWhiteAtlFileName] = useState("");
   const [dfpFileName, setDfpFileName] = useState("");
+  const [whiteAtlFileError, setWhiteAtlFileError] = useState("");
+  const [dfpFileError, setDfpFileError] = useState("");
 
   // File view modal (View button for White ATL / DFP when editEntry has existing file)
   const [showFileViewModal, setShowFileViewModal] = useState(false);
@@ -2196,6 +2198,9 @@ export function AddTechnicalLogbookEntryModal({
   useEffect(() => {
     if (isOpen) {
       fetchAircrafts();
+    } else {
+      setWhiteAtlFileError("");
+      setDfpFileError("");
     }
   }, [isOpen]);
 
@@ -5078,6 +5083,8 @@ export function AddTechnicalLogbookEntryModal({
         setSelectedAircraftId(null);
         setWhiteAtlFileName("");
         setDfpFileName("");
+        setWhiteAtlFileError("");
+        setDfpFileError("");
         setValidationErrors({});
 
         onClose();
@@ -5114,8 +5121,10 @@ export function AddTechnicalLogbookEntryModal({
     });
     if (field === "whiteAtl") {
       setWhiteAtlFileName(file ? file.name : "");
+      setWhiteAtlFileError("");
     } else if (field === "dfp") {
       setDfpFileName(file ? file.name : "");
+      setDfpFileError("");
     }
   };
 
@@ -5124,8 +5133,10 @@ export function AddTechnicalLogbookEntryModal({
     setFormData((prev) => ({ ...prev, [field]: null }));
     if (field === "whiteAtl") {
       setWhiteAtlFileName("");
+      setWhiteAtlFileError("");
     } else if (field === "dfp") {
       setDfpFileName("");
+      setDfpFileError("");
     }
   };
 
@@ -5218,22 +5229,6 @@ export function AddTechnicalLogbookEntryModal({
     editEntry?.whiteAtl
   );
   const existingDfpFilePath = getAtlStoredUploadFilePath(editEntry?.dfp);
-
-  const whiteAtlUploadLabel = (() => {
-    if (whiteAtlFileName) return formatShortDisplayFileName(whiteAtlFileName);
-    if (existingWhiteAtlFilePath) {
-      return formatShortDisplayFileName(existingWhiteAtlFilePath);
-    }
-    return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
-  })();
-
-  const dfpUploadLabel = (() => {
-    if (dfpFileName) return formatShortDisplayFileName(dfpFileName);
-    if (existingDfpFilePath) {
-      return formatShortDisplayFileName(existingDfpFilePath);
-    }
-    return canUploadAtlInCurrentMode ? "Choose file or N/A" : "N/A";
-  })();
 
   const closeFileViewModal = () => {
     if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
@@ -7699,42 +7694,30 @@ export function AddTechnicalLogbookEntryModal({
                           White ATL
                         </label>
                         <div>
-                          <input
-                            type="file"
-                            id="white-atl-file"
-                            onChange={(e) =>
-                              handleFileChange(
-                                "whiteAtl",
-                                e.target.files?.[0] || null
-                              )
-                            }
-                            className="hidden"
+                          <FileDropzone
+                            inputId="white-atl-file"
                             disabled={!canUploadAtlInCurrentMode}
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                          />
-                          <label
-                            htmlFor={
-                              canUploadAtlInCurrentMode
-                                ? "white-atl-file"
-                                : undefined
+                            file={
+                              formData.whiteAtl instanceof File
+                                ? formData.whiteAtl
+                                : null
                             }
-                            className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
-                              canUploadAtlInCurrentMode
-                                ? "cursor-pointer hover:bg-gray-50 transition-colors"
-                                : "cursor-not-allowed opacity-60 pointer-events-none"
-                            }`}
-                          >
-                            <span
-                              className={
-                                whiteAtlFileName || existingWhiteAtlFilePath
-                                  ? "text-gray-900"
-                                  : "text-gray-400"
-                              }
-                            >
-                              {whiteAtlUploadLabel}
-                            </span>
-                            <Upload className="w-4 h-4 text-gray-400" />
-                          </label>
+                            existingLabel={
+                              existingWhiteAtlFilePath
+                                ? formatShortDisplayFileName(
+                                    existingWhiteAtlFilePath
+                                  )
+                                : canUploadAtlInCurrentMode
+                                  ? undefined
+                                  : "N/A"
+                            }
+                            error={whiteAtlFileError}
+                            onSelect={(selected) =>
+                              handleFileChange("whiteAtl", selected)
+                            }
+                            onError={setWhiteAtlFileError}
+                            onClearError={() => setWhiteAtlFileError("")}
+                          />
                           {canUploadAtlInCurrentMode && whiteAtlFileName && (
                             <button
                               type="button"
@@ -7783,40 +7766,26 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 mb-2">DFP</label>
                         <div>
-                          <input
-                            type="file"
-                            id="dfp-file"
-                            onChange={(e) =>
-                              handleFileChange(
-                                "dfp",
-                                e.target.files?.[0] || null
-                              )
-                            }
-                            className="hidden"
+                          <FileDropzone
+                            inputId="dfp-file"
                             disabled={!canUploadAtlInCurrentMode}
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
-                          />
-                          <label
-                            htmlFor={
-                              canUploadAtlInCurrentMode ? "dfp-file" : undefined
+                            file={
+                              formData.dfp instanceof File ? formData.dfp : null
                             }
-                            className={`w-full px-3.5 py-2.5 border border-gray-200 rounded-md bg-white text-gray-900 shadow-sm flex items-center justify-between ${
-                              canUploadAtlInCurrentMode
-                                ? "cursor-pointer hover:bg-gray-50 transition-colors"
-                                : "cursor-not-allowed opacity-60 pointer-events-none"
-                            }`}
-                          >
-                            <span
-                              className={
-                                dfpFileName || existingDfpFilePath
-                                  ? "text-gray-900"
-                                  : "text-gray-400"
-                              }
-                            >
-                              {dfpUploadLabel}
-                            </span>
-                            <Upload className="w-4 h-4 text-gray-400" />
-                          </label>
+                            existingLabel={
+                              existingDfpFilePath
+                                ? formatShortDisplayFileName(existingDfpFilePath)
+                                : canUploadAtlInCurrentMode
+                                  ? undefined
+                                  : "N/A"
+                            }
+                            error={dfpFileError}
+                            onSelect={(selected) =>
+                              handleFileChange("dfp", selected)
+                            }
+                            onError={setDfpFileError}
+                            onClearError={() => setDfpFileError("")}
+                          />
                           {canUploadAtlInCurrentMode && dfpFileName && (
                             <button
                               type="button"

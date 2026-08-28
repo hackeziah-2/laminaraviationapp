@@ -3163,3 +3163,29 @@ input[data-slot="date-input"] {
   background-clip: padding-box;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.1);
 }
+
+/* ATL White ATL / DFP file dropzone (Add + Edit forms) */
+.file-dropzone {
+  border: 2px dashed #d1d5db;
+  background-color: #fff;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.file-dropzone-enabled:hover {
+  border-color: #9ca3af;
+  background-color: #f9fafb;
+}
+.file-dropzone-error {
+  border-color: #dc2626;
+}
+.file-dropzone-dragover {
+  border-color: #2563eb;
+  background-color: #eff6ff;
+  box-shadow: inset 0 0 0 1px #2563eb;
+}
+.file-dropzone-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
