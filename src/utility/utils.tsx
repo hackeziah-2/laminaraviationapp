@@ -878,10 +878,15 @@ export function formatAtlFuelLeftRightForDisplay(
   right?: string | number | null,
   emptyLabel = "-"
 ): string {
-  const l =
-    left == null || String(left).trim() === "" ? "" : String(left).trim();
-  const r =
-    right == null || String(right).trim() === "" ? "" : String(right).trim();
+  const side = (value?: string | number | null): string => {
+    if (value == null) return "";
+    const s = String(value).trim();
+    if (s === "") return "";
+    if (/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(s) && Number(s) === 0) return "";
+    return s;
+  };
+  const l = side(left);
+  const r = side(right);
   if (!l && !r) return emptyLabel;
   if (!l) return r;
   if (!r) return l;

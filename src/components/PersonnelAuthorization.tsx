@@ -86,7 +86,7 @@ const MATRIX1_EXPORT_HEADERS = [
   "EXPIRY_DATE",
 ] as const;
 
-/** 15 columns; scope/type-training Cessna & Baron sub-columns use distinct titles (same labels as table). */
+/** 16 columns; type-training Cessna, Baron, and PIPER PA-34 sub-columns match table labels. */
 const MATRIX2_EXPORT_HEADERS = [
   "AUTHORIZATION NO",
   "NAME",
@@ -103,6 +103,7 @@ const MATRIX2_EXPORT_HEADERS = [
   "HF TRAINING EXPIRY",
   "TYPE TRAINING EXPIRY — CESSNA 150, 152, 172",
   "TYPE TRAINING EXPIRY — BARON 95-C55",
+  "TYPE TRAINING EXPIRY — PIPER PA-34",
 ] as const;
 /** Request at least 10 options for Authorization Number dropdown (search is case-insensitive). */
 const AUTH_STAMP_LIST_LIMIT = 10;
@@ -122,6 +123,7 @@ const ITEM_TYPE_FILTER_LABELS: Record<PersonnelComplianceItemType, string> = {
   HF_TRAINING: "HF training",
   CESSNA: "Cessna",
   BARON: "Baron",
+  "PIPER PA-34": "PIPER PA-34",
   OTHERS: "Others",
 };
 
@@ -129,10 +131,19 @@ function itemTypeFromApi(
   s: string | undefined
 ): "" | PersonnelComplianceItemType {
   if (!s || typeof s !== "string") return "";
-  const u = s.trim().toUpperCase();
-  return (PERSONNEL_COMPLIANCE_ITEM_TYPES as readonly string[]).includes(u)
-    ? (u as PersonnelComplianceItemType)
-    : "";
+  const raw = s.trim().toUpperCase();
+  const compact = raw.replace(/[\s_-]+/g, "");
+  if (compact === "PIPERPA34") {
+    return "PIPER PA-34";
+  }
+  if ((PERSONNEL_COMPLIANCE_ITEM_TYPES as readonly string[]).includes(raw)) {
+    return raw as PersonnelComplianceItemType;
+  }
+  const spaced = raw.replace(/_/g, " ");
+  if ((PERSONNEL_COMPLIANCE_ITEM_TYPES as readonly string[]).includes(spaced)) {
+    return spaced as PersonnelComplianceItemType;
+  }
+  return "";
 }
 
 function itemTypeDisplayLabel(s: string | undefined): string {
@@ -148,6 +159,7 @@ const ITEM_TYPE_BADGE_HEX: Record<PersonnelComplianceItemType, string> = {
   HF_TRAINING: "#7C3AED",
   CESSNA: "#06B6D4",
   BARON: "#4338CA",
+  "PIPER PA-34": "#0D9488",
   OTHERS: "#64748B",
 };
 
@@ -214,6 +226,7 @@ function complianceExpiryDateForItemType(
     othersExpiryDate: string;
     typeTrainingCessna: string;
     typeTrainingBaron: string;
+    typeTrainingPiper: string;
     caapLicExpiry: string;
     hfTrainingExpiry: string;
   }
@@ -227,6 +240,8 @@ function complianceExpiryDateForItemType(
       return form.typeTrainingCessna.trim();
     case "BARON":
       return form.typeTrainingBaron.trim();
+    case "PIPER PA-34":
+      return form.typeTrainingPiper.trim();
     case "CAAP_LICENSE":
       return form.caapLicExpiry.trim();
     case "HF_TRAINING":
@@ -311,6 +326,7 @@ export function PersonnelAuthorization() {
     hfTrainingExpiry: "",
     typeTrainingCessna: "",
     typeTrainingBaron: "",
+    typeTrainingPiper: "",
   });
 
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
@@ -483,6 +499,7 @@ export function PersonnelAuthorization() {
       hfTrainingExpiry: "",
       typeTrainingCessna: "",
       typeTrainingBaron: "",
+      typeTrainingPiper: "",
     });
     setShowCreateModal(true);
   };
@@ -512,6 +529,7 @@ export function PersonnelAuthorization() {
       hfTrainingExpiry: toDateInput(person.hfTrainingExpiry),
       typeTrainingCessna: toDateInput(person.typeTrainingCessna),
       typeTrainingBaron: toDateInput(person.typeTrainingBaron),
+      typeTrainingPiper: toDateInput(person.typeTrainingPiper),
     });
     setShowCreateModal(true);
   };
@@ -547,6 +565,8 @@ export function PersonnelAuthorization() {
       expiryMissing = !createForm.typeTrainingCessna.trim();
     } else if (it === "BARON") {
       expiryMissing = !createForm.typeTrainingBaron.trim();
+    } else if (it === "PIPER PA-34") {
+      expiryMissing = !createForm.typeTrainingPiper.trim();
     } else if (it === "CAAP_LICENSE") {
       expiryMissing = !createForm.caapLicExpiry.trim();
     } else if (it === "HF_TRAINING") {
@@ -742,6 +762,7 @@ export function PersonnelAuthorization() {
           displayDate(p.hfTrainingExpiry),
           displayDate(p.typeTrainingCessna),
           displayDate(p.typeTrainingBaron),
+          displayDate(p.typeTrainingPiper),
         ]);
         if (format === "csv") {
           const headerLine = [...MATRIX2_EXPORT_HEADERS]
@@ -1241,7 +1262,7 @@ export function PersonnelAuthorization() {
                     HF TRAINING EXPIRY
                   </th>
                   <th
-                    colSpan={2}
+                    colSpan={3}
                     className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
                   >
                     TYPE TRAINING EXPIRY
@@ -1263,6 +1284,9 @@ export function PersonnelAuthorization() {
                   <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     BARON 95-C55
                   </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    PIPER PA-34
+                  </th>
                 </tr>
               </thead>
             )}
@@ -1270,7 +1294,7 @@ export function PersonnelAuthorization() {
               {listLoading ? (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 15}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 16}
                     className="px-6 py-12 text-center"
                   >
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
@@ -1517,13 +1541,18 @@ export function PersonnelAuthorization() {
                           fallback: "",
                         }) || <span className={placeholderClass}>—</span>}
                       </td>
+                      <td className={cellClass}>
+                        {formatDisplayDate(person.typeTrainingPiper, {
+                          fallback: "",
+                        }) || <span className={placeholderClass}>—</span>}
+                      </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 15}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 16}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found
@@ -1634,6 +1663,12 @@ export function PersonnelAuthorization() {
                     value={displayDate(viewingPersonnel.typeTrainingBaron)}
                   />
                 </>
+              )}
+              {viewingItemType === "PIPER PA-34" && (
+                <PersonnelDetailRow
+                  label="Type Training Expiry (PIPER PA-34)"
+                  value={displayDate(viewingPersonnel.typeTrainingPiper)}
+                />
               )}
               {viewingItemType === "OTHERS" && (
                 <>
@@ -2166,6 +2201,27 @@ export function PersonnelAuthorization() {
                       />
                     </div>
                   </>
+                )}
+
+                {createForm.itemType === "PIPER PA-34" && (
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Type Training Expiry (PIPER PA-34){" "}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <DateInput
+                      name="expiry_date"
+                      required
+                      value={createForm.typeTrainingPiper}
+                      onChange={(typeTrainingPiper) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          typeTrainingPiper,
+                        }))
+                      }
+                      inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
+                    />
+                  </div>
                 )}
 
                 {createForm.itemType === "OTHERS" && (

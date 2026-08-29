@@ -45,6 +45,7 @@ import {
   pickLatestAtlBatchId,
   formatAtlListCell,
   formatAtlAssigneeListCell,
+  isAtlListNumericZero,
   displayTSN,
   formatAtlListOffBlocks,
   formatAtlListOnBlocks,
@@ -141,6 +142,153 @@ const ATL_TH_GROUP_CLASS =
   "px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
 const ATL_TH_SUB_CLASS =
   "px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
+/** Component Record group labels (row 2). */
+const ATL_TH_CR_GROUP_CLASS =
+  "atl-th-cr-group px-2 py-1.5 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
+/** Component Record P/N S/N labels (row 3). */
+const ATL_TH_CR_SUB_CLASS =
+  "atl-th-cr-sub px-2 py-1.5 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
+
+/** Shared Component Record column widths (thead + tbody + colgroup). */
+const ATL_CR_PN_SN_COL_CLASS =
+  "atl-col-cr-pn-sn min-w-[100px] w-[100px] max-w-[100px]";
+const ATL_CR_PN_SN_PAIR_COL_CLASS =
+  "atl-col-cr-pn-sn-pair min-w-[200px] w-[200px] max-w-[200px]";
+const ATL_CR_NOM_COL_CLASS = "atl-col-cr-nom min-w-[160px] w-[160px] max-w-[160px]";
+const ATL_CR_ATA_COL_CLASS = "atl-col-cr-ata min-w-[120px] w-[120px] max-w-[120px]";
+const ATL_CR_REMARKS_COL_CLASS =
+  "atl-col-cr-remarks min-w-[160px] w-[160px] max-w-[160px]";
+const ATL_CR_GROUP_MIN_WIDTH_CLASS = "min-w-[840px]";
+
+const ATL_TD_CR_BASE_CLASS =
+  "atl-td-cr px-3 py-3 text-gray-900 text-sm border-r border-b border-gray-300 bg-white align-top overflow-hidden";
+const ATL_TD_CR_CENTER_CLASS = `${ATL_TD_CR_BASE_CLASS} text-center`;
+const ATL_TD_CR_LEFT_CLASS = `${ATL_TD_CR_BASE_CLASS} text-left`;
+
+/** Leaf columns before / after Component Record in the all-columns thead. */
+const ATL_CR_HEADER_COLS_BEFORE = 36;
+const ATL_CR_HEADER_COLS_AFTER = 8;
+const ATL_CR_LEAF_COL_COUNT = 7;
+
+function AtlStickyHeaderFillCells({
+  count,
+  stickySeqFirst = false,
+}: {
+  count: number;
+  stickySeqFirst?: boolean;
+}) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <th
+          key={i}
+          className={
+            stickySeqFirst && i === 0
+              ? `${ATL_TH_STICKY_FILL_CLASS} atl-th-sticky-seq min-w-[140px] w-[140px]`
+              : ATL_TH_STICKY_FILL_CLASS
+          }
+          aria-hidden="true"
+        >
+          {"\u00a0"}
+        </th>
+      ))}
+    </>
+  );
+}
+
+function AtlAllColumnsColgroup() {
+  return (
+    <colgroup>
+      {Array.from({ length: ATL_CR_HEADER_COLS_BEFORE }, (_, i) => (
+        <col key={`before-${i}`} />
+      ))}
+      <col className={ATL_CR_PN_SN_COL_CLASS} />
+      <col className={ATL_CR_PN_SN_COL_CLASS} />
+      <col className={ATL_CR_PN_SN_COL_CLASS} />
+      <col className={ATL_CR_PN_SN_COL_CLASS} />
+      <col className={ATL_CR_NOM_COL_CLASS} />
+      <col className={ATL_CR_ATA_COL_CLASS} />
+      <col className={ATL_CR_REMARKS_COL_CLASS} />
+      {Array.from({ length: ATL_CR_HEADER_COLS_AFTER }, (_, i) => (
+        <col key={`after-${i}`} />
+      ))}
+    </colgroup>
+  );
+}
+
+function atlComponentPartField(
+  part: AtlComponentPartRow | undefined,
+  camelKey: keyof AtlComponentPartRow,
+  snakeKey: string
+): unknown {
+  if (!part) return undefined;
+  const camelVal = part[camelKey];
+  if (camelVal != null && String(camelVal).trim() !== "") return camelVal;
+  return (part as Record<string, unknown>)[snakeKey];
+}
+
+function AtlCrStackedValues({ values }: { values: unknown[] }) {
+  const items = values.length > 0 ? values : [undefined];
+  return (
+    <>
+      {items.map((value, i) => (
+        <div
+          key={i}
+          className={i > 0 ? "mt-1 border-t border-gray-200 pt-1" : undefined}
+        >
+          {formatAtlListCell(value)}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** Always renders 7 Component Record <td>s so they share the thead column grid. */
+function AtlComponentRecordCells({
+  record,
+}: {
+  record: AircraftTechnicalLog;
+}) {
+  const parts: Array<AtlComponentPartRow | undefined> =
+    record.componentParts && record.componentParts.length > 0
+      ? (record.componentParts as AtlComponentPartRow[])
+      : [undefined];
+
+  const field = (camelKey: keyof AtlComponentPartRow, snakeKey: string) =>
+    parts.map((part) => atlComponentPartField(part, camelKey, snakeKey));
+
+  return (
+    <>
+      <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+        <AtlCrStackedValues values={field("removedPartNo", "removed_part_no")} />
+      </td>
+      <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+        <AtlCrStackedValues
+          values={field("removedSerialNo", "removed_serial_no")}
+        />
+      </td>
+      <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+        <AtlCrStackedValues
+          values={field("installedPartNo", "installed_part_no")}
+        />
+      </td>
+      <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+        <AtlCrStackedValues
+          values={field("installedSerialNo", "installed_serial_no")}
+        />
+      </td>
+      <td className={`${ATL_TD_CR_LEFT_CLASS} ${ATL_CR_NOM_COL_CLASS}`}>
+        <AtlCrStackedValues values={field("nomenclature", "nomenclature")} />
+      </td>
+      <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_ATA_COL_CLASS}`}>
+        <AtlCrStackedValues values={field("ataChapter", "ata_chapter")} />
+      </td>
+      <td className={`${ATL_TD_CR_LEFT_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}>
+        <AtlCrStackedValues values={field("partRemark", "part_remark")} />
+      </td>
+    </>
+  );
+}
 
 /** Fleet Time Monitoring table: API may return FOR_REVIEW or "FOR REVIEW" */
 function formatFleetWorkStatus(status: string | undefined): string {
@@ -458,6 +606,26 @@ function formatAtlListMetric2dp(value: unknown): string {
   return Number.isFinite(n) ? n.toFixed(2) : "-";
 }
 
+/** ATL list row metric: 0 / null / empty → "-"; non-zero keeps 2dp. */
+function formatAtlListRowMetric2dp(value: unknown): string {
+  if (value == null || value === "" || isAtlListNumericZero(value)) return "-";
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : "-";
+}
+
+/** ATL list row total flight hours: 0 / empty → "-"; TSN is not formatted here. */
+function formatAtlListFlightHours(record: AircraftTechnicalLog): string {
+  const formatted = formatAtlTotalFlightHoursForDisplay(record);
+  if (
+    formatted === "-" ||
+    isAtlListNumericZero(formatted) ||
+    /^0(?:\.0+)?(?:\+0+)?$/.test(formatted)
+  ) {
+    return "-";
+  }
+  return formatted;
+}
+
 /** Tailwind default palette (50 / 800) — inline styles so colors work with the bundled CSS (many bg/text utilities are not emitted). */
 const FLEET_WORK_STATUS_STYLE: Record<AtlWorkStatusKey, CSSProperties> = {
   FOR_REVIEW: { backgroundColor: "#fffbeb", color: "#92400e" },
@@ -748,6 +916,7 @@ export function Operation() {
   const importFileInputRef = useRef<HTMLInputElement>(null);
   const atlAllColumnsTheadRef = useRef<HTMLTableSectionElement>(null);
   const [atlHeaderRow1Height, setAtlHeaderRow1Height] = useState(40);
+  const [atlHeaderRow2Height, setAtlHeaderRow2Height] = useState(32);
   /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
   const atlBatchFilterTouchedRef = useRef(false);
   /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
@@ -771,16 +940,22 @@ export function Operation() {
     if (groupBy !== "allColumns") return;
     const thead = atlAllColumnsTheadRef.current;
     const firstRow = thead?.rows[0];
+    const secondRow = thead?.rows[1];
     if (!firstRow) return;
 
     const updateHeight = () => {
-      const next = Math.ceil(firstRow.getBoundingClientRect().height);
-      setAtlHeaderRow1Height((prev) => (prev === next ? prev : next));
+      const next1 = Math.ceil(firstRow.getBoundingClientRect().height);
+      setAtlHeaderRow1Height((prev) => (prev === next1 ? prev : next1));
+      if (secondRow) {
+        const next2 = Math.ceil(secondRow.getBoundingClientRect().height);
+        setAtlHeaderRow2Height((prev) => (prev === next2 ? prev : next2));
+      }
     };
     updateHeight();
 
     const observer = new ResizeObserver(updateHeight);
     observer.observe(firstRow);
+    if (secondRow) observer.observe(secondRow);
     if (thead) observer.observe(thead);
     return () => observer.disconnect();
   }, [groupBy, fleetTimeRecords, sequenceSort, loading]);
@@ -793,7 +968,7 @@ export function Operation() {
   } = usePreserveListView({
     isEditOpen: showEditModal,
     loading,
-    listDeps: [fleetTimeRecords, atlHeaderRow1Height],
+    listDeps: [fleetTimeRecords, atlHeaderRow1Height, atlHeaderRow2Height],
     scrollSelector: "[data-atl-fleet-scroll]",
   });
 
@@ -860,7 +1035,9 @@ export function Operation() {
   }, []);
 
   const formatAtlPersonCell = (record: AircraftTechnicalLog) =>
-    resolveAtlMaintenancePersonDisplay(record, accountsMap, "-");
+    formatAtlAssigneeListCell(
+      resolveAtlMaintenancePersonDisplay(record, accountsMap, "")
+    );
 
   useEffect(() => {
     if (!showAtlBatchFilter) {
@@ -1028,7 +1205,7 @@ export function Operation() {
       {
         key: "totalFlightHours",
         label: "Total Flight Hours",
-        getValue: (record) => formatAtlListCell(record.totalFlightHours),
+        getValue: (record) => formatAtlListFlightHours(record),
       },
       {
         key: "numberOfLandings",
@@ -1068,7 +1245,7 @@ export function Operation() {
       {
         key: "airframeAftt",
         label: "Airframe AFTT",
-        getValue: (record) => formatAtlListMetric2dp(record.airframeAftt),
+        getValue: (record) => formatAtlListRowMetric2dp(record.airframeAftt),
       },
       {
         key: "engineRun",
@@ -1166,13 +1343,17 @@ export function Operation() {
         key: "remarkPerson",
         label: "Remark Person",
         getValue: (record) =>
-          resolveAtlMaintenancePersonDisplay(record, accountsMap, "-"),
+          formatAtlAssigneeListCell(
+            resolveAtlMaintenancePersonDisplay(record, accountsMap, "")
+          ),
       },
       {
         key: "maintenanceNameLicense",
         label: "Name and License",
         getValue: (record) =>
-          resolveAtlMaintenancePersonDisplay(record, accountsMap, "-"),
+          formatAtlAssigneeListCell(
+            resolveAtlMaintenancePersonDisplay(record, accountsMap, "")
+          ),
       },
       {
         key: "actionsTaken",
@@ -1183,7 +1364,9 @@ export function Operation() {
         key: "actionTakenPerson",
         label: "Action Taken Person",
         getValue: (record) =>
-          resolveAtlMaintenancePersonDisplay(record, accountsMap, "-"),
+          formatAtlAssigneeListCell(
+            resolveAtlMaintenancePersonDisplay(record, accountsMap, "")
+          ),
       },
       {
         key: "componentRemovedPn",
@@ -2327,10 +2510,12 @@ export function Operation() {
                     style={
                       {
                         "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
+                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
                       } as CSSProperties
                     }
                   >
                       <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
+                        <AtlAllColumnsColgroup />
                         <thead ref={atlAllColumnsTheadRef}>
                           <tr>
                             <th
@@ -2469,8 +2654,8 @@ export function Operation() {
                               PERSON
                             </th>
                             <th
-                              colSpan={7}
-                              className="atl-th-component-record px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                              colSpan={ATL_CR_LEAF_COL_COUNT}
+                              className={`atl-th-component-record px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_CR_GROUP_MIN_WIDTH_CLASS}`}
                             >
                               COMPONENT RECORD
                             </th>
@@ -2634,11 +2819,27 @@ export function Operation() {
                               {"\u00a0"}
                             </th>
                             <th
-                              colSpan={7}
-                              className={`${ATL_TH_STICKY_FILL_CLASS} text-center`}
-                              aria-hidden="true"
+                              colSpan={2}
+                              className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
                             >
-                              {"\u00a0"}
+                              PARTS REMOVED
+                            </th>
+                            <th
+                              colSpan={2}
+                              className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
+                            >
+                              PARTS INSTALLED
+                            </th>
+                            <th className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_NOM_COL_CLASS}`}>
+                              NOMENCLATURE
+                            </th>
+                            <th className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_ATA_COL_CLASS}`}>
+                              ATA CHAPTER
+                            </th>
+                            <th
+                              className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
+                            >
+                              PART REMARKS
                             </th>
 
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
@@ -2669,6 +2870,45 @@ export function Operation() {
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                               DFP
                             </th>
+                          </tr>
+                          <tr>
+                            <AtlStickyHeaderFillCells
+                              count={ATL_CR_HEADER_COLS_BEFORE}
+                              stickySeqFirst
+                            />
+                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+                              P/N
+                            </th>
+                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+                              S/N
+                            </th>
+                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+                              P/N
+                            </th>
+                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
+                              S/N
+                            </th>
+                            <th
+                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <th
+                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
+                              aria-hidden="true"
+                            >
+                              {"\u00a0"}
+                            </th>
+                            <AtlStickyHeaderFillCells
+                              count={ATL_CR_HEADER_COLS_AFTER}
+                            />
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 bg-white">
@@ -2778,7 +3018,7 @@ export function Operation() {
                                   {formatTimeZulu(record.destinationTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlTotalFlightHoursForDisplay(record)}
+                                  {formatAtlListFlightHours(record)}
                                 </td>
 
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -2804,7 +3044,7 @@ export function Operation() {
                                   {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListMetric2dp(record.airframeAftt)}
+                                  {formatAtlListRowMetric2dp(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
                                   {formatAtlListCell(record.engineRunTime)}
@@ -2893,109 +3133,7 @@ export function Operation() {
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlPersonCell(record)}
                                 </td>
-                                <td
-                                  colSpan={7}
-                                  className="px-0 py-0 align-top border-r border-gray-200 bg-white"
-                                >
-                                  <table className="w-full border-collapse min-w-full">
-                                    <thead>
-                                      <tr className="bg-gray-200">
-                                        <th
-                                          colSpan={2}
-                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
-                                        >
-                                          PARTS REMOVED
-                                        </th>
-                                        <th
-                                          colSpan={2}
-                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
-                                        >
-                                          PARTS INSTALLED
-                                        </th>
-                                        <th
-                                          rowSpan={2}
-                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
-                                        >
-                                          NOMENCLATURE
-                                        </th>
-                                        <th
-                                          rowSpan={2}
-                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
-                                        >
-                                          ATA CHAPTER
-                                        </th>
-                                        <th
-                                          rowSpan={2}
-                                          className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
-                                        >
-                                          PART REMARKS
-                                        </th>
-                                      </tr>
-                                      <tr className="bg-white">
-                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                          P/N
-                                        </th>
-                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                          S/N
-                                        </th>
-                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                          P/N
-                                        </th>
-                                        <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                          S/N
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {record.componentParts &&
-                                      record.componentParts.length > 0 ? (
-                                        record.componentParts.map(
-                                          (part: any, idx: number) => (
-                                            <tr
-                                              key={idx}
-                                              className={
-                                                idx % 2 === 0
-                                                  ? "bg-white"
-                                                  : "bg-gray-50"
-                                              }
-                                            >
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.removedPartNo)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.removedSerialNo)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.installedPartNo)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.installedSerialNo)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.nomenclature)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.ataChapter)}
-                                              </td>
-                                              <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                                {formatAtlListCell(part.partRemark)}
-                                              </td>
-                                            </tr>
-                                          )
-                                        )
-                                      ) : (
-                                        <tr>
-                                          <td
-                                            colSpan={7}
-                                            className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
-                                          >
-                                            -
-                                          </td>
-                                        </tr>
-                                      )}
-                                    </tbody>
-                                  </table>
-                                </td>
+                                <AtlComponentRecordCells record={record} />
                                 <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                   {formatAtlAssigneeListCell(record.rtsSignedBy)}
                                 </td>
@@ -3278,7 +3416,7 @@ export function Operation() {
                                 {formatAtlListOnBlocks(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlTotalFlightHoursForDisplay(record)}
+                                {formatAtlListFlightHours(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlFuelLeftRightForDisplay(
@@ -3469,7 +3607,7 @@ export function Operation() {
                                   {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListMetric2dp(record.airframeAftt)}
+                                  {formatAtlListRowMetric2dp(record.airframeAftt)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.engineRunTime)}
@@ -3615,10 +3753,10 @@ export function Operation() {
                                 {formatAtlListCell(record.airframeRunTime)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListMetric2dp(record.airframeAftt)}
+                                {formatAtlListRowMetric2dp(record.airframeAftt)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlTotalFlightHoursForDisplay(record)}
+                                {formatAtlListFlightHours(record)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.numberOfLandings)}
