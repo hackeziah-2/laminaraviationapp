@@ -226,7 +226,7 @@ export function FileDropzone({
         <Upload className="w-4 h-4 text-gray-400 flex-shrink-0" />
       </label>
       {error ? (
-        <p className="mt-1 text-xs text-red-600" role="alert">
+        <p className="form-error mt-1 text-xs text-red-600" role="alert">
           {error}
         </p>
       ) : null}

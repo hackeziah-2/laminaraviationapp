@@ -5280,16 +5280,17 @@ export function AddTechnicalLogbookEntryModal({
   const modalTitle = modalSeqTitle
     ? `${modalActionTitle} – ${modalSeqTitle}`
     : modalActionTitle;
+  const formModeClass = editEntry ? "edit-form" : "add-form";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       {/* Overlay with blur */}
       <div
         className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className={`relative ${formModeClass} rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col`}>
         {/* Loading overlay on create/edit submit */}
         {isSubmitting && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
@@ -5313,7 +5314,7 @@ export function AddTechnicalLogbookEntryModal({
           </div>
         )}
         {/* Header */}
-        <div className="relative z-[60] flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
+        <div className="relative z-[60] flex items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-300">
           <h2 className="text-lg font-semibold text-gray-900">{modalTitle}</h2>
           <button
             type="button"
@@ -5325,8 +5326,8 @@ export function AddTechnicalLogbookEntryModal({
         </div>
 
         {/* Form Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className={`${formModeClass} flex-1 overflow-y-auto min-h-0`}>
+          <div className="modal-body p-4 sm:p-6 space-y-6">
             {atlFormReadOnly && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                 {forceReadOnly
@@ -5381,7 +5382,7 @@ export function AddTechnicalLogbookEntryModal({
                       required
                     />
                     {validationErrors.seqNo && (
-                      <p className="mt-1 text-xs text-red-600">
+                      <p className="form-error mt-1 text-xs text-red-600">
                         {validationErrors.seqNo}
                       </p>
                     )}
@@ -5411,7 +5412,7 @@ export function AddTechnicalLogbookEntryModal({
                         </select>
                       ) : (
                         <div
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-900"
+                          className="form-readonly-display w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-900"
                           title={
                             workStatusChangeLocked
                               ? "Work status cannot be changed for your role at this status"
@@ -5425,7 +5426,7 @@ export function AddTechnicalLogbookEntryModal({
                         </div>
                       )
                     ) : (
-                      <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
+                      <div className="form-readonly-display w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
                         FOR REVIEW
                       </div>
                     )}
@@ -5557,7 +5558,7 @@ export function AddTechnicalLogbookEntryModal({
                       </div>
                     )}
                     {validationErrors.acReg && (
-                      <p className="mt-1 text-xs text-red-600">
+                      <p className="form-error mt-1 text-xs text-red-600">
                         {validationErrors.acReg}
                       </p>
                     )}
@@ -5656,7 +5657,7 @@ export function AddTechnicalLogbookEntryModal({
                         }`}
                       />
                       {validationErrors.offBlocksStation && (
-                        <p className="mt-1 text-xs text-red-600">
+                        <p className="form-error mt-1 text-xs text-red-600">
                           {validationErrors.offBlocksStation}
                         </p>
                       )}
@@ -5688,7 +5689,7 @@ export function AddTechnicalLogbookEntryModal({
                           }`}
                         />
                         {validationErrors.offBlocksDate && (
-                          <p className="mt-1 text-xs text-red-600">
+                          <p className="form-error mt-1 text-xs text-red-600">
                             {validationErrors.offBlocksDate}
                           </p>
                         )}
@@ -5745,7 +5746,7 @@ export function AddTechnicalLogbookEntryModal({
                               24-hour HH:mm (UTC), 00:00–23:59
                             </p>
                           ) : (
-                            <p className="mt-1 text-xs text-red-600">
+                            <p className="form-error mt-1 text-xs text-red-600">
                               {validationErrors.offBlocksTime}
                             </p>
                           )}
@@ -5845,7 +5846,7 @@ export function AddTechnicalLogbookEntryModal({
                               24-hour HH:mm (UTC), 00:00–23:59
                             </p>
                           ) : (
-                            <p className="mt-1 text-xs text-red-600">
+                            <p className="form-error mt-1 text-xs text-red-600">
                               {validationErrors.onBlocksTime}
                             </p>
                           )}
@@ -6899,7 +6900,7 @@ export function AddTechnicalLogbookEntryModal({
                             }
                           />
                           {validationErrors.engineTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center break-words">
+                            <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
                               {validationErrors.engineTsn}
                             </p>
                           )}
@@ -6969,7 +6970,7 @@ export function AddTechnicalLogbookEntryModal({
                             }
                           />
                           {validationErrors.propellerTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center break-words">
+                            <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
                               {validationErrors.propellerTsn}
                             </p>
                           )}
@@ -7397,7 +7398,7 @@ export function AddTechnicalLogbookEntryModal({
                         )}
                       </div>
                       {validationErrors.rtsSignedBy && (
-                        <p className="mt-1 text-xs text-red-600">
+                        <p className="form-error mt-1 text-xs text-red-600">
                           {validationErrors.rtsSignedBy}
                         </p>
                       )}
@@ -7626,7 +7627,7 @@ export function AddTechnicalLogbookEntryModal({
                         )}
                       </div>
                       {validationErrors.pilotFk && (
-                        <p className="mt-1 text-xs text-red-600">
+                        <p className="form-error mt-1 text-xs text-red-600">
                           {validationErrors.pilotFk}
                         </p>
                       )}
@@ -7893,13 +7894,13 @@ export function AddTechnicalLogbookEntryModal({
           </div>
 
           {/* Footer Actions */}
-          <div className="relative z-[60] px-6 py-4 border-t border-gray-200 bg-white">
-            <div className="flex justify-end gap-3">
+          <div className="relative z-[60] px-4 sm:px-6 py-4 border-t border-gray-300">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
               <button
                 type="button"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="form-btn-secondary px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
                 {atlFormReadOnly ? "Close" : "Cancel"}
               </button>
@@ -7907,7 +7908,7 @@ export function AddTechnicalLogbookEntryModal({
                 <button
                   type="submit"
                   disabled={!allowSubmit || isInitializing || isSubmitting}
-                  className={`px-4 py-2 text-white rounded-lg transition-colors ${
+                  className={`form-btn-primary px-4 py-2 text-white rounded-lg transition-colors ${
                     allowSubmit && !isInitializing
                       ? "bg-blue-600 hover:bg-blue-700"
                       : "bg-gray-400 cursor-not-allowed"

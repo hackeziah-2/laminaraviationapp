@@ -215,7 +215,7 @@ export function DateInput({
         <PopoverAnchor asChild>
           <div
             className={cn(
-              "group flex h-10 w-full overflow-hidden rounded-lg border bg-white shadow-sm transition-all duration-200",
+              "date-picker-field group flex h-10 w-full overflow-hidden rounded-lg border bg-white shadow-sm transition-all duration-200",
               open
                 ? "border-blue-500 ring-2 ring-blue-500/20 shadow-md"
                 : "border-gray-300 hover:border-gray-400",

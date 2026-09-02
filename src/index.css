@@ -3189,3 +3189,232 @@ input[data-slot="date-input"] {
   cursor: not-allowed;
 }
 
+/* Add / Edit ATL forms — gray canvas, white controls, accessible focus */
+.add-form,
+.edit-form,
+.modal-body {
+  background-color: #DBD9D6;
+  color: #1F2937;
+}
+
+.add-form .modal-body .p-4.rounded-lg.border,
+.edit-form .modal-body .p-4.rounded-lg.border {
+  background-color: transparent;
+}
+
+.add-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.add-form textarea,
+.add-form select,
+.edit-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.edit-form textarea,
+.edit-form select {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #9CA3AF;
+}
+
+.add-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):focus,
+.add-form textarea:focus,
+.add-form select:focus,
+.edit-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):focus,
+.edit-form textarea:focus,
+.edit-form select:focus {
+  border-color: #2563EB;
+  outline: 3px solid rgba(37, 99, 235, 0.2);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.add-form input[data-slot="date-input"],
+.edit-form input[data-slot="date-input"] {
+  background-color: transparent;
+  border: 0;
+  color: #1F2937;
+  box-shadow: none;
+  outline: none;
+}
+
+.add-form .date-picker-field,
+.edit-form .date-picker-field {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #9CA3AF;
+}
+
+.add-form .date-picker-field:focus-within,
+.edit-form .date-picker-field:focus-within {
+  border-color: #2563EB;
+  outline: 3px solid rgba(37, 99, 235, 0.2);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.add-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]),
+.edit-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]) {
+  border-color: #DC2626;
+}
+
+.add-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]):focus-within,
+.edit-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]):focus-within {
+  border-color: #DC2626;
+  outline: 3px solid rgba(185, 28, 28, 0.25);
+}
+
+.add-form .date-picker-field:has(input[data-slot="date-input"]:disabled),
+.add-form .date-picker-field:has(input[data-slot="date-input"][readonly]),
+.edit-form .date-picker-field:has(input[data-slot="date-input"]:disabled),
+.edit-form .date-picker-field:has(input[data-slot="date-input"][readonly]) {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.add-form label.block,
+.edit-form label.block {
+  color: #1F2937;
+  font-weight: 600;
+}
+
+.add-form .form-error,
+.add-form .validation-error,
+.edit-form .form-error,
+.edit-form .validation-error,
+.form-error,
+.validation-error {
+  color: #B91C1C;
+  font-weight: 500;
+}
+
+.add-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500,
+.add-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"],
+.add-form textarea.border-red-500,
+.add-form textarea[aria-invalid="true"],
+.add-form select.border-red-500,
+.add-form select[aria-invalid="true"],
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"],
+.edit-form textarea.border-red-500,
+.edit-form textarea[aria-invalid="true"],
+.edit-form select.border-red-500,
+.edit-form select[aria-invalid="true"] {
+  border-color: #DC2626;
+}
+
+.add-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500:focus,
+.add-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"]:focus,
+.add-form textarea.border-red-500:focus,
+.add-form textarea[aria-invalid="true"]:focus,
+.add-form select.border-red-500:focus,
+.add-form select[aria-invalid="true"]:focus,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500:focus,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"]:focus,
+.edit-form textarea.border-red-500:focus,
+.edit-form textarea[aria-invalid="true"]:focus,
+.edit-form select.border-red-500:focus,
+.edit-form select[aria-invalid="true"]:focus {
+  border-color: #DC2626;
+  outline: 3px solid rgba(185, 28, 28, 0.25);
+}
+
+.add-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.add-form textarea:disabled,
+.add-form select:disabled,
+.add-form input:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.add-form textarea[readonly],
+.edit-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.edit-form textarea:disabled,
+.edit-form select:disabled,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.edit-form textarea[readonly] {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.add-form .form-readonly-display,
+.edit-form .form-readonly-display {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  border: 1px solid #9CA3AF;
+  cursor: not-allowed;
+}
+
+.add-form .file-dropzone,
+.edit-form .file-dropzone {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border-color: #9CA3AF;
+}
+
+.add-form .file-dropzone-disabled,
+.edit-form .file-dropzone-disabled {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.add-form .file-dropzone:focus-within,
+.edit-form .file-dropzone:focus-within {
+  border-color: #2563EB;
+  outline: 3px solid rgba(37, 99, 235, 0.2);
+  outline-offset: 0;
+}
+
+.add-form .form-btn-secondary,
+.edit-form .form-btn-secondary {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #6B7280;
+}
+
+.add-form .form-btn-secondary:hover:not(:disabled),
+.edit-form .form-btn-secondary:hover:not(:disabled) {
+  background-color: #F3F4F6;
+}
+
+.add-form .form-btn-primary:not(:disabled),
+.edit-form .form-btn-primary:not(:disabled) {
+  background-color: #2563EB;
+  color: #FFFFFF;
+}
+
+.add-form .form-btn-primary:hover:not(:disabled),
+.edit-form .form-btn-primary:hover:not(:disabled) {
+  background-color: #1D4ED8;
+}
+
+.add-form .form-btn-secondary:focus-visible,
+.add-form .form-btn-primary:focus-visible,
+.edit-form .form-btn-secondary:focus-visible,
+.edit-form .form-btn-primary:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 2px;
+}
+
+.add-form button:focus-visible,
+.edit-form button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 2px;
+}
+
+.add-form .form-btn-primary:disabled,
+.edit-form .form-btn-primary:disabled {
+  background-color: #9CA3AF;
+  color: #FFFFFF;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .add-form .modal-body,
+  .edit-form .modal-body {
+    padding: 1rem;
+  }
+
+  .add-form .form-btn-secondary,
+  .add-form .form-btn-primary,
+  .edit-form .form-btn-secondary,
+  .edit-form .form-btn-primary {
+    width: 100%;
+  }
+}
+
