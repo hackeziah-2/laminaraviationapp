@@ -362,6 +362,19 @@ export const AUTH_SCOPE_BARON_CONFIG: AuthorizationScopePanelConfig = {
     "Create an authorization scope for use in Personnel Authorization.",
 };
 
+export const AUTH_SCOPE_PIPER_CONFIG: AuthorizationScopePanelConfig = {
+  scopeType: "piper",
+  title: "Auth Scope PIPER PA-34",
+  description:
+    "Create, view, edit, and remove authorization scopes for PIPER PA-34 aircraft.",
+  entityLabel: "auth scope",
+  entityLabelPlural: "scopes",
+  createButtonLabel: "Add new",
+  emptyTitle: "No auth scopes yet",
+  emptyDescription:
+    "Create an authorization scope for use in Personnel Authorization.",
+};
+
 export const AUTH_SCOPE_OTHERS_CONFIG: AuthorizationScopePanelConfig = {
   scopeType: "others",
   title: "Auth Scope Others",

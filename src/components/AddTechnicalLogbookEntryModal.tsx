@@ -5681,6 +5681,7 @@ export function AddTechnicalLogbookEntryModal({
                               });
                             }
                           }}
+                          displayFormat="dmy-short"
                           aria-invalid={!!validationErrors.offBlocksDate}
                           inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
                             validationErrors.offBlocksDate
@@ -5791,6 +5792,7 @@ export function AddTechnicalLogbookEntryModal({
                               onBlocksDate
                             )
                           }
+                          displayFormat="dmy-short"
                           inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                         />
                       </div>
@@ -7415,6 +7417,7 @@ export function AddTechnicalLogbookEntryModal({
                             rtsDate,
                           })
                         }
+                        displayFormat="dmy-short"
                         inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
                     </div>
@@ -7644,6 +7647,7 @@ export function AddTechnicalLogbookEntryModal({
                             pilotAcceptDate,
                           })
                         }
+                        displayFormat="dmy-short"
                         inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
                     </div>

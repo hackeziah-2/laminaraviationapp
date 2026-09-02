@@ -1,7 +1,7 @@
 import apiClient from "./index";
 import { toCamel } from "../utility/utils";
 
-export type AuthorizationScopeType = "cessna" | "baron" | "others";
+export type AuthorizationScopeType = "cessna" | "baron" | "piper" | "others";
 
 /** Scope option for dropdown: value is id, label is for display. */
 export interface AuthorizationScopeOption {
@@ -118,6 +118,17 @@ export async function getAuthorizationScopeBaronList(): Promise<
   }
 }
 
+/** GET authorization-scope-piper/list */
+export async function getAuthorizationScopePiperList(): Promise<
+  AuthorizationScopeOption[]
+> {
+  try {
+    return await fetchScopeList("piper");
+  } catch {
+    return [];
+  }
+}
+
 /** GET authorization-scope-others/list */
 export async function getAuthorizationScopeOthersList(): Promise<
   AuthorizationScopeOption[]
@@ -209,6 +220,13 @@ export async function createAuthorizationScopeBaron(
   value: string
 ): Promise<void> {
   await createAuthorizationScope("baron", { name: value });
+}
+
+/** POST authorization-scope-piper/ - create new PIPER PA-34 scope */
+export async function createAuthorizationScopePiper(
+  value: string
+): Promise<void> {
+  await createAuthorizationScope("piper", { name: value });
 }
 
 /** POST authorization-scope-others/ - create new Others scope */

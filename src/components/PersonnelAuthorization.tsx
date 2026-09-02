@@ -39,9 +39,11 @@ const displayDate = (v?: string | null) =>
 import {
   getAuthorizationScopeCessnaList,
   getAuthorizationScopeBaronList,
+  getAuthorizationScopePiperList,
   getAuthorizationScopeOthersList,
   createAuthorizationScopeCessna,
   createAuthorizationScopeBaron,
+  createAuthorizationScopePiper,
   createAuthorizationScopeOthers,
   type AuthorizationScopeOption,
 } from "../api/authorizationScopeApi";
@@ -86,7 +88,7 @@ const MATRIX1_EXPORT_HEADERS = [
   "EXPIRY_DATE",
 ] as const;
 
-/** 16 columns; type-training Cessna, Baron, and PIPER PA-34 sub-columns match table labels. */
+/** 17 columns; type-training Cessna, Baron, and PIPER PA-34 sub-columns match table labels. */
 const MATRIX2_EXPORT_HEADERS = [
   "AUTHORIZATION NO",
   "NAME",
@@ -97,6 +99,7 @@ const MATRIX2_EXPORT_HEADERS = [
   "AUTH EXPIRY DATE",
   "AUTHORIZATION SCOPE — CESSNA 150, 152, 172",
   "AUTHORIZATION SCOPE — BARON 95-C55",
+  "AUTHORIZATION SCOPE — PIPER PA-34",
   "AUTHORIZATION SCOPE — OTHERS",
   "OTHERS EXPIRY DATE",
   "CAAP LIC EXPIRY",
@@ -293,13 +296,16 @@ export function PersonnelAuthorization() {
   const [scopeBaronOptions, setScopeBaronOptions] = useState<
     AuthorizationScopeOption[]
   >([]);
+  const [scopePiperOptions, setScopePiperOptions] = useState<
+    AuthorizationScopeOption[]
+  >([]);
   const [scopeOthersOptions, setScopeOthersOptions] = useState<
     AuthorizationScopeOption[]
   >([]);
   const [scopeListsLoading, setScopeListsLoading] = useState(false);
   const [showNewScopeModal, setShowNewScopeModal] = useState(false);
   const [newScopeType, setNewScopeType] = useState<
-    "cessna" | "baron" | "others"
+    "cessna" | "baron" | "piper" | "others"
   >("cessna");
   const [newScopeValue, setNewScopeValue] = useState("");
   const [addingScope, setAddingScope] = useState(false);
@@ -321,6 +327,7 @@ export function PersonnelAuthorization() {
     othersExpiryDate: "",
     scopeCessnaId: 0 as number,
     scopeBaronId: 0 as number,
+    scopePiperId: 0 as number,
     scopeOthersId: 0 as number,
     caapLicExpiry: "",
     hfTrainingExpiry: "",
@@ -410,22 +417,25 @@ export function PersonnelAuthorization() {
     if (currentPage > pages) setCurrentPage(pages);
   }, [personnel.length, itemsPerPage, currentPage]);
 
-  // Fetch scope dropdown lists from API (authorization-scope-cessna/list, authorization-scope-baron/list, authorization-scope-others/list)
+  // Fetch scope dropdown lists from API (authorization-scope-cessna/list, authorization-scope-baron/list, authorization-scope-piper/list, authorization-scope-others/list)
   useEffect(() => {
     setScopeListsLoading(true);
     Promise.all([
       getAuthorizationScopeCessnaList(),
       getAuthorizationScopeBaronList(),
+      getAuthorizationScopePiperList(),
       getAuthorizationScopeOthersList(),
     ])
-      .then(([cessna, baron, others]) => {
+      .then(([cessna, baron, piper, others]) => {
         setScopeCessnaOptions(cessna);
         setScopeBaronOptions(baron);
+        setScopePiperOptions(piper);
         setScopeOthersOptions(others);
       })
       .catch(() => {
         setScopeCessnaOptions([]);
         setScopeBaronOptions([]);
+        setScopePiperOptions([]);
         setScopeOthersOptions([]);
       })
       .finally(() => setScopeListsLoading(false));
@@ -494,6 +504,7 @@ export function PersonnelAuthorization() {
       othersExpiryDate: "",
       scopeCessnaId: 0,
       scopeBaronId: 0,
+      scopePiperId: 0,
       scopeOthersId: 0,
       caapLicExpiry: "",
       hfTrainingExpiry: "",
@@ -524,6 +535,7 @@ export function PersonnelAuthorization() {
       othersExpiryDate: toDateInput(person.othersExpiryDate),
       scopeCessnaId: person.scopeCessnaId ?? 0,
       scopeBaronId: person.scopeBaronId ?? 0,
+      scopePiperId: person.scopePiperId ?? 0,
       scopeOthersId: person.scopeOthersId ?? 0,
       caapLicExpiry: toDateInput(person.caapLicExpiry),
       hfTrainingExpiry: toDateInput(person.hfTrainingExpiry),
@@ -593,6 +605,7 @@ export function PersonnelAuthorization() {
       item_type: createForm.itemType.trim(),
       authorization_scope_cessna_id: createForm.scopeCessnaId,
       authorization_scope_baron_id: createForm.scopeBaronId,
+      authorization_scope_piper_id: createForm.scopePiperId,
       authorization_scope_others_id: createForm.scopeOthersId,
       auth_issue_date: createForm.authIssueDate.trim() || undefined,
       expiry_date: expiryDate || undefined,
@@ -756,6 +769,7 @@ export function PersonnelAuthorization() {
           displayDate(p.authExpiryDate),
           p.scopeCessna,
           p.scopeBaron,
+          p.scopePiper,
           p.scopeOthers,
           displayDate(p.othersExpiryDate),
           displayDate(p.caapLicExpiry),
@@ -806,24 +820,33 @@ export function PersonnelAuthorization() {
     }
   };
 
-  const getScopeTypeLabel = (type: "cessna" | "baron" | "others") => {
+  const getScopeTypeLabel = (
+    type: "cessna" | "baron" | "piper" | "others"
+  ) => {
     switch (type) {
       case "cessna":
         return "Authorization Scope (Cessna 150, 152, 172)";
       case "baron":
         return "Authorization Scope (Baron 95-C55)";
+      case "piper":
+        return "Authorization Scope (PIPER PA-34)";
       case "others":
         return "Authorization Scope (Others)";
     }
   };
 
-  const refetchScopeList = async (type: "cessna" | "baron" | "others") => {
+  const refetchScopeList = async (
+    type: "cessna" | "baron" | "piper" | "others"
+  ) => {
     if (type === "cessna") {
       const list = await getAuthorizationScopeCessnaList();
       setScopeCessnaOptions(list);
     } else if (type === "baron") {
       const list = await getAuthorizationScopeBaronList();
       setScopeBaronOptions(list);
+    } else if (type === "piper") {
+      const list = await getAuthorizationScopePiperList();
+      setScopePiperOptions(list);
     } else {
       const list = await getAuthorizationScopeOthersList();
       setScopeOthersOptions(list);
@@ -902,6 +925,44 @@ export function PersonnelAuthorization() {
           setScopeBaronOptions(list);
           const newId = findIdByLabel(list);
           setCreateForm((prev) => ({ ...prev, scopeBaronId: newId }));
+          setShowNewScopeModal(false);
+          setNewScopeValue("");
+          await Swal.fire({
+            icon: "success",
+            title: "Created",
+            text: `"${trimmed}" has been added to ${scopeLabel}.`,
+            timer: 2000,
+            showConfirmButton: false,
+          });
+        } catch (err) {
+          await Swal.fire({
+            icon: "error",
+            title: "Error",
+            text:
+              err instanceof Error ? err.message : "Failed to create scope.",
+          });
+        }
+      }
+    } else if (newScopeType === "piper") {
+      const existingId = findIdByLabel(scopePiperOptions);
+      if (existingId) {
+        setCreateForm((prev) => ({ ...prev, scopePiperId: existingId }));
+        setShowNewScopeModal(false);
+        setNewScopeValue("");
+        await Swal.fire({
+          icon: "info",
+          title: "Scope selected",
+          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } else {
+        try {
+          await createAuthorizationScopePiper(trimmed);
+          const list = await getAuthorizationScopePiperList();
+          setScopePiperOptions(list);
+          const newId = findIdByLabel(list);
+          setCreateForm((prev) => ({ ...prev, scopePiperId: newId }));
           setShowNewScopeModal(false);
           setNewScopeValue("");
           await Swal.fire({
@@ -1238,7 +1299,7 @@ export function PersonnelAuthorization() {
                     </button>
                   </th>
                   <th
-                    colSpan={3}
+                    colSpan={4}
                     className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
                   >
                     AUTHORIZATION SCOPE
@@ -1276,6 +1337,9 @@ export function PersonnelAuthorization() {
                     BARON 95-C55
                   </th>
                   <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    PIPER PA-34
+                  </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     OTHERS
                   </th>
                   <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
@@ -1294,7 +1358,7 @@ export function PersonnelAuthorization() {
               {listLoading ? (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 16}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 17}
                     className="px-6 py-12 text-center"
                   >
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
@@ -1512,6 +1576,11 @@ export function PersonnelAuthorization() {
                         )}
                       </td>
                       <td className={cellClassNoWrap}>
+                        {person.scopePiper || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClassNoWrap}>
                         {person.scopeOthers || (
                           <span className={placeholderClass}>—</span>
                         )}
@@ -1552,7 +1621,7 @@ export function PersonnelAuthorization() {
               ) : (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 16}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 17}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found
@@ -1665,10 +1734,16 @@ export function PersonnelAuthorization() {
                 </>
               )}
               {viewingItemType === "PIPER PA-34" && (
-                <PersonnelDetailRow
-                  label="Type Training Expiry (PIPER PA-34)"
-                  value={displayDate(viewingPersonnel.typeTrainingPiper)}
-                />
+                <>
+                  <PersonnelDetailRow
+                    label="Authorization Scope (PIPER PA-34)"
+                    value={viewingPersonnel.scopePiper}
+                  />
+                  <PersonnelDetailRow
+                    label="Type Training Expiry (PIPER PA-34)"
+                    value={displayDate(viewingPersonnel.typeTrainingPiper)}
+                  />
+                </>
               )}
               {viewingItemType === "OTHERS" && (
                 <>
@@ -2204,24 +2279,59 @@ export function PersonnelAuthorization() {
                 )}
 
                 {createForm.itemType === "PIPER PA-34" && (
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Type Training Expiry (PIPER PA-34){" "}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <DateInput
-                      name="expiry_date"
-                      required
-                      value={createForm.typeTrainingPiper}
-                      onChange={(typeTrainingPiper) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          typeTrainingPiper,
-                        }))
-                      }
-                      inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Scope (PIPER PA-34)
+                      </label>
+                      <select
+                        value={createForm.scopePiperId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__create_new__") {
+                            setNewScopeType("piper");
+                            setNewScopeValue("");
+                            setShowNewScopeModal(true);
+                            return;
+                          }
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            scopePiperId: v ? Number(v) : 0,
+                          }));
+                        }}
+                        disabled={scopeListsLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
+                      >
+                        <option value="">
+                          {scopeListsLoading ? "Loading..." : "Select Scope"}
+                        </option>
+                        {scopePiperOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        <option value="__create_new__">— Create New —</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Type Training Expiry (PIPER PA-34){" "}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <DateInput
+                        name="expiry_date"
+                        required
+                        value={createForm.typeTrainingPiper}
+                        onChange={(typeTrainingPiper) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            typeTrainingPiper,
+                          }))
+                        }
+                        inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                  </>
                 )}
 
                 {createForm.itemType === "OTHERS" && (
@@ -2391,6 +2501,8 @@ export function PersonnelAuthorization() {
                       "Authorization Scope (Cessna 150, 152, 172)"}
                     {newScopeType === "baron" &&
                       "Authorization Scope (Baron 95-C55)"}
+                    {newScopeType === "piper" &&
+                      "Authorization Scope (PIPER PA-34)"}
                     {newScopeType === "others" &&
                       "Authorization Scope (Others)"}
                   </p>

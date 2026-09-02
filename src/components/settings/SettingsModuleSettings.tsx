@@ -37,6 +37,7 @@ import {
   AUTH_SCOPE_BARON_CONFIG,
   AUTH_SCOPE_CESSNA_CONFIG,
   AUTH_SCOPE_OTHERS_CONFIG,
+  AUTH_SCOPE_PIPER_CONFIG,
   AuthorizationScopeSettingsPanel,
 } from "./AuthorizationScopeSettingsPanel";
 import { DataTablePagination } from "../ui/DataTablePagination";
@@ -1011,6 +1012,11 @@ export function SettingsModuleSettings({
   if (moduleKey === "auth-scope-baron") {
     return (
       <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_BARON_CONFIG} />
+    );
+  }
+  if (moduleKey === "auth-scope-piper") {
+    return (
+      <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_PIPER_CONFIG} />
     );
   }
   if (moduleKey === "auth-scope-others") {

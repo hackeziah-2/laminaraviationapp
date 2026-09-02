@@ -36,10 +36,12 @@ export interface PersonnelAuthorizationRecord {
   /** Display name from API (authorization_scope_cessna.name). */
   scopeCessna: string;
   scopeBaron: string;
+  scopePiper: string;
   scopeOthers: string;
   /** Scope FK ids for edit/update payload. */
   scopeCessnaId?: number;
   scopeBaronId?: number;
+  scopePiperId?: number;
   scopeOthersId?: number;
   caapLicExpiry: string;
   hfTrainingExpiry: string;
@@ -66,6 +68,7 @@ export interface PersonnelCompliancePayload {
   item_type: string;
   authorization_scope_cessna_id?: number | null;
   authorization_scope_baron_id?: number | null;
+  authorization_scope_piper_id?: number | null;
   authorization_scope_others_id?: number | null;
   auth_issue_date?: string;
   expiry_date?: string;
@@ -172,12 +175,23 @@ function authorizationScopeForItemType(
   itemType: string,
   scopeCessnaName: string,
   scopeBaronName: string,
+  scopePiperName: string,
   scopeOthersName: string,
   fallback: string
 ): string {
-  const u = itemType.trim().toUpperCase().replace(/\s+/g, "_");
+  const raw = itemType.trim().toUpperCase();
+  const u = raw.replace(/\s+/g, "_");
+  const compact = raw.replace(/[\s_-]+/g, "");
   if (u === "CESSNA" || u === "CESSANA") return scopeCessnaName || fallback;
   if (u === "BARON") return scopeBaronName || fallback;
+  if (
+    raw === "PIPER PA-34" ||
+    u === "PIPER_PA-34" ||
+    u === "PIPER_PA_34" ||
+    compact === "PIPERPA34"
+  ) {
+    return scopePiperName || fallback;
+  }
   if (u === "OTHERS" || u === "OTHER") return scopeOthersName || fallback;
   return fallback;
 }
@@ -241,6 +255,7 @@ function normalizeItem(
       authExpiryDate: "",
       scopeCessna: "",
       scopeBaron: "",
+      scopePiper: "",
       scopeOthers: "",
       caapLicExpiry: "",
       hfTrainingExpiry: "",
@@ -295,6 +310,22 @@ function normalizeItem(
     "authorization_scope_others_id",
     "authorization_scope_others"
   );
+  const scopePiperId =
+    getScopeId(
+      raw,
+      "authorization_scope_piper_id",
+      "authorization_scope_piper"
+    ) ||
+    getScopeId(
+      raw,
+      "authorization_scope_piper_pa_34_id",
+      "authorization_scope_piper_pa_34"
+    ) ||
+    getScopeId(
+      raw,
+      "authorization_scope_piper_pa34_id",
+      "authorization_scope_piper_pa34"
+    );
 
   const scopeCessnaName = getScopeName(
     raw,
@@ -326,7 +357,29 @@ function normalizeItem(
     ],
     "authorization_scope_others"
   );
-  const combinedScope = [scopeCessnaName, scopeBaronName, scopeOthersName]
+  const scopePiperName =
+    getScopeName(
+      raw,
+      [
+        "scopePiper",
+        "scope_piper",
+        "authorizationScopePiper",
+        "authorization_scope_piper",
+        "scopePiperPa34",
+        "scope_piper_pa_34",
+        "authorization_scope_piper_pa_34",
+        "authorization_scope_piper_pa34",
+      ],
+      "authorization_scope_piper"
+    ) ||
+    getScopeName(raw, [], "authorization_scope_piper_pa_34") ||
+    getScopeName(raw, [], "authorization_scope_piper_pa34");
+  const combinedScope = [
+    scopeCessnaName,
+    scopeBaronName,
+    scopePiperName,
+    scopeOthersName,
+  ]
     .filter((s) => s.length > 0)
     .join(" · ");
 
@@ -340,6 +393,7 @@ function normalizeItem(
     itemTypeStr,
     scopeCessnaName,
     scopeBaronName,
+    scopePiperName,
     scopeOthersName,
     scopeFallback
   );
@@ -424,9 +478,11 @@ function normalizeItem(
     authExpiryDate,
     scopeCessna: scopeCessnaName,
     scopeBaron: scopeBaronName,
+    scopePiper: scopePiperName,
     scopeOthers: scopeOthersName,
     scopeCessnaId: scopeCessnaId || undefined,
     scopeBaronId: scopeBaronId || undefined,
+    scopePiperId: scopePiperId || undefined,
     scopeOthersId: scopeOthersId || undefined,
     caapLicExpiry,
     hfTrainingExpiry,
@@ -620,6 +676,9 @@ function buildPersonnelComplianceBody(
     ),
     authorization_scope_baron_id: scopeIdOrNull(
       payload.authorization_scope_baron_id ?? undefined
+    ),
+    authorization_scope_piper_id: scopeIdOrNull(
+      payload.authorization_scope_piper_id ?? undefined
     ),
     authorization_scope_others_id: scopeIdOrNull(
       payload.authorization_scope_others_id ?? undefined
