@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 const BASE = "cpcp-monitoring";
 
@@ -144,13 +146,12 @@ export interface PaginatedCPCPResponse {
  */
 export async function getCpcpMonitoringPaged(
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftId?: string | number | null
 ): Promise<PaginatedCPCPResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   if (aircraftId != null && String(aircraftId).trim() !== "") {
     const aid = typeof aircraftId === "number" ? aircraftId : parseInt(String(aircraftId), 10);
@@ -163,7 +164,7 @@ export async function getCpcpMonitoringPaged(
   const items = (Array.isArray(rawItems) ? rawItems : []).map((item: any) => normalizeEntry(item));
   const total = data.total ?? data.count ?? items.length;
   const pageNum = data.page ?? page;
-  const pages = data.pages ?? Math.max(1, Math.ceil(Number(total) / (data.limit ?? limit)));
+  const pages = data.pages ?? Math.max(1, Math.ceil(Number(total) / (data.page_size ?? data.limit ?? limit)));
   return { items, total: Number(total), page: pageNum, pages };
 }
 

@@ -35,6 +35,7 @@ import {
 } from "../api/ldndMonitoringApi";
 import {
   getAircraftAdMonitoring,
+  getAllAircraftAdMonitoring,
   createAircraftAdMonitoring,
   updateAircraftAdMonitoring,
   deleteAircraftAdMonitoring,
@@ -73,6 +74,11 @@ import {
 } from "../api/maintenanceImportApi";
 import type { MaintenanceImportKind } from "../constants/maintenanceImportKinds";
 import { MAINTENANCE_IMPORT_KIND_LABELS } from "../constants/maintenanceImportKinds";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { collectAllPagedItems } from "../utils/pagedQuery";
 import {
   readMaintenanceImportHeaderRow,
   validateMaintenanceImportHeaderRow,
@@ -370,11 +376,11 @@ export function Maintenance() {
 
   // Pagination state for LDND
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
 
   // Pagination state for AD
   const [adCurrentPage, setAdCurrentPage] = useState(1);
-  const [adItemsPerPage, setAdItemsPerPage] = useState(10);
+  const [adItemsPerPage, setAdItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
 
   // Sort state for LDND (sorts within the current page)
   type LdndSortField = "performedDateEnd";
@@ -392,6 +398,7 @@ export function Maintenance() {
   }>({ field: null, direction: "asc" });
 
   const handleLdndSort = (field: LdndSortField) => {
+    setCurrentPage(1);
     setLdndSort((prev) =>
       prev.field === field
         ? { field, direction: prev.direction === "asc" ? "desc" : "asc" }
@@ -400,6 +407,7 @@ export function Maintenance() {
   };
 
   const handleAdSort = (field: AdSortField) => {
+    setAdCurrentPage(1);
     setAdSort((prev) =>
       prev.field === field
         ? { field, direction: prev.direction === "asc" ? "desc" : "asc" }
@@ -767,14 +775,10 @@ export function Maintenance() {
       if (!Number.isFinite(aircraftId) || aircraftId <= 0) return;
       setLdndExportLoading(true);
       try {
-        const exportLimit = Math.max(ldndTotal, ldndItems.length, 1);
-        const res = await getAircraftLdndMonitoring(
-          aircraftId,
-          1,
-          exportLimit,
-          ldndSearchQuery
+        const items = await collectAllPagedItems((page, pageSize) =>
+          getAircraftLdndMonitoring(aircraftId, page, pageSize, ldndSearchQuery)
         );
-        if (!res.items.length) {
+        if (!items.length) {
           await Swal.fire({
             icon: "info",
             title: "No data to export",
@@ -792,7 +796,7 @@ export function Maintenance() {
             .join(",");
           const csvLines = [
             headerLine,
-            ...res.items.map((item) =>
+            ...items.map((item) =>
               ldndItemToExportRow(item).map(escapeCsvValue).join(",")
             ),
           ];
@@ -810,7 +814,7 @@ export function Maintenance() {
         } else {
           const aoa: string[][] = [
             [...LDND_EXPORT_HEADERS],
-            ...res.items.map(ldndItemToExportRow),
+            ...items.map(ldndItemToExportRow),
           ];
           const ws = XLSX.utils.aoa_to_sheet(aoa);
           const wb = XLSX.utils.book_new();
@@ -839,14 +843,11 @@ export function Maintenance() {
       if (!Number.isFinite(aircraftId) || aircraftId <= 0) return;
       setAdExportLoading(true);
       try {
-        const exportLimit = Math.max(adTotal, adItems.length, 1);
-        const res = await getAircraftAdMonitoring(
+        const resItems = await getAllAircraftAdMonitoring(
           aircraftId,
-          1,
-          exportLimit,
           adSearchQuery
         );
-        if (!res.items.length) {
+        if (!resItems.length) {
           await Swal.fire({
             icon: "info",
             title: "No data to export",
@@ -864,7 +865,7 @@ export function Maintenance() {
             .join(",");
           const csvLines = [
             headerLine,
-            ...res.items.map((item) =>
+            ...resItems.map((item) =>
               adItemToExportRow(item).map(escapeCsvValue).join(",")
             ),
           ];
@@ -882,7 +883,7 @@ export function Maintenance() {
         } else {
           const aoa: string[][] = [
             [...AD_EXPORT_HEADERS],
-            ...res.items.map(adItemToExportRow),
+            ...resItems.map(adItemToExportRow),
           ];
           const ws = XLSX.utils.aoa_to_sheet(aoa);
           const wb = XLSX.utils.book_new();
@@ -903,7 +904,7 @@ export function Maintenance() {
         setAdExportLoading(false);
       }
     },
-    [aircraftId, adItems.length, adSearchQuery, adTotal, registration]
+    [aircraftId, adSearchQuery, registration]
   );
 
   const handleTccExportHeader = useCallback(async (format: "csv" | "xlsx") => {
@@ -1982,7 +1983,7 @@ export function Maintenance() {
                 totalLabel="records"
                 itemsPerPage={itemsPerPage}
                 onItemsPerPageChange={setItemsPerPage}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                 showRangeText={false}
                 disabled={ldndLoading}
                 className="px-5"
@@ -2224,7 +2225,7 @@ export function Maintenance() {
                 totalLabel="records"
                 itemsPerPage={adItemsPerPage}
                 onItemsPerPageChange={setAdItemsPerPage}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                 showRangeText={false}
                 disabled={adLoading}
                 className="px-5"
@@ -2520,111 +2521,109 @@ export function Maintenance() {
 
             <div className="p-6">
               <div className="grid grid-cols-4 gap-6">
-                  <div className="space-y-4">
-                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                <div className="space-y-4">
+                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                    AD Number
+                  </div>
+                  <div>
+                    <label className="block text-gray-600 text-xs mb-1.5">
                       AD Number
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1.5">
-                        AD Number
-                      </label>
-                      <input
-                        type="text"
-                        value={newADEntry.adNumber}
-                        onChange={(e) =>
-                          setNewADEntry({
-                            ...newADEntry,
-                            adNumber: e.target.value,
-                          })
-                        }
-                        placeholder="e.g., AD 2023-01-15"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                      Subject
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1.5">
-                        Subject
-                      </label>
-                      <input
-                        type="text"
-                        value={newADEntry.subject}
-                        onChange={(e) =>
-                          setNewADEntry({
-                            ...newADEntry,
-                            subject: e.target.value,
-                          })
-                        }
-                        placeholder="Enter subject"
-                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                      Inspection Interval
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1.5">
-                        Interval
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={newADEntry.inspectionInterval}
-                        onChange={(e) =>
-                          setNewADEntry({
-                            ...newADEntry,
-                            inspectionInterval: sanitizeIntegerOrFloatInput(
-                              e.target.value
-                            ),
-                          })
-                        }
-                        placeholder="e.g., 500 or 12.5"
-                        className={`w-full px-3 py-2 border rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white ${
-                          newADEntry.inspectionInterval.trim() &&
-                          !isOptionalIntegerOrFloat(
-                            newADEntry.inspectionInterval
-                          )
-                            ? "border-red-400"
-                            : "border-gray-300"
-                        }`}
-                      />
-                      {newADEntry.inspectionInterval.trim() &&
-                        !isOptionalIntegerOrFloat(
-                          newADEntry.inspectionInterval
-                        ) && (
-                          <p className="mt-1 text-xs text-red-600">
-                            Enter a whole number or decimal only.
-                          </p>
-                        )}
-                    </div>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
-                      Compliance Date
-                    </div>
-                    <div>
-                      <label className="block text-gray-600 text-xs mb-1.5">
-                        Date
-                      </label>
-                      <DateInput
-                        value={newADEntry.compliDate}
-                        onChange={(compliDate) =>
-                          setNewADEntry({
-                            ...newADEntry,
-                            compliDate,
-                          })
-                        }
-                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                      />
-                    </div>
+                    </label>
+                    <input
+                      type="text"
+                      value={newADEntry.adNumber}
+                      onChange={(e) =>
+                        setNewADEntry({
+                          ...newADEntry,
+                          adNumber: e.target.value,
+                        })
+                      }
+                      placeholder="e.g., AD 2023-01-15"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder:text-gray-400 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </div>
                 </div>
+                <div className="space-y-4">
+                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                    Subject
+                  </div>
+                  <div>
+                    <label className="block text-gray-600 text-xs mb-1.5">
+                      Subject
+                    </label>
+                    <input
+                      type="text"
+                      value={newADEntry.subject}
+                      onChange={(e) =>
+                        setNewADEntry({
+                          ...newADEntry,
+                          subject: e.target.value,
+                        })
+                      }
+                      placeholder="Enter subject"
+                      className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                    Inspection Interval
+                  </div>
+                  <div>
+                    <label className="block text-gray-600 text-xs mb-1.5">
+                      Interval
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={newADEntry.inspectionInterval}
+                      onChange={(e) =>
+                        setNewADEntry({
+                          ...newADEntry,
+                          inspectionInterval: sanitizeIntegerOrFloatInput(
+                            e.target.value
+                          ),
+                        })
+                      }
+                      placeholder="e.g., 500 or 12.5"
+                      className={`w-full px-3 py-2 border rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white ${
+                        newADEntry.inspectionInterval.trim() &&
+                        !isOptionalIntegerOrFloat(newADEntry.inspectionInterval)
+                          ? "border-red-400"
+                          : "border-gray-300"
+                      }`}
+                    />
+                    {newADEntry.inspectionInterval.trim() &&
+                      !isOptionalIntegerOrFloat(
+                        newADEntry.inspectionInterval
+                      ) && (
+                        <p className="mt-1 text-xs text-red-600">
+                          Enter a whole number or decimal only.
+                        </p>
+                      )}
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div className="text-gray-900 text-xs uppercase tracking-wider border-b border-gray-200 pb-2">
+                    Effective Date
+                  </div>
+                  <div>
+                    <label className="block text-gray-600 text-xs mb-1.5">
+                      Date
+                    </label>
+                    <DateInput
+                      value={newADEntry.compliDate}
+                      onChange={(compliDate) =>
+                        setNewADEntry({
+                          ...newADEntry,
+                          compliDate,
+                        })
+                      }
+                      inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                    />
+                  </div>
+                </div>
+              </div>
               <div className="mt-6 max-w-xl">
                 <label className="block text-gray-900 text-sm font-medium mb-2">
                   Web Link

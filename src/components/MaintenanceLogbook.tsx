@@ -6,8 +6,6 @@ import {
   Plus,
   X,
   Upload,
-  ChevronLeft,
-  ChevronRight,
   Pencil,
   Trash2,
   Eye,
@@ -76,10 +74,19 @@ import {
 } from "../utility/maintenanceLogbookAtlMapping";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { snakeAllKeys } from "../utility/utils";
 import apiClient from "../api/index";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
+import { ViewRecordModalShell } from "./ui/ViewRecordModalShell";
+import { ModalRecordNav } from "./ui/ModalRecordNav";
+import { navigateAfterDiscardCheck } from "../utils/confirmDiscardUnsavedChanges";
+import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 import {
   searchAircraftAtlBySequenceNumber,
   getExactAircraftAtlBySequenceNumber,
@@ -105,6 +112,25 @@ function shouldShowLogbookMechanicNoneOption(searchTerm: string): boolean {
   return (
     LOGBOOK_MECHANIC_NONE_LABEL.toLowerCase().includes(q) || "none".includes(q)
   );
+}
+
+function fileSnapshotToken(file: File | null): string | null {
+  if (!file) return null;
+  return `file:${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function serializeMaintenanceEditSnapshot(input: {
+  formData: Record<string, unknown>;
+  uploadFile: File | null;
+  existingUploadFile: string | null;
+  componentRecords: Array<{ id?: string; [key: string]: unknown }>;
+}): string {
+  return JSON.stringify({
+    formData: input.formData,
+    uploadFile: fileSnapshotToken(input.uploadFile),
+    existingUploadFile: input.existingUploadFile,
+    componentRecords: input.componentRecords.map(({ id: _id, ...rest }) => rest),
+  });
 }
 
 interface LogEntry {
@@ -234,7 +260,9 @@ export function MaintenanceLogbook() {
   const [activeCategory, setActiveCategory] = useState<Category>("AIRFRAME");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
+  const skipNextPagedFetchRef = useRef(false);
+  const listFetchSeqRef = useRef(0);
 
   // State for logbook entries
   const [airframeLogEntries, setAirframeLogEntries] = useState<
@@ -286,6 +314,8 @@ export function MaintenanceLogbook() {
   const [editingEntry, setEditingEntry] = useState<
     EngineLogbook | AirframeLogbook | AvionicsLogbook | PropellerLogbook | null
   >(null);
+  const [editLoadError, setEditLoadError] = useState<string | null>(null);
+  const editModalScrollRef = useRef<HTMLDivElement>(null);
 
   const currentListEntries =
     activeCategory === "AIRFRAME"
@@ -349,6 +379,7 @@ export function MaintenanceLogbook() {
       const pageToFetch = preserveView
         ? getPendingPage(currentPage)
         : currentPage;
+      const requestId = ++listFetchSeqRef.current;
 
       if (!preserveView) {
         setLoading(true);
@@ -364,6 +395,7 @@ export function MaintenanceLogbook() {
               searchQuery,
               aircraftId
             );
+            if (listFetchSeqRef.current !== requestId) return;
             setAirframeLogEntries(airframeResponse.items);
             setTotalRecords(airframeResponse.total);
             setTotalPages(airframeResponse.pages);
@@ -376,6 +408,7 @@ export function MaintenanceLogbook() {
               searchQuery,
               aircraftId
             );
+            if (listFetchSeqRef.current !== requestId) return;
             setAvionicsLogEntries(avionicsResponse.items);
             setTotalRecords(avionicsResponse.total);
             setTotalPages(avionicsResponse.pages);
@@ -388,6 +421,7 @@ export function MaintenanceLogbook() {
               searchQuery,
               aircraftId
             );
+            if (listFetchSeqRef.current !== requestId) return;
             setEngineLogEntries(engineResponse.items);
             setTotalRecords(engineResponse.total);
             setTotalPages(engineResponse.pages);
@@ -400,16 +434,20 @@ export function MaintenanceLogbook() {
               searchQuery,
               aircraftId
             );
+            if (listFetchSeqRef.current !== requestId) return;
             setPropellerLogEntries(propellerResponse.items);
             setTotalRecords(propellerResponse.total);
             setTotalPages(propellerResponse.pages);
             break;
           }
         }
+        if (listFetchSeqRef.current !== requestId) return;
         if (preserveView && pageToFetch !== currentPage) {
+          skipNextPagedFetchRef.current = true;
           setCurrentPage(pageToFetch);
         }
       } catch (err: any) {
+        if (listFetchSeqRef.current !== requestId) return;
         console.error("Error fetching logbooks:", err);
         setError("Failed to load logbook entries");
         setAirframeLogEntries([]);
@@ -417,6 +455,7 @@ export function MaintenanceLogbook() {
         setEngineLogEntries([]);
         setPropellerLogEntries([]);
       } finally {
+        if (listFetchSeqRef.current !== requestId) return;
         if (!preserveView) {
           setTimeout(() => setLoading(false), 360);
         } else {
@@ -442,6 +481,10 @@ export function MaintenanceLogbook() {
 
   // Fetch logbooks when dependencies change
   useEffect(() => {
+    if (skipNextPagedFetchRef.current) {
+      skipNextPagedFetchRef.current = false;
+      return;
+    }
     fetchLogbooks();
   }, [fetchLogbooks]);
 
@@ -515,7 +558,7 @@ export function MaintenanceLogbook() {
   };
 
   // Handle edit entry
-  const handleEdit = async (entryId: number) => {
+  const handleEdit = async (entryId: number): Promise<boolean> => {
     try {
       let entry:
         | EngineLogbook
@@ -540,12 +583,30 @@ export function MaintenanceLogbook() {
       }
 
       if (entry) {
+        setEditLoadError(null);
         setEditingEntry(entry);
         setShowEditEntryModal(true);
+        return true;
       }
-    } catch (err: any) {
+      const message = "Failed to load entry details.";
+      if (showEditEntryModal) {
+        setEditLoadError(message);
+      } else {
+        Swal.fire("Error!", message, "error");
+      }
+      return false;
+    } catch (err: unknown) {
       console.error("Error fetching entry:", err);
-      Swal.fire("Error!", "Failed to load entry details.", "error");
+      const message = formatApiErrorMessage(
+        err,
+        "Failed to load entry details."
+      );
+      if (showEditEntryModal) {
+        setEditLoadError(message);
+      } else {
+        Swal.fire("Error!", message, "error");
+      }
+      return false;
     }
   };
 
@@ -575,6 +636,193 @@ export function MaintenanceLogbook() {
       Swal.fire("Error!", "Failed to load entry details.", "error");
     }
   };
+
+  const selectedViewEntry =
+    activeCategory === "AIRFRAME"
+      ? selectedAirframeEntry
+      : activeCategory === "AVIONICS"
+        ? selectedAvionicsEntry
+        : activeCategory === "ENGINE"
+          ? selectedEngineEntry
+          : selectedPropellerEntry;
+
+  const viewEntryNav = usePagedRecordNavigation({
+    isOpen: Boolean(selectedViewEntry),
+    records: currentListEntries,
+    currentId: selectedViewEntry?.id,
+    currentPage,
+    totalPages,
+    fetchPage: async (page) => {
+      switch (activeCategory) {
+        case "AIRFRAME": {
+          const response = await getAirframeLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+        case "AVIONICS": {
+          const response = await getAvionicsLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+        case "ENGINE": {
+          const response = await getEngineLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+        default: {
+          const response = await getPropellerLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+      }
+    },
+    applyPage: (page, result) => {
+      skipNextPagedFetchRef.current = true;
+      setCurrentPage(page);
+      if (result.pages != null) setTotalPages(result.pages);
+      if (result.total != null) setTotalRecords(result.total);
+      switch (activeCategory) {
+        case "AIRFRAME":
+          setAirframeLogEntries(result.items as AirframeLogbook[]);
+          break;
+        case "AVIONICS":
+          setAvionicsLogEntries(result.items as AvionicsLogbook[]);
+          break;
+        case "ENGINE":
+          setEngineLogEntries(result.items as EngineLogbook[]);
+          break;
+        default:
+          setPropellerLogEntries(result.items as PropellerLogbook[]);
+          break;
+      }
+    },
+    onSelect: async (record) => {
+      await handleView(record.id);
+    },
+  });
+
+  const editEntryNav = usePagedRecordNavigation({
+    isOpen: showEditEntryModal,
+    records: currentListEntries,
+    currentId: editingEntry?.id,
+    currentPage,
+    totalPages,
+    holdBusyUntilIdle: true,
+    fetchPage: async (page) => {
+      switch (activeCategory) {
+        case "AIRFRAME": {
+          const response = await getAirframeLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+        case "AVIONICS": {
+          const response = await getAvionicsLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+        case "ENGINE": {
+          const response = await getEngineLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+        default: {
+          const response = await getPropellerLogbooks(
+            page,
+            itemsPerPage,
+            searchQuery,
+            aircraftId
+          );
+          return {
+            items: response.items,
+            pages: response.pages,
+            total: response.total,
+          };
+        }
+      }
+    },
+    applyPage: (page, result) => {
+      skipNextPagedFetchRef.current = true;
+      setCurrentPage(page);
+      if (result.pages != null) setTotalPages(result.pages);
+      if (result.total != null) setTotalRecords(result.total);
+      switch (activeCategory) {
+        case "AIRFRAME":
+          setAirframeLogEntries(result.items as AirframeLogbook[]);
+          break;
+        case "AVIONICS":
+          setAvionicsLogEntries(result.items as AvionicsLogbook[]);
+          break;
+        case "ENGINE":
+          setEngineLogEntries(result.items as EngineLogbook[]);
+          break;
+        default:
+          setPropellerLogEntries(result.items as PropellerLogbook[]);
+          break;
+      }
+    },
+    onSelect: async (record) => {
+      const loaded = await handleEdit(record.id);
+      if (!loaded) {
+        throw new Error("Failed to load the selected maintenance logbook entry.");
+      }
+    },
+  });
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -683,6 +931,16 @@ export function MaintenanceLogbook() {
   const [componentRecords, setComponentRecords] = useState<
     ComponentRecordRow[]
   >([]);
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
+  const uploadFileRef = useRef(uploadFile);
+  uploadFileRef.current = uploadFile;
+  const existingUploadFileRef = useRef(existingUploadFile);
+  existingUploadFileRef.current = existingUploadFile;
+  const componentRecordsRef = useRef(componentRecords);
+  componentRecordsRef.current = componentRecords;
+  const maintenanceEditBaselineRef = useRef<string | null>(null);
+  const maintenanceEditHydratingRef = useRef(false);
   const addComponentRecord = () => {
     setComponentRecords((prev) => [
       ...prev,
@@ -1243,11 +1501,14 @@ export function MaintenanceLogbook() {
 
   // Reset form when modal opens/closes
   useEffect(() => {
+    let snapshotTimer: ReturnType<typeof window.setTimeout> | undefined;
     if (showAddEntryModal || showEditEntryModal) {
       // Always fetch mechanic accounts when modal opens
       fetchMechanicAccounts("");
 
       if (editingEntry) {
+        maintenanceEditHydratingRef.current = true;
+        maintenanceEditBaselineRef.current = null;
         // Populate form with editing entry data
         setFormData({
           date: editingEntry.date || "",
@@ -1351,6 +1612,16 @@ export function MaintenanceLogbook() {
         } else {
           setComponentRecords([]);
         }
+        snapshotTimer = window.setTimeout(() => {
+          maintenanceEditBaselineRef.current = serializeMaintenanceEditSnapshot({
+            formData: formDataRef.current as unknown as Record<string, unknown>,
+            uploadFile: uploadFileRef.current,
+            existingUploadFile: existingUploadFileRef.current,
+            componentRecords: componentRecordsRef.current,
+          });
+          maintenanceEditHydratingRef.current = false;
+          editEntryNav.release();
+        }, 0);
       } else {
         // Reset form for new entry
         setFormData({
@@ -1401,7 +1672,15 @@ export function MaintenanceLogbook() {
       setExistingUploadFile(null);
       resetSequenceAtlSearchState();
     }
+    return () => {
+      if (snapshotTimer) window.clearTimeout(snapshotTimer);
+    };
   }, [showAddEntryModal, showEditEntryModal, editingEntry]);
+
+  useEffect(() => {
+    if (!showEditEntryModal) return;
+    editModalScrollRef.current?.scrollTo({ top: 0 });
+  }, [showEditEntryModal, editingEntry?.id]);
 
   const validateMaintenanceLogbookForm = (): Record<string, string> => {
     const errors: Record<string, string> = {};
@@ -1800,6 +2079,19 @@ export function MaintenanceLogbook() {
     }
   };
 
+  const isMaintenanceEditDirty = () => {
+    if (maintenanceEditHydratingRef.current) return false;
+    if (!maintenanceEditBaselineRef.current) return false;
+    return (
+      serializeMaintenanceEditSnapshot({
+        formData: formDataRef.current as unknown as Record<string, unknown>,
+        uploadFile: uploadFileRef.current,
+        existingUploadFile: existingUploadFileRef.current,
+        componentRecords: componentRecordsRef.current,
+      }) !== maintenanceEditBaselineRef.current
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -1994,6 +2286,12 @@ export function MaintenanceLogbook() {
               totalItems={totalRecords}
               totalLabel="records"
               onPageChange={setCurrentPage}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(size) => {
+                setItemsPerPage(size);
+                setCurrentPage(1);
+              }}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               showRangeText={true}
               disabled={loading}
             />
@@ -2003,76 +2301,15 @@ export function MaintenanceLogbook() {
 
       {/* Detail View Modal */}
       {selectedAirframeEntry && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4"
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(4px)",
-          }}
+        <ViewRecordModalShell
+          onClose={() => setSelectedAirframeEntry(null)}
+          onPrevious={viewEntryNav.goPrevious}
+          onNext={viewEntryNav.goNext}
+          hasPrevious={viewEntryNav.hasPrevious}
+          hasNext={viewEntryNav.hasNext}
+          navigating={viewEntryNav.navigating}
+          scrollKey={selectedAirframeEntry.id}
         >
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={async () => {
-                    const currentIndex = airframeLogEntries.findIndex(
-                      (e) => e.id === selectedAirframeEntry.id
-                    );
-                    if (currentIndex > 0) {
-                      const prevEntry = airframeLogEntries[currentIndex - 1];
-                      try {
-                        const full = await getAirframeLogbookById(prevEntry.id);
-                        setSelectedAirframeEntry(full);
-                      } catch {
-                        setSelectedAirframeEntry(prevEntry);
-                      }
-                    }
-                  }}
-                  disabled={
-                    airframeLogEntries.findIndex(
-                      (e) => e.id === selectedAirframeEntry.id
-                    ) === 0 || airframeLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={async () => {
-                    const currentIndex = airframeLogEntries.findIndex(
-                      (e) => e.id === selectedAirframeEntry.id
-                    );
-                    if (currentIndex < airframeLogEntries.length - 1) {
-                      const nextEntry = airframeLogEntries[currentIndex + 1];
-                      try {
-                        const full = await getAirframeLogbookById(nextEntry.id);
-                        setSelectedAirframeEntry(full);
-                      } catch {
-                        setSelectedAirframeEntry(nextEntry);
-                      }
-                    }
-                  }}
-                  disabled={
-                    airframeLogEntries.findIndex(
-                      (e) => e.id === selectedAirframeEntry.id
-                    ) ===
-                      airframeLogEntries.length - 1 ||
-                    airframeLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-              <button
-                onClick={() => setSelectedAirframeEntry(null)}
-                className="p-2 hover:bg-gray-100 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
             {/* Modal Content */}
             <div className="p-6">
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
@@ -2294,82 +2531,20 @@ export function MaintenanceLogbook() {
                 />
               </div>
             </div>
-          </div>
-        </div>
+        </ViewRecordModalShell>
       )}
 
       {/* AVIONICS Detail View Modal */}
       {selectedAvionicsEntry && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4"
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(4px)",
-          }}
+        <ViewRecordModalShell
+          onClose={() => setSelectedAvionicsEntry(null)}
+          onPrevious={viewEntryNav.goPrevious}
+          onNext={viewEntryNav.goNext}
+          hasPrevious={viewEntryNav.hasPrevious}
+          hasNext={viewEntryNav.hasNext}
+          navigating={viewEntryNav.navigating}
+          scrollKey={selectedAvionicsEntry.id}
         >
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={async () => {
-                    const currentIndex = avionicsLogEntries.findIndex(
-                      (e) => e.id === selectedAvionicsEntry.id
-                    );
-                    if (currentIndex > 0) {
-                      const prevEntry = avionicsLogEntries[currentIndex - 1];
-                      try {
-                        const full = await getAvionicsLogbookById(prevEntry.id);
-                        setSelectedAvionicsEntry(full);
-                      } catch {
-                        setSelectedAvionicsEntry(prevEntry);
-                      }
-                    }
-                  }}
-                  disabled={
-                    avionicsLogEntries.findIndex(
-                      (e) => e.id === selectedAvionicsEntry.id
-                    ) === 0 || avionicsLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={async () => {
-                    const currentIndex = avionicsLogEntries.findIndex(
-                      (e) => e.id === selectedAvionicsEntry.id
-                    );
-                    if (currentIndex < avionicsLogEntries.length - 1) {
-                      const nextEntry = avionicsLogEntries[currentIndex + 1];
-                      try {
-                        const full = await getAvionicsLogbookById(nextEntry.id);
-                        setSelectedAvionicsEntry(full);
-                      } catch {
-                        setSelectedAvionicsEntry(nextEntry);
-                      }
-                    }
-                  }}
-                  disabled={
-                    avionicsLogEntries.findIndex(
-                      (e) => e.id === selectedAvionicsEntry.id
-                    ) ===
-                      avionicsLogEntries.length - 1 ||
-                    avionicsLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-              <button
-                onClick={() => setSelectedAvionicsEntry(null)}
-                className="p-2 hover:bg-gray-100 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
             {/* Modal Content */}
             <div className="p-6">
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
@@ -2573,82 +2748,20 @@ export function MaintenanceLogbook() {
                 />
               </div>
             </div>
-          </div>
-        </div>
+        </ViewRecordModalShell>
       )}
 
       {/* ENGINE Detail View Modal */}
       {selectedEngineEntry && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4"
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(4px)",
-          }}
+        <ViewRecordModalShell
+          onClose={() => setSelectedEngineEntry(null)}
+          onPrevious={viewEntryNav.goPrevious}
+          onNext={viewEntryNav.goNext}
+          hasPrevious={viewEntryNav.hasPrevious}
+          hasNext={viewEntryNav.hasNext}
+          navigating={viewEntryNav.navigating}
+          scrollKey={selectedEngineEntry.id}
         >
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={async () => {
-                    const currentIndex = engineLogEntries.findIndex(
-                      (e) => e.id === selectedEngineEntry.id
-                    );
-                    if (currentIndex > 0) {
-                      const prevEntry = engineLogEntries[currentIndex - 1];
-                      try {
-                        const full = await getEngineLogbookById(prevEntry.id);
-                        setSelectedEngineEntry(full);
-                      } catch {
-                        setSelectedEngineEntry(prevEntry);
-                      }
-                    }
-                  }}
-                  disabled={
-                    engineLogEntries.findIndex(
-                      (e) => e.id === selectedEngineEntry.id
-                    ) === 0 || engineLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={async () => {
-                    const currentIndex = engineLogEntries.findIndex(
-                      (e) => e.id === selectedEngineEntry.id
-                    );
-                    if (currentIndex < engineLogEntries.length - 1) {
-                      const nextEntry = engineLogEntries[currentIndex + 1];
-                      try {
-                        const full = await getEngineLogbookById(nextEntry.id);
-                        setSelectedEngineEntry(full);
-                      } catch {
-                        setSelectedEngineEntry(nextEntry);
-                      }
-                    }
-                  }}
-                  disabled={
-                    engineLogEntries.findIndex(
-                      (e) => e.id === selectedEngineEntry.id
-                    ) ===
-                      engineLogEntries.length - 1 ||
-                    engineLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-              <button
-                onClick={() => setSelectedEngineEntry(null)}
-                className="p-2 hover:bg-gray-100 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
             {/* Modal Content */}
             <div className="p-6">
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
@@ -2872,74 +2985,20 @@ export function MaintenanceLogbook() {
                 />
               </div>
             </div>
-          </div>
-        </div>
+        </ViewRecordModalShell>
       )}
 
       {/* PROPELLER Detail View Modal */}
       {selectedPropellerEntry && (
-        <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4"
-          style={{
-            background: "rgba(255, 255, 255, 0.15)",
-            backdropFilter: "blur(4px)",
-          }}
+        <ViewRecordModalShell
+          onClose={() => setSelectedPropellerEntry(null)}
+          onPrevious={viewEntryNav.goPrevious}
+          onNext={viewEntryNav.goNext}
+          hasPrevious={viewEntryNav.hasPrevious}
+          hasNext={viewEntryNav.hasNext}
+          navigating={viewEntryNav.navigating}
+          scrollKey={selectedPropellerEntry.id}
         >
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    const currentIndex = propellerLogEntries.findIndex(
-                      (e) => e.id === selectedPropellerEntry.id
-                    );
-                    if (currentIndex > 0) {
-                      setSelectedPropellerEntry(
-                        propellerLogEntries[currentIndex - 1]
-                      );
-                    }
-                  }}
-                  disabled={
-                    propellerLogEntries.findIndex(
-                      (e) => e.id === selectedPropellerEntry.id
-                    ) === 0 || propellerLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => {
-                    const currentIndex = propellerLogEntries.findIndex(
-                      (e) => e.id === selectedPropellerEntry.id
-                    );
-                    if (currentIndex < propellerLogEntries.length - 1) {
-                      setSelectedPropellerEntry(
-                        propellerLogEntries[currentIndex + 1]
-                      );
-                    }
-                  }}
-                  disabled={
-                    propellerLogEntries.findIndex(
-                      (e) => e.id === selectedPropellerEntry.id
-                    ) ===
-                      propellerLogEntries.length - 1 ||
-                    propellerLogEntries.length === 0
-                  }
-                  className="p-2 hover:bg-gray-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-              <button
-                onClick={() => setSelectedPropellerEntry(null)}
-                className="p-2 hover:bg-gray-100 rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
             {/* Modal Content */}
             <div className="p-6">
               <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
@@ -3043,13 +3102,15 @@ export function MaintenanceLogbook() {
                 />
               </div>
             </div>
-          </div>
-        </div>
+        </ViewRecordModalShell>
       )}
 
       {/* File View Modal */}
       {showImageViewModal && imageUrl && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black bg-opacity-50">
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black bg-opacity-50"
+          data-nested-overlay="true"
+        >
           <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">
@@ -3146,11 +3207,45 @@ export function MaintenanceLogbook() {
 
       {/* Add/Edit Entry Modal */}
       {(showAddEntryModal || showEditEntryModal) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          className={`fixed inset-0 z-50 flex items-center justify-center ${
+            showEditEntryModal && editingEntry
+              ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16"
+              : "p-4"
+          }`}
+        >
           {/* Overlay with blur */}
           <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
+          {showEditEntryModal && editingEntry ? (
+            <ModalRecordNav
+              onPrevious={() => {
+                void navigateAfterDiscardCheck(
+                  isMaintenanceEditDirty,
+                  editEntryNav.goPrevious
+                );
+              }}
+              onNext={() => {
+                void navigateAfterDiscardCheck(
+                  isMaintenanceEditDirty,
+                  editEntryNav.goNext
+                );
+              }}
+              hasPrevious={editEntryNav.hasPrevious}
+              hasNext={editEntryNav.hasNext}
+              disabled={editEntryNav.navigating}
+            />
+          ) : null}
           {/* Modal */}
           <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            {editEntryNav.navigating ? (
+              <div
+                className="absolute inset-0 z-40 flex items-center justify-center rounded-lg bg-white/80 backdrop-blur-sm"
+                aria-live="polite"
+                aria-busy="true"
+              >
+                <Spinner label="Loading entry…" compact />
+              </div>
+            ) : null}
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">
@@ -3161,6 +3256,7 @@ export function MaintenanceLogbook() {
                   setShowAddEntryModal(false);
                   setShowEditEntryModal(false);
                   setEditingEntry(null);
+                  setEditLoadError(null);
                 }}
                 className="p-1 hover:bg-gray-100 rounded transition-colors"
               >
@@ -3169,8 +3265,13 @@ export function MaintenanceLogbook() {
             </div>
 
             {/* Modal Content */}
-            <div className="flex-1 overflow-y-auto">
+            <div ref={editModalScrollRef} className="flex-1 overflow-y-auto">
               <div className="p-6">
+                {editLoadError ? (
+                  <p className="mb-4 text-sm text-red-600" role="alert">
+                    {editLoadError}
+                  </p>
+                ) : null}
                 <div className="mb-4">
                   <h3 className="text-sm font-medium text-gray-700">
                     {activeCategory} LOGBOOK

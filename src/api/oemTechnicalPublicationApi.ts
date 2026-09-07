@@ -1,5 +1,7 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { toCamel } from "../utility/utils";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 const PUBLICATIONS_BASE = "oem-technical-publications";
 const ITEM_TYPES_BASE = "oem-item-types";
@@ -164,11 +166,10 @@ export async function getOemItemTypesList(): Promise<OemItemTypeOption[]> {
  */
 export async function getOemItemTypesPaged(
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<OemItemTypesPagedResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   const res = await apiClient.get(
     `${ITEM_TYPES_BASE}/paged?${params.toString()}`,
     { headers: { Accept: "application/json" } }
@@ -260,8 +261,7 @@ export async function getOemPublicationsPaged(
   sortOrder: SortOrder
 ): Promise<OemPublicationsPagedResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(pageSize));
+  appendPagedQueryParams(params, page, pageSize);
   if (search.trim()) params.set("search", search.trim());
   const orderPrefix = sortOrder === "desc" ? "-" : "";
   params.set("ordering", `${orderPrefix}${sortBy}`);

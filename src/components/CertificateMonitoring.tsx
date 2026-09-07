@@ -32,6 +32,10 @@ import {
 } from "../api/certificateMonitoringApi";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate } from "../utility/utils";
@@ -51,7 +55,7 @@ export function CertificateMonitoring() {
   );
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [certificates, setCertificates] = useState<CertificateMonitoringType[]>(
     []
   );
@@ -938,7 +942,7 @@ export function CertificateMonitoring() {
               totalLabel="entries"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[10, 20, 50, 100]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               disabled={loading}
               className="px-6"
             />

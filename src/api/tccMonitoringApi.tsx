@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 export interface TCCMonitoring {
   id: number;
@@ -203,13 +205,12 @@ function normalizeItem(raw: any): TCCMonitoring {
 export const getAircraftTccMonitoring = async (
   aircraftId: number,
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   category?: string
 ): Promise<PaginatedTCCResponse> => {
   const params = new URLSearchParams();
-  params.append("page", String(page));
-  params.append("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.append("search", search.trim());
   const c = category?.trim();
   if (c) {
@@ -253,7 +254,7 @@ export const getAircraftTccMonitoring = async (
   if (isPaginated) {
     const total = data.total ?? data.count ?? items.length;
     const pageNum = data.page ?? page;
-    const limitUsed = data.limit ?? limit;
+    const limitUsed = data.page_size ?? data.limit ?? limit;
     const pages = data.pages ?? Math.max(1, Math.ceil(total / limitUsed));
     return { items, total, page: pageNum, pages };
   }

@@ -19,6 +19,10 @@ import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { Spinner } from "./ui/spinner";
 import { AddNatureOfFlightDescriptionModal } from "./AddNatureOfFlightDescriptionModal";
 
@@ -34,7 +38,7 @@ export function NatureOfFlightDescriptions({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
@@ -391,6 +395,7 @@ export function NatureOfFlightDescriptions({
             setItemsPerPage(size);
             setCurrentPage(1);
           }}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           showRangeText
           disabled={loading}
         />

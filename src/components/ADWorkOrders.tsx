@@ -22,6 +22,7 @@ import {
 import { Link, useParams, useNavigate } from "react-router-dom";
 import {
   getWorkOrderAdMonitoring,
+  getAllWorkOrderAdMonitoring,
   createWorkOrderAdMonitoring,
   updateWorkOrderAdMonitoring,
   deleteWorkOrderAdMonitoring,
@@ -50,6 +51,10 @@ import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import {
   importAdWorkOrdersExcel,
   pollMaintenanceImportUntilDone,
@@ -215,7 +220,7 @@ export function ADWorkOrders() {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -665,15 +670,12 @@ export function ADWorkOrders() {
       if (!hasValidParams) return;
       setWoExportLoading(true);
       try {
-        const exportLimit = Math.max(total, workOrders.length, 1);
-        const res = await getWorkOrderAdMonitoring(
+        const resItems = await getAllWorkOrderAdMonitoring(
           aircraft_fk,
           ad_monitoring_fk,
-          1,
-          exportLimit,
           searchQuery
         );
-        if (!res.items.length) {
+        if (!resItems.length) {
           await Swal.fire({
             icon: "info",
             title: "No data to export",
@@ -683,7 +685,7 @@ export function ADWorkOrders() {
           return;
         }
         const fileReg = `aircraft_${aircraft_fk}_ad_${ad_monitoring_fk}_wo`;
-        const rows = res.items.map((wo) => workOrderToExportRow(wo));
+        const rows = resItems.map((wo) => workOrderToExportRow(wo));
         if (format === "csv") {
           const escapeCsvValue = (value: string) =>
             `"${String(value).replace(/"/g, '""')}"`;
@@ -731,8 +733,6 @@ export function ADWorkOrders() {
       aircraft_fk,
       hasValidParams,
       searchQuery,
-      total,
-      workOrders.length,
     ]
   );
 
@@ -1055,7 +1055,7 @@ export function ADWorkOrders() {
                 setItemsPerPage(size);
                 setCurrentPage(1);
               }}
-              pageSizeOptions={[10, 20, 50, 100]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               showRangeText
               disabled={loading}
               className="px-5"

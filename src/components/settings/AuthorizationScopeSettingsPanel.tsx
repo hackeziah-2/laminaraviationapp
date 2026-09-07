@@ -11,6 +11,10 @@ import { useUserPermissions } from "../../hooks/useUserPermissions";
 import { AddAuthorizationScopeModal } from "../AddAuthorizationScopeModal";
 import { ViewAuthorizationScopeModal } from "../ViewAuthorizationScopeModal";
 import { DataTablePagination } from "../ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../../constants/pagination";
 
 export interface AuthorizationScopePanelConfig {
   scopeType: AuthorizationScopeType;
@@ -83,7 +87,7 @@ export function AuthorizationScopeSettingsPanel({
   const [editScopeId, setEditScopeId] = useState<number | null>(null);
   const [viewScopeId, setViewScopeId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalScopes, setTotalScopes] = useState(0);
 
@@ -308,7 +312,7 @@ export function AuthorizationScopeSettingsPanel({
               totalLabel={config.entityLabelPlural}
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[5, 10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             />
           )}
         </div>

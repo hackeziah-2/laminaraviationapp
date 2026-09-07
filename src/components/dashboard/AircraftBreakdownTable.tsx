@@ -12,6 +12,10 @@ import {
   CollapsibleTrigger,
 } from "../ui/collapsible";
 import { DataTablePagination } from "../ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../../constants/pagination";
 import { Skeleton } from "../ui/skeleton";
 import {
   formatReportNumber,
@@ -240,7 +244,7 @@ export function AircraftBreakdownTable({
   const [sortKey, setSortKey] = useState<SortKey>("periodLabel");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DEFAULT_API_PAGE_SIZE);
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
 
   const flatRows = useMemo(() => flattenMonthly(monthly), [monthly]);
@@ -437,6 +441,7 @@ export function AircraftBreakdownTable({
                     setPageSize(size);
                     setPage(1);
                   }}
+                  pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                 />
               </div>
             </>

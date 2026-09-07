@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { collectAllPagedItems } from "../utils/pagedQuery";
 import { LinkButton } from "./ui/LinkButton";
 import {
   DropdownMenu,
@@ -71,7 +76,7 @@ export function OEMTechnicalPublication() {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [sortBy, setSortBy] =
     useState<OemPublicationSortBy>("date_of_expiration");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
@@ -344,17 +349,17 @@ export function OEMTechnicalPublication() {
   };
 
   const handleOemExport = async (format: "csv" | "xlsx") => {
-    const exportLimit = Math.max(total, 1);
     setExportLoading(true);
     try {
-      const res = await getOemPublicationsPaged(
-        1,
-        exportLimit,
-        debouncedSearchTerm.trim(),
-        sortBy,
-        sortOrder
+      const rows = await collectAllPagedItems((page, pageSize) =>
+        getOemPublicationsPaged(
+          page,
+          pageSize,
+          debouncedSearchTerm.trim(),
+          sortBy,
+          sortOrder
+        )
       );
-      const rows = res.items ?? [];
       if (!rows.length) {
         await Swal.fire({
           icon: "info",
@@ -685,6 +690,7 @@ export function OEMTechnicalPublication() {
             setItemsPerPage(size);
             setCurrentPage(1);
           }}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           disabled={loading}
         />
       </div>

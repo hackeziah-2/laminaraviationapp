@@ -21,10 +21,14 @@ import {
 import { buildTechnicalLogbookAtlRoute } from "../../utility/technicalLogbookRoute";
 import { formatApiErrorMessage } from "../../utils/formatApiErrorMessage";
 import { DataTablePagination } from "../ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../../constants/pagination";
 import { Skeleton } from "../ui/skeleton";
 import { ViewTechnicalLogbookEntryModal } from "../ViewTechnicalLogbookEntryModal";
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50];
+const PAGE_SIZE_OPTIONS = [...API_PAGE_SIZE_OPTIONS];
 const SELECT_CLASS =
   "h-9 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500";
 
@@ -66,7 +70,7 @@ export function DataQualityFlagsModal({
   const [categoryFilter, setCategoryFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | DataQualityStatus>("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DEFAULT_API_PAGE_SIZE);
   const [aircraftOptions, setAircraftOptions] = useState<AircraftListItem[]>(
     []
   );

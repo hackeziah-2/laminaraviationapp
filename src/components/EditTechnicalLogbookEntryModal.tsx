@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { getMe } from "../api/authApi";
 import {
   getAircraftTechnicalLogById,
@@ -6,6 +6,7 @@ import {
 } from "../api/aircraftTechnicalLogApi";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
+import { ModalRecordNav } from "./ui/ModalRecordNav";
 import {
   ATL_EDIT_FORBIDDEN_MESSAGE,
   canEditAtlFields,
@@ -13,6 +14,7 @@ import {
   isTechnicalPublicationRestrictedEdit,
 } from "../utility/atlEditRbac";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 
 interface EditTechnicalLogbookEntryModalProps {
   isOpen: boolean;
@@ -25,6 +27,53 @@ interface EditTechnicalLogbookEntryModalProps {
   viewerRole?: string;
   /** Operation: Technical Publication may only change White ATL / DFP uploads in this modal. */
   editRestrictedToWhiteAtlDfpOnly?: boolean;
+  onPrevious?: () => void | Promise<void>;
+  onNext?: () => void | Promise<void>;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  navigationBusy?: boolean;
+  onLoadStateChange?: (isLoading: boolean) => void;
+}
+
+function EditEntryOverlay({
+  children,
+  showNav,
+  onPrevious,
+  onNext,
+  hasPrevious,
+  hasNext,
+  navDisabled,
+}: {
+  children: ReactNode;
+  showNav: boolean;
+  onPrevious?: () => void | Promise<void>;
+  onNext?: () => void | Promise<void>;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  navDisabled: boolean;
+}) {
+  return (
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center ${
+        showNav ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16" : "p-4"
+      }`}
+    >
+      <div
+        className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+        aria-hidden="true"
+      />
+      {showNav && onPrevious && onNext ? (
+        <ModalRecordNav
+          onPrevious={onPrevious}
+          onNext={onNext}
+          hasPrevious={hasPrevious}
+          hasNext={hasNext}
+          disabled={navDisabled}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -41,6 +90,12 @@ export function EditTechnicalLogbookEntryModal({
   permissionModuleCode,
   viewerRole,
   editRestrictedToWhiteAtlDfpOnly = false,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
+  navigationBusy = false,
+  onLoadStateChange,
 }: EditTechnicalLogbookEntryModalProps) {
   const { user: permUser } = useUserPermissions();
   const [meRole, setMeRole] = useState<string | undefined>(undefined);
@@ -73,111 +128,152 @@ export function EditTechnicalLogbookEntryModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const showNav = Boolean(onPrevious && onNext);
+  const navDisabled = loading || navigationBusy;
+  const onLoadStateChangeRef = useRef(onLoadStateChange);
+  onLoadStateChangeRef.current = onLoadStateChange;
+
   useEffect(() => {
-    if (isOpen && entryId && entryId > 0) {
-      const fetchEntry = async () => {
-        setLoading(true);
-        setError(null);
-        setFullEntry(null);
-        try {
-          const entry = await getAircraftTechnicalLogById(entryId);
-          setFullEntry(entry);
-        } catch (err: any) {
-          setError(err?.response?.data?.detail || err?.message || "Failed to load entry");
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchEntry();
-    } else {
+    onLoadStateChangeRef.current?.(loading);
+  }, [loading]);
+
+  useEffect(() => {
+    if (!isOpen || !entryId || entryId <= 0) {
       setFullEntry(null);
       setError(null);
+      setLoading(false);
+      return;
     }
+
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const entry = await getAircraftTechnicalLogById(entryId);
+        if (!cancelled) setFullEntry(entry);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setError(
+            formatApiErrorMessage(err, "Failed to load entry details.")
+          );
+          setFullEntry((prev) => (prev?.id === entryId ? prev : null));
+        }
+      } finally {
+        if (!cancelled) {
+          setTimeout(() => setLoading(false), 360);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, entryId]);
 
   if (!isOpen) return null;
 
-  // Loading or error: show our modal
-  if (loading || error) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div
-          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          aria-hidden="true"
-        />
-        <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            {loading ? (
-              <>
-                <Spinner />
-                <p className="text-gray-600 text-sm">Loading entry…</p>
-              </>
-            ) : (
-              <>
-                <p className="text-red-600 text-sm">{error}</p>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 text-sm bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const displayedEntry = fullEntry?.id === entryId ? fullEntry : null;
 
-  if (fullEntry) {
-    if (!canOpenAtlEditModal(effectiveViewerRole)) {
-      return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            aria-hidden="true"
-          />
-          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col p-6 gap-4">
-            <p className="text-gray-800 text-sm">{ATL_EDIT_FORBIDDEN_MESSAGE}</p>
+  if (error && !displayedEntry) {
+    return (
+      <EditEntryOverlay
+        showNav={showNav}
+        onPrevious={onPrevious}
+        onNext={onNext}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        navDisabled={navDisabled}
+      >
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="flex flex-col items-center justify-center gap-4 py-24">
+            <p className="px-6 text-center text-sm text-red-600">{error}</p>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors self-start"
+              className="rounded-lg bg-gray-200 px-4 py-2 text-sm transition-colors hover:bg-gray-300"
             >
               Close
             </button>
           </div>
         </div>
-      );
-    }
-
-    const applyTechPubAttachmentOnlyRestriction =
-      isTechnicalPublicationRestrictedEdit(
-        effectiveViewerRole,
-        fullEntry.workStatus
-      ) || editRestrictedToWhiteAtlDfpOnly;
-
-    const readOnlyEntry = !canEditAtlFields(
-      effectiveViewerRole,
-      fullEntry.workStatus
-    );
-
-    return (
-      <AddTechnicalLogbookEntryModal
-        isOpen={true}
-        onClose={onClose}
-        editEntry={fullEntry}
-        aircraftId={aircraftId}
-        onSuccess={onSuccess}
-        permissionModuleCode={permissionModuleCode}
-        viewerRole={effectiveViewerRole}
-        editRestrictedToWhiteAtlDfpOnly={
-          applyTechPubAttachmentOnlyRestriction
-        }
-        forceReadOnly={readOnlyEntry}
-      />
+      </EditEntryOverlay>
     );
   }
 
-  return null;
+  if (!displayedEntry) {
+    return (
+      <EditEntryOverlay
+        showNav={showNav}
+        onPrevious={onPrevious}
+        onNext={onNext}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        navDisabled={navDisabled}
+      >
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="flex flex-col items-center justify-center gap-4 py-24">
+            <Spinner />
+            <p className="text-sm text-gray-600">Loading entry…</p>
+          </div>
+        </div>
+      </EditEntryOverlay>
+    );
+  }
+
+  if (!canOpenAtlEditModal(effectiveViewerRole)) {
+    return (
+      <EditEntryOverlay
+        showNav={showNav}
+        onPrevious={onPrevious}
+        onNext={onNext}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        navDisabled={navDisabled}
+      >
+        <div className="relative flex w-full max-w-md flex-col gap-4 overflow-hidden rounded-xl bg-white p-6 shadow-xl">
+          <p className="text-sm text-gray-800">{ATL_EDIT_FORBIDDEN_MESSAGE}</p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="self-start rounded-lg bg-gray-200 px-4 py-2 text-sm transition-colors hover:bg-gray-300"
+          >
+            Close
+          </button>
+        </div>
+      </EditEntryOverlay>
+    );
+  }
+
+  const applyTechPubAttachmentOnlyRestriction =
+    isTechnicalPublicationRestrictedEdit(
+      effectiveViewerRole,
+      displayedEntry.workStatus
+    ) || editRestrictedToWhiteAtlDfpOnly;
+
+  const readOnlyEntry = !canEditAtlFields(
+    effectiveViewerRole,
+    displayedEntry.workStatus
+  );
+
+  return (
+    <AddTechnicalLogbookEntryModal
+      isOpen={true}
+      onClose={onClose}
+      editEntry={displayedEntry}
+      aircraftId={aircraftId}
+      onSuccess={onSuccess}
+      permissionModuleCode={permissionModuleCode}
+      viewerRole={effectiveViewerRole}
+      editRestrictedToWhiteAtlDfpOnly={applyTechPubAttachmentOnlyRestriction}
+      forceReadOnly={readOnlyEntry}
+      sideGutter={showNav}
+      contentLoading={navDisabled}
+      onPrevious={onPrevious}
+      onNext={onNext}
+      hasPrevious={hasPrevious}
+      hasNext={hasNext}
+      navigationBusy={navDisabled}
+    />
+  );
 }

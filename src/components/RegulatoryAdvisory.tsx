@@ -13,6 +13,11 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { collectAllPagedItems } from "../utils/pagedQuery";
+import {
   getAdvisoryPaged,
   getAdvisoryForRenew,
   renewAdvisory,
@@ -81,7 +86,7 @@ export function RegulatoryAdvisory() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [sortBy, setSortBy] = useState<AdvisorySortBy>("remaining_validity");
   const [sortOrder, setSortOrder] = useState<AdvisorySortOrder>("desc");
   const [items, setItems] = useState<AdvisoryItem[]>([]);
@@ -339,18 +344,18 @@ export function RegulatoryAdvisory() {
 
   const handleAdvisoryExport = async (format: "csv" | "xlsx") => {
     const typeParam = filterType === "all" ? undefined : filterType;
-    const exportLimit = Math.max(total, 1);
     setExportLoading(true);
     try {
-      const res = await getAdvisoryPaged(
-        1,
-        exportLimit,
-        searchTerm,
-        typeParam,
-        sortBy,
-        sortOrder
+      const rows = await collectAllPagedItems((page, pageSize) =>
+        getAdvisoryPaged(
+          page,
+          pageSize,
+          searchTerm,
+          typeParam,
+          sortBy,
+          sortOrder
+        )
       );
-      const rows = res.items ?? [];
       if (!rows.length) {
         await Swal.fire({
           icon: "info",
@@ -769,7 +774,7 @@ export function RegulatoryAdvisory() {
             setItemsPerPage(size);
             setCurrentPage(1);
           }}
-          pageSizeOptions={[5, 10, 20, 50]}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           disabled={loading}
         />
       </div>

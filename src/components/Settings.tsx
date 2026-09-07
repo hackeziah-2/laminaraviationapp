@@ -42,6 +42,10 @@ import {
   getModuleLabel,
 } from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
@@ -2154,7 +2158,7 @@ export function Settings() {
   const [usersError, setUsersError] = useState<string | null>(null);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalUsers, setTotalUsers] = useState(0);
 
@@ -3106,7 +3110,7 @@ export function Settings() {
                         totalLabel="items"
                         itemsPerPage={itemsPerPage}
                         onItemsPerPageChange={setItemsPerPage}
-                        pageSizeOptions={[10, 20, 50]}
+                        pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                       />
                     )}
                 </div>

@@ -1,9 +1,11 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import {
   formatAtlListDate,
   formatTimeZulu,
   toCamelDeep,
 } from "../utility/utils";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
 
 // Component Parts Record Interfaces
@@ -574,7 +576,7 @@ export function normalizeAtlPagedSortParam(sort: string): string {
 const fetchAircraftTechnicalLogs = async (
   endpoint: string,
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number,
   sort = "",
@@ -584,7 +586,7 @@ const fetchAircraftTechnicalLogs = async (
   try {
     const params = new URLSearchParams();
 
-    // Query order: atl_batch* first, then page, limit, aircraft_id/aircraft_fk, sort, search, work_status
+    // Query order: atl_batch* first, then page, page_size, aircraft_id/aircraft_fk, sort, search, work_status
     // e.g. .../paged?...&sort=sequence_no (asc) or sort=-created_at (desc)
     if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
       const idStr = String(atlBatchFk);
@@ -592,8 +594,7 @@ const fetchAircraftTechnicalLogs = async (
       params.append("atl_batch_fk", idStr);
     }
 
-    params.append("page", page.toString());
-    params.append("limit", limit.toString());
+    appendPagedQueryParams(params, page, limit);
 
     const aircraftIdNum = aircraftFk != null ? Number(aircraftFk) : NaN;
     if (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0) {
@@ -669,7 +670,7 @@ const fetchAircraftTechnicalLogs = async (
  */
 export const getAircraftTechnicalLogs = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number,
   sort = "",
@@ -692,7 +693,7 @@ export const getAircraftTechnicalLogs = async (
  */
 export const getManagedAircraftTechnicalLogs = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number,
   sort = "",
@@ -1377,15 +1378,14 @@ export interface PaginatedAtlBatchesResponse {
 
 /**
  * Paged list for ATL Batch Settings.
- * GET /api/v1/atl-batch/paged?page=&limit=
+ * GET /api/v1/atl-batch/paged?page=&page_size=
  */
 export async function getAtlBatchesPaged(
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<PaginatedAtlBatchesResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   const res = await apiClient.get(`atl-batch/paged?${params.toString()}`, {
     headers: { Accept: "application/json" },
   });

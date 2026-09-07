@@ -1,7 +1,9 @@
 import type { AxiosRequestConfig } from "axios";
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { getAccountsPaged } from "./accountApi";
 import { getModuleLabel } from "../constants/modulePermissions";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 export interface Role {
   id: number;
@@ -173,7 +175,7 @@ export const getRoles = async (): Promise<Role[]> => {
   } as AxiosRequestConfig & { skipGlobalErrorLog?: boolean };
   const paths = [
     "roles/roles-list",
-    "roles/paged/?page=1&limit=500",
+    "roles/paged/?page=1&page_size=500",
     "roles/",
   ] as const;
   let lastError: unknown;
@@ -278,12 +280,11 @@ export interface PaginatedRolesResponse {
 /** Paged list: GET /api/v1/roles/paged?page=&limit= */
 export const getRolesPaged = async (
   page = 1,
-  limit = 20,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = ""
 ): Promise<PaginatedRolesResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   const response = await apiClient.get(`roles/paged/?${params.toString()}`);
   const raw = response.data ?? {};

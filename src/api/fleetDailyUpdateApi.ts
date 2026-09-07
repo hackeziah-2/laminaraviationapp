@@ -1,5 +1,7 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE, MAX_API_PAGE_SIZE } from "../constants/pagination";
 import { toCamel } from "../utility/utils";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 /** Backend enum `fleet_daily_update_status_enum`: Operational, Ongoing Maintenance, AOG (legacy: Running → Operational). */
 function normalizeFleetDailyStatus(value: unknown): string {
@@ -172,14 +174,13 @@ export async function getAircraftFleetDailyUpdate(
  */
 export async function getFleetDailyUpdatePaged(
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   status = "",
   sort = ""
 ): Promise<FleetDailyUpdatePagedResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   if (status && status !== "all") params.set("status", status);
   if (sort.trim()) params.set("sort", sort.trim());
@@ -196,7 +197,11 @@ export async function getFleetDailyUpdatePaged(
     const total = data.total ?? data.count ?? items.length;
     const pageNum = data.page ?? page;
     const pages =
-      data.pages ?? Math.max(1, Math.ceil(Number(total) / (data.limit ?? limit)));
+      data.pages ??
+      Math.max(
+        1,
+        Math.ceil(Number(total) / (data.page_size ?? data.limit ?? limit))
+      );
     return { items, total: Number(total), page: pageNum, pages };
   };
 
@@ -217,7 +222,7 @@ export async function getFleetDailyUpdatePaged(
   }
 }
 
-const FLEET_DAILY_PAGE_LIMIT = 100;
+const FLEET_DAILY_PAGE_LIMIT = MAX_API_PAGE_SIZE;
 
 /**
  * Fetch every fleet daily update row ordered by Aircraft.display_order.

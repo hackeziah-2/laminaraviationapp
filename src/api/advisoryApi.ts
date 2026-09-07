@@ -1,5 +1,7 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { formatDateForApi, normalizeWebLink } from "../utility/utils";
+import { pagedQueryRecord } from "../utils/pagedQuery";
 
 /**
  * Advisory payloads can arrive in either camelCase or uppercase field names.
@@ -677,15 +679,14 @@ export type AdvisorySortOrder = "asc" | "desc";
  */
 export async function getAdvisoryPaged(
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   typeFilter?: string,
   sortBy: AdvisorySortBy = "remaining_validity",
   sortOrder: AdvisorySortOrder = "desc"
 ): Promise<AdvisoryPagedResponse> {
   const params: Record<string, string> = {
-    page: String(page),
-    limit: String(limit),
+    ...pagedQueryRecord(page, limit),
   };
 
   // API accepts single sort param for remaining_validity only: asc | desc | remaining_validity | -remaining_validity (no expiry)

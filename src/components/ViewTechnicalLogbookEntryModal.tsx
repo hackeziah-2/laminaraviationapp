@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AircraftTechnicalLog,
   getAircraftTechnicalLogById,
 } from "../api/aircraftTechnicalLogApi";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
+import { ModalRecordNav } from "./ui/ModalRecordNav";
 
 interface LogbookEntry {
   id: number;
@@ -27,6 +28,53 @@ interface ViewTechnicalLogbookEntryModalProps {
   aircraftId?: number;
   permissionModuleCode?: string;
   viewerRole?: string;
+  onPrevious?: () => void | Promise<void>;
+  onNext?: () => void | Promise<void>;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  navigationBusy?: boolean;
+  onLoadStateChange?: (isLoading: boolean) => void;
+}
+
+function ViewEntryOverlay({
+  children,
+  showNav,
+  onPrevious,
+  onNext,
+  hasPrevious,
+  hasNext,
+  navDisabled,
+}: {
+  children: ReactNode;
+  showNav: boolean;
+  onPrevious?: () => void | Promise<void>;
+  onNext?: () => void | Promise<void>;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  navDisabled: boolean;
+}) {
+  return (
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center ${
+        showNav ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16" : "p-4"
+      }`}
+    >
+      <div
+        className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+        aria-hidden="true"
+      />
+      {showNav && onPrevious && onNext ? (
+        <ModalRecordNav
+          onPrevious={onPrevious}
+          onNext={onNext}
+          hasPrevious={hasPrevious}
+          hasNext={hasNext}
+          disabled={navDisabled}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -40,12 +88,27 @@ export function ViewTechnicalLogbookEntryModal({
   aircraftId,
   permissionModuleCode,
   viewerRole,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
+  navigationBusy = false,
+  onLoadStateChange,
 }: ViewTechnicalLogbookEntryModalProps) {
   const [fetchedEntry, setFetchedEntry] = useState<AircraftTechnicalLog | null>(
     null
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const showNav = Boolean(onPrevious && onNext);
+  const navDisabled = loading || navigationBusy;
+  const onLoadStateChangeRef = useRef(onLoadStateChange);
+  onLoadStateChangeRef.current = onLoadStateChange;
+
+  useEffect(() => {
+    onLoadStateChangeRef.current?.(loading);
+  }, [loading]);
 
   useEffect(() => {
     if (!isOpen || !entry?.id) {
@@ -55,10 +118,10 @@ export function ViewTechnicalLogbookEntryModal({
       return;
     }
 
-    // Prefer a fresh READ so View matches Edit hydration (persons, files, etc.)
     let cancelled = false;
     const entryId = entry.id;
-    const fallback = fullEntry;
+    const fallback =
+      fullEntry?.id === entryId ? fullEntry : null;
     const load = async () => {
       setLoading(true);
       setError(null);
@@ -72,7 +135,6 @@ export function ViewTechnicalLogbookEntryModal({
             setFetchedEntry(fallback);
             setError(null);
           } else {
-            setFetchedEntry(null);
             setError("Failed to load entry details");
           }
         }
@@ -91,50 +153,77 @@ export function ViewTechnicalLogbookEntryModal({
 
   if (!isOpen || !entry) return null;
 
-  if (loading || error) {
+  const matchingFullEntry =
+    fullEntry?.id === entry.id ? fullEntry : null;
+  const displayedEntry =
+    fetchedEntry?.id === entry.id
+      ? fetchedEntry
+      : matchingFullEntry?.id === entry.id
+        ? matchingFullEntry
+        : null;
+
+  if (error && !displayedEntry) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div
-          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          aria-hidden="true"
-        />
-        <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col">
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
-            {loading ? (
-              <>
-                <Spinner />
-                <p className="text-gray-600 text-sm">Loading entry…</p>
-              </>
-            ) : (
-              <>
-                <p className="text-red-600 text-sm">{error}</p>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 text-sm bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors"
-                >
-                  Close
-                </button>
-              </>
-            )}
+      <ViewEntryOverlay
+        showNav={showNav}
+        onPrevious={onPrevious}
+        onNext={onNext}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        navDisabled={navDisabled}
+      >
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="flex flex-col items-center justify-center gap-4 py-24">
+            <p className="text-sm text-red-600">{error}</p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-gray-200 px-4 py-2 text-sm transition-colors hover:bg-gray-300"
+            >
+              Close
+            </button>
           </div>
         </div>
-      </div>
+      </ViewEntryOverlay>
     );
   }
 
-  const entryData = fetchedEntry || fullEntry;
-  if (!entryData) return null;
+  if (!displayedEntry) {
+    return (
+      <ViewEntryOverlay
+        showNav={showNav}
+        onPrevious={onPrevious}
+        onNext={onNext}
+        hasPrevious={hasPrevious}
+        hasNext={hasNext}
+        navDisabled={navDisabled}
+      >
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+          <div className="flex flex-col items-center justify-center gap-4 py-24">
+            <Spinner />
+            <p className="text-sm text-gray-600">Loading entry…</p>
+          </div>
+        </div>
+      </ViewEntryOverlay>
+    );
+  }
 
   return (
     <AddTechnicalLogbookEntryModal
       isOpen={true}
       onClose={onClose}
-      editEntry={entryData}
-      aircraftId={aircraftId ?? entryData.aircraft?.id}
+      editEntry={displayedEntry}
+      aircraftId={aircraftId ?? displayedEntry.aircraft?.id}
       permissionModuleCode={permissionModuleCode}
       viewerRole={viewerRole}
       forceReadOnly={true}
+      sideGutter={showNav}
+      contentLoading={navDisabled}
+      onPrevious={onPrevious}
+      onNext={onNext}
+      hasPrevious={hasPrevious}
+      hasNext={hasNext}
+      navigationBusy={navDisabled}
     />
   );
 }

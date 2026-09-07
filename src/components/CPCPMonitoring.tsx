@@ -46,6 +46,10 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
@@ -184,7 +188,7 @@ export const CPCPMonitoring = forwardRef<
 ) {
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -274,13 +278,7 @@ export const CPCPMonitoring = forwardRef<
   const handleCpcpExport = useCallback(
     async (format: "csv" | "xlsx") => {
       try {
-        const exportLimit = Math.max(totalItems, items.length, 1);
-        const res = await getCpcpMonitoringPaged(
-          1,
-          exportLimit,
-          searchDebounced,
-          aircraftId
-        );
+        const res = await getAllCpcpMonitoring(searchDebounced, aircraftId);
         const list = res.items;
         if (!list.length) {
           await Swal.fire({
@@ -1094,7 +1092,7 @@ export const CPCPMonitoring = forwardRef<
                 onItemsPerPageChange={setItemsPerPage}
                 showRangeText={false}
                 disabled={loading || cpcpReordering}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               />
             )}
           </div>

@@ -14,6 +14,11 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { collectAllPagedItems } from "../utils/pagedQuery";
 import { Spinner } from "./ui/spinner";
 import { LinkButton } from "./ui/LinkButton";
 import {
@@ -52,8 +57,6 @@ function toApiDate(value: string | null | undefined): string {
 }
 
 const SEARCH_DEBOUNCE_MS = 400;
-const OA_HISTORY_PAGE_SIZE = 10;
-
 const OA_EXPORT_HEADERS = [
   "Approval Type",
   "Number",
@@ -67,7 +70,7 @@ export function OrganizationalApprovals() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [sortBy, setSortBy] = useState<OrganizationalApprovalSortBy>("EXPIRY");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [showModal, setShowModal] = useState(false);
@@ -101,6 +104,7 @@ export function OrganizationalApprovals() {
     subtitle: string;
   } | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(DEFAULT_API_PAGE_SIZE);
   const [historyRows, setHistoryRows] = useState<OrganizationalApprovalHistoryRow[]>(
     []
   );
@@ -248,18 +252,18 @@ export function OrganizationalApprovals() {
   const handleOaExport = async (format: "csv" | "xlsx") => {
     const certificateFilter =
       filterType === "all" ? undefined : Number(filterType) || filterType;
-    const exportLimit = Math.max(total, 1);
     setExportLoading(true);
     try {
-      const res = await getOrganizationalApprovalsPaged(
-        1,
-        exportLimit,
-        debouncedSearchTerm.trim(),
-        sortBy,
-        sortOrder,
-        certificateFilter
+      const rows = await collectAllPagedItems((page, pageSize) =>
+        getOrganizationalApprovalsPaged(
+          page,
+          pageSize,
+          debouncedSearchTerm.trim(),
+          sortBy,
+          sortOrder,
+          certificateFilter
+        )
       );
-      const rows = res.items ?? [];
       if (!rows.length) {
         await Swal.fire({
           icon: "info",
@@ -370,7 +374,7 @@ export function OrganizationalApprovals() {
         const res = await getOrganizationalApprovalsHistoryPaged(
           historyTarget.oaHistoryId,
           historyPage,
-          OA_HISTORY_PAGE_SIZE
+          historyPageSize
         );
         if (cancelled) return;
         setHistoryRows(res.items);
@@ -394,7 +398,7 @@ export function OrganizationalApprovals() {
     return () => {
       cancelled = true;
     };
-  }, [historyTarget, historyPage]);
+  }, [historyTarget, historyPage, historyPageSize]);
 
   const openAddModal = () => {
     setEditingApproval(null);
@@ -865,6 +869,7 @@ export function OrganizationalApprovals() {
             setItemsPerPage(size);
             setCurrentPage(1);
           }}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           disabled={loading}
         />
       </div>
@@ -1033,7 +1038,9 @@ export function OrganizationalApprovals() {
                 onPageChange={setHistoryPage}
                 totalItems={historyTotal}
                 totalLabel="entries"
-                itemsPerPage={OA_HISTORY_PAGE_SIZE}
+                itemsPerPage={historyPageSize}
+                onItemsPerPageChange={setHistoryPageSize}
+                pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                 disabled={historyLoading}
                 showRangeText
               />

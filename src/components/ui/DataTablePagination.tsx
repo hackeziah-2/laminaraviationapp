@@ -1,9 +1,18 @@
 import * as React from "react";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+  resolveApiPageSize,
+} from "../../constants/pagination";
 import { cn } from "./utils";
 
-const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100];
+export const PAGE_SIZE_OPTIONS = [...API_PAGE_SIZE_OPTIONS];
 
 const PAGE_SIZE_SELECT_CHEVRON = `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E")`;
+
+/** Wide enough for 50 / 100 / 500 plus the chevron; never shrink in the footer. */
+const pageSizeSelectClass =
+  "h-9 w-[6.25rem] min-w-[6.25rem] max-w-[6.25rem] shrink-0 cursor-pointer appearance-none rounded border border-gray-300 bg-white bg-[length:12px] bg-[right_0.65rem_center] bg-no-repeat py-1.5 pl-2.5 pr-8 text-left text-sm font-normal leading-normal tabular-nums text-gray-900 focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-40";
 
 /** Page indices with ellipsis for gaps (e.g. 1 … 5 6 7 … 20). */
 export function getPaginationItems(
@@ -49,23 +58,21 @@ export type PageSizeSelectProps = {
   className?: string;
 };
 
-const pageSizeSelectClass =
-  "min-w-[3.75rem] cursor-pointer appearance-none rounded border border-gray-300 bg-white bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat py-1.5 pl-2.5 pr-8 text-left text-sm font-normal leading-normal text-gray-900 focus:border-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-40";
-
-/** Matches reference: “Items per page:” label + compact bordered dropdown. */
+/** Compact bordered dropdown labeled “Rows per page:”. */
 export function PageSizeSelect({
   id,
   value,
-  options,
+  options: _options,
   onChange,
   disabled = false,
-  label = "Items per page",
+  label = "Rows per page",
   className,
 }: PageSizeSelectProps) {
   const labelBase = label.replace(/:\s*$/, "").trim();
+  const selected = resolveApiPageSize(value);
 
   return (
-    <div className={cn("inline-flex items-center gap-2", className)}>
+    <div className={cn("inline-flex shrink-0 items-center gap-2", className)}>
       <label
         htmlFor={id}
         className="whitespace-nowrap text-sm font-normal text-gray-900"
@@ -74,15 +81,19 @@ export function PageSizeSelect({
       </label>
       <select
         id={id}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={String(selected)}
+        onChange={(e) => onChange(resolveApiPageSize(e.target.value))}
         disabled={disabled}
         className={pageSizeSelectClass}
-        style={{ backgroundImage: PAGE_SIZE_SELECT_CHEVRON }}
-        aria-label={`${labelBase}, current value ${value}`}
+        style={{
+          backgroundImage: PAGE_SIZE_SELECT_CHEVRON,
+          appearance: "none",
+          WebkitAppearance: "none",
+        }}
+        aria-label={`${labelBase}, current value ${selected}`}
       >
-        {options.map((n) => (
-          <option key={n} value={n}>
+        {PAGE_SIZE_OPTIONS.map((n) => (
+          <option key={n} value={String(n)}>
             {n}
           </option>
         ))}
@@ -122,8 +133,7 @@ export function DataTablePagination({
   totalLabel = "entries",
   itemsPerPage: itemsPerPageProp,
   onItemsPerPageChange,
-  pageSizeOptions = PAGE_SIZE_OPTIONS,
-  rowsPerPageLabel = "Items per page",
+  rowsPerPageLabel = "Rows per page",
   disabled = false,
   showRangeText = true,
   siblingDelta = 1,
@@ -132,7 +142,16 @@ export function DataTablePagination({
   const pageSizeId = React.useId();
   const hasItemsPerPage =
     itemsPerPageProp != null && onItemsPerPageChange != null;
-  const itemsPerPage = itemsPerPageProp ?? 10;
+  const itemsPerPage = resolveApiPageSize(
+    itemsPerPageProp ?? DEFAULT_API_PAGE_SIZE
+  );
+
+  React.useEffect(() => {
+    if (!hasItemsPerPage || itemsPerPageProp == null) return;
+    if (itemsPerPageProp !== itemsPerPage) {
+      onItemsPerPageChange(itemsPerPage);
+    }
+  }, [hasItemsPerPage, itemsPerPage, itemsPerPageProp, onItemsPerPageChange]);
 
   const startItem =
     totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
@@ -143,8 +162,8 @@ export function DataTablePagination({
     [currentPage, totalPages, siblingDelta]
   );
 
-  const canPrev = !disabled && totalPages > 1 && currentPage > 1;
-  const canNext = !disabled && totalPages > 1 && currentPage < totalPages;
+  const canPrev = !disabled && currentPage > 1;
+  const canNext = !disabled && totalPages > 0 && currentPage < totalPages;
 
   const showRange = showRangeText && totalItems >= 0;
 
@@ -181,9 +200,9 @@ export function DataTablePagination({
           <PageSizeSelect
               id={pageSizeId}
               value={itemsPerPage}
-              options={pageSizeOptions}
+              options={PAGE_SIZE_OPTIONS}
               onChange={(size) => {
-                onItemsPerPageChange!(size);
+                onItemsPerPageChange!(resolveApiPageSize(size));
                 onPageChange(1);
               }}
               disabled={disabled}

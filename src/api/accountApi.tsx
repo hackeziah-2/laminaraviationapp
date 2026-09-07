@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 const BASE = "account-information";
 
@@ -110,13 +112,12 @@ export interface PaginatedAccountsResponse {
 /** Paged: GET /api/v1/account-information/paged */
 export const getAccountsPaged = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   roles = ""
 ): Promise<PaginatedAccountsResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   if (roles.trim()) params.set("roles", roles.trim());
   const response = await apiClient.get(`${BASE}/paged?${params.toString()}`);

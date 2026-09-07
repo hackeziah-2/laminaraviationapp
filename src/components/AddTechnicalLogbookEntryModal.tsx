@@ -13,12 +13,15 @@ import {
   useEffect,
   useRef,
   useMemo,
+  useCallback,
   type ChangeEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
+import { navigateAfterDiscardCheck } from "../utils/confirmDiscardUnsavedChanges";
+import { ModalRecordNav } from "./ui/ModalRecordNav";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
 import {
   getAccountsByDesignation,
@@ -1727,6 +1730,27 @@ function hasTechPubAttachmentOrLinkUpdate(
   return false;
 }
 
+function fileSnapshotToken(value: unknown): string | null {
+  if (value instanceof File) {
+    return `file:${value.name}:${value.size}:${value.lastModified}`;
+  }
+  return null;
+}
+
+function serializeAtlEditSnapshot(
+  formData: Record<string, unknown>,
+  componentRecords: Array<{ id?: string; [key: string]: unknown }>
+): string {
+  const form: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(formData)) {
+    form[key] = value instanceof File ? fileSnapshotToken(value) : value;
+  }
+  return JSON.stringify({
+    form,
+    parts: componentRecords.map(({ id: _id, ...rest }) => rest),
+  });
+}
+
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -1746,6 +1770,17 @@ interface AddTechnicalLogbookEntryModalProps {
   forceReadOnly?: boolean;
   /** When creating, pre-select ATL batch (e.g. match parent "Filter by ATL batch"). Ignored when editEntry is set. */
   defaultAtlBatchFk?: number;
+  /** Extra side padding so previous/next controls do not cover the card. */
+  sideGutter?: boolean;
+  /** Overlay spinner while swapping the displayed record (View/Edit navigation). */
+  contentLoading?: boolean;
+  /** Previous/next controls rendered in the overlay gutters. */
+  recordNavigation?: ReactNode;
+  onPrevious?: () => void | Promise<void>;
+  onNext?: () => void | Promise<void>;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  navigationBusy?: boolean;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -1759,6 +1794,14 @@ export function AddTechnicalLogbookEntryModal({
   editRestrictedToWhiteAtlDfpOnly = false,
   forceReadOnly = false,
   defaultAtlBatchFk,
+  sideGutter = false,
+  contentLoading = false,
+  recordNavigation,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
+  navigationBusy = false,
 }: AddTechnicalLogbookEntryModalProps) {
   const {
     canUpdate,
@@ -1778,6 +1821,12 @@ export function AddTechnicalLogbookEntryModal({
   const atlInitRequestIdRef = useRef(0);
   /** Increments on each Nature of Flight defaults fetch so stale responses cannot overwrite. */
   const nofDefaultsRequestIdRef = useRef(0);
+  const formScrollRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    formScrollRef.current?.scrollTo({ top: 0 });
+  }, [isOpen, editEntry?.id]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -2095,6 +2144,44 @@ export function AddTechnicalLogbookEntryModal({
   const [componentRecords, setComponentRecords] = useState<ComponentRecord[]>(
     []
   );
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
+  const componentRecordsRef = useRef(componentRecords);
+  componentRecordsRef.current = componentRecords;
+  const atlEditSnapshotRef = useRef<string | null>(null);
+  const atlEditHydratingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen || !editEntry || forceReadOnly) {
+      atlEditSnapshotRef.current = null;
+      atlEditHydratingRef.current = false;
+      return;
+    }
+    atlEditHydratingRef.current = true;
+    atlEditSnapshotRef.current = null;
+    const entryId = editEntry.id;
+    let cancelled = false;
+    const captureBaseline = () => {
+      if (cancelled || editEntry.id !== entryId) return;
+      if (editAtlInitialHydrationRef.current) {
+        timer = window.setTimeout(captureBaseline, 50);
+        return;
+      }
+      timer = window.setTimeout(() => {
+        if (cancelled || editEntry.id !== entryId) return;
+        atlEditSnapshotRef.current = serializeAtlEditSnapshot(
+          formDataRef.current as unknown as Record<string, unknown>,
+          componentRecordsRef.current
+        );
+        atlEditHydratingRef.current = false;
+      }, 250);
+    };
+    let timer = window.setTimeout(captureBaseline, 50);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, editEntry?.id, forceReadOnly]);
 
   // Aircraft searchable dropdown state
   const [aircrafts, setAircrafts] = useState<
@@ -4407,6 +4494,44 @@ export function AddTechnicalLogbookEntryModal({
     });
   };
 
+  const showSeqNav = Boolean(onPrevious && onNext);
+  const sequenceNavDisabled = contentLoading || navigationBusy || isSubmitting;
+
+  const isAtlEditFormDirty = useCallback(() => {
+    if (forceReadOnly || !editEntry) return false;
+    const currentForm = formDataRef.current as unknown as {
+      whiteAtl?: File | null;
+      dfp?: File | null;
+    };
+    if (currentForm.whiteAtl instanceof File || currentForm.dfp instanceof File) {
+      return true;
+    }
+    if (atlEditHydratingRef.current) return false;
+    if (!atlEditSnapshotRef.current) return false;
+    return (
+      serializeAtlEditSnapshot(
+        formDataRef.current as unknown as Record<string, unknown>,
+        componentRecordsRef.current
+      ) !== atlEditSnapshotRef.current
+    );
+  }, [forceReadOnly, editEntry]);
+
+  const requestSequenceNavigate = useCallback(
+    async (navigate?: () => void | Promise<void>) => {
+      if (!navigate) return;
+      await navigateAfterDiscardCheck(isAtlEditFormDirty, navigate);
+    },
+    [isAtlEditFormDirty]
+  );
+
+  const handlePreviousSequence = useCallback(() => {
+    void requestSequenceNavigate(onPrevious);
+  }, [requestSequenceNavigate, onPrevious]);
+
+  const handleNextSequence = useCallback(() => {
+    void requestSequenceNavigate(onNext);
+  }, [requestSequenceNavigate, onNext]);
+
   if (!isOpen) return null;
 
   // Parse numeric part length from latest sequence (e.g. "00013" → 5)
@@ -5283,21 +5408,40 @@ export function AddTechnicalLogbookEntryModal({
   const formModeClass = editEntry ? "edit-form" : "add-form";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center ${
+        sideGutter || showSeqNav ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16" : "p-2 sm:p-4"
+      }`}
+    >
       {/* Overlay with blur */}
       <div
         className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
       />
+      {showSeqNav ? (
+        <ModalRecordNav
+          onPrevious={handlePreviousSequence}
+          onNext={handleNextSequence}
+          hasPrevious={hasPrevious}
+          hasNext={hasNext}
+          disabled={sequenceNavDisabled}
+        />
+      ) : (
+        recordNavigation
+      )}
 
       {/* Modal */}
       <div className={`relative ${formModeClass} rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col`}>
-        {/* Loading overlay on create/edit submit */}
-        {isSubmitting && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
+        {/* Loading overlay on create/edit submit or view-entry navigation */}
+        {(isSubmitting || contentLoading) && (
+          <div className="absolute inset-0 z-[65] flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
               <p className="text-sm font-medium text-gray-700">
-                {editEntry ? "Updating entry..." : "Creating entry..."}
+                {contentLoading
+                  ? "Loading entry…"
+                  : editEntry
+                    ? "Updating entry..."
+                    : "Creating entry..."}
               </p>
             </div>
           </div>
@@ -5326,7 +5470,11 @@ export function AddTechnicalLogbookEntryModal({
         </div>
 
         {/* Form Content */}
-        <form onSubmit={handleSubmit} className={`${formModeClass} flex-1 overflow-y-auto min-h-0`}>
+        <form
+          ref={formScrollRef}
+          onSubmit={handleSubmit}
+          className={`${formModeClass} flex-1 overflow-y-auto min-h-0`}
+        >
           <div className="modal-body p-4 sm:p-6 space-y-6">
             {atlFormReadOnly && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
@@ -7930,6 +8078,7 @@ export function AddTechnicalLogbookEntryModal({
       {showFileViewModal && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          data-nested-overlay="true"
           style={{
             backgroundColor: "rgba(0,0,0,0.5)",
             backdropFilter: "blur(4px)",

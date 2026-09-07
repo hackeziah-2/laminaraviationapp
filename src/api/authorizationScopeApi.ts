@@ -1,5 +1,10 @@
 import apiClient from "./index";
+import {
+  DEFAULT_API_PAGE_SIZE,
+  MAX_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { toCamel } from "../utility/utils";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 export type AuthorizationScopeType = "cessna" | "baron" | "piper" | "others";
 
@@ -69,18 +74,7 @@ function parseScopeOption(
   return null;
 }
 
-/**
- * Fetch list of scope options for dropdown.
- * GET /api/v1/authorization-scope-{type}/list
- */
-async function fetchScopeList(
-  type: AuthorizationScopeType
-): Promise<AuthorizationScopeOption[]> {
-  const path = `${scopeBasePath(type)}/list`;
-  const response = await apiClient.get(path, {
-    headers: { Accept: "application/json" },
-  });
-  const raw = response.data;
+function optionsFromPayload(raw: unknown): AuthorizationScopeOption[] {
   const data = Array.isArray(raw)
     ? raw
     : Array.isArray((raw as { results?: unknown[] })?.results)
@@ -94,6 +88,30 @@ async function fetchScopeList(
   return list
     .map((item, index) => parseScopeOption(item, index))
     .filter((opt): opt is AuthorizationScopeOption => opt != null);
+}
+
+/**
+ * Fetch list of scope options for dropdown.
+ * GET /api/v1/authorization-scope-{type}/list
+ * Falls back to /paged when /list is empty or unavailable.
+ */
+async function fetchScopeList(
+  type: AuthorizationScopeType
+): Promise<AuthorizationScopeOption[]> {
+  try {
+    const path = `${scopeBasePath(type)}/list`;
+    const response = await apiClient.get(path, {
+      headers: { Accept: "application/json" },
+    });
+    const fromList = optionsFromPayload(response.data);
+    if (fromList.length > 0) return fromList;
+  } catch {
+    // /list may 404 after paging migration
+  }
+  const paged = await getAuthorizationScopesPaged(type, 1, MAX_API_PAGE_SIZE);
+  return paged.items
+    .filter((scope) => scope.id > 0 && scope.name.trim().length > 0)
+    .map((scope) => ({ id: scope.id, label: scope.name }));
 }
 
 /** GET authorization-scope-cessna/list */
@@ -143,12 +161,11 @@ export async function getAuthorizationScopeOthersList(): Promise<
 export async function getAuthorizationScopesPaged(
   type: AuthorizationScopeType,
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search?: string
 ): Promise<PaginatedAuthorizationScopesResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search?.trim()) params.set("search", search.trim());
 
   const res = await apiClient.get(
@@ -211,29 +228,29 @@ export async function createAuthorizationScope(
 /** POST authorization-scope-cessna/ - create new Cessna scope */
 export async function createAuthorizationScopeCessna(
   value: string
-): Promise<void> {
-  await createAuthorizationScope("cessna", { name: value });
+): Promise<AuthorizationScope> {
+  return createAuthorizationScope("cessna", { name: value });
 }
 
 /** POST authorization-scope-baron/ - create new Baron scope */
 export async function createAuthorizationScopeBaron(
   value: string
-): Promise<void> {
-  await createAuthorizationScope("baron", { name: value });
+): Promise<AuthorizationScope> {
+  return createAuthorizationScope("baron", { name: value });
 }
 
 /** POST authorization-scope-piper/ - create new PIPER PA-34 scope */
 export async function createAuthorizationScopePiper(
   value: string
-): Promise<void> {
-  await createAuthorizationScope("piper", { name: value });
+): Promise<AuthorizationScope> {
+  return createAuthorizationScope("piper", { name: value });
 }
 
 /** POST authorization-scope-others/ - create new Others scope */
 export async function createAuthorizationScopeOthers(
   value: string
-): Promise<void> {
-  await createAuthorizationScope("others", { name: value });
+): Promise<AuthorizationScope> {
+  return createAuthorizationScope("others", { name: value });
 }
 
 export async function updateAuthorizationScope(

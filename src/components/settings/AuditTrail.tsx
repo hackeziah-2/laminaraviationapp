@@ -15,6 +15,10 @@ import {
 } from "../../hooks/useAuditLogs";
 import { exportAuditLogs } from "../../services/audit-log.service";
 import { DataTablePagination } from "../ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../../constants/pagination";
 import { Spinner, SpinnerIcon } from "../ui/spinner";
 import { AuditTrailDetailModal } from "./AuditTrailDetailModal";
 import { AuditTrailSummaryCards } from "./AuditTrailSummaryCards";
@@ -40,7 +44,7 @@ export function AuditTrail() {
   const initialSearch = searchParams.get("search") ?? "";
 
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_API_PAGE_SIZE);
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [searchDebounced, setSearchDebounced] = useState(initialSearch.trim());
   const [action, setAction] = useState("");
@@ -426,13 +430,13 @@ export function AuditTrail() {
               currentPage={page}
               totalPages={totalPages}
               totalItems={total}
-              pageSize={limit}
+              itemsPerPage={limit}
               onPageChange={setPage}
-              onPageSizeChange={(size) => {
+              onItemsPerPageChange={(size) => {
                 setLimit(size);
                 setPage(1);
               }}
-              pageSizeOptions={[10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               disabled={isFetching}
               totalLabel="records"
               className="border-t border-gray-100"

@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 const BASE = "modules";
 
@@ -51,12 +53,11 @@ export interface PaginatedModulesResponse {
 /** Paged: GET /api/v1/modules/paged */
 export const getModulesPaged = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = ""
 ): Promise<PaginatedModulesResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   const response = await apiClient.get(`${BASE}/paged?${params.toString()}`);
   const raw = response.data ?? {};
