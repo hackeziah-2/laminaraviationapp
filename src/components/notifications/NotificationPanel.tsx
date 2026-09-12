@@ -16,6 +16,7 @@ import {
 } from "../../constants/notificationCenterLayout";
 import { useOptionalAppLayout } from "../../context/AppLayoutContext";
 import { useIsLgUp } from "../../hooks/useIsLgUp";
+import { useOverlayEscape } from "../../hooks/useOverlayEscape";
 
 type Props = {
   isOpen: boolean;
@@ -63,6 +64,11 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
   useEffect(() => {
     setPage(1);
   }, [tab]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose,
+  });
 
   const handleClickNotification = async (notification: Notification) => {
     const route = getNotificationRoute(notification);

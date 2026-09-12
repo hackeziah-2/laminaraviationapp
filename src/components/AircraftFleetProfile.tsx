@@ -49,6 +49,7 @@ import {
 import { useAircrafts } from "../hooks/useAircrafts";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { isMechanicRole } from "../utility/atlEditRbac";
 import { AircraftForm } from "../types/Aircraft";
 import {
@@ -629,6 +630,11 @@ export function AircraftFleetProfile() {
       console.error(err);
     }
   };
+
+  useOverlayEscape({
+    enabled: showAddAircraftModal,
+    onClose: () => setShowAddAircraftModal(false),
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">

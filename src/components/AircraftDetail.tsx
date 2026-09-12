@@ -21,6 +21,7 @@ import { NatureOfFlightDescriptions } from "./NatureOfFlightDescriptions";
 import { Aircraft } from "../types/Aircraft";
 import { snakeAllKeys } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { isMechanicRole } from "../utility/atlEditRbac";
 
 /** Aircraft Details: treat null/empty/invalid as 0 for engine/prop hour fields. */
@@ -421,6 +422,11 @@ export function AircraftDetail() {
     setFileViewMimeType(null);
     setFileViewError(null);
   };
+
+  useOverlayEscape({
+    enabled: showFileViewModal,
+    onClose: closeFileViewModal,
+  });
 
   if (!aircraft) {
     return (

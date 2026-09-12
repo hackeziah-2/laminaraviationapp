@@ -43,6 +43,7 @@ import { SortableTableRow } from "./SortableTableRow";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDisplayDate } from "../utility/utils";
 import {
   AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP,
@@ -604,6 +605,15 @@ export function AircraftFleetDailyUpdate() {
       </span>
     );
   };
+
+  useOverlayEscape({
+    enabled: showRemarkModal,
+    onClose: () => {
+      if (savingRemark) return;
+      setShowRemarkModal(false);
+    },
+    isBusy: savingRemark,
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6">

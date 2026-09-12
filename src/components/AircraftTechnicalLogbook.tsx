@@ -407,7 +407,7 @@ export function AircraftTechnicalLogbook() {
       return;
     }
     let cancelled = false;
-    getAtlBatchesForSelect()
+    getAtlBatchesForSelect(selectedAircraftFk)
       .then((list) => {
         if (cancelled) return;
         const batches = Array.isArray(list) ? list : [];
@@ -428,7 +428,7 @@ export function AircraftTechnicalLogbook() {
     return () => {
       cancelled = true;
     };
-  }, [showAtlBatchFilter]);
+  }, [showAtlBatchFilter, selectedAircraftFk]);
 
   useEffect(() => {
     let isMounted = true;

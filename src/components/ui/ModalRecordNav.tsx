@@ -16,7 +16,7 @@ type ModalRecordNavProps = {
 };
 
 const buttonBaseClass =
-  "flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-gray-300 bg-white text-gray-800 shadow-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:h-14 sm:w-14";
+  "modal-record-nav-btn rounded-full border-2 border-gray-300 bg-white text-gray-800 shadow-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2";
 
 function navEnabledClass(enabled: boolean) {
   return enabled
@@ -41,8 +41,8 @@ function SequenceNavButton({
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className={`absolute top-1/2 z-[70] -translate-y-1/2 ${
-            side === "left" ? "left-1.5 sm:left-3" : "right-1.5 sm:right-3"
+          className={`modal-record-nav ${
+            side === "left" ? "modal-record-nav--left" : "modal-record-nav--right"
           }`}
         >
           <button

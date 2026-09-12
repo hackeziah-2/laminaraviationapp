@@ -12,6 +12,7 @@ import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import * as authApi from "../api/authApi";
 import * as accountApi from "../api/accountApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { SpinnerIcon } from "./ui/spinner";
 
 function formatApiError(err: unknown): string {
@@ -64,6 +65,15 @@ function ChangePasswordModal({
       setError("");
     }
   }, [isOpen]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen) return null;
 

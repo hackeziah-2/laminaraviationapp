@@ -50,6 +50,7 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   API_PAGE_SIZE_OPTIONS,
@@ -746,6 +747,15 @@ export function ADWorkOrders() {
     },
     [aircraft_fk]
   );
+
+  useOverlayEscape({
+    enabled: showAddModal,
+    onClose: () => {
+      if (saving) return;
+      setShowAddModal(false);
+    },
+    isBusy: saving,
+  });
 
   return (
     <div className="flex-1 bg-gray-50 overflow-auto">

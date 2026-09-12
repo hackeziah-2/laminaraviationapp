@@ -637,6 +637,21 @@ export function formatOptionalNumber2dp(
   return Number.isFinite(n) ? n.toFixed(2) : fallback;
 }
 
+/**
+ * ATL Create/Edit: Tachometer and Hobbs Meter display only (1 decimal place).
+ * Does not change stored values, calculations, or API payloads.
+ * Empty stays empty; invalid non-empty values are shown as entered.
+ */
+export function formatAtlTachHobbsDisplay1dp(
+  value: unknown,
+  fallback = ""
+): string {
+  if (value == null || String(value).trim() === "") return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toFixed(1);
+}
+
 /** Engine/propeller TBO display in ATL create & edit forms (1 decimal place). */
 export function formatAtlTboDisplay1dp(
   value: unknown,

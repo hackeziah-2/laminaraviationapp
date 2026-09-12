@@ -43,6 +43,7 @@ import {
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -784,6 +785,24 @@ export function AircraftStatutoryCertificates() {
   };
 
   const isModalOpen = showAddModal || showEditModal;
+
+  useOverlayEscape({
+    enabled: Boolean(viewingCertificate),
+    onClose: () => setViewingCertificate(null),
+  });
+  useOverlayEscape({
+    enabled: isModalOpen,
+    onClose: () => {
+      if (isSaving) return;
+      setShowAddModal(false);
+      setShowEditModal(false);
+    },
+    isBusy: isSaving,
+  });
+  useOverlayEscape({
+    enabled: isModalOpen && isAircraftDropdownOpen,
+    onClose: () => setIsAircraftDropdownOpen(false),
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">

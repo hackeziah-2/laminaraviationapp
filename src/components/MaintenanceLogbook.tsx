@@ -13,7 +13,7 @@ import {
   Check,
   Loader,
 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
@@ -84,9 +84,18 @@ import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
 import { ViewRecordModalShell } from "./ui/ViewRecordModalShell";
+import { ModalChromeHeader } from "./ui/ModalChromeHeader";
 import { ModalRecordNav } from "./ui/ModalRecordNav";
+import { AutoResizeTextarea } from "./ui/AutoResizeTextarea";
 import { navigateAfterDiscardCheck } from "../utils/confirmDiscardUnsavedChanges";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
+import {
+  MAINTENANCE_LOGBOOK_FORM_UPPERCASE_SKIP_KEYS,
+  toUppercaseInput,
+  wrapUppercaseComponentRecordsSetter,
+  wrapUppercaseFormSetter,
+} from "../utils/uppercaseTextInput";
 import {
   searchAircraftAtlBySequenceNumber,
   getExactAircraftAtlBySequenceNumber,
@@ -854,7 +863,7 @@ export function MaintenanceLogbook() {
   };
 
   // Form state for Add/Edit modal
-  const [formData, setFormData] = useState({
+  const [formData, setFormDataRaw] = useState({
     date: "",
     logbookSeqNo: "",
     sequenceNo: "",
@@ -882,6 +891,14 @@ export function MaintenanceLogbook() {
     signature: "",
     webLink: "",
   });
+  const setFormData = useMemo(
+    () =>
+      wrapUppercaseFormSetter(
+        setFormDataRaw,
+        MAINTENANCE_LOGBOOK_FORM_UPPERCASE_SKIP_KEYS
+      ),
+    [setFormDataRaw]
+  );
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
   >({});
@@ -928,9 +945,13 @@ export function MaintenanceLogbook() {
     installedSerialNo: string;
     ataChapter: string;
   }
-  const [componentRecords, setComponentRecords] = useState<
+  const [componentRecords, setComponentRecordsRaw] = useState<
     ComponentRecordRow[]
   >([]);
+  const setComponentRecords = useMemo(
+    () => wrapUppercaseComponentRecordsSetter(setComponentRecordsRaw),
+    [setComponentRecordsRaw]
+  );
   const formDataRef = useRef(formData);
   formDataRef.current = formData;
   const uploadFileRef = useRef(uploadFile);
@@ -1804,17 +1825,23 @@ export function MaintenanceLogbook() {
       const baseData: any = {
         logbookSeqNo,
         sequenceNo: sequenceNoDigits || undefined,
-        description: formData.description || undefined,
+        description: formData.description
+          ? toUppercaseInput(formData.description)
+          : undefined,
         // Always send null when unassigned so create/update persist NULL (omit would keep prior on edit)
         mechanicFk: hasMechanicFk ? mechanicFkParsed : null,
         mechanicName:
           hasMechanicFk && !isAtlEmptyAssigneeValue(resolvedMechanicName)
-            ? resolvedMechanicName
+            ? toUppercaseInput(resolvedMechanicName)
             : null,
         licenseNumber: hasMechanicFk
-          ? resolvedLicenseNumber || undefined
+          ? resolvedLicenseNumber
+            ? toUppercaseInput(resolvedLicenseNumber)
+            : undefined
           : null,
-        signature: formData.signature || undefined,
+        signature: formData.signature
+          ? toUppercaseInput(formData.signature)
+          : undefined,
         webLink: formData.webLink.trim()
           ? normalizeWebLink(formData.webLink) ?? undefined
           : null,
@@ -1849,9 +1876,15 @@ export function MaintenanceLogbook() {
           data = {
             ...baseData,
             airframeTsn: parseLogbookOptionalNumber(formData.airframeTsn),
-            component: formData.component || undefined,
-            partNo: formData.partNo || undefined,
-            serialNo: formData.serialNo || undefined,
+            component: formData.component
+              ? toUppercaseInput(formData.component)
+              : undefined,
+            partNo: formData.partNo
+              ? toUppercaseInput(formData.partNo)
+              : undefined,
+            serialNo: formData.serialNo
+              ? toUppercaseInput(formData.serialNo)
+              : undefined,
           };
           break;
         case "ENGINE":
@@ -1940,13 +1973,25 @@ export function MaintenanceLogbook() {
                 const n = parseFloat(r.qty);
                 return Number.isFinite(n) ? n : 0;
               })(),
-              unit: r.unit || "",
-              nomenclature: r.nomenclature || "",
-              removed_part_no: r.removedPartNo || "",
-              removed_serial_no: r.removedSerialNo || "",
-              installed_part_no: r.installedPartNo || "",
-              installed_serial_no: r.installedSerialNo || "",
-              ata_chapter: r.ataChapter || "",
+              unit: r.unit ? toUppercaseInput(r.unit) : "",
+              nomenclature: r.nomenclature
+                ? toUppercaseInput(r.nomenclature)
+                : "",
+              removed_part_no: r.removedPartNo
+                ? toUppercaseInput(r.removedPartNo)
+                : "",
+              removed_serial_no: r.removedSerialNo
+                ? toUppercaseInput(r.removedSerialNo)
+                : "",
+              installed_part_no: r.installedPartNo
+                ? toUppercaseInput(r.installedPartNo)
+                : "",
+              installed_serial_no: r.installedSerialNo
+                ? toUppercaseInput(r.installedSerialNo)
+                : "",
+              ata_chapter: r.ataChapter
+                ? toUppercaseInput(r.ataChapter)
+                : "",
             };
             if (r.dbId !== undefined) {
               payload.id = r.dbId;
@@ -2088,9 +2133,47 @@ export function MaintenanceLogbook() {
         uploadFile: uploadFileRef.current,
         existingUploadFile: existingUploadFileRef.current,
         componentRecords: componentRecordsRef.current,
-      }) !== maintenanceEditBaselineRef.current
+      }      ) !== maintenanceEditBaselineRef.current
     );
   };
+
+  const closeMaintenanceForm = () => {
+    setShowAddEntryModal(false);
+    setShowEditEntryModal(false);
+    setEditingEntry(null);
+    setEditLoadError(null);
+  };
+
+  const requestCloseMaintenanceForm = () => {
+    if (isSaving) return;
+    if (showEditEntryModal) {
+      void navigateAfterDiscardCheck(isMaintenanceEditDirty, closeMaintenanceForm);
+      return;
+    }
+    closeMaintenanceForm();
+  };
+
+  useOverlayEscape({
+    enabled: showAddEntryModal || showEditEntryModal,
+    onClose: requestCloseMaintenanceForm,
+    isBusy: isSaving,
+  });
+  useOverlayEscape({
+    enabled: showImageViewModal,
+    onClose: () => {
+      setShowImageViewModal(false);
+      setImageUrl("");
+      setViewingFilePath(null);
+    },
+  });
+  useOverlayEscape({
+    enabled: isSequenceDropdownOpen,
+    onClose: () => setIsSequenceDropdownOpen(false),
+  });
+  useOverlayEscape({
+    enabled: isMechanicDropdownOpen,
+    onClose: () => setIsMechanicDropdownOpen(false),
+  });
 
   return (
     <div className="space-y-6">
@@ -2311,11 +2394,11 @@ export function MaintenanceLogbook() {
           scrollKey={selectedAirframeEntry.id}
         >
             {/* Modal Content */}
-            <div className="p-6">
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+            <div className="modal-form-body p-6">
+              <div className="border border-white/30 rounded-lg overflow-hidden">
                 {/* Header */}
-                <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">
+                <div className="bg-[#022C75] border-b border-[#022C75] py-3 px-5 text-center">
+                  <h3 className="text-white tracking-wide">
                     AIRFRAME LOGBOOK
                   </h3>
                 </div>
@@ -2356,37 +2439,37 @@ export function MaintenanceLogbook() {
 
                 {/* COMPONENT RECORD (Read) */}
                 <div className="border-b border-gray-300 p-4">
-                  <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                  <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                     <h3 className="text-white font-semibold">
                       COMPONENT RECORD
                     </h3>
                   </div>
-                  <div className="overflow-x-auto mt-4">
+                  <div className="form-table-scroll form-table-scroll--wide mt-4">
                     <table className="w-full border-collapse min-w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50">
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <tr className="bg-[#022C75]">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             QTY
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             UNIT
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             NOMENCLATURE
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             REMOVED P/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             REMOVED S/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             INSTALLED P/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             INSTALLED S/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
                           </th>
                         </tr>
@@ -2546,11 +2629,11 @@ export function MaintenanceLogbook() {
           scrollKey={selectedAvionicsEntry.id}
         >
             {/* Modal Content */}
-            <div className="p-6">
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+            <div className="modal-form-body p-6">
+              <div className="border border-white/30 rounded-lg overflow-hidden">
                 {/* Header */}
-                <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">
+                <div className="bg-[#022C75] border-b border-[#022C75] py-3 px-5 text-center">
+                  <h3 className="text-white tracking-wide">
                     AVIONICS LOGBOOK
                   </h3>
                 </div>
@@ -2573,37 +2656,37 @@ export function MaintenanceLogbook() {
 
                 {/* COMPONENT RECORD (Read) */}
                 <div className="border-b border-gray-300 p-4">
-                  <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                  <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                     <h3 className="text-white font-semibold">
                       COMPONENT RECORD
                     </h3>
                   </div>
-                  <div className="overflow-x-auto mt-4">
+                  <div className="form-table-scroll form-table-scroll--wide mt-4">
                     <table className="w-full border-collapse min-w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50">
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <tr className="bg-[#022C75]">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             QTY
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             UNIT
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             NOMENCLATURE
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             REMOVED P/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             REMOVED S/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             INSTALLED P/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             INSTALLED S/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
                           </th>
                         </tr>
@@ -2763,11 +2846,11 @@ export function MaintenanceLogbook() {
           scrollKey={selectedEngineEntry.id}
         >
             {/* Modal Content */}
-            <div className="p-6">
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+            <div className="modal-form-body p-6">
+              <div className="border border-white/30 rounded-lg overflow-hidden">
                 {/* Header */}
-                <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">
+                <div className="bg-[#022C75] border-b border-[#022C75] py-3 px-5 text-center">
+                  <h3 className="text-white tracking-wide">
                     ENGINE LOGBOOK
                   </h3>
                 </div>
@@ -2810,37 +2893,37 @@ export function MaintenanceLogbook() {
 
                 {/* COMPONENT RECORD (Read) */}
                 <div className="border-b border-gray-300 p-4">
-                  <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                  <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                     <h3 className="text-white font-semibold">
                       COMPONENT RECORD
                     </h3>
                   </div>
-                  <div className="overflow-x-auto mt-4">
+                  <div className="form-table-scroll form-table-scroll--wide mt-4">
                     <table className="w-full border-collapse min-w-full text-sm">
                       <thead>
-                        <tr className="bg-gray-50">
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <tr className="bg-[#022C75]">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             QTY
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             UNIT
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             NOMENCLATURE
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             REMOVED P/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             REMOVED S/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             INSTALLED P/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             INSTALLED S/N
                           </th>
-                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
                           </th>
                         </tr>
@@ -3000,11 +3083,11 @@ export function MaintenanceLogbook() {
           scrollKey={selectedPropellerEntry.id}
         >
             {/* Modal Content */}
-            <div className="p-6">
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
+            <div className="modal-form-body p-6">
+              <div className="border border-white/30 rounded-lg overflow-hidden">
                 {/* Header */}
-                <div className="bg-gray-50 border-b border-gray-300 py-3 px-5 text-center">
-                  <h3 className="text-gray-900 tracking-wide">
+                <div className="bg-[#022C75] border-b border-[#022C75] py-3 px-5 text-center">
+                  <h3 className="text-white tracking-wide">
                     PROPELLER LOGBOOK
                   </h3>
                 </div>
@@ -3108,16 +3191,20 @@ export function MaintenanceLogbook() {
       {/* File View Modal */}
       {showImageViewModal && imageUrl && (
         <div
-          className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black bg-opacity-50"
+          className="modal-responsive-overlay fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50"
           data-nested-overlay="true"
         >
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">
+          <div className="modal-navy-shell modal-responsive-dialog rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col" style={{ backgroundColor: "#022C75" }}>
+            <div
+              className="sticky top-0 bg-[#022C75] border-b border-[#022C75] px-4 sm:px-6 py-4 flex items-center justify-between gap-3 rounded-t-lg"
+              style={{ backgroundColor: "#022C75" }}
+            >
+              <h3 className="min-w-0 flex-1 text-base sm:text-lg font-semibold text-white">
                 View Document
               </h3>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0">
                 <button
+                  type="button"
                   onClick={() => {
                     if (viewingFilePath) {
                       handleFileDownload(viewingFilePath);
@@ -3129,20 +3216,22 @@ export function MaintenanceLogbook() {
                       }
                     }
                   }}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600"
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors text-green-600 bg-white"
                 >
                   <Download className="w-4 h-4" />
                   Download
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     setShowImageViewModal(false);
                     setImageUrl("");
                     setViewingFilePath(null);
                   }}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  className="modal-header-close"
+                  aria-label="Close"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="h-5 w-5 text-white" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -3208,10 +3297,10 @@ export function MaintenanceLogbook() {
       {/* Add/Edit Entry Modal */}
       {(showAddEntryModal || showEditEntryModal) && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center ${
+          className={`modal-responsive-overlay fixed inset-0 z-50 flex items-center justify-center${
             showEditEntryModal && editingEntry
-              ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16"
-              : "p-4"
+              ? " modal-responsive-overlay--nav"
+              : ""
           }`}
         >
           {/* Overlay with blur */}
@@ -3236,7 +3325,7 @@ export function MaintenanceLogbook() {
             />
           ) : null}
           {/* Modal */}
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <div className={`relative modal-navy-shell modal-responsive-dialog ${editingEntry ? "edit-form" : "add-form"} rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col`} style={{ backgroundColor: "#022C75" }}>
             {editEntryNav.navigating ? (
               <div
                 className="absolute inset-0 z-40 flex items-center justify-center rounded-lg bg-white/80 backdrop-blur-sm"
@@ -3246,34 +3335,21 @@ export function MaintenanceLogbook() {
                 <Spinner label="Loading entry…" compact />
               </div>
             ) : null}
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {editingEntry ? "Edit Entry" : "Add New Entry"}
-              </h2>
-              <button
-                onClick={() => {
-                  setShowAddEntryModal(false);
-                  setShowEditEntryModal(false);
-                  setEditingEntry(null);
-                  setEditLoadError(null);
-                }}
-                className="p-1 hover:bg-gray-100 rounded transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-            </div>
+            <ModalChromeHeader
+              title={editingEntry ? "Edit Entry" : "Add New Entry"}
+              onClose={requestCloseMaintenanceForm}
+            />
 
             {/* Modal Content */}
-            <div ref={editModalScrollRef} className="flex-1 overflow-y-auto">
-              <div className="p-6">
+            <div ref={editModalScrollRef} className="flex-1 overflow-y-auto min-h-0">
+              <div className="modal-form-body p-6">
                 {editLoadError ? (
                   <p className="mb-4 text-sm text-red-600" role="alert">
                     {editLoadError}
                   </p>
                 ) : null}
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium text-gray-700">
+                <div className="mb-4 bg-[#022C75] py-3 px-5 text-center rounded-lg">
+                  <h3 className="text-sm font-medium text-white tracking-wide">
                     {activeCategory} LOGBOOK
                   </h3>
                 </div>
@@ -3801,41 +3877,41 @@ export function MaintenanceLogbook() {
                   activeCategory === "ENGINE" ||
                   activeCategory === "PROPELLER") && (
                   <div className="mb-6">
-                    <div className="bg-white p-4 rounded-lg border border-gray-200">
-                      <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                    <div className="p-4 rounded-lg border border-gray-200">
+                      <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                         <h3 className="text-white font-semibold">
                           COMPONENT RECORD
                         </h3>
                       </div>
-                      <div className="overflow-x-auto">
+                      <div className="form-table-scroll form-table-scroll--wide">
                         <table className="w-full border-collapse min-w-full">
                           <thead>
-                            <tr className="bg-gray-50">
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                            <tr className="bg-[#022C75]">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 QTY
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 UNIT
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 NOMENCLATURE
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 REMOVED P/N
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 REMOVED S/N
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 INSTALLED P/N
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 INSTALLED S/N
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 ATA CHAPTER
                               </th>
-                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                              <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 DELETE?
                               </th>
                             </tr>
@@ -4008,13 +4084,12 @@ export function MaintenanceLogbook() {
                     (Record of component removal/installation shall be reflected
                     at the back page of this logbook sequence)
                   </p>
-                  <textarea
-                    rows={4}
+                  <AutoResizeTextarea
                     value={formData.description}
                     onChange={(e) =>
                       setFormData({ ...formData, description: e.target.value })
                     }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400 resize-none"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 bg-white text-gray-900 focus:ring-gray-400 focus:border-gray-400"
                   />
                 </div>
 
@@ -4321,18 +4396,14 @@ export function MaintenanceLogbook() {
             </div>
 
             {/* Footer Actions */}
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 relative">
+            <div className="modal-navy-footer px-6 py-4 flex justify-end gap-3 relative">
               {isSaving && (
                 <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 rounded-b-lg">
                   <Spinner />
                 </div>
               )}
               <button
-                onClick={() => {
-                  setShowAddEntryModal(false);
-                  setShowEditEntryModal(false);
-                  setEditingEntry(null);
-                }}
+                onClick={requestCloseMaintenanceForm}
                 disabled={isSaving}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -4343,7 +4414,7 @@ export function MaintenanceLogbook() {
                 <button
                   onClick={handleSaveEntry}
                   disabled={isSaving}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="modal-navy-primary flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSaving && <Loader className="w-4 h-4 animate-spin" />}
                   {editingEntry ? "Update Entry" : "Save Entry"}

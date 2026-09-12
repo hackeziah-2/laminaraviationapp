@@ -45,6 +45,7 @@ import {
 } from "../api/organizationalApprovalApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -560,6 +561,22 @@ export function OrganizationalApprovals() {
       Swal.fire({ icon: "error", title: "Error", text: message });
     }
   };
+
+  useOverlayEscape({
+    enabled: Boolean(viewingApproval),
+    onClose: () => setViewingApproval(null),
+  });
+  useOverlayEscape({
+    enabled: showModal,
+    onClose: closeModal,
+  });
+  useOverlayEscape({
+    enabled: showCreateTypeModal,
+    onClose: () => {
+      setShowCreateTypeModal(false);
+      setNewTypeName("");
+    },
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">

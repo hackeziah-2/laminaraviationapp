@@ -7,6 +7,7 @@ import {
   type AuthorizationScopeType,
 } from "../api/authorizationScopeApi";
 import { Spinner } from "./ui/spinner";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 interface ViewAuthorizationScopeModalProps {
   scopeType: AuthorizationScopeType;
@@ -69,6 +70,14 @@ export function ViewAuthorizationScopeModal({
       cancelled = true;
     };
   }, [scopeId, scopeType, entityLabel, onClose]);
+
+  useOverlayEscape({
+    enabled: scopeId != null && scopeId > 0,
+    onClose: () => {
+      if (loading) return;
+      onClose();
+    },
+  });
 
   if (scopeId == null || scopeId <= 0) return null;
 

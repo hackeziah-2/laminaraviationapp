@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { useUserPermissions } from '../hooks/useUserPermissions';
+import { useOverlayEscape } from '../hooks/useOverlayEscape';
 
 const defaultFormData = {
   inspectionType: '',
@@ -39,6 +40,8 @@ export function AddInspectionModal({ onClose, onSubmit, initialData, isEdit }: A
     ...(initialData && typeof initialData === 'object' ? initialData : {}),
   }));
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useOverlayEscape({ enabled: true, onClose });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

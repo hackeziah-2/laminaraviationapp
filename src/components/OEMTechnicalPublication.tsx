@@ -41,6 +41,7 @@ import {
 } from "../api/oemTechnicalPublicationApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -426,6 +427,22 @@ export function OEMTechnicalPublication() {
   const startIndex = (currentPage - 1) * itemsPerPage;
 
   const handleSearchChange = (value: string) => setSearchTerm(value);
+
+  useOverlayEscape({
+    enabled: Boolean(viewingPublication),
+    onClose: () => setViewingPublication(null),
+  });
+  useOverlayEscape({
+    enabled: showAddModal,
+    onClose: closeAddModal,
+  });
+  useOverlayEscape({
+    enabled: showAddItemTypeModal,
+    onClose: () => {
+      setShowAddItemTypeModal(false);
+      setNewItemTypeName("");
+    },
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">

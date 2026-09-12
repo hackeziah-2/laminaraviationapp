@@ -6,6 +6,8 @@ import {
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
 import { ModalRecordNav } from "./ui/ModalRecordNav";
+import { ModalChromeHeader } from "./ui/ModalChromeHeader";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 interface LogbookEntry {
   id: number;
@@ -39,6 +41,7 @@ interface ViewTechnicalLogbookEntryModalProps {
 function ViewEntryOverlay({
   children,
   showNav,
+  onClose,
   onPrevious,
   onNext,
   hasPrevious,
@@ -47,16 +50,18 @@ function ViewEntryOverlay({
 }: {
   children: ReactNode;
   showNav: boolean;
+  onClose: () => void;
   onPrevious?: () => void | Promise<void>;
   onNext?: () => void | Promise<void>;
   hasPrevious: boolean;
   hasNext: boolean;
   navDisabled: boolean;
 }) {
+  useOverlayEscape({ enabled: true, onClose });
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center ${
-        showNav ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16" : "p-4"
+      className={`modal-responsive-overlay fixed inset-0 z-50 flex items-center justify-center${
+        showNav ? " modal-responsive-overlay--nav" : ""
       }`}
     >
       <div
@@ -166,13 +171,15 @@ export function ViewTechnicalLogbookEntryModal({
     return (
       <ViewEntryOverlay
         showNav={showNav}
+        onClose={onClose}
         onPrevious={onPrevious}
         onNext={onNext}
         hasPrevious={hasPrevious}
         hasNext={hasNext}
         navDisabled={navDisabled}
       >
-        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
+          <ModalChromeHeader title="View Entry" onClose={onClose} />
           <div className="flex flex-col items-center justify-center gap-4 py-24">
             <p className="text-sm text-red-600">{error}</p>
             <button
@@ -192,13 +199,15 @@ export function ViewTechnicalLogbookEntryModal({
     return (
       <ViewEntryOverlay
         showNav={showNav}
+        onClose={onClose}
         onPrevious={onPrevious}
         onNext={onNext}
         hasPrevious={hasPrevious}
         hasNext={hasNext}
         navDisabled={navDisabled}
       >
-        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
+          <ModalChromeHeader title="View Entry" onClose={onClose} />
           <div className="flex flex-col items-center justify-center gap-4 py-24">
             <Spinner />
             <p className="text-sm text-gray-600">Loading entry…</p>

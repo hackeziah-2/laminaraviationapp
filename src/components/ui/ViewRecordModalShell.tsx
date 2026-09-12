@@ -1,7 +1,8 @@
-import { X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Spinner } from "./spinner";
 import { ModalRecordNav } from "./ModalRecordNav";
+import { ModalChromeHeader } from "./ModalChromeHeader";
+import { useOverlayEscape } from "../../hooks/useOverlayEscape";
 
 type ViewRecordModalShellProps = {
   children: ReactNode;
@@ -26,13 +27,15 @@ export function ViewRecordModalShell({
 }: ViewRecordModalShellProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  useOverlayEscape({ enabled: true, onClose });
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [scrollKey]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center py-4 pl-14 pr-14 sm:pl-16 sm:pr-16"
+      className="modal-responsive-overlay modal-responsive-overlay--nav fixed inset-0 z-50 flex items-center justify-center"
       style={{
         background: "rgba(255, 255, 255, 0.15)",
         backdropFilter: "blur(4px)",
@@ -47,7 +50,8 @@ export function ViewRecordModalShell({
       />
       <div
         ref={scrollRef}
-        className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg bg-white"
+        className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-lg modal-navy-shell modal-responsive-dialog"
+        style={{ backgroundColor: "#022C75" }}
       >
         {navigating ? (
           <div
@@ -58,16 +62,11 @@ export function ViewRecordModalShell({
             <Spinner label="Loading entry…" compact />
           </div>
         ) : null}
-        <div className="sticky top-0 z-30 flex items-center justify-end border-b border-gray-200 bg-white px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-2 hover:bg-gray-100"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+        <ModalChromeHeader
+          title="View Entry"
+          onClose={onClose}
+          className="sticky top-0 z-30"
+        />
         {children}
       </div>
     </div>

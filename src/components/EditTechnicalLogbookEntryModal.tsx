@@ -7,6 +7,8 @@ import {
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { Spinner } from "./ui/spinner";
 import { ModalRecordNav } from "./ui/ModalRecordNav";
+import { ModalChromeHeader } from "./ui/ModalChromeHeader";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import {
   ATL_EDIT_FORBIDDEN_MESSAGE,
   canEditAtlFields,
@@ -38,6 +40,7 @@ interface EditTechnicalLogbookEntryModalProps {
 function EditEntryOverlay({
   children,
   showNav,
+  onClose,
   onPrevious,
   onNext,
   hasPrevious,
@@ -46,16 +49,18 @@ function EditEntryOverlay({
 }: {
   children: ReactNode;
   showNav: boolean;
+  onClose: () => void;
   onPrevious?: () => void | Promise<void>;
   onNext?: () => void | Promise<void>;
   hasPrevious: boolean;
   hasNext: boolean;
   navDisabled: boolean;
 }) {
+  useOverlayEscape({ enabled: true, onClose });
   return (
     <div
-      className={`fixed inset-0 z-50 flex items-center justify-center ${
-        showNav ? "py-4 pl-14 pr-14 sm:pl-16 sm:pr-16" : "p-4"
+      className={`modal-responsive-overlay fixed inset-0 z-50 flex items-center justify-center${
+        showNav ? " modal-responsive-overlay--nav" : ""
       }`}
     >
       <div
@@ -179,13 +184,15 @@ export function EditTechnicalLogbookEntryModal({
     return (
       <EditEntryOverlay
         showNav={showNav}
+        onClose={onClose}
         onPrevious={onPrevious}
         onNext={onNext}
         hasPrevious={hasPrevious}
         hasNext={hasNext}
         navDisabled={navDisabled}
       >
-        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
+          <ModalChromeHeader title="Edit Entry" onClose={onClose} />
           <div className="flex flex-col items-center justify-center gap-4 py-24">
             <p className="px-6 text-center text-sm text-red-600">{error}</p>
             <button
@@ -205,13 +212,15 @@ export function EditTechnicalLogbookEntryModal({
     return (
       <EditEntryOverlay
         showNav={showNav}
+        onClose={onClose}
         onPrevious={onPrevious}
         onNext={onNext}
         hasPrevious={hasPrevious}
         hasNext={hasNext}
         navDisabled={navDisabled}
       >
-        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
+          <ModalChromeHeader title="Edit Entry" onClose={onClose} />
           <div className="flex flex-col items-center justify-center gap-4 py-24">
             <Spinner />
             <p className="text-sm text-gray-600">Loading entry…</p>
@@ -225,21 +234,25 @@ export function EditTechnicalLogbookEntryModal({
     return (
       <EditEntryOverlay
         showNav={showNav}
+        onClose={onClose}
         onPrevious={onPrevious}
         onNext={onNext}
         hasPrevious={hasPrevious}
         hasNext={hasNext}
         navDisabled={navDisabled}
       >
-        <div className="relative flex w-full max-w-md flex-col gap-4 overflow-hidden rounded-xl bg-white p-6 shadow-xl">
-          <p className="text-sm text-gray-800">{ATL_EDIT_FORBIDDEN_MESSAGE}</p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="self-start rounded-lg bg-gray-200 px-4 py-2 text-sm transition-colors hover:bg-gray-300"
-          >
-            Close
-          </button>
+        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
+          <ModalChromeHeader title="Edit Entry" onClose={onClose} />
+          <div className="flex flex-col gap-4 p-6">
+            <p className="text-sm text-gray-800">{ATL_EDIT_FORBIDDEN_MESSAGE}</p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="self-start rounded-lg bg-gray-200 px-4 py-2 text-sm transition-colors hover:bg-gray-300"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </EditEntryOverlay>
     );

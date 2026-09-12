@@ -38,6 +38,7 @@ import {
 } from "../constants/pagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -641,6 +642,16 @@ export function CertificateMonitoring() {
     setShowAddModal(false);
     setShowEditModal(false);
   };
+
+  useOverlayEscape({
+    enabled: showAddModal || showEditModal,
+    onClose: resetForm,
+    isBusy: isSaving,
+  });
+  useOverlayEscape({
+    enabled: showViewModal,
+    onClose: () => setShowViewModal(false),
+  });
 
   return (
     <div className="space-y-6">

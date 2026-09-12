@@ -60,6 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 /** Same shape as API record for view/edit. */
 type Personnel = PersonnelAuthorizationRecord;
@@ -967,6 +968,24 @@ export function PersonnelAuthorization() {
       setAddingScope(false);
     }
   };
+
+  useOverlayEscape({
+    enabled: Boolean(viewingPersonnel),
+    onClose: () => setViewingPersonnel(null),
+  });
+  useOverlayEscape({
+    enabled: showCreateModal,
+    onClose: closeCreateModal,
+  });
+  useOverlayEscape({
+    enabled: showNewScopeModal,
+    onClose: closeNewScopeModal,
+    isBusy: addingScope,
+  });
+  useOverlayEscape({
+    enabled: showCreateModal && isAuthDropdownOpen,
+    onClose: () => setIsAuthDropdownOpen(false),
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">

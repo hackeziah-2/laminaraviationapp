@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { formatTimeZulu, formatDisplayDate } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { PageSizeSelect } from "./ui/DataTablePagination";
 import {
   API_PAGE_SIZE_OPTIONS,
@@ -294,6 +295,11 @@ export function ReliabilityMonitoring() {
       remarks: "",
     },
   ];
+
+  useOverlayEscape({
+    enabled: showAddModal,
+    onClose: () => setShowAddModal(false),
+  });
 
   return (
     <div className="flex-1 overflow-auto">

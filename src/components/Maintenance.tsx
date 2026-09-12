@@ -20,6 +20,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useStickyTableHeaderHeight } from "../hooks/useStickyTableHeaderHeight";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ADWorkOrders } from "./ADWorkOrders";
 import { CPCPMonitoring, type CPCPMonitoringHandle } from "./CPCPMonitoring";
@@ -64,6 +65,7 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import {
   importMaintenanceExcel,
   importTccMaintenanceExcel,
@@ -483,6 +485,12 @@ export function Maintenance() {
     loading: ldndLoading || adLoading,
     listDeps: [ldndItems, adItems],
   });
+  useStickyTableHeaderHeight(
+    listScrollRef,
+    activeCategory === "LDND"
+      ? `${ldndLoading}:${ldndItems.length}`
+      : `${adLoading}:${adItems.length}`
+  );
 
   const fetchLdnd = useCallback(
     async (options?: { preserveView?: boolean }) => {
@@ -1583,6 +1591,23 @@ export function Maintenance() {
     },
   ];
 
+  useOverlayEscape({
+    enabled: showAddModal,
+    onClose: () => {
+      if (ldndSaving) return;
+      setShowAddModal(false);
+    },
+    isBusy: ldndSaving,
+  });
+  useOverlayEscape({
+    enabled: showADModal,
+    onClose: () => {
+      if (adSaving) return;
+      setShowADModal(false);
+    },
+    isBusy: adSaving,
+  });
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -1798,7 +1823,7 @@ export function Maintenance() {
             <div
               ref={listScrollRef}
               data-atl-list-scroll
-              className="overflow-x-auto"
+              className="maintenance-table-scroll maintenance-table-scroll--ldnd"
             >
               {ldndLoading ? (
                 <div className="flex justify-center py-12">
@@ -2062,7 +2087,7 @@ export function Maintenance() {
             <div
               ref={listScrollRef}
               data-atl-list-scroll
-              className="overflow-x-auto"
+              className="maintenance-table-scroll maintenance-table-scroll--ad"
             >
               {adLoading ? (
                 <div className="flex justify-center py-12">

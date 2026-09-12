@@ -301,7 +301,11 @@ export function DateInput({
                     commitText();
                     setOpen(false);
                   }
-                  if (e.key === "Escape") setOpen(false);
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpen(false);
+                  }
                 }}
                 className={cn(
                   "h-full w-full min-w-0 border-0 bg-transparent py-2 pl-3 pr-2 text-sm font-medium tracking-wide text-gray-900 outline-none",

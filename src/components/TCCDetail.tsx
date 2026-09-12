@@ -53,6 +53,7 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useStickyTableHeaderHeight } from "../hooks/useStickyTableHeaderHeight";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import {
   ARRANGEMENT_DISABLED_TOOLTIP,
@@ -402,6 +403,10 @@ export const TCCDetailContent = forwardRef<
     loading: tccLoading,
     listDeps: [tccItems],
   });
+  useStickyTableHeaderHeight(
+    listScrollRef,
+    `${tccLoading}:${tccItems.length}`
+  );
 
   // Debounce search so we don't hit API on every keystroke
   useEffect(() => {
@@ -1066,7 +1071,7 @@ export const TCCDetailContent = forwardRef<
           <div
             ref={listScrollRef}
             data-atl-list-scroll
-            className="overflow-x-auto"
+            className="maintenance-table-scroll maintenance-table-scroll--tcc"
           >
             <table className="w-full">
               <thead>

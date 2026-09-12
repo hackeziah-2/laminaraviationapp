@@ -108,6 +108,7 @@ import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import * as XLSX from "xlsx";
 
@@ -316,10 +317,6 @@ function formatOperationSequenceNoCell(
 
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
-
-/** Sentinel `<option>` values — not real ATL batch ids */
-const ATL_BATCH_CREATE_VALUE = "__atl_batch_create__";
-const ATL_BATCH_EDIT_VALUE = "__atl_batch_edit__";
 
 type ExportColumnDefinition = {
   key: string;
@@ -1051,7 +1048,7 @@ export function Operation() {
       return;
     }
     let cancelled = false;
-    getAtlBatchesForSelect()
+    getAtlBatchesForSelect(effectiveAircraftId)
       .then((list) => {
         if (cancelled) return;
         const batches = Array.isArray(list) ? list : [];
@@ -1072,7 +1069,7 @@ export function Operation() {
     return () => {
       cancelled = true;
     };
-  }, [showAtlBatchFilter]);
+  }, [showAtlBatchFilter, effectiveAircraftId]);
 
   useEffect(() => {
     if (!showAtlBatchFilter) {
@@ -1571,6 +1568,8 @@ export function Operation() {
         "natureOfFlight",
         "offBlocks",
         "onBlocks",
+        "tachometerStart",
+        "tachometerEnd",
         "airframeRun",
         "airframeAftt",
         "engineRun",
@@ -1926,7 +1925,7 @@ export function Operation() {
 
     let batchIdForImport = selectedAtlBatchFk;
     if (batchIdForImport == null) {
-      const list = await getAtlBatchesForSelect();
+      const list = await getAtlBatchesForSelect(effectiveAircraftId);
       const latest = pickLatestAtlBatchId(list);
       if (latest == null) {
         setAtlBatchFilterError(
@@ -2152,6 +2151,19 @@ export function Operation() {
     setSelectedEntry(record);
     setShowEditModal(true);
   };
+
+  useOverlayEscape({
+    enabled: showExportModal,
+    onClose: () => {
+      if (exportLoading) return;
+      setShowExportModal(false);
+    },
+    isBusy: exportLoading,
+  });
+  useOverlayEscape({
+    enabled: showFileViewModal,
+    onClose: closeFileViewModal,
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -2435,31 +2447,6 @@ export function Operation() {
                       value={selectedAtlBatchId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        if (v === ATL_BATCH_CREATE_VALUE) {
-                          if (!allowAtlBatchCreate) return;
-                          setAtlBatchModalEditId(null);
-                          setAtlBatchModalOpen(true);
-                          return;
-                        }
-                        if (v === ATL_BATCH_EDIT_VALUE) {
-                          if (!allowAtlBatchEdit) return;
-                          const n =
-                            selectedAtlBatchId.trim() !== ""
-                              ? Number(selectedAtlBatchId)
-                              : NaN;
-                          if (!Number.isFinite(n) || n <= 0) {
-                            void Swal.fire({
-                              icon: "info",
-                              title: "Select an ATL batch",
-                              text: "Choose an ATL batch in the dropdown before editing.",
-                              confirmButtonColor: "#2563eb",
-                            });
-                            return;
-                          }
-                          setAtlBatchModalEditId(n);
-                          setAtlBatchModalOpen(true);
-                          return;
-                        }
                         atlBatchFilterTouchedRef.current = true;
                         setSelectedAtlBatchId(v);
                         if (v.trim() !== "") setAtlBatchFilterError("");
@@ -2476,19 +2463,46 @@ export function Operation() {
                           {b.name}
                         </option>
                       ))}
-                      {allowAtlBatchCreate && (
-                        <option value={ATL_BATCH_CREATE_VALUE}>
-                          + Create batch…
-                        </option>
-                      )}
-                      {allowAtlBatchEdit && (
-                        <>
-                          <option value={ATL_BATCH_EDIT_VALUE}>
-                            Edit batch…
-                          </option>
-                        </>
-                      )}
                     </select>
+                    {allowAtlBatchCreate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAtlBatchModalEditId(null);
+                          setAtlBatchModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create batch
+                      </button>
+                    )}
+                    {allowAtlBatchEdit && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const n =
+                            selectedAtlBatchId.trim() !== ""
+                              ? Number(selectedAtlBatchId)
+                              : NaN;
+                          if (!Number.isFinite(n) || n <= 0) {
+                            void Swal.fire({
+                              icon: "info",
+                              title: "Select an ATL batch",
+                              text: "Choose an ATL batch in the dropdown before editing.",
+                              confirmButtonColor: "#2563eb",
+                            });
+                            return;
+                          }
+                          setAtlBatchModalEditId(n);
+                          setAtlBatchModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        Edit batch
+                      </button>
+                    )}
                   </div>
                   {atlBatchFilterError && (
                     <p className="text-xs text-red-600">
@@ -3556,7 +3570,7 @@ export function Operation() {
                   </div>
                 )}
 
-                {/* Maintenance Planning — separate columns: OFF BLOCKS, ON BLOCKS, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
+                {/* Maintenance Planning — OFF/ON BLOCKS, TACH START/END, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
                 {groupBy === "maintenancePlanning" && (
                   <div
                     ref={fleetTableScrollRef}
@@ -3582,6 +3596,12 @@ export function Operation() {
                             className={`px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
                           >
                             DATE | ON BLOCKS
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TACH START
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TACH END
                           </th>
                           <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             AIRFRAME RUN
@@ -3699,6 +3719,12 @@ export function Operation() {
                                   className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
                                 >
                                   {formatAtlListOnBlocks(record)}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {formatAtlListCell(record.tachometerStart)}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {formatAtlListCell(record.tachometerEnd)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.airframeRunTime)}
@@ -3997,11 +4023,13 @@ export function Operation() {
             : allowAtlBatchCreate)
         }
         editBatchId={atlBatchModalEditId}
+        aircraftId={effectiveAircraftId}
         onClose={() => {
           setAtlBatchModalOpen(false);
           setAtlBatchModalEditId(null);
         }}
         onSaved={(batch: AtlBatch) => {
+          atlBatchFilterTouchedRef.current = true;
           setAtlBatchFilterOptions((prev) => {
             const without = prev.filter((b) => b.id !== batch.id);
             return [...without, { id: batch.id, name: batch.name }].sort(
@@ -4009,6 +4037,7 @@ export function Operation() {
             );
           });
           setSelectedAtlBatchId(String(batch.id));
+          setAtlBatchFilterError("");
         }}
       />
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Loader2, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useOverlayEscape } from "../../hooks/useOverlayEscape";
 import {
   getAircraftListOrdered,
   type AircraftListItem,
@@ -97,22 +98,19 @@ export function DataQualityFlagsModal({
     setRowError(null);
   }, [open, filterKey]);
 
+  useOverlayEscape({
+    enabled: open,
+    onClose: () => onOpenChange(false),
+  });
+
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && viewEntry == null) {
-        e.preventDefault();
-        onOpenChange(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onOpenChange, viewEntry]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;

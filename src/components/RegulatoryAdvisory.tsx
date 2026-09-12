@@ -17,6 +17,7 @@ import {
   DEFAULT_API_PAGE_SIZE,
 } from "../constants/pagination";
 import { collectAllPagedItems } from "../utils/pagedQuery";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import {
   getAdvisoryPaged,
   getAdvisoryForRenew,
@@ -435,6 +436,11 @@ export function RegulatoryAdvisory() {
     }
     return "text-emerald-600 font-semibold";
   };
+
+  useOverlayEscape({
+    enabled: Boolean(showRenewModal && renewAdvisoryRow && renewUpdate),
+    onClose: () => setShowRenewModal(false),
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">

@@ -33,6 +33,7 @@ import { TCCDetail } from './components/TCCDetail';
 import { ADWorkOrders } from './components/ADWorkOrders';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Menu } from 'lucide-react';
+import { useOverlayEscape } from './hooks/useOverlayEscape';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
 import { AppLayoutProvider, useAppLayout } from './context/AppLayoutContext';
 import { NotificationsPanel } from './components/NotificationsPanel';
@@ -128,6 +129,10 @@ function AuthenticatedShell({
   const { sidebarCollapsed, toggleSidebarCollapsed } = useAppLayout();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
+  useOverlayEscape({
+    enabled: isMobileMenuOpen,
+    onClose: () => setIsMobileMenuOpen(false),
+  });
   const isSpecialPage =
     location.pathname.includes("/reliability/") ||
     location.pathname.includes("/maintenance-ad-work-orders/");

@@ -75,7 +75,7 @@ export async function confirmSaveEntry(
     cancelButtonColor: "#6b7280",
     showLoaderOnConfirm: true,
     allowOutsideClick: false,
-    allowEscapeKey: false,
+    allowEscapeKey: () => !Swal.isLoading(),
     scrollbarPadding: false,
     heightAuto: false,
     preConfirm: async () => {
