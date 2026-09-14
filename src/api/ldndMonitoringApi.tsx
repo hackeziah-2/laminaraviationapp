@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 /** Matches backend: inspection_type, unit (HRS|CYCLES), last_done_tach_due, last_done_tach_done, next_due_tach_hours, performed_date_start */
 export interface LDNDMonitoring {
@@ -135,12 +137,11 @@ export const getAircraftLdndMonitoringLatest = async (
 export const getAircraftLdndMonitoring = async (
   aircraftId: number,
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = ""
 ): Promise<PaginatedLDNDResponse> => {
   const params = new URLSearchParams();
-  params.append("limit", String(limit));
-  params.append("page", String(page));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.append("search", search.trim());
 
   const endpointPaged = `${LDND_PATH(aircraftId)}paged?${params.toString()}`;
@@ -187,7 +188,7 @@ export const getAircraftLdndMonitoring = async (
   if (isPaginated) {
     const total = data.total ?? data.count ?? allItems.length;
     const pageNum = data.page ?? page;
-    const limitUsed = data.limit ?? limit;
+    const limitUsed = data.page_size ?? data.limit ?? limit;
     const pages = data.pages ?? Math.max(1, Math.ceil(total / limitUsed));
     return { items: allItems, total, page: pageNum, pages };
   }

@@ -1286,6 +1286,14 @@
     background-color: var(--color-blue-600);
   }
 
+  .bg-\[\#022C75\] {
+    background-color: #022C75;
+  }
+
+  .border-\[\#022C75\] {
+    border-color: #022C75;
+  }
+
   .bg-cyan-50 {
     background-color: var(--color-cyan-50);
   }
@@ -2035,6 +2043,12 @@
   @media (hover: hover) {
     .hover\:bg-blue-700:hover {
       background-color: var(--color-blue-700);
+    }
+  }
+
+  @media (hover: hover) {
+    .hover\:bg-\[\#011E52\]:hover {
+      background-color: #011E52;
     }
   }
 
@@ -3187,5 +3201,648 @@ input[data-slot="date-input"] {
   opacity: 0.6;
   pointer-events: none;
   cursor: not-allowed;
+}
+
+/* Add / Edit ATL forms — navy canvas, white controls, accessible focus */
+.add-form,
+.edit-form,
+.add-form .modal-body,
+.edit-form .modal-body,
+.modal-navy-shell {
+  background-color: #022C75;
+  color: #FFFFFF;
+}
+
+.add-form .modal-body .p-4.rounded-lg.border,
+.edit-form .modal-body .p-4.rounded-lg.border,
+.add-form .atl-paper-section,
+.edit-form .atl-paper-section {
+  background-color: transparent;
+  border-color: rgba(255, 255, 255, 0.28);
+  min-width: 0;
+}
+
+.add-form .atl-paper-section h3,
+.edit-form .atl-paper-section h3 {
+  margin-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.add-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.add-form textarea,
+.add-form select,
+.edit-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.edit-form textarea,
+.edit-form select {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #9CA3AF;
+}
+
+.add-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):focus,
+.add-form textarea:focus,
+.add-form select:focus,
+.edit-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):focus,
+.edit-form textarea:focus,
+.edit-form select:focus {
+  border-color: #022C75;
+  outline: 3px solid rgba(2, 44, 117, 0.2);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.add-form input[data-slot="date-input"],
+.edit-form input[data-slot="date-input"] {
+  background-color: transparent;
+  border: 0;
+  color: #1F2937;
+  box-shadow: none;
+  outline: none;
+}
+
+.add-form .date-picker-field,
+.edit-form .date-picker-field {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #9CA3AF;
+}
+
+.add-form .date-picker-field:focus-within,
+.edit-form .date-picker-field:focus-within {
+  border-color: #022C75;
+  outline: 3px solid rgba(2, 44, 117, 0.2);
+  outline-offset: 0;
+  box-shadow: none;
+}
+
+.add-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]),
+.edit-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]) {
+  border-color: #DC2626;
+}
+
+.add-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]):focus-within,
+.edit-form .date-picker-field:has(input[data-slot="date-input"][aria-invalid="true"]):focus-within {
+  border-color: #DC2626;
+  outline: 3px solid rgba(185, 28, 28, 0.25);
+}
+
+.add-form .date-picker-field:has(input[data-slot="date-input"]:disabled),
+.add-form .date-picker-field:has(input[data-slot="date-input"][readonly]),
+.edit-form .date-picker-field:has(input[data-slot="date-input"]:disabled),
+.edit-form .date-picker-field:has(input[data-slot="date-input"][readonly]) {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.add-form label.block,
+.edit-form label.block,
+.modal-navy-shell label {
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.modal-navy-shell h2,
+.modal-navy-shell h3,
+.add-form h3,
+.edit-form h3 {
+  color: #FFFFFF;
+}
+
+.modal-navy-shell .text-gray-900:not(input):not(textarea):not(select),
+.modal-navy-shell .text-gray-800:not(input):not(textarea):not(select),
+.modal-navy-shell .text-gray-700:not(input):not(textarea):not(select),
+.modal-navy-shell .text-gray-600:not(input):not(textarea):not(select),
+.modal-navy-shell .text-gray-500:not(input):not(textarea):not(select),
+.add-form .modal-body .text-gray-900:not(input):not(textarea):not(select),
+.add-form .modal-body .text-gray-800:not(input):not(textarea):not(select),
+.add-form .modal-body .text-gray-700:not(input):not(textarea):not(select),
+.add-form .modal-body .text-gray-600:not(input):not(textarea):not(select),
+.add-form .modal-body .text-gray-500:not(input):not(textarea):not(select),
+.edit-form .modal-body .text-gray-900:not(input):not(textarea):not(select),
+.edit-form .modal-body .text-gray-800:not(input):not(textarea):not(select),
+.edit-form .modal-body .text-gray-700:not(input):not(textarea):not(select),
+.edit-form .modal-body .text-gray-600:not(input):not(textarea):not(select),
+.edit-form .modal-body .text-gray-500:not(input):not(textarea):not(select) {
+  color: #FFFFFF;
+}
+
+.add-form .atl-nof-defaults-message,
+.edit-form .atl-nof-defaults-message,
+.modal-navy-shell .atl-nof-defaults-message {
+  color: #000000;
+  -webkit-text-fill-color: #000000;
+}
+
+.modal-navy-shell .bg-white,
+.modal-navy-shell .bg-white .text-gray-900,
+.modal-navy-shell .bg-white .text-gray-800,
+.modal-navy-shell .bg-white .text-gray-700,
+.modal-navy-shell .bg-white .text-gray-600,
+.modal-navy-shell .bg-gray-50,
+.modal-navy-shell .bg-gray-50 .text-gray-900,
+.modal-navy-shell .bg-gray-50 .text-gray-700,
+.modal-navy-shell .bg-gray-100,
+.modal-navy-shell .bg-gray-100 .text-gray-900,
+.modal-navy-shell .bg-gray-100 .text-gray-700 {
+  color: #1F2937;
+}
+
+.add-form .form-error,
+.add-form .validation-error,
+.edit-form .form-error,
+.edit-form .validation-error,
+.form-error,
+.validation-error {
+  color: #B91C1C;
+  font-weight: 500;
+}
+
+.add-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500,
+.add-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"],
+.add-form textarea.border-red-500,
+.add-form textarea[aria-invalid="true"],
+.add-form select.border-red-500,
+.add-form select[aria-invalid="true"],
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"],
+.edit-form textarea.border-red-500,
+.edit-form textarea[aria-invalid="true"],
+.edit-form select.border-red-500,
+.edit-form select[aria-invalid="true"] {
+  border-color: #DC2626;
+}
+
+.add-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500:focus,
+.add-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"]:focus,
+.add-form textarea.border-red-500:focus,
+.add-form textarea[aria-invalid="true"]:focus,
+.add-form select.border-red-500:focus,
+.add-form select[aria-invalid="true"]:focus,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"]).border-red-500:focus,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"])[aria-invalid="true"]:focus,
+.edit-form textarea.border-red-500:focus,
+.edit-form textarea[aria-invalid="true"]:focus,
+.edit-form select.border-red-500:focus,
+.edit-form select[aria-invalid="true"]:focus {
+  border-color: #DC2626;
+  outline: 3px solid rgba(185, 28, 28, 0.25);
+}
+
+.add-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.add-form textarea:disabled,
+.add-form select:disabled,
+.add-form input:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.add-form textarea[readonly],
+.edit-form input:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.edit-form textarea:disabled,
+.edit-form select:disabled,
+.edit-form input:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.edit-form textarea[readonly] {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.add-form .form-readonly-display,
+.edit-form .form-readonly-display {
+  background-color: #E5E7EB;
+  color: #000000;
+  -webkit-text-fill-color: #000000;
+  border: 1px solid #9CA3AF;
+  cursor: not-allowed;
+}
+
+/* ATL Create/Edit dropdowns: selected names and options stay black in every state */
+.add-form select,
+.edit-form select,
+.modal-navy-shell select,
+.add-form select option,
+.edit-form select option,
+.modal-navy-shell select option,
+.add-form input.atl-dropdown-field:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.edit-form input.atl-dropdown-field:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.modal-navy-shell input.atl-dropdown-field:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
+.add-form .atl-dropdown-field,
+.edit-form .atl-dropdown-field,
+.modal-navy-shell .atl-dropdown-field,
+.add-form .atl-dropdown-name,
+.edit-form .atl-dropdown-name,
+.modal-navy-shell .atl-dropdown-name,
+.add-form [role="option"],
+.edit-form [role="option"],
+.modal-navy-shell [role="option"] {
+  color: #000000;
+  -webkit-text-fill-color: #000000;
+}
+
+.add-form input.atl-dropdown-field::placeholder,
+.edit-form input.atl-dropdown-field::placeholder,
+.modal-navy-shell input.atl-dropdown-field::placeholder {
+  color: #9CA3AF;
+  -webkit-text-fill-color: #9CA3AF;
+}
+.add-form select option:hover,
+.edit-form select option:checked,
+.edit-form select option:hover,
+.modal-navy-shell select option:checked,
+.modal-navy-shell select option:hover,
+.add-form .atl-dropdown-panel [role="option"]:hover,
+.edit-form .atl-dropdown-panel [role="option"]:hover,
+.modal-navy-shell .atl-dropdown-panel [role="option"]:hover,
+.add-form .atl-dropdown-panel li:hover .atl-dropdown-name,
+.edit-form .atl-dropdown-panel li:hover .atl-dropdown-name,
+.modal-navy-shell .atl-dropdown-panel li:hover .atl-dropdown-name {
+  color: #000000;
+  -webkit-text-fill-color: #000000;
+}
+
+.add-form select:disabled,
+.edit-form select:disabled,
+.modal-navy-shell select:disabled,
+.add-form input.atl-dropdown-field:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.edit-form input.atl-dropdown-field:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.modal-navy-shell input.atl-dropdown-field:not([type="hidden"]):not([type="file"]):not([data-slot="date-input"]):disabled,
+.add-form input.atl-dropdown-field:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.edit-form input.atl-dropdown-field:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.modal-navy-shell input.atl-dropdown-field:not([type="hidden"]):not([data-slot="date-input"])[readonly],
+.add-form .atl-dropdown-field:disabled,
+.edit-form .atl-dropdown-field:disabled,
+.modal-navy-shell .atl-dropdown-field:disabled,
+.add-form .atl-dropdown-field[readonly],
+.edit-form .atl-dropdown-field[readonly],
+.modal-navy-shell .atl-dropdown-field[readonly] {
+  color: #000000;
+  -webkit-text-fill-color: #000000;
+  background-color: #E5E7EB;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.add-form .file-dropzone,
+.edit-form .file-dropzone {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border-color: #9CA3AF;
+}
+
+.add-form .file-dropzone-disabled,
+.edit-form .file-dropzone-disabled {
+  background-color: #E5E7EB;
+  color: #6B7280;
+  cursor: not-allowed;
+}
+
+.add-form .file-dropzone:focus-within,
+.edit-form .file-dropzone:focus-within {
+  border-color: #022C75;
+  outline: 3px solid rgba(2, 44, 117, 0.2);
+  outline-offset: 0;
+}
+
+.add-form .form-btn-secondary,
+.edit-form .form-btn-secondary {
+  background-color: #FFFFFF;
+  color: #1F2937;
+  border: 1px solid #6B7280;
+}
+
+.add-form .form-btn-secondary:hover:not(:disabled),
+.edit-form .form-btn-secondary:hover:not(:disabled) {
+  background-color: #F3F4F6;
+}
+
+.add-form .form-btn-primary:not(:disabled),
+.edit-form .form-btn-primary:not(:disabled),
+.modal-navy-primary:not(:disabled) {
+  background-color: #FFFFFF;
+  color: #022C75;
+}
+
+.add-form .form-btn-primary:hover:not(:disabled),
+.edit-form .form-btn-primary:hover:not(:disabled),
+.modal-navy-primary:hover:not(:disabled) {
+  background-color: #F3F4F6;
+  color: #022C75;
+}
+
+.add-form .form-btn-secondary:focus-visible,
+.add-form .form-btn-primary:focus-visible,
+.edit-form .form-btn-secondary:focus-visible,
+.edit-form .form-btn-primary:focus-visible {
+  outline: 3px solid rgba(2, 44, 117, 0.35);
+  outline-offset: 2px;
+}
+
+.add-form button:focus-visible,
+.edit-form button:focus-visible {
+  outline: 3px solid rgba(2, 44, 117, 0.35);
+  outline-offset: 2px;
+}
+
+/* Navy modal chrome — ATL / Technical Logbook Add, Edit, View headers */
+.modal-chrome-header {
+  background-color: #022C75;
+  color: #ffffff;
+}
+
+.modal-navy-footer {
+  background-color: #022C75;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.modal-header-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 0.375rem;
+  padding: 0.375rem;
+  color: #ffffff;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.modal-header-close:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.modal-header-close:focus-visible,
+.add-form .modal-header-close:focus-visible,
+.edit-form .modal-header-close:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.add-form .form-btn-primary:disabled,
+.edit-form .form-btn-primary:disabled {
+  background-color: #9CA3AF;
+  color: #FFFFFF;
+  cursor: not-allowed;
+}
+
+.min-h-0 {
+  min-height: 0;
+}
+
+.z-\[60\] {
+  z-index: 60;
+}
+
+.z-\[65\] {
+  z-index: 65;
+}
+
+.z-\[70\] {
+  z-index: 70;
+}
+
+.col-start-2 {
+  grid-column-start: 2;
+}
+
+/* Shared Add/Edit/View modal layout — compiled Tailwind dump lacks gutter/nav utilities */
+.modal-responsive-overlay {
+  padding: 0.5rem;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.modal-responsive-overlay--nav {
+  padding-left: 2.75rem;
+  padding-right: 2.75rem;
+}
+
+.modal-responsive-dialog {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: min(72rem, 100%);
+  max-height: min(90vh, 100dvh);
+}
+
+.modal-responsive-dialog img {
+  max-width: 100%;
+  height: auto;
+}
+
+.modal-responsive-dialog > form,
+.modal-responsive-dialog > .flex-1 {
+  min-height: 0;
+}
+
+.modal-chrome-header h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-navy-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+}
+
+.modal-navy-footer.flex,
+.modal-navy-footer > div {
+  justify-content: flex-end;
+}
+
+.modal-record-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 70;
+  transform: translateY(-50%);
+}
+
+.modal-record-nav--left {
+  left: 0.25rem;
+}
+
+.modal-record-nav--right {
+  right: 0.25rem;
+}
+
+.modal-record-nav-btn {
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.form-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.form-table-scroll table,
+.modal-navy-shell .overflow-x-auto table {
+  min-width: 40rem;
+}
+
+.form-table-scroll--wide table {
+  min-width: 56rem;
+}
+
+/* Maintenance LDND / AD / TCC / CPCP — sticky header, body scrolls */
+.maintenance-table-scroll {
+  overflow: auto;
+  max-width: 100%;
+  max-height: min(65vh, calc(100dvh - 260px));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  isolation: isolate;
+}
+
+.maintenance-table-scroll table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.maintenance-table-scroll tbody td {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.maintenance-table-scroll thead th {
+  position: sticky;
+  z-index: 4;
+  background-clip: padding-box;
+  box-shadow: 0 1px 0 0 rgba(0, 0, 0, 0.12);
+}
+
+.maintenance-table-scroll thead tr:first-child th {
+  top: 0;
+  z-index: 5;
+}
+
+.maintenance-table-scroll thead tr:nth-child(2) th {
+  top: var(--maint-th-row1-h, 36px);
+  z-index: 4;
+}
+
+.maintenance-table-scroll--ldnd thead tr:first-child th {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
+.maintenance-table-scroll--ldnd thead tr:nth-child(2) th {
+  background-color: #d1f4e0;
+  color: #111827;
+}
+
+.maintenance-table-scroll--ad thead th,
+.maintenance-table-scroll--tcc thead th {
+  background-color: #f9fafb;
+  color: #111827;
+}
+
+.maintenance-table-scroll--cpcp thead th {
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
+@media (max-width: 639px) {
+  .maintenance-table-scroll {
+    max-height: min(55vh, calc(100dvh - 200px));
+  }
+}
+
+@media (min-width: 640px) {
+  .modal-responsive-overlay {
+    padding: 1rem;
+  }
+
+  .modal-responsive-overlay--nav {
+    padding-left: 4rem;
+    padding-right: 4rem;
+  }
+
+  .modal-record-nav--left {
+    left: 0.75rem;
+  }
+
+  .modal-record-nav--right {
+    right: 0.75rem;
+  }
+
+  .modal-record-nav-btn {
+    height: 3.5rem;
+    width: 3.5rem;
+  }
+}
+
+@media (max-width: 639px) {
+  .add-form .modal-body,
+  .edit-form .modal-body,
+  .modal-navy-shell .modal-form-body,
+  .modal-navy-shell > .p-6 {
+    padding: 1rem;
+  }
+
+  .modal-chrome-header {
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .modal-chrome-header h2 {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .modal-navy-shell .grid.grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .modal-navy-shell .col-start-2 {
+    grid-column-start: auto;
+  }
+
+  .modal-navy-footer {
+    padding: 0.75rem 1rem;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .modal-navy-footer.flex,
+  .modal-navy-footer > div {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    justify-content: stretch;
+    gap: 0.75rem;
+  }
+
+  .modal-navy-footer button,
+  .add-form .form-btn-secondary,
+  .add-form .form-btn-primary,
+  .edit-form .form-btn-secondary,
+  .edit-form .form-btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .add-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+  .add-form textarea,
+  .add-form select,
+  .edit-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+  .edit-form textarea,
+  .edit-form select,
+  .modal-navy-shell input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+  .modal-navy-shell textarea,
+  .modal-navy-shell select {
+    font-size: 16px;
+  }
+}
+
+.swal2-container {
+  z-index: 20000 !important;
 }
 

@@ -1,5 +1,7 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { toCamel } from "../utility/utils";
+import { appendPagedQueryParams, pagedQueryRecord } from "../utils/pagedQuery";
 
 /** Path under apiClient baseURL (api/v1/). Full endpoint: /api/v1/organizational-approvals/ */
 const BASE = "organizational-approvals";
@@ -192,11 +194,10 @@ function normalizeHistoryRow(
 export async function getOrganizationalApprovalsHistoryPaged(
   oaHistory: number,
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<OrganizationalApprovalHistoryPagedResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   try {
     const response = await apiClient.get(
       `${HISTORY_BASE}/${oaHistory}/paged?${params.toString()}`,
@@ -252,9 +253,9 @@ function buildPagedParams(
     sortBy === "CERTIFICATE"
       ? "certificate_category_types__name"
       : "date_of_expiration";
+  const paged = pagedQueryRecord(page, limit);
   const params: Record<string, string | number> = {
-    page,
-    limit,
+    ...paged,
     sort_by: sortByValue,
     order,
   };
@@ -271,7 +272,7 @@ function buildPagedParams(
 
 export async function getOrganizationalApprovalsPaged(
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   sortBy: OrganizationalApprovalSortBy = "EXPIRY",
   order: SortOrder = "asc",
@@ -424,11 +425,10 @@ export interface PaginatedCertificateCategoryTypesResponse {
  */
 export async function getCertificateCategoryTypesPaged(
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<PaginatedCertificateCategoryTypesResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   const res = await apiClient.get(
     `${CERTIFICATE_CATEGORY_BASE}/paged?${params.toString()}`,
     { headers: { Accept: "application/json" } }

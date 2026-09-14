@@ -45,10 +45,15 @@ import {
   formatDisplayDateFromDate,
 } from "../utility/utils";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useStickyTableHeaderHeight } from "../hooks/useStickyTableHeaderHeight";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
 import {
   ARRANGEMENT_DISABLED_TOOLTIP,
@@ -370,7 +375,7 @@ export const TCCDetailContent = forwardRef<
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
 
   const aircraftIdNum = useMemo(
     () => parseInt(aircraftId || "0", 10),
@@ -398,6 +403,10 @@ export const TCCDetailContent = forwardRef<
     loading: tccLoading,
     listDeps: [tccItems],
   });
+  useStickyTableHeaderHeight(
+    listScrollRef,
+    `${tccLoading}:${tccItems.length}`
+  );
 
   // Debounce search so we don't hit API on every keystroke
   useEffect(() => {
@@ -711,11 +720,8 @@ export const TCCDetailContent = forwardRef<
     async (format: "csv" | "xlsx") => {
       if (!aircraftIdNum || aircraftIdNum <= 0) return;
       try {
-        const exportLimit = Math.max(tccTotal, tccItems.length, 1);
-        const res = await getAircraftTccMonitoring(
+        const res = await getAllAircraftTccMonitoring(
           aircraftIdNum,
-          1,
-          exportLimit,
           searchDebounced,
           activeTab
         );
@@ -1065,7 +1071,7 @@ export const TCCDetailContent = forwardRef<
           <div
             ref={listScrollRef}
             data-atl-list-scroll
-            className="overflow-x-auto"
+            className="maintenance-table-scroll maintenance-table-scroll--tcc"
           >
             <table className="w-full">
               <thead>
@@ -1408,7 +1414,7 @@ export const TCCDetailContent = forwardRef<
           totalLabel="components"
           itemsPerPage={itemsPerPage}
           onItemsPerPageChange={setItemsPerPage}
-          pageSizeOptions={[10, 25, 50]}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           disabled={tccLoading || tccReordering}
           className="px-6"
         />

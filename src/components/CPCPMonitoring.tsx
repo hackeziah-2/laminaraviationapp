@@ -21,10 +21,7 @@ import {
   X,
   Loader,
 } from "lucide-react";
-import {
-  DndContext,
-  closestCenter,
-} from "@dnd-kit/core";
+import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -46,9 +43,15 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useStickyTableHeaderHeight } from "../hooks/useStickyTableHeaderHeight";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import {
   ARRANGEMENT_DISABLED_TOOLTIP,
   isManualArrangementMode,
@@ -184,7 +187,7 @@ export const CPCPMonitoring = forwardRef<
 ) {
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [showAddModal, setShowAddModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
@@ -212,6 +215,7 @@ export const CPCPMonitoring = forwardRef<
     loading,
     listDeps: [items],
   });
+  useStickyTableHeaderHeight(listScrollRef, `${loading}:${items.length}`);
 
   const aircraftIdNum = useMemo(() => {
     if (aircraftId == null || String(aircraftId).trim() === "") return NaN;
@@ -264,9 +268,7 @@ export const CPCPMonitoring = forwardRef<
       const raw = aircraftDetails?.originDate;
       if (raw == null || String(raw).trim() === "") return "—";
       const formatted = formatDisplayDate(String(raw), { fallback: "" });
-      return formatted.trim() !== ""
-        ? formatted
-        : fmtCpcpHeaderField(raw);
+      return formatted.trim() !== "" ? formatted : fmtCpcpHeaderField(raw);
     }
     return fmtCpcpHeaderField(date);
   })();
@@ -274,13 +276,7 @@ export const CPCPMonitoring = forwardRef<
   const handleCpcpExport = useCallback(
     async (format: "csv" | "xlsx") => {
       try {
-        const exportLimit = Math.max(totalItems, items.length, 1);
-        const res = await getCpcpMonitoringPaged(
-          1,
-          exportLimit,
-          searchDebounced,
-          aircraftId
-        );
+        const res = await getAllCpcpMonitoring(searchDebounced, aircraftId);
         const list = res.items;
         if (!list.length) {
           await Swal.fire({
@@ -371,8 +367,7 @@ export const CPCPMonitoring = forwardRef<
   );
 
   const canUpdateMaintenance = canUpdate("maintenance");
-  const canReorder =
-    arrangementMode && canUpdateMaintenance && !loading;
+  const canReorder = arrangementMode && canUpdateMaintenance && !loading;
 
   const dragDisabledReason = !canUpdateMaintenance
     ? "You do not have permission to reorder rows."
@@ -632,8 +627,13 @@ export const CPCPMonitoring = forwardRef<
 
   const contentPadding = embedded ? "p-0" : "p-6";
 
+  useOverlayEscape({
+    enabled: Boolean(viewLoading || viewEntry),
+    onClose: () => setViewEntry(null),
+  });
+
   return (
-    <div className="h-full overflow-auto bg-gray-50/50">
+    <div className={embedded ? "bg-gray-50/50" : "h-full overflow-auto bg-gray-50/50"}>
       {/* Header - only when not embedded */}
       {!embedded && (
         <div className="bg-white border-b border-gray-200 px-6 py-4">
@@ -758,7 +758,7 @@ export const CPCPMonitoring = forwardRef<
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search by inspection code, description, or ATL-SEC.NO..."
+                  placeholder="Search by inspection code, description, or ATL-SEQ.NO..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -795,292 +795,308 @@ export const CPCPMonitoring = forwardRef<
               <div
                 ref={listScrollRef}
                 data-atl-list-scroll
-                className="overflow-x-auto"
+                className="maintenance-table-scroll maintenance-table-scroll--cpcp"
               >
                 <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
-                        <th
-                          rowSpan={2}
-                          className="px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20 w-10"
-                        >
-                          {/* drag */}
-                        </th>
-                        <th
-                          rowSpan={2}
-                          className="px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                          title="Display order"
-                        >
-                          #
-                        </th>
-                        <th
-                          colSpan={4}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          REMAINING
-                        </th>
-                        <th
-                          rowSpan={2}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          INSPECTION OPERATION
-                        </th>
-                        <th
-                          rowSpan={2}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          DESCRIPTION
-                        </th>
-                        <th
-                          colSpan={2}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          INTERVAL
-                        </th>
-                        <th
-                          colSpan={3}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          LAST DONE
-                        </th>
-                        <th
-                          colSpan={3}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          NEXT DUE
-                        </th>
-                        <th
-                          rowSpan={2}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
-                        >
-                          ATL REFERENCE
-                        </th>
-                        <th
-                          rowSpan={2}
-                          className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white"
-                        >
-                          ACTIONS
-                        </th>
-                      </tr>
-                      <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          MONTHS
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          DAYS
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          TACH
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
-                          AFTT
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          HOURS
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
-                          MONTHS
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          DATE
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          TACH
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
-                          AFTT
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          DATE
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white">
-                          TACH
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
-                          AFTT
-                        </th>
-                      </tr>
-                    </thead>
-                    <DndContext
-                      sensors={cpcpDndSensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={handleCpcpDragEnd}
-                    >
-                      <SortableContext
-                        items={currentItems.map((item) => item.id)}
-                        strategy={verticalListSortingStrategy}
+                  <thead>
+                    <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
+                      <th
+                        rowSpan={2}
+                        className="px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20 w-10"
                       >
-                        <tbody className="divide-y divide-gray-100">
-                          {currentItems.length === 0 ? (
-                            <tr>
-                              <td
-                                colSpan={18}
-                                className="px-6 py-12 text-center text-gray-500 text-sm"
-                              >
-                                No CPCP entries found.
-                              </td>
-                            </tr>
-                          ) : (
-                            currentItems.map((item) => {
-                              const computed = computeCpcpRow(
-                                item,
-                                headerTach,
-                                headerAftt
-                              );
-                              const intervalHours = parseNum(item.interval?.hours);
-                              const intervalMonths = parseNum(item.interval?.months);
-                              const intervalDays =
-                                intervalMonths != null ? (intervalMonths * 365) / 12 : null;
-                              const remMonths = parseNum(computed.remaining.months);
-                              const remDays = parseNum(computed.remaining.days);
-                              const remTach = parseNum(computed.remaining.tach);
-                              const remAftt = parseNum(computed.remaining.aftf);
+                        {/* drag */}
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="px-2 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                        title="Display order"
+                      >
+                        #
+                      </th>
+                      <th
+                        colSpan={4}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        REMAINING
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        INSPECTION OPERATION
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        DESCRIPTION
+                      </th>
+                      <th
+                        colSpan={2}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        INTERVAL
+                      </th>
+                      <th
+                        colSpan={3}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        LAST DONE
+                      </th>
+                      <th
+                        colSpan={3}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        NEXT DUE
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white border-r border-white/20"
+                      >
+                        ATL REFERENCE
+                      </th>
+                      <th
+                        rowSpan={2}
+                        className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wider text-white"
+                      >
+                        ACTIONS
+                      </th>
+                    </tr>
+                    <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        MONTHS
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        DAYS
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        TACH
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
+                        AFTT
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        HOURS
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
+                        MONTHS
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        DATE
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        TACH
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
+                        AFTT
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        DATE
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white">
+                        TACH
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-bold text-white border-r border-white/20">
+                        AFTT
+                      </th>
+                    </tr>
+                  </thead>
+                  <DndContext
+                    sensors={cpcpDndSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleCpcpDragEnd}
+                  >
+                    <SortableContext
+                      items={currentItems.map((item) => item.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <tbody className="divide-y divide-gray-100">
+                        {currentItems.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={18}
+                              className="px-6 py-12 text-center text-gray-500 text-sm"
+                            >
+                              No CPCP entries found.
+                            </td>
+                          </tr>
+                        ) : (
+                          currentItems.map((item) => {
+                            const computed = computeCpcpRow(
+                              item,
+                              headerTach,
+                              headerAftt
+                            );
+                            const intervalHours = parseNum(
+                              item.interval?.hours
+                            );
+                            const intervalMonths = parseNum(
+                              item.interval?.months
+                            );
+                            const intervalDays =
+                              intervalMonths != null
+                                ? (intervalMonths * 365) / 12
+                                : null;
+                            const remMonths = parseNum(
+                              computed.remaining.months
+                            );
+                            const remDays = parseNum(computed.remaining.days);
+                            const remTach = parseNum(computed.remaining.tach);
+                            const remAftt = parseNum(computed.remaining.aftf);
 
-                              return (
-                                <SortableTableRow
-                                  key={item.id}
-                                  id={item.id}
-                                  data-list-entry-id={item.id}
-                                  disabled={cpcpDndDisabled}
-                                  dragLabel="Move Maintenance CPCP row"
-                                  disabledReason={dragDisabledReason}
-                                  className="transition-colors"
-                                >
-                                  {({ dragHandle }) => (
-                                    <>
-                                      <td className="px-2 py-2.5 border-r border-gray-100 align-middle">
-                                        {dragHandle}
-                                      </td>
-                                      <td className="px-2 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100 tabular-nums text-center">
-                                        {item.displayOrder ?? "—"}
-                                      </td>
-                                      <td
-                                        className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
-                                          intervalMonths,
-                                          remMonths
-                                        )}`}
-                                      >
-                                        {computed.remaining.months}
-                                      </td>
-                                      <td
-                                        className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
-                                          intervalDays,
-                                          remDays
-                                        )}`}
-                                      >
-                                        {computed.remaining.days}
-                                      </td>
-                                      <td
-                                        className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
-                                          intervalHours,
-                                          remTach
-                                        )}`}
-                                      >
-                                        {computed.remaining.tach}
-                                      </td>
-                                      <td
-                                        className={`px-3 py-2.5 whitespace-nowrap border-r border-gray-100 ${getRemainingCellClass(
-                                          intervalHours,
-                                          remAftt
-                                        )}`}
-                                      >
-                                        {computed.remaining.aftf}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                        {item.inspectionCode ?? "-"}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100 max-w-[240px]">
-                                        <div className="whitespace-pre-line text-gray-600 leading-snug">
-                                          {item.description ?? "-"}
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                        {item.interval?.hours ?? "0"}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                        {item.interval?.months ?? "0"}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                        {formatDisplayDate(item.lastDone?.date)}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                        {item.lastDone?.tach || "-"}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                        {item.lastDone?.aftf || "-"}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                        {formatDisplayDate(computed.nextDue.date)}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                        {computed.nextDue.tach}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                        {computed.nextDue.aftf}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
-                                        {String(item.reference ?? "").trim() ? (
-                                          String(aircraftId ?? "").trim() ? (
-                                            <a
-                                              href={`/profile/${String(aircraftId).trim()}/operation?${new URLSearchParams(
-                                                { sequence_no: String(item.reference).trim() }
-                                              ).toString()}`}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-blue-600 hover:text-blue-700 hover:underline"
-                                            >
-                                              {item.reference}
-                                            </a>
-                                          ) : (
-                                            <span className="text-gray-600">{item.reference}</span>
-                                          )
+                            return (
+                              <SortableTableRow
+                                key={item.id}
+                                id={item.id}
+                                data-list-entry-id={item.id}
+                                disabled={cpcpDndDisabled}
+                                dragLabel="Move Maintenance CPCP row"
+                                disabledReason={dragDisabledReason}
+                                className="transition-colors"
+                              >
+                                {({ dragHandle }) => (
+                                  <>
+                                    <td className="px-2 py-2.5 border-r border-gray-100 align-middle">
+                                      {dragHandle}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100 tabular-nums text-center">
+                                      {item.displayOrder ?? "—"}
+                                    </td>
+                                    <td
+                                      className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                        intervalMonths,
+                                        remMonths
+                                      )}`}
+                                    >
+                                      {computed.remaining.months}
+                                    </td>
+                                    <td
+                                      className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                        intervalDays,
+                                        remDays
+                                      )}`}
+                                    >
+                                      {computed.remaining.days}
+                                    </td>
+                                    <td
+                                      className={`px-3 py-2.5 whitespace-nowrap ${getRemainingCellClass(
+                                        intervalHours,
+                                        remTach
+                                      )}`}
+                                    >
+                                      {computed.remaining.tach}
+                                    </td>
+                                    <td
+                                      className={`px-3 py-2.5 whitespace-nowrap border-r border-gray-100 ${getRemainingCellClass(
+                                        intervalHours,
+                                        remAftt
+                                      )}`}
+                                    >
+                                      {computed.remaining.aftf}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                      {item.inspectionCode ?? "-"}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 border-r border-gray-100 max-w-[240px]">
+                                      <div className="whitespace-pre-line text-gray-600 leading-snug">
+                                        {item.description ?? "-"}
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                      {item.interval?.hours ?? "0"}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                      {item.interval?.months ?? "0"}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                      {formatDisplayDate(item.lastDone?.date)}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                      {item.lastDone?.tach || "-"}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                      {item.lastDone?.aftf || "-"}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                      {formatDisplayDate(computed.nextDue.date)}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                      {computed.nextDue.tach}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
+                                      {computed.nextDue.aftf}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap text-gray-600">
+                                      {String(item.reference ?? "").trim() ? (
+                                        String(aircraftId ?? "").trim() ? (
+                                          <a
+                                            href={`/profile/${String(
+                                              aircraftId
+                                            ).trim()}/operation?${new URLSearchParams(
+                                              {
+                                                sequence_no: String(
+                                                  item.reference
+                                                ).trim(),
+                                              }
+                                            ).toString()}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 hover:text-blue-700 hover:underline"
+                                          >
+                                            {item.reference}
+                                          </a>
                                         ) : (
-                                          "-"
-                                        )}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                        <div className="flex items-center gap-1">
+                                          <span className="text-gray-600">
+                                            {item.reference}
+                                          </span>
+                                        )
+                                      ) : (
+                                        "-"
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleView(item)}
+                                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                          title="View"
+                                        >
+                                          <Eye className="w-4 h-4" />
+                                        </button>
+                                        {canUpdate("maintenance") && (
                                           <button
                                             type="button"
-                                            onClick={() => handleView(item)}
-                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                            title="View"
+                                            onClick={() => openEdit(item)}
+                                            className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                            title="Edit"
                                           >
-                                            <Eye className="w-4 h-4" />
+                                            <Pencil className="w-4 h-4" />
                                           </button>
-                                          {canUpdate("maintenance") && (
-                                            <button
-                                              type="button"
-                                              onClick={() => openEdit(item)}
-                                              className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
-                                              title="Edit"
-                                            >
-                                              <Pencil className="w-4 h-4" />
-                                            </button>
-                                          )}
-                                          {canDelete("maintenance") && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleDelete(item)}
-                                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                                              title="Delete"
-                                            >
-                                              <Trash2 className="w-4 h-4" />
-                                            </button>
-                                          )}
-                                        </div>
-                                      </td>
-                                    </>
-                                  )}
-                                </SortableTableRow>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </SortableContext>
-                    </DndContext>
-                  </table>
-                </div>
+                                        )}
+                                        {canDelete("maintenance") && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDelete(item)}
+                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                            title="Delete"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </>
+                                )}
+                              </SortableTableRow>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </SortableContext>
+                  </DndContext>
+                </table>
+              </div>
             )}
 
             {(displayTotalItems > 0 || loading) && (
@@ -1094,7 +1110,7 @@ export const CPCPMonitoring = forwardRef<
                 onItemsPerPageChange={setItemsPerPage}
                 showRangeText={false}
                 disabled={loading || cpcpReordering}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               />
             )}
           </div>
@@ -1269,33 +1285,69 @@ export const CPCPMonitoring = forwardRef<
                     </div>
                   </div>
                   {(() => {
-                    const computed = computeCpcpRow(viewEntry, headerTach, headerAftt);
+                    const computed = computeCpcpRow(
+                      viewEntry,
+                      headerTach,
+                      headerAftt
+                    );
                     const intervalHours = parseNum(viewEntry.interval?.hours);
                     const intervalMonths = parseNum(viewEntry.interval?.months);
                     const intervalDays =
-                      intervalMonths != null ? (intervalMonths * 365) / 12 : null;
+                      intervalMonths != null
+                        ? (intervalMonths * 365) / 12
+                        : null;
                     const remMonths = parseNum(computed.remaining.months);
                     const remDays = parseNum(computed.remaining.days);
                     const remTach = parseNum(computed.remaining.tach);
                     const remAftt = parseNum(computed.remaining.aftf);
                     return (
                       <div className="pt-2 border-t border-gray-100">
-                        <span className="text-gray-500 block mb-2">Remaining</span>
+                        <span className="text-gray-500 block mb-2">
+                          Remaining
+                        </span>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalMonths, remMonths)}`}>
-                            <div className="text-xs uppercase opacity-80">Months</div>
+                          <div
+                            className={`rounded-md px-3 py-2 ${getRemainingCellClass(
+                              intervalMonths,
+                              remMonths
+                            )}`}
+                          >
+                            <div className="text-xs uppercase opacity-80">
+                              Months
+                            </div>
                             <div>{computed.remaining.months}</div>
                           </div>
-                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalDays, remDays)}`}>
-                            <div className="text-xs uppercase opacity-80">Days</div>
+                          <div
+                            className={`rounded-md px-3 py-2 ${getRemainingCellClass(
+                              intervalDays,
+                              remDays
+                            )}`}
+                          >
+                            <div className="text-xs uppercase opacity-80">
+                              Days
+                            </div>
                             <div>{computed.remaining.days}</div>
                           </div>
-                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalHours, remTach)}`}>
-                            <div className="text-xs uppercase opacity-80">TACH</div>
+                          <div
+                            className={`rounded-md px-3 py-2 ${getRemainingCellClass(
+                              intervalHours,
+                              remTach
+                            )}`}
+                          >
+                            <div className="text-xs uppercase opacity-80">
+                              TACH
+                            </div>
                             <div>{computed.remaining.tach}</div>
                           </div>
-                          <div className={`rounded-md px-3 py-2 ${getRemainingCellClass(intervalHours, remAftt)}`}>
-                            <div className="text-xs uppercase opacity-80">AFTT</div>
+                          <div
+                            className={`rounded-md px-3 py-2 ${getRemainingCellClass(
+                              intervalHours,
+                              remAftt
+                            )}`}
+                          >
+                            <div className="text-xs uppercase opacity-80">
+                              AFTT
+                            </div>
                             <div>{computed.remaining.aftf}</div>
                           </div>
                         </div>

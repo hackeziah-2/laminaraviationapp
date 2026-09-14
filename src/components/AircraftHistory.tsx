@@ -10,6 +10,10 @@ import {
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import {
   Table,
   TableBody,
   TableCell,
@@ -23,8 +27,6 @@ import {
   formatDisplayDate,
   formatDisplayDateTime,
 } from "../utility/utils";
-
-const HISTORY_PAGE_SIZE = 10;
 
 function humanizeKey(key: string): string {
   if (key === "changedByName") return "Changed By";
@@ -142,6 +144,7 @@ export function AircraftHistory() {
   const [aircraft, setAircraft] = useState<Aircraft | null>(null);
   const [rows, setRows] = useState<AircraftHistoryRow[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -184,7 +187,7 @@ export function AircraftHistory() {
         const response = await getAircraftHistory(
           aircraftId,
           currentPage,
-          HISTORY_PAGE_SIZE
+          itemsPerPage
         );
         if (cancelled) return;
         setRows(response.items);
@@ -210,7 +213,7 @@ export function AircraftHistory() {
     return () => {
       cancelled = true;
     };
-  }, [aircraftId, currentPage]);
+  }, [aircraftId, currentPage, itemsPerPage]);
 
   const columnKeys = getColumnKeys(rows);
   const visibleColumnKeys = columnKeys.filter(
@@ -309,7 +312,12 @@ export function AircraftHistory() {
               onPageChange={setCurrentPage}
               totalItems={totalItems}
               totalLabel="entries"
-              itemsPerPage={HISTORY_PAGE_SIZE}
+              itemsPerPage={itemsPerPage}
+              onItemsPerPageChange={(size) => {
+                setItemsPerPage(size);
+                setCurrentPage(1);
+              }}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               disabled={loading}
               showRangeText
               className="border-t border-gray-200"

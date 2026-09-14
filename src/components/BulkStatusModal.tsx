@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import {
   formatAtlWorkStatusLabel,
   type AtlWorkStatusKey,
@@ -33,6 +34,15 @@ export function BulkStatusModal({
       setError("");
     }
   }, [isOpen, statusOptions]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen) return null;
 

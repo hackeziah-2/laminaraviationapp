@@ -251,6 +251,115 @@ export function apiDateToDisplay(value: string | null | undefined): string {
   return `${d}/${m}/${y}`;
 }
 
+/** ATL Off/On Blocks, RTS, and Pilot Acceptance display format. */
+export const DMY_SHORT_DATE_PLACEHOLDER = "DD/MM/YY";
+
+export const DMY_SHORT_DATE_FORMAT_HINT =
+  "Display: DD/MM/YY · Saved as YYYY-MM-DD";
+
+function expandTwoDigitYear(yy: number): number {
+  if (!Number.isInteger(yy) || yy < 0 || yy > 99) return NaN;
+  const now = new Date().getFullYear();
+  const century = Math.floor(now / 100) * 100;
+  let year = century + yy;
+  if (year > now + 20) year -= 100;
+  return year;
+}
+
+function toValidApiYmd(year: number, month: number, day: number): string {
+  if (
+    !Number.isFinite(year) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return "";
+  }
+  const probe = new Date(year, month - 1, day);
+  if (
+    probe.getFullYear() !== year ||
+    probe.getMonth() !== month - 1 ||
+    probe.getDate() !== day
+  ) {
+    return "";
+  }
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * Parse ATL short display dates (DD/MM/YY) to YYYY-MM-DD.
+ * ISO / API values pass through unchanged.
+ */
+export function formatDmyShortDateForApi(
+  value: string | null | undefined
+): string {
+  if (value == null) return "";
+  const s = String(value).trim();
+  if (!s || s === "-" || s === "—") return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const dmyShort = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2})$/);
+  if (dmyShort) {
+    return toValidApiYmd(
+      expandTwoDigitYear(Number(dmyShort[3])),
+      Number(dmyShort[2]),
+      Number(dmyShort[1])
+    );
+  }
+
+  return formatDateForApi(s);
+}
+
+/** YYYY-MM-DD → DD/MM/YY for ATL date fields. */
+export function apiDateToDmyShortDisplay(
+  value: string | null | undefined
+): string {
+  const api = formatDateForApi(value);
+  if (!api) return "";
+  const [y, m, d] = api.split("-");
+  if (!y || !m || !d) return "";
+  return `${d}/${m}/${y.slice(-2)}`;
+}
+
+/** Format digits while typing into DD/MM/YY (max 6 digits: ddmmyy). */
+export function formatDmyShortDateInputDisplay(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 6);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+export function isCompleteDmyShortDisplayDate(value: string): boolean {
+  return /^\d{2}\/\d{2}\/\d{2}$/.test(value.trim());
+}
+
+/** Normalize typed or pasted text to DD/MM/YY display (never YYYY in the input). */
+export function normalizeDmyShortDateInputText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const api = formatDmyShortDateForApi(trimmed);
+    if (api) return apiDateToDmyShortDisplay(api);
+  }
+
+  const fourDigitYear = trimmed.match(
+    /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/
+  );
+  if (fourDigitYear) {
+    const api = formatDateForApi(trimmed);
+    if (api) return apiDateToDmyShortDisplay(api);
+  }
+
+  if (isCompleteDmyShortDisplayDate(trimmed)) {
+    const api = formatDmyShortDateForApi(trimmed);
+    if (api) return apiDateToDmyShortDisplay(api);
+  }
+
+  return formatDmyShortDateInputDisplay(trimmed);
+}
+
 /** Format a date value for display as dd/mm/yyyy. */
 export function formatDisplayDate(
   value: string | null | undefined,
@@ -526,6 +635,21 @@ export function formatOptionalNumber2dp(
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
+/**
+ * ATL Create/Edit: Tachometer and Hobbs Meter display only (1 decimal place).
+ * Does not change stored values, calculations, or API payloads.
+ * Empty stays empty; invalid non-empty values are shown as entered.
+ */
+export function formatAtlTachHobbsDisplay1dp(
+  value: unknown,
+  fallback = ""
+): string {
+  if (value == null || String(value).trim() === "") return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toFixed(1);
 }
 
 /** Engine/propeller TBO display in ATL create & edit forms (1 decimal place). */

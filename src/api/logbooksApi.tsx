@@ -1,5 +1,7 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { toCamel } from "../utility/utils";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 // Common interfaces
 export interface PaginatedResponse<T> {
@@ -320,14 +322,13 @@ const normalizeLogbookItem = (item: any): any => {
  */
 export const getEngineLogbooks = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number
 ): Promise<PaginatedResponse<EngineLogbook>> => {
   try {
     const params = new URLSearchParams();
-    params.append("page", page.toString());
-    params.append("limit", limit.toString());
+    appendPagedQueryParams(params, page, limit);
 
     if (search.trim() !== "") {
       params.append("search", search);
@@ -423,14 +424,13 @@ export const deleteEngineLogbook = async (
  */
 export const getAirframeLogbooks = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number
 ): Promise<PaginatedResponse<AirframeLogbook>> => {
   try {
     const params = new URLSearchParams();
-    params.append("page", page.toString());
-    params.append("limit", limit.toString());
+    appendPagedQueryParams(params, page, limit);
 
     if (search.trim() !== "") {
       params.append("search", search);
@@ -526,14 +526,13 @@ export const deleteAirframeLogbook = async (
  */
 export const getAvionicsLogbooks = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number
 ): Promise<PaginatedResponse<AvionicsLogbook>> => {
   try {
     const params = new URLSearchParams();
-    params.append("page", page.toString());
-    params.append("limit", limit.toString());
+    appendPagedQueryParams(params, page, limit);
 
     if (search.trim() !== "") {
       params.append("search", search);
@@ -629,14 +628,13 @@ export const deleteAvionicsLogbook = async (
  */
 export const getPropellerLogbooks = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number
 ): Promise<PaginatedResponse<PropellerLogbook>> => {
   try {
     const params = new URLSearchParams();
-    params.append("page", page.toString());
-    params.append("limit", limit.toString());
+    appendPagedQueryParams(params, page, limit);
 
     if (search.trim() !== "") {
       params.append("search", search);

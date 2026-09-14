@@ -1,9 +1,11 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import {
   downloadModuleFile,
   FILE_UPLOAD_MODULES,
   normalizeStoredFilePath,
 } from "./fileUploadApi";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 const BASE = "aircraft-statutory-certificates";
 
@@ -156,13 +158,12 @@ export interface PaginatedStatutoryResponse {
 /** GET aircraft-statutory-certificates/ (paged with search & filters) */
 export const getAircraftStatutoryCertificates = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   filters?: { aircraft_id?: number; certificate_type?: string; category_type?: string }
 ): Promise<PaginatedStatutoryResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   if (filters?.aircraft_id != null) params.set("aircraft_id", String(filters.aircraft_id));
   // Backend paged endpoint expects category_type for certificate type filter
@@ -263,11 +264,10 @@ export const deleteAircraftStatutoryCertificate = async (id: number): Promise<vo
 export const getAircraftStatutoryCertificateHistoryPaged = async (
   ascHistory: number,
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<PaginatedStatutoryHistoryResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   try {
     const response = await apiClient.get(
       `${HISTORY_BASE}/${ascHistory}/paged?${params.toString()}`

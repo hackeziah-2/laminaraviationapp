@@ -369,10 +369,6 @@ export function canManageAtlBatchFilter(
   return true;
 }
 
-function isAdminRoleName(n: string): boolean {
-  return n === "admin" || n.endsWith(" admin");
-}
-
 function isMaintenancePlannerRoleName(n: string): boolean {
   return (
     n === "maintenance planner" ||
@@ -391,15 +387,11 @@ function isMaintenanceManagerRoleName(n: string): boolean {
 }
 
 export function canCreateAtlBatch(userRole: string | undefined): boolean {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return false;
-  return isAdminRoleName(n) || isMaintenancePlannerRoleName(n);
+  return isAdminRole(userRole) || isMaintenancePlannerRole(userRole);
 }
 
 export function canEditAtlBatch(userRole: string | undefined): boolean {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return false;
-  return isAdminRoleName(n) || isMaintenanceManagerRoleName(n);
+  return isAdminRole(userRole) || isMaintenanceManagerRole(userRole);
 }
 
 export function resolveAtlRbacRole(

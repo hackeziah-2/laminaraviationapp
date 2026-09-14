@@ -3,6 +3,9 @@ import {
   displayTSN,
   formatAtlListCell,
   normalizeAtlPagedSortParam,
+  normalizeAtlPilotAcceptanceNameForApi,
+  parseAtlAssigneeIdForApi,
+  pilotAcceptanceNameFieldsForApi,
 } from "./aircraftTechnicalLogApi";
 import { formatAtlFuelLeftRightForDisplay } from "../utility/utils";
 
@@ -62,5 +65,62 @@ describe("formatAtlFuelLeftRightForDisplay", () => {
     expect(formatAtlFuelLeftRightForDisplay(0, 0)).toBe("-");
     expect(formatAtlFuelLeftRightForDisplay(0, 5)).toBe("5");
     expect(formatAtlFuelLeftRightForDisplay(4, 5)).toBe("4+5");
+  });
+});
+
+describe("pilotAcceptanceNameFieldsForApi", () => {
+  it("sends null when the field is cleared or a none sentinel", () => {
+    expect(pilotAcceptanceNameFieldsForApi("")).toEqual({
+      pilotFk: null,
+      pilotAcceptedBy: null,
+    });
+    expect(pilotAcceptanceNameFieldsForApi("None")).toEqual({
+      pilotFk: null,
+      pilotAcceptedBy: null,
+    });
+    expect(pilotAcceptanceNameFieldsForApi(null)).toEqual({
+      pilotFk: null,
+      pilotAcceptedBy: null,
+    });
+  });
+
+  it("sends the selected account id", () => {
+    expect(pilotAcceptanceNameFieldsForApi("42")).toEqual({
+      pilotFk: 42,
+      pilotAcceptedBy: 42,
+    });
+  });
+});
+
+describe("normalizeAtlPilotAcceptanceNameForApi", () => {
+  it("converts empty form values to null without touching other fields", () => {
+    expect(
+      normalizeAtlPilotAcceptanceNameForApi({
+        pilot_accepted_by: "",
+        pilot_fk: "None",
+        pilot_accept_date: "2026-09-11",
+      })
+    ).toEqual({
+      pilot_accepted_by: null,
+      pilot_fk: null,
+      pilot_accept_date: "2026-09-11",
+    });
+  });
+
+  it("does not inject name fields onto partial updates", () => {
+    expect(
+      normalizeAtlPilotAcceptanceNameForApi({ work_status: "APPROVED" })
+    ).toEqual({ work_status: "APPROVED" });
+  });
+
+  it("keeps an explicitly selected id", () => {
+    expect(
+      parseAtlAssigneeIdForApi(
+        normalizeAtlPilotAcceptanceNameForApi({
+          pilot_accepted_by: "15",
+          pilot_fk: "15",
+        }).pilot_accepted_by as number | null
+      )
+    ).toBe(15);
   });
 });

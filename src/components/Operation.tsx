@@ -61,6 +61,11 @@ import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
 import Swal from "../utils/swalDefaults";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { collectAllPagedItems } from "../utils/pagedQuery";
 import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
@@ -102,6 +107,8 @@ import {
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import * as XLSX from "xlsx";
 
@@ -310,11 +317,6 @@ function formatOperationSequenceNoCell(
 
 const FLEET_WORK_STATUS_BASE_TD =
   "px-3 py-3 text-sm border-r border-gray-200 whitespace-nowrap";
-const OPERATION_PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
-
-/** Sentinel `<option>` values — not real ATL batch ids */
-const ATL_BATCH_CREATE_VALUE = "__atl_batch_create__";
-const ATL_BATCH_EDIT_VALUE = "__atl_batch_edit__";
 
 type ExportColumnDefinition = {
   key: string;
@@ -858,7 +860,7 @@ export function Operation() {
     useState<AircraftTechnicalLog | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(
-    OPERATION_PAGE_SIZE_OPTIONS[0]
+    DEFAULT_API_PAGE_SIZE
   );
   const [selectedAircraftId, setSelectedAircraftId] = useState<number>(
     Number.isFinite(aircraftId) ? aircraftId : 0
@@ -921,6 +923,7 @@ export function Operation() {
   const atlBatchFilterTouchedRef = useRef(false);
   /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
   const skipNextPagedFetchRef = useRef(false);
+  const prevListQueryKeyRef = useRef("");
   const effectiveAircraftId =
     Number.isFinite(selectedAircraftId) && selectedAircraftId > 0
       ? selectedAircraftId
@@ -1045,7 +1048,7 @@ export function Operation() {
       return;
     }
     let cancelled = false;
-    getAtlBatchesForSelect()
+    getAtlBatchesForSelect(effectiveAircraftId)
       .then((list) => {
         if (cancelled) return;
         const batches = Array.isArray(list) ? list : [];
@@ -1066,7 +1069,7 @@ export function Operation() {
     return () => {
       cancelled = true;
     };
-  }, [showAtlBatchFilter]);
+  }, [showAtlBatchFilter, effectiveAircraftId]);
 
   useEffect(() => {
     if (!showAtlBatchFilter) {
@@ -1077,6 +1080,8 @@ export function Operation() {
     }
   }, [showAtlBatchFilter]);
 
+  const listQueryKey = `${selectedSequenceNo}|${workStatusFilter}|${itemsPerPage}|${selectedAtlBatchFk ?? ""}|${sequenceSort}`;
+
   // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
     if (skipNextPagedFetchRef.current) {
@@ -1084,6 +1089,15 @@ export function Operation() {
       return;
     }
 
+    if (prevListQueryKeyRef.current !== listQueryKey) {
+      prevListQueryKeyRef.current = listQueryKey;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
+    }
+
+    let cancelled = false;
     const fetchRecords = async () => {
       if (!effectiveAircraftId) return;
 
@@ -1101,21 +1115,28 @@ export function Operation() {
           workStatusFilter || undefined,
           selectedAtlBatchFk
         );
+        if (cancelled) return;
         setFleetTimeRecords(
           Array.isArray(response.items) ? response.items : []
         );
         setTotalRecords(response.total);
         setTotalPages(response.pages);
       } catch (err: any) {
+        if (cancelled) return;
         console.error("Error fetching ATL records:", err);
         setError("Failed to load fleet time records");
         setFleetTimeRecords([]);
       } finally {
-        setTimeout(() => setLoading(false), 360);
+        if (!cancelled) {
+          setTimeout(() => setLoading(false), 360);
+        }
       }
     };
 
     fetchRecords();
+    return () => {
+      cancelled = true;
+    };
   }, [
     effectiveAircraftId,
     currentPage,
@@ -1125,14 +1146,86 @@ export function Operation() {
     sequenceSort,
     workStatusFilter,
     selectedAtlBatchFk,
+    listQueryKey,
   ]);
 
-  // Reset to page 1 when search or work status filter changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedSequenceNo, workStatusFilter, itemsPerPage, selectedAtlBatchId]);
-
   const paginatedRecords = fleetTimeRecords;
+
+  const viewEntryNav = usePagedRecordNavigation<AircraftTechnicalLog>({
+    isOpen: showViewModal,
+    records: fleetTimeRecords,
+    currentId: selectedEntry?.id,
+    currentPage,
+    totalPages,
+    holdBusyUntilIdle: true,
+    fetchPage: async (page) => {
+      const sortParam =
+        sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
+      const response = await getAircraftTechnicalLogs(
+        page,
+        itemsPerPage,
+        selectedSequenceNo,
+        effectiveAircraftId,
+        sortParam,
+        workStatusFilter || undefined,
+        selectedAtlBatchFk
+      );
+      return {
+        items: Array.isArray(response.items) ? response.items : [],
+        pages: response.pages,
+        total: response.total,
+      };
+    },
+    applyPage: (page, result) => {
+      skipNextPagedFetchRef.current = true;
+      setFleetTimeRecords(result.items);
+      setCurrentPage(page);
+      if (result.pages != null) setTotalPages(result.pages);
+      if (result.total != null) setTotalRecords(result.total);
+    },
+    onSelect: (record) => {
+      setSelectedEntry(record);
+      setShowViewModal(true);
+    },
+  });
+
+  const editEntryNav = usePagedRecordNavigation<AircraftTechnicalLog>({
+    isOpen: showEditModal,
+    records: fleetTimeRecords,
+    currentId: selectedEntry?.id,
+    currentPage,
+    totalPages,
+    holdBusyUntilIdle: true,
+    fetchPage: async (page) => {
+      const sortParam =
+        sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
+      const response = await getAircraftTechnicalLogs(
+        page,
+        itemsPerPage,
+        selectedSequenceNo,
+        effectiveAircraftId,
+        sortParam,
+        workStatusFilter || undefined,
+        selectedAtlBatchFk
+      );
+      return {
+        items: Array.isArray(response.items) ? response.items : [],
+        pages: response.pages,
+        total: response.total,
+      };
+    },
+    applyPage: (page, result) => {
+      skipNextPagedFetchRef.current = true;
+      setFleetTimeRecords(result.items);
+      setCurrentPage(page);
+      if (result.pages != null) setTotalPages(result.pages);
+      if (result.total != null) setTotalRecords(result.total);
+    },
+    onSelect: (record) => {
+      setSelectedEntry(record);
+      setShowEditModal(true);
+    },
+  });
 
   const formatComponentPartsField = (
     record: AircraftTechnicalLog,
@@ -1475,6 +1568,8 @@ export function Operation() {
         "natureOfFlight",
         "offBlocks",
         "onBlocks",
+        "tachometerStart",
+        "tachometerEnd",
         "airframeRun",
         "airframeAftt",
         "engineRun",
@@ -1731,18 +1826,19 @@ export function Operation() {
       },
     });
     try {
-      const exportPageSize = Math.max(totalRecords, paginatedRecords.length, 1);
-      const recordsResponse = await getAircraftTechnicalLogs(
-        1,
-        exportPageSize,
-        selectedSequenceNo,
-        effectiveAircraftId,
-        sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
-        workStatusFilter || undefined,
-        selectedAtlBatchFk
+      const exportedItems = await collectAllPagedItems((page, pageSize) =>
+        getAircraftTechnicalLogs(
+          page,
+          pageSize,
+          selectedSequenceNo,
+          effectiveAircraftId,
+          sequenceSort === "asc" ? "sequence_no" : "-sequence_no",
+          workStatusFilter || undefined,
+          selectedAtlBatchFk
+        )
       );
 
-      if (!recordsResponse.items.length) {
+      if (!exportedItems.length) {
         Swal.close();
         await Swal.fire({
           icon: "info",
@@ -1762,7 +1858,7 @@ export function Operation() {
       if (format === "xlsx") {
         const aoa: string[][] = [
           selectedColumns.map((column) => column.label),
-          ...recordsResponse.items.map((record) =>
+          ...exportedItems.map((record) =>
             selectedColumns.map((column) => column.getValue(record))
           ),
         ];
@@ -1779,7 +1875,7 @@ export function Operation() {
         `"${value.replace(/"/g, '""')}"`;
       const csvLines = [
         selectedColumns.map((column) => escapeCsvValue(column.label)).join(","),
-        ...recordsResponse.items.map((record) =>
+        ...exportedItems.map((record) =>
           selectedColumns
             .map((column) => escapeCsvValue(column.getValue(record)))
             .join(",")
@@ -1829,7 +1925,7 @@ export function Operation() {
 
     let batchIdForImport = selectedAtlBatchFk;
     if (batchIdForImport == null) {
-      const list = await getAtlBatchesForSelect();
+      const list = await getAtlBatchesForSelect(effectiveAircraftId);
       const latest = pickLatestAtlBatchId(list);
       if (latest == null) {
         setAtlBatchFilterError(
@@ -2055,6 +2151,19 @@ export function Operation() {
     setSelectedEntry(record);
     setShowEditModal(true);
   };
+
+  useOverlayEscape({
+    enabled: showExportModal,
+    onClose: () => {
+      if (exportLoading) return;
+      setShowExportModal(false);
+    },
+    isBusy: exportLoading,
+  });
+  useOverlayEscape({
+    enabled: showFileViewModal,
+    onClose: closeFileViewModal,
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -2338,31 +2447,6 @@ export function Operation() {
                       value={selectedAtlBatchId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        if (v === ATL_BATCH_CREATE_VALUE) {
-                          if (!allowAtlBatchCreate) return;
-                          setAtlBatchModalEditId(null);
-                          setAtlBatchModalOpen(true);
-                          return;
-                        }
-                        if (v === ATL_BATCH_EDIT_VALUE) {
-                          if (!allowAtlBatchEdit) return;
-                          const n =
-                            selectedAtlBatchId.trim() !== ""
-                              ? Number(selectedAtlBatchId)
-                              : NaN;
-                          if (!Number.isFinite(n) || n <= 0) {
-                            void Swal.fire({
-                              icon: "info",
-                              title: "Select an ATL batch",
-                              text: "Choose an ATL batch in the dropdown before editing.",
-                              confirmButtonColor: "#2563eb",
-                            });
-                            return;
-                          }
-                          setAtlBatchModalEditId(n);
-                          setAtlBatchModalOpen(true);
-                          return;
-                        }
                         atlBatchFilterTouchedRef.current = true;
                         setSelectedAtlBatchId(v);
                         if (v.trim() !== "") setAtlBatchFilterError("");
@@ -2379,19 +2463,46 @@ export function Operation() {
                           {b.name}
                         </option>
                       ))}
-                      {allowAtlBatchCreate && (
-                        <option value={ATL_BATCH_CREATE_VALUE}>
-                          + Create batch…
-                        </option>
-                      )}
-                      {allowAtlBatchEdit && (
-                        <>
-                          <option value={ATL_BATCH_EDIT_VALUE}>
-                            Edit batch…
-                          </option>
-                        </>
-                      )}
                     </select>
+                    {allowAtlBatchCreate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAtlBatchModalEditId(null);
+                          setAtlBatchModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create batch
+                      </button>
+                    )}
+                    {allowAtlBatchEdit && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const n =
+                            selectedAtlBatchId.trim() !== ""
+                              ? Number(selectedAtlBatchId)
+                              : NaN;
+                          if (!Number.isFinite(n) || n <= 0) {
+                            void Swal.fire({
+                              icon: "info",
+                              title: "Select an ATL batch",
+                              text: "Choose an ATL batch in the dropdown before editing.",
+                              confirmButtonColor: "#2563eb",
+                            });
+                            return;
+                          }
+                          setAtlBatchModalEditId(n);
+                          setAtlBatchModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        Edit batch
+                      </button>
+                    )}
                   </div>
                   {atlBatchFilterError && (
                     <p className="text-xs text-red-600">
@@ -3459,7 +3570,7 @@ export function Operation() {
                   </div>
                 )}
 
-                {/* Maintenance Planning — separate columns: OFF BLOCKS, ON BLOCKS, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
+                {/* Maintenance Planning — OFF/ON BLOCKS, TACH START/END, AIRFRAME RUN/AFTT, ENGINE RUN/TSN/TSO/TBO, PROPELLER RUN/TSN/TSO/TBO */}
                 {groupBy === "maintenancePlanning" && (
                   <div
                     ref={fleetTableScrollRef}
@@ -3485,6 +3596,12 @@ export function Operation() {
                             className={`px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
                           >
                             DATE | ON BLOCKS
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TACH START
+                          </th>
+                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TACH END
                           </th>
                           <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             AIRFRAME RUN
@@ -3602,6 +3719,12 @@ export function Operation() {
                                   className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
                                 >
                                   {formatAtlListOnBlocks(record)}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {formatAtlListCell(record.tachometerStart)}
+                                </td>
+                                <td className="px-3 py-2 text-sm border-r border-gray-200">
+                                  {formatAtlListCell(record.tachometerEnd)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.airframeRunTime)}
@@ -3885,7 +4008,7 @@ export function Operation() {
               totalLabel="records"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[...OPERATION_PAGE_SIZE_OPTIONS]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               className="px-6"
             />
           </div>
@@ -3900,11 +4023,13 @@ export function Operation() {
             : allowAtlBatchCreate)
         }
         editBatchId={atlBatchModalEditId}
+        aircraftId={effectiveAircraftId}
         onClose={() => {
           setAtlBatchModalOpen(false);
           setAtlBatchModalEditId(null);
         }}
         onSaved={(batch: AtlBatch) => {
+          atlBatchFilterTouchedRef.current = true;
           setAtlBatchFilterOptions((prev) => {
             const without = prev.filter((b) => b.id !== batch.id);
             return [...without, { id: batch.id, name: batch.name }].sort(
@@ -3912,6 +4037,7 @@ export function Operation() {
             );
           });
           setSelectedAtlBatchId(String(batch.id));
+          setAtlBatchFilterError("");
         }}
       />
 
@@ -3944,6 +4070,14 @@ export function Operation() {
             operationAtlRole,
             selectedEntry.workStatus
           )}
+          onPrevious={editEntryNav.goPrevious}
+          onNext={editEntryNav.goNext}
+          hasPrevious={editEntryNav.hasPrevious}
+          hasNext={editEntryNav.hasNext}
+          navigationBusy={editEntryNav.navigating}
+          onLoadStateChange={(isLoading) => {
+            if (!isLoading) editEntryNav.release();
+          }}
           onSuccess={async () => {
             // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).
             captureViewForRestore(selectedEntry?.id, currentPage);
@@ -3980,6 +4114,14 @@ export function Operation() {
           fullEntry={selectedEntry}
           aircraftId={effectiveAircraftId}
           permissionModuleCode={operationAtlPermissionModuleCode}
+          onPrevious={viewEntryNav.goPrevious}
+          onNext={viewEntryNav.goNext}
+          hasPrevious={viewEntryNav.hasPrevious}
+          hasNext={viewEntryNav.hasNext}
+          navigationBusy={viewEntryNav.navigating}
+          onLoadStateChange={(isLoading) => {
+            if (!isLoading) viewEntryNav.release();
+          }}
         />
       )}
 

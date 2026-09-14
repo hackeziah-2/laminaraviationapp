@@ -35,10 +35,15 @@ import {
 } from "../api/aircraftApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { SortableTableRow } from "./SortableTableRow";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDisplayDate } from "../utility/utils";
 import {
   AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP,
@@ -179,7 +184,7 @@ export function AircraftFleetDailyUpdate() {
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [items, setItems] = useState<FleetDailyUpdateItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -600,6 +605,15 @@ export function AircraftFleetDailyUpdate() {
       </span>
     );
   };
+
+  useOverlayEscape({
+    enabled: showRemarkModal,
+    onClose: () => {
+      if (savingRemark) return;
+      setShowRemarkModal(false);
+    },
+    isBusy: savingRemark,
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -1054,7 +1068,7 @@ export function AircraftFleetDailyUpdate() {
               setItemsPerPage(size);
               setCurrentPage(1);
             }}
-            pageSizeOptions={[10, 25, 50]}
+            pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             disabled={loading || dailyReordering || bulkEditMode}
             className="px-6"
           />

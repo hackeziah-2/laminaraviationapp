@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 export interface AuthUser {
   id: number;
@@ -131,12 +133,11 @@ export interface PaginatedUsersResponse {
 /** Paged list: GET /api/v1/auth/users/paged?page=&limit=&search= */
 export const getUsersPaged = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = ""
 ): Promise<PaginatedUsersResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   const response = await apiClient.get(`auth/users/paged?${params.toString()}`);
   const raw = response.data ?? {};
@@ -151,7 +152,7 @@ export const getUsersPaged = async (
 /** List users with paged API or fallback to non-paged (client-side pagination) */
 export const getUsersList = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = ""
 ): Promise<PaginatedUsersResponse> => {
   try {

@@ -1,5 +1,10 @@
 import apiClient from "./index";
 import { normalizeWebLink } from "../utility/utils";
+import {
+  DEFAULT_API_PAGE_SIZE,
+  MAX_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 export interface ADMonitoring {
   id: number;
@@ -74,12 +79,11 @@ function normalizeItem(raw: any): ADMonitoring {
 export const getAircraftAdMonitoring = async (
   aircraftId: number,
   page = 1,
-  limit = 10,
+  pageSize = DEFAULT_API_PAGE_SIZE,
   search = ""
 ): Promise<PaginatedADResponse> => {
   const params = new URLSearchParams();
-  params.append("limit", String(limit));
-  params.append("page", String(page));
+  appendPagedQueryParams(params, page, pageSize);
   if (search.trim()) params.append("search", search.trim());
 
   const endpoint = `${AD_PATH(aircraftId)}paged?${params.toString()}`;
@@ -90,7 +94,7 @@ export const getAircraftAdMonitoring = async (
     });
   } catch (err: any) {
     if (err?.response?.status === 404 || err?.response?.status === 405) {
-      return { items: [], total: 0, page: 1, pages: 1 };
+      return { items: [], total: 0, page: 1, pages: 0 };
     }
     throw err;
   }
@@ -115,16 +119,38 @@ export const getAircraftAdMonitoring = async (
   if (isPaginated) {
     const total = data.total ?? data.count ?? allItems.length;
     const pageNum = data.page ?? page;
-    const limitUsed = data.limit ?? limit;
-    const pages = data.pages ?? Math.max(1, Math.ceil(total / limitUsed));
+    const pageSizeUsed = data.page_size ?? data.limit ?? pageSize;
+    const pages = data.pages ?? Math.max(1, Math.ceil(total / pageSizeUsed));
     return { items: allItems, total, page: pageNum, pages };
   }
 
   const total = allItems.length;
-  const pages = Math.max(1, Math.ceil(total / limit));
-  const start = (page - 1) * limit;
-  const items = allItems.slice(start, start + limit);
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const start = (page - 1) * pageSize;
+  const items = allItems.slice(start, start + pageSize);
   return { items, total, page, pages };
+};
+
+/** Fetch every matching AD page using the API maximum page size. */
+export const getAllAircraftAdMonitoring = async (
+  aircraftId: number,
+  search = ""
+): Promise<ADMonitoring[]> => {
+  const items: ADMonitoring[] = [];
+  let page = 1;
+  let pages = 1;
+  do {
+    const res = await getAircraftAdMonitoring(
+      aircraftId,
+      page,
+      MAX_API_PAGE_SIZE,
+      search
+    );
+    items.push(...res.items);
+    pages = res.pages;
+    page += 1;
+  } while (page <= pages);
+  return items;
 };
 
 export const getAircraftAdMonitoringById = async (

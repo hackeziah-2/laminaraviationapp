@@ -8,13 +8,21 @@ import { cn } from "./utils";
 import {
   DISPLAY_DATE_FORMAT_HINT,
   DISPLAY_DATE_PLACEHOLDER,
+  DMY_SHORT_DATE_FORMAT_HINT,
+  DMY_SHORT_DATE_PLACEHOLDER,
   apiDateToDisplay,
+  apiDateToDmyShortDisplay,
   formatDateForApi,
   formatDisplayDate,
+  formatDmyShortDateForApi,
   isCompleteDisplayDate,
+  isCompleteDmyShortDisplayDate,
   normalizeDateInputText,
+  normalizeDmyShortDateInputText,
   parseDisplayDate,
 } from "../../utility/utils";
+
+export type DateInputDisplayFormat = "dmy" | "dmy-short";
 
 export type DateInputProps = {
   /** Storage value: YYYY-MM-DD (API / database). */
@@ -34,6 +42,11 @@ export type DateInputProps = {
   "aria-describedby"?: string;
   title?: string;
   showFormatHint?: boolean;
+  /**
+   * Display-only format. Storage remains YYYY-MM-DD.
+   * `dmy` = DD/MM/YYYY (default). `dmy-short` = DD/MM/YY.
+   */
+  displayFormat?: DateInputDisplayFormat;
 };
 
 function startOfDay(d: Date): Date {
@@ -47,12 +60,16 @@ function toApiFromDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function formatPickerHeading(date: Date | undefined): {
+function formatPickerHeading(
+  date: Date | undefined,
+  toDisplay: (api: string) => string,
+  emptySubtitle: string
+): {
   title: string;
   subtitle: string;
 } {
   if (!date) {
-    return { title: "Select date", subtitle: DISPLAY_DATE_PLACEHOLDER };
+    return { title: "Select date", subtitle: emptySubtitle };
   }
   return {
     title: date.toLocaleDateString("en-GB", {
@@ -61,7 +78,7 @@ function formatPickerHeading(date: Date | undefined): {
       month: "long",
       year: "numeric",
     }),
-    subtitle: apiDateToDisplay(toApiFromDate(date)),
+    subtitle: toDisplay(toApiFromDate(date)),
   };
 }
 
@@ -74,17 +91,37 @@ export function DateInput({
   inputClassName,
   name,
   id,
-  placeholder = DISPLAY_DATE_PLACEHOLDER,
+  placeholder,
   min,
   max,
   required,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
-  title = DISPLAY_DATE_FORMAT_HINT,
+  title,
   showFormatHint = false,
+  displayFormat = "dmy",
 }: DateInputProps) {
+  const isDmyShort = displayFormat === "dmy-short";
+  const toDisplay = isDmyShort ? apiDateToDmyShortDisplay : apiDateToDisplay;
+  const toApiFromText = isDmyShort ? formatDmyShortDateForApi : formatDateForApi;
+  const isComplete = isDmyShort
+    ? isCompleteDmyShortDisplayDate
+    : isCompleteDisplayDate;
+  const normalizeText = isDmyShort
+    ? normalizeDmyShortDateInputText
+    : normalizeDateInputText;
+  const resolvedPlaceholder =
+    placeholder ??
+    (isDmyShort ? DMY_SHORT_DATE_PLACEHOLDER : DISPLAY_DATE_PLACEHOLDER);
+  const resolvedTitle =
+    title ??
+    (isDmyShort ? DMY_SHORT_DATE_FORMAT_HINT : DISPLAY_DATE_FORMAT_HINT);
+  const formatHint = isDmyShort
+    ? DMY_SHORT_DATE_FORMAT_HINT
+    : DISPLAY_DATE_FORMAT_HINT;
+
   const apiValue = formatDateForApi(value ?? "");
-  const [text, setText] = React.useState(() => apiDateToDisplay(apiValue));
+  const [text, setText] = React.useState(() => toDisplay(apiValue));
   const [open, setOpen] = React.useState(false);
   const [month, setMonth] = React.useState<Date>(() => {
     const d = parseDisplayDate(apiValue);
@@ -97,11 +134,11 @@ export function DateInput({
 
   React.useEffect(() => {
     if (isEditingRef.current) return;
-    const next = apiDateToDisplay(formatDateForApi(value ?? ""));
+    const next = toDisplay(formatDateForApi(value ?? ""));
     setText(next);
     const d = parseDisplayDate(formatDateForApi(value ?? ""));
     if (d) setMonth(startOfDay(d));
-  }, [value]);
+  }, [value, toDisplay]);
 
   const selectedDate = React.useMemo(() => {
     const d = parseDisplayDate(apiValue);
@@ -109,8 +146,8 @@ export function DateInput({
   }, [apiValue]);
 
   const pickerHeading = React.useMemo(
-    () => formatPickerHeading(selectedDate),
-    [selectedDate]
+    () => formatPickerHeading(selectedDate, toDisplay, resolvedPlaceholder),
+    [selectedDate, toDisplay, resolvedPlaceholder]
   );
 
   const minDate = React.useMemo(
@@ -134,7 +171,7 @@ export function DateInput({
 
   const applyApiValue = (nextApi: string) => {
     onChange(nextApi);
-    setText(apiDateToDisplay(nextApi));
+    setText(toDisplay(nextApi));
     const d = parseDisplayDate(nextApi);
     if (d) setMonth(startOfDay(d));
   };
@@ -169,19 +206,19 @@ export function DateInput({
       applyApiValue("");
       return;
     }
-    const nextApi = formatDateForApi(trimmed);
+    const nextApi = toApiFromText(trimmed);
     if (nextApi && isApiDateInRange(nextApi)) {
       applyApiValue(nextApi);
     } else {
-      setText(apiDateToDisplay(formatDateForApi(value ?? "")));
+      setText(toDisplay(formatDateForApi(value ?? "")));
     }
   };
 
   const handleTextChange = (raw: string) => {
-    const next = normalizeDateInputText(raw);
+    const next = normalizeText(raw);
     setText(next);
-    if (!isCompleteDisplayDate(next)) return;
-    const nextApi = formatDateForApi(next);
+    if (!isComplete(next)) return;
+    const nextApi = toApiFromText(next);
     if (nextApi && isApiDateInRange(nextApi)) {
       onChange(nextApi);
       const d = parseDisplayDate(nextApi);
@@ -215,7 +252,7 @@ export function DateInput({
         <PopoverAnchor asChild>
           <div
             className={cn(
-              "group flex h-10 w-full overflow-hidden rounded-lg border bg-white shadow-sm transition-all duration-200",
+              "date-picker-field group flex h-10 w-full overflow-hidden rounded-lg border bg-white shadow-sm transition-all duration-200",
               open
                 ? "border-blue-500 ring-2 ring-blue-500/20 shadow-md"
                 : "border-gray-300 hover:border-gray-400",
@@ -235,17 +272,17 @@ export function DateInput({
                 data-slot="date-input"
                 inputMode="numeric"
                 autoComplete="off"
-                placeholder={placeholder}
+                placeholder={resolvedPlaceholder}
                 value={text}
                 readOnly={readOnly}
                 disabled={disabled}
                 required={required}
-                title={title}
+                title={resolvedTitle}
                 aria-invalid={ariaInvalid}
                 aria-describedby={describedBy}
                 aria-expanded={open}
                 aria-haspopup="dialog"
-                aria-label={`Date (${DISPLAY_DATE_PLACEHOLDER})`}
+                aria-label={`Date (${resolvedPlaceholder})`}
                 onChange={(e) => {
                   if (readOnly || disabled) return;
                   handleTextChange(e.target.value);
@@ -264,7 +301,11 @@ export function DateInput({
                     commitText();
                     setOpen(false);
                   }
-                  if (e.key === "Escape") setOpen(false);
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpen(false);
+                  }
                 }}
                 className={cn(
                   "h-full w-full min-w-0 border-0 bg-transparent py-2 pl-3 pr-2 text-sm font-medium tracking-wide text-gray-900 outline-none",
@@ -386,7 +427,7 @@ export function DateInput({
           className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-500"
         >
           <CalendarIcon className="size-3 shrink-0 opacity-60" aria-hidden />
-          {DISPLAY_DATE_FORMAT_HINT}
+          {formatHint}
         </p>
       )}
     </div>

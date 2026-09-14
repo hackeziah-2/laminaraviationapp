@@ -29,6 +29,11 @@ import {
 import { getAircrafts } from "../api/aircraftApi";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
+import { collectAllPagedItems } from "../utils/pagedQuery";
 import { LinkButton } from "./ui/LinkButton";
 import {
   DropdownMenu,
@@ -38,6 +43,7 @@ import {
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
 
@@ -49,8 +55,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
-const ASC_HISTORY_PAGE_SIZE = 10;
 
 const ASC_EXPORT_HEADERS = [
   "Registration",
@@ -128,7 +132,7 @@ export function AircraftStatutoryCertificates() {
   >("expiryDate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [certificates, setCertificates] = useState<CertificateType[]>([]);
   const [aircrafts, setAircrafts] = useState<any[]>([]);
   const [filterCertificateType, setFilterCertificateType] = useState("");
@@ -149,6 +153,7 @@ export function AircraftStatutoryCertificates() {
     subtitle: string;
   } | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(DEFAULT_API_PAGE_SIZE);
   const [historyRows, setHistoryRows] = useState<
     AircraftStatutoryCertificateHistoryRow[]
   >([]);
@@ -432,7 +437,7 @@ export function AircraftStatutoryCertificates() {
         const res = await getAircraftStatutoryCertificateHistoryPaged(
           historyTarget.ascHistoryId,
           historyPage,
-          ASC_HISTORY_PAGE_SIZE
+          historyPageSize
         );
         if (cancelled) return;
         setHistoryRows(res.items);
@@ -455,7 +460,7 @@ export function AircraftStatutoryCertificates() {
     return () => {
       cancelled = true;
     };
-  }, [historyTarget?.ascHistoryId, historyPage]);
+  }, [historyTarget?.ascHistoryId, historyPage, historyPageSize]);
 
   const filteredCertificates = useMemo(() => {
     let list = [...certificates];
@@ -496,19 +501,21 @@ export function AircraftStatutoryCertificates() {
   };
 
   const handleAscExport = async (format: "csv" | "xlsx") => {
-    const exportLimit = Math.max(totalRecords, 1);
     setExportLoading(true);
     try {
       const filters: { certificate_type?: string } = {};
       if (filterCertificateType.trim())
         filters.certificate_type = filterCertificateType.trim();
-      const response = await getAircraftStatutoryCertificates(
-        1,
-        exportLimit,
-        searchDebounced,
-        Object.keys(filters).length ? filters : undefined
+      const filterArg = Object.keys(filters).length ? filters : undefined;
+      const exportedItems = await collectAllPagedItems((page, pageSize) =>
+        getAircraftStatutoryCertificates(
+          page,
+          pageSize,
+          searchDebounced,
+          filterArg
+        )
       );
-      let list = [...response.items];
+      let list = [...exportedItems];
       const q = searchQuery.trim().toLowerCase();
       if (q) {
         list = list.filter(
@@ -778,6 +785,24 @@ export function AircraftStatutoryCertificates() {
   };
 
   const isModalOpen = showAddModal || showEditModal;
+
+  useOverlayEscape({
+    enabled: Boolean(viewingCertificate),
+    onClose: () => setViewingCertificate(null),
+  });
+  useOverlayEscape({
+    enabled: isModalOpen,
+    onClose: () => {
+      if (isSaving) return;
+      setShowAddModal(false);
+      setShowEditModal(false);
+    },
+    isBusy: isSaving,
+  });
+  useOverlayEscape({
+    enabled: isModalOpen && isAircraftDropdownOpen,
+    onClose: () => setIsAircraftDropdownOpen(false),
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
@@ -1110,6 +1135,7 @@ export function AircraftStatutoryCertificates() {
             setItemsPerPage(size);
             setCurrentPage(1);
           }}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           disabled={loading}
         />
       </div>
@@ -1276,7 +1302,9 @@ export function AircraftStatutoryCertificates() {
                 onPageChange={setHistoryPage}
                 totalItems={historyTotal}
                 totalLabel="entries"
-                itemsPerPage={ASC_HISTORY_PAGE_SIZE}
+                itemsPerPage={historyPageSize}
+                onItemsPerPageChange={setHistoryPageSize}
+                pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                 disabled={historyLoading}
                 showRangeText
               />

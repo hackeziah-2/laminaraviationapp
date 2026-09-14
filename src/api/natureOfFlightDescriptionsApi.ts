@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 /**
  * Nested aircraft resource (OpenAPI):
@@ -212,11 +214,10 @@ function unwrapBody(data: unknown): unknown {
 export const getNatureOfFlightDescriptions = async (
   aircraftId: number,
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<PaginatedNatureOfFlightDescriptionResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
 
   const res = await apiClient.get(
     `${DESCRIPTIONS_PATH(aircraftId)}/paged?${params.toString()}`,
@@ -240,7 +241,7 @@ export const getNatureOfFlightDescriptions = async (
   if (isPaginated) {
     const total = Number(rec.total ?? rec.count ?? items.length);
     const pageNum = Number(rec.page ?? page);
-    const limitUsed = Number(rec.limit ?? limit);
+    const limitUsed = Number(rec.page_size ?? rec.limit ?? limit);
     const pages = Number(
       rec.pages ?? Math.max(1, Math.ceil(total / (limitUsed || 1)))
     );

@@ -42,9 +42,14 @@ import {
 } from "@dnd-kit/sortable";
 import { Spinner } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { useAircrafts } from "../hooks/useAircrafts";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { isMechanicRole } from "../utility/atlEditRbac";
 import { AircraftForm } from "../types/Aircraft";
 import {
@@ -85,7 +90,7 @@ export function AircraftFleetProfile() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [showAddAircraftModal, setShowAddAircraftModal] = useState(false);
 
   const [engineARCFile, setEngineARCFile] = useState<File | null>(null);
@@ -626,6 +631,11 @@ export function AircraftFleetProfile() {
     }
   };
 
+  useOverlayEscape({
+    enabled: showAddAircraftModal,
+    onClose: () => setShowAddAircraftModal(false),
+  });
+
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
       {/* Header */}
@@ -970,7 +980,7 @@ export function AircraftFleetProfile() {
               totalLabel="aircraft"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               disabled={loading || aircraftReordering}
               className="px-6"
             />
