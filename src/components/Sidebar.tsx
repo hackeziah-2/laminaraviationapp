@@ -17,9 +17,11 @@ import {
   Building2,
   BookOpen,
   UserCheck,
+  UserPlus,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { isTechnicalPublicationRole } from "../utility/atlEditRbac";
 import type { LucideIcon } from "lucide-react";
 
 interface SidebarProps {
@@ -39,11 +41,12 @@ interface SidebarChildItem {
 
 interface SidebarMenuItem {
   id: string;
-  moduleCode: string;
+  moduleCode?: string;
   label: string;
   icon: LucideIcon;
   path: string;
   children?: SidebarChildItem[];
+  requireTechnicalPublicationRole?: boolean;
 }
 
 /** Sidebar menu item id maps to module code for role-based access */
@@ -116,6 +119,13 @@ const MENU_ITEMS: SidebarMenuItem[] = [
     ],
   },
   {
+    id: "add-user",
+    label: "Add User",
+    icon: UserPlus,
+    path: "/add-user",
+    requireTechnicalPublicationRole: true,
+  },
+  {
     id: "settings",
     moduleCode: "settings" as const,
     label: "Settings",
@@ -150,7 +160,12 @@ export function Sidebar({
     };
   }, []);
 
-  const menuItems = MENU_ITEMS.filter((item) => canAccess(item.moduleCode));
+  const menuItems = MENU_ITEMS.filter((item) => {
+    if (item.requireTechnicalPublicationRole) {
+      return isTechnicalPublicationRole(meUser?.role);
+    }
+    return Boolean(item.moduleCode && canAccess(item.moduleCode));
+  });
 
   const goToMyProfile = () => {
     navigate("/my-profile");

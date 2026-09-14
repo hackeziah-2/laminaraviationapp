@@ -20,6 +20,7 @@ import { AircraftStatutoryCertificates } from './components/AircraftStatutoryCer
 import { RegulatoryAdvisory } from './components/RegulatoryAdvisory';
 import { OrganizationalApprovals } from './components/OrganizationalApprovals';
 import { OEMTechnicalPublication } from './components/OEMTechnicalPublication';
+import { TechnicalPublicationAddUser } from './components/TechnicalPublicationAddUser';
 import { PersonnelAuthorization } from './components/PersonnelAuthorization';
 import { Settings } from './components/Settings';
 import { MyProfile } from './components/MyProfile';
@@ -32,6 +33,7 @@ import { ReliabilityMonitoring } from './components/ReliabilityMonitoring';
 import { TCCDetail } from './components/TCCDetail';
 import { ADWorkOrders } from './components/ADWorkOrders';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { isTechnicalPublicationRole } from './utility/atlEditRbac';
 import { Menu } from 'lucide-react';
 import { useOverlayEscape } from './hooks/useOverlayEscape';
 import { NotificationsProvider, useNotifications } from './context/NotificationsContext';
@@ -231,6 +233,8 @@ function AuthenticatedShell({
           <Route path="/regulatory-compliance/advisory" element={<ProtectedRoute moduleCode="regulatory-compliance"><RegulatoryAdvisory /></ProtectedRoute>} />
           <Route path="/regulatory-compliance/aircraft-statutory-certificates" element={<ProtectedRoute moduleCode="regulatory-compliance"><AircraftStatutoryCertificates /></ProtectedRoute>} />
           <Route path="/regulatory-compliance/organizational-approvals" element={<ProtectedRoute moduleCode="regulatory-compliance"><OrganizationalApprovals /></ProtectedRoute>} />
+          <Route path="/add-user" element={<ProtectedRoute requireRole={isTechnicalPublicationRole}><TechnicalPublicationAddUser /></ProtectedRoute>} />
+          <Route path="/regulatory-compliance/oem-technical-publication/add-user" element={<Navigate to="/add-user" replace />} />
           <Route path="/regulatory-compliance/oem-technical-publication" element={<ProtectedRoute moduleCode="regulatory-compliance"><OEMTechnicalPublication /></ProtectedRoute>} />
           <Route path="/regulatory-compliance/personnel-authorization" element={<ProtectedRoute moduleCode="regulatory-compliance"><PersonnelAuthorization /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute moduleCode="settings"><Settings /></ProtectedRoute>} />
