@@ -11,6 +11,7 @@ import {
   Trash2,
   RefreshCw,
   Filter,
+  Loader2,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
@@ -76,7 +77,16 @@ import {
 import {
   formatDisplayDate,
   formatAtlTotalFlightHoursForDisplay,
+  formatApiErrorForSwal,
 } from "../utility/utils";
+import { collectAllPagedItems } from "../utils/pagedQuery";
+import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 interface LogbookEntry {
   id: number;
@@ -113,6 +123,29 @@ function formatLogbookSequenceNoCell(
   return seq;
 }
 
+const LOGBOOK_EXPORT_HEADERS = [
+  "Sequence No",
+  "A/C Reg",
+  "Work Status",
+  "Created At",
+] as const;
+
+function logbookEntryToExportRow(
+  entry: LogbookEntry,
+  allBatchesMode: boolean
+): string[] {
+  return [
+    formatLogbookSequenceNoCell(
+      entry.seqNo,
+      entry.atlBatchName,
+      allBatchesMode
+    ),
+    entry.acReg ?? "",
+    entry.workStatus?.trim() || "—",
+    entry.createdAt ?? "",
+  ];
+}
+
 export function AircraftTechnicalLogbook() {
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const location = useLocation();
@@ -127,10 +160,12 @@ export function AircraftTechnicalLogbook() {
   const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
   const [selectedWorkStatus, setSelectedWorkStatus] = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
   const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
     { id: number; name: string }[]
   >([]);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const exportInFlightRef = useRef(false);
   const atlBatchFilterTouchedRef = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -262,6 +297,112 @@ export function AircraftTechnicalLogbook() {
     };
   };
 
+  const fetchLogbookPage = (page: number, pageSize: number) =>
+    !isMaintenancePlanner || isAtlDeepLinkRoute
+      ? getManagedAircraftTechnicalLogs(
+          page,
+          pageSize,
+          debouncedSearchTerm,
+          selectedAircraftFk,
+          sortBy,
+          selectedWorkStatusFilter,
+          selectedAtlBatchFk
+        )
+      : getAircraftTechnicalLogs(
+          page,
+          pageSize,
+          debouncedSearchTerm,
+          selectedAircraftFk,
+          sortBy,
+          selectedWorkStatusFilter,
+          selectedAtlBatchFk
+        );
+
+  const closeExportProgress = () => {
+    try {
+      Swal.close();
+    } catch {
+      // Progress dialog close must never block loading-state reset.
+    }
+  };
+
+  const handleLogbookExport = async (format: "csv" | "xlsx") => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportLoading(true);
+    void Swal.fire({
+      title: "Exporting data",
+      text: "Fetching records and preparing your file…",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
+    try {
+      const exportedItems = await collectAllPagedItems((page, pageSize) =>
+        fetchLogbookPage(page, pageSize)
+      );
+      if (!exportedItems.length) {
+        closeExportProgress();
+        exportInFlightRef.current = false;
+        setExportLoading(false);
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no records matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      const rows = exportedItems.map((item) =>
+        logbookEntryToExportRow(mapToLogbookEntry(item), showSeqWithBatchName)
+      );
+      const stamp = new Date().toISOString().slice(0, 10);
+      const selectedAircraft = aircraftOptions.find(
+        (aircraft) => aircraft.id === selectedAircraftFk
+      );
+      const aircraftLabel =
+        selectedAircraft?.registration?.trim() ||
+        (selectedAircraftFk != null
+          ? `aircraft_${selectedAircraftFk}`
+          : "all_aircraft");
+      const baseName = `atl_logbook_${aircraftLabel}_export_${stamp}`;
+
+      if (format === "xlsx") {
+        downloadXlsxFromAoa(
+          [[...LOGBOOK_EXPORT_HEADERS], ...rows],
+          "Logbook",
+          `${baseName}.xlsx`
+        );
+      } else {
+        downloadCsvFile(
+          [[...LOGBOOK_EXPORT_HEADERS], ...rows],
+          `${baseName}.csv`
+        );
+      }
+      closeExportProgress();
+    } catch (err: unknown) {
+      closeExportProgress();
+      exportInFlightRef.current = false;
+      setExportLoading(false);
+      const swalContent = formatApiErrorForSwal(err, {
+        defaultTitle: "Export failed",
+        validationTitle: "Export validation error",
+        fallbackMessage: "Failed to export records.",
+      });
+      await Swal.fire({
+        ...swalContent,
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      exportInFlightRef.current = false;
+      setExportLoading(false);
+    }
+  };
+
   // Fetch entries from API
   const fetchEntries = async (options?: { preserveView?: boolean }) => {
     const preserveView = Boolean(options?.preserveView);
@@ -274,27 +415,7 @@ export function AircraftTechnicalLogbook() {
     }
     setError(null);
     try {
-      // Notification deep-link: always use manage/paged with atl_batch, search, etc.
-      const response =
-        !isMaintenancePlanner || isAtlDeepLinkRoute
-          ? await getManagedAircraftTechnicalLogs(
-              pageToFetch,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            )
-          : await getAircraftTechnicalLogs(
-              pageToFetch,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            );
+      const response = await fetchLogbookPage(pageToFetch, itemsPerPage);
 
       if (listFetchSeqRef.current !== requestId) return;
 
@@ -809,26 +930,7 @@ export function AircraftTechnicalLogbook() {
     totalPages,
     holdBusyUntilIdle: true,
     fetchPage: async (page) => {
-      const response =
-        !isMaintenancePlanner || isAtlDeepLinkRoute
-          ? await getManagedAircraftTechnicalLogs(
-              page,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            )
-          : await getAircraftTechnicalLogs(
-              page,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            );
+      const response = await fetchLogbookPage(page, itemsPerPage);
       return {
         items: response.items.map((item) => mapToLogbookEntry(item)),
         pages: response.pages,
@@ -863,26 +965,7 @@ export function AircraftTechnicalLogbook() {
     totalPages,
     holdBusyUntilIdle: true,
     fetchPage: async (page) => {
-      const response =
-        !isMaintenancePlanner || isAtlDeepLinkRoute
-          ? await getManagedAircraftTechnicalLogs(
-              page,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            )
-          : await getAircraftTechnicalLogs(
-              page,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            );
+      const response = await fetchLogbookPage(page, itemsPerPage);
       return {
         items: response.items.map((item) => mapToLogbookEntry(item)),
         pages: response.pages,
@@ -1083,10 +1166,45 @@ export function AircraftTechnicalLogbook() {
             <Printer className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Print</span>
           </button>
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">
+                  {exportLoading ? "Exporting…" : "Export"}
+                </span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading}
+                onSelect={() => void handleLogbookExport("csv")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading}
+                onSelect={() => void handleLogbookExport("xlsx")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {canCreate("logbook") && (
             <button
               onClick={() => setIsModalOpen(true)}

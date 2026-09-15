@@ -797,6 +797,15 @@ export const CPCPMonitoring = forwardRef<
                 data-atl-list-scroll
                 className="maintenance-table-scroll maintenance-table-scroll--cpcp"
               >
+                <DndContext
+                  sensors={cpcpDndSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleCpcpDragEnd}
+                >
+                  <SortableContext
+                    items={currentItems.map((item) => item.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-blue-700/30 bg-blue-600 text-white">
@@ -901,15 +910,6 @@ export const CPCPMonitoring = forwardRef<
                       </th>
                     </tr>
                   </thead>
-                  <DndContext
-                    sensors={cpcpDndSensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleCpcpDragEnd}
-                  >
-                    <SortableContext
-                      items={currentItems.map((item) => item.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
                       <tbody className="divide-y divide-gray-100">
                         {currentItems.length === 0 ? (
                           <tr>
@@ -1093,9 +1093,9 @@ export const CPCPMonitoring = forwardRef<
                           })
                         )}
                       </tbody>
-                    </SortableContext>
-                  </DndContext>
                 </table>
+                  </SortableContext>
+                </DndContext>
               </div>
             )}
 

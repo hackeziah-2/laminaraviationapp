@@ -749,6 +749,17 @@ export function AircraftFleetDailyUpdate() {
               <SpinnerIcon size="lg" />
             </div>
           ) : null}
+          <DndContext
+            sensors={dailyDndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDailyDragEnd}
+          >
+            <SortableContext
+              items={items
+                .map((item) => getAircraftSortId(item))
+                .filter((id) => id > 0)}
+              strategy={verticalListSortingStrategy}
+            >
           <table className="w-full">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-300">
@@ -831,17 +842,6 @@ export function AircraftFleetDailyUpdate() {
                 <th></th>
               </tr>
             </thead>
-            <DndContext
-              sensors={dailyDndSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDailyDragEnd}
-            >
-              <SortableContext
-                items={items
-                  .map((item) => getAircraftSortId(item))
-                  .filter((id) => id > 0)}
-                strategy={verticalListSortingStrategy}
-              >
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
@@ -1047,9 +1047,9 @@ export function AircraftFleetDailyUpdate() {
                     })
                   )}
                 </tbody>
-              </SortableContext>
-            </DndContext>
           </table>
+            </SortableContext>
+          </DndContext>
         </div>
 
         {total > 0 && !loading && (
