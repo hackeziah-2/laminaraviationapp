@@ -1582,6 +1582,7 @@ export function AircraftTechnicalLogbook() {
           }}
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
+          aircraftId={selectedAircraftFk}
           permissionModuleCode="logbook"
           viewerRole={logbookAtlRole}
           editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationRestrictedEdit(
@@ -1595,6 +1596,12 @@ export function AircraftTechnicalLogbook() {
           navigationBusy={editEntryNav.navigating}
           onLoadStateChange={(isLoading) => {
             if (!isLoading) editEntryNav.release();
+          }}
+          onEntryLoadFailed={(keepId) => {
+            setSelectedEntry((prev) => {
+              if (!prev || prev.id === keepId) return prev;
+              return entries.find((row) => row.id === keepId) ?? prev;
+            });
           }}
         />
       )}

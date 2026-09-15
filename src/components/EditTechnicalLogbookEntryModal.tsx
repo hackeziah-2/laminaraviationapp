@@ -35,6 +35,8 @@ interface EditTechnicalLogbookEntryModalProps {
   hasNext?: boolean;
   navigationBusy?: boolean;
   onLoadStateChange?: (isLoading: boolean) => void;
+  /** Revert the selected list row when the next entry fails to load. */
+  onEntryLoadFailed?: (keepEntryId: number) => void;
 }
 
 function EditEntryOverlay({
@@ -64,7 +66,7 @@ function EditEntryOverlay({
       }`}
     >
       <div
-        className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
+        className="absolute inset-0 bg-white/15 backdrop-blur-[4px] pointer-events-none"
         aria-hidden="true"
       />
       {showNav && onPrevious && onNext ? (
@@ -85,6 +87,7 @@ function EditEntryOverlay({
  * Edit ATL modal – fetches full entry via READ (getAircraftTechnicalLogById)
  * and submits via UPDATE (updateAircraftTechnicalLog).
  * Uses AddTechnicalLogbookEntryModal with editEntry for the form.
+ * Previous/Next use the same paged sequence navigation as View Entry.
  */
 export function EditTechnicalLogbookEntryModal({
   isOpen,
@@ -101,6 +104,7 @@ export function EditTechnicalLogbookEntryModal({
   hasNext = false,
   navigationBusy = false,
   onLoadStateChange,
+  onEntryLoadFailed,
 }: EditTechnicalLogbookEntryModalProps) {
   const { user: permUser } = useUserPermissions();
   const [meRole, setMeRole] = useState<string | undefined>(undefined);
@@ -129,7 +133,12 @@ export function EditTechnicalLogbookEntryModal({
     [meRole, permUser?.role, viewerRole]
   );
 
-  const [fullEntry, setFullEntry] = useState<AircraftTechnicalLog | null>(null);
+  const [committedEntry, setCommittedEntry] =
+    useState<AircraftTechnicalLog | null>(null);
+  const committedEntryRef = useRef<AircraftTechnicalLog | null>(null);
+  const loadGenerationRef = useRef(0);
+  const onEntryLoadFailedRef = useRef(onEntryLoadFailed);
+  onEntryLoadFailedRef.current = onEntryLoadFailed;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,54 +152,75 @@ export function EditTechnicalLogbookEntryModal({
   }, [loading]);
 
   useEffect(() => {
-    if (!isOpen || !entryId || entryId <= 0) {
-      setFullEntry(null);
+    if (!isOpen) {
+      loadGenerationRef.current += 1;
+      committedEntryRef.current = null;
+      setCommittedEntry(null);
       setError(null);
       setLoading(false);
       return;
     }
 
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+    if (!entryId || entryId <= 0) {
+      return;
+    }
+
+    if (Number(committedEntryRef.current?.id) === Number(entryId)) {
+      setLoading(false);
+      return;
+    }
+
+    const requestedId = entryId;
+    const generation = ++loadGenerationRef.current;
+    setLoading(true);
+    setError(null);
+
+    let hideDelay: ReturnType<typeof setTimeout> | undefined;
+    void (async () => {
       try {
-        const entry = await getAircraftTechnicalLogById(entryId);
-        if (!cancelled) setFullEntry(entry);
+        const entry = await getAircraftTechnicalLogById(requestedId);
+        if (generation !== loadGenerationRef.current) return;
+        if (Number(entry.id) !== Number(requestedId)) return;
+        committedEntryRef.current = entry;
+        setCommittedEntry(entry);
+        setError(null);
+        hideDelay = window.setTimeout(() => {
+          if (generation === loadGenerationRef.current) {
+            setLoading(false);
+          }
+        }, 360);
       } catch (err: unknown) {
-        if (!cancelled) {
-          setError(
-            formatApiErrorMessage(err, "Failed to load entry details.")
-          );
-          setFullEntry((prev) => (prev?.id === entryId ? prev : null));
-        }
-      } finally {
-        if (!cancelled) {
-          setTimeout(() => setLoading(false), 360);
+        if (generation !== loadGenerationRef.current) return;
+        setError(formatApiErrorMessage(err, "Failed to load entry details."));
+        setLoading(false);
+        const keepId = committedEntryRef.current?.id;
+        loadGenerationRef.current += 1;
+        if (keepId != null && Number(keepId) !== Number(requestedId)) {
+          onEntryLoadFailedRef.current?.(keepId);
         }
       }
-    };
-    void load();
+    })();
+
     return () => {
-      cancelled = true;
+      if (hideDelay) window.clearTimeout(hideDelay);
     };
   }, [isOpen, entryId]);
 
   if (!isOpen) return null;
 
-  const displayedEntry = fullEntry?.id === entryId ? fullEntry : null;
+  const overlayNav = {
+    showNav,
+    onClose,
+    onPrevious,
+    onNext,
+    hasPrevious,
+    hasNext,
+    navDisabled,
+  };
 
-  if (error && !displayedEntry) {
+  if (error && !committedEntry) {
     return (
-      <EditEntryOverlay
-        showNav={showNav}
-        onClose={onClose}
-        onPrevious={onPrevious}
-        onNext={onNext}
-        hasPrevious={hasPrevious}
-        hasNext={hasNext}
-        navDisabled={navDisabled}
-      >
+      <EditEntryOverlay {...overlayNav}>
         <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
           <ModalChromeHeader title="Edit Entry" onClose={onClose} />
           <div className="flex flex-col items-center justify-center gap-4 py-24">
@@ -208,17 +238,9 @@ export function EditTechnicalLogbookEntryModal({
     );
   }
 
-  if (!displayedEntry) {
+  if (!committedEntry) {
     return (
-      <EditEntryOverlay
-        showNav={showNav}
-        onClose={onClose}
-        onPrevious={onPrevious}
-        onNext={onNext}
-        hasPrevious={hasPrevious}
-        hasNext={hasNext}
-        navDisabled={navDisabled}
-      >
+      <EditEntryOverlay {...overlayNav}>
         <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
           <ModalChromeHeader title="Edit Entry" onClose={onClose} />
           <div className="flex flex-col items-center justify-center gap-4 py-24">
@@ -232,18 +254,13 @@ export function EditTechnicalLogbookEntryModal({
 
   if (!canOpenAtlEditModal(effectiveViewerRole)) {
     return (
-      <EditEntryOverlay
-        showNav={showNav}
-        onClose={onClose}
-        onPrevious={onPrevious}
-        onNext={onNext}
-        hasPrevious={hasPrevious}
-        hasNext={hasNext}
-        navDisabled={navDisabled}
-      >
-        <div className="relative flex w-full max-w-md flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl" style={{ backgroundColor: "#022C75" }}>
+      <EditEntryOverlay {...overlayNav}>
+        <div
+          className="relative flex w-full max-w-7xl flex-col overflow-hidden rounded-xl modal-navy-shell modal-responsive-dialog shadow-xl"
+          style={{ backgroundColor: "#022C75" }}
+        >
           <ModalChromeHeader title="Edit Entry" onClose={onClose} />
-          <div className="flex flex-col gap-4 p-6">
+          <div className="flex flex-col gap-4 bg-white p-6">
             <p className="text-sm text-gray-800">{ATL_EDIT_FORBIDDEN_MESSAGE}</p>
             <button
               type="button"
@@ -261,19 +278,21 @@ export function EditTechnicalLogbookEntryModal({
   const applyTechPubAttachmentOnlyRestriction =
     isTechnicalPublicationRestrictedEdit(
       effectiveViewerRole,
-      displayedEntry.workStatus
-    ) || editRestrictedToWhiteAtlDfpOnly;
+      committedEntry.workStatus
+    ) ||
+    (Number(committedEntry.id) === Number(entryId) &&
+      editRestrictedToWhiteAtlDfpOnly);
 
   const readOnlyEntry = !canEditAtlFields(
     effectiveViewerRole,
-    displayedEntry.workStatus
+    committedEntry.workStatus
   );
 
   return (
     <AddTechnicalLogbookEntryModal
       isOpen={true}
       onClose={onClose}
-      editEntry={displayedEntry}
+      editEntry={committedEntry}
       aircraftId={aircraftId}
       onSuccess={onSuccess}
       permissionModuleCode={permissionModuleCode}
@@ -282,6 +301,7 @@ export function EditTechnicalLogbookEntryModal({
       forceReadOnly={readOnlyEntry}
       sideGutter={showNav}
       contentLoading={navDisabled}
+      entrySwitchError={!loading && error ? error : null}
       onPrevious={onPrevious}
       onNext={onNext}
       hasPrevious={hasPrevious}

@@ -4078,6 +4078,14 @@ export function Operation() {
           onLoadStateChange={(isLoading) => {
             if (!isLoading) editEntryNav.release();
           }}
+          onEntryLoadFailed={(keepId) => {
+            setSelectedEntry((prev) => {
+              if (!prev || prev.id === keepId) return prev;
+              return (
+                fleetTimeRecords.find((row) => row.id === keepId) ?? prev
+              );
+            });
+          }}
           onSuccess={async () => {
             // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).
             captureViewForRestore(selectedEntry?.id, currentPage);

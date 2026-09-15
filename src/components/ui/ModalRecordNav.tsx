@@ -88,12 +88,13 @@ export function ModalRecordNav({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.repeat) return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
         return;
       }
       if (
         document.querySelector(
-          "[data-nested-overlay], .swal2-container, .swal2-shown"
+          "[data-nested-overlay], .swal2-container, .swal2-shown, .atl-dropdown-panel"
         )
       ) {
         return;
