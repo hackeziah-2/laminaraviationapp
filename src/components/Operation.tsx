@@ -110,7 +110,7 @@ import { usePreserveListView } from "../hooks/usePreserveListView";
 import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
 import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { rememberWindowScroll } from "../utils/windowScrollMemory";
-import * as XLSX from "xlsx";
+import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
 
 type GroupByOption =
   | "allColumns"
@@ -904,6 +904,7 @@ export function Operation() {
   const [importLoading, setImportLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const exportInFlightRef = useRef(false);
   const [selectedExportColumns, setSelectedExportColumns] = useState<string[]>(
     []
   );
@@ -1798,8 +1799,25 @@ export function Operation() {
     );
   };
 
+  const closeExportProgress = () => {
+    try {
+      Swal.close();
+    } catch {
+      // Progress dialog close must never block loading-state reset.
+    }
+  };
+
   const handleExport = async (format: "csv" | "xlsx") => {
-    if (!effectiveAircraftId) return;
+    if (exportInFlightRef.current || exportLoading) return;
+    if (!effectiveAircraftId) {
+      await Swal.fire({
+        icon: "warning",
+        title: "No aircraft selected",
+        text: "Select an aircraft before exporting records.",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
     if (!canExportOperationAtl) {
       setShowExportModal(false);
       return;
@@ -1814,6 +1832,7 @@ export function Operation() {
       return;
     }
 
+    exportInFlightRef.current = true;
     setExportLoading(true);
     void Swal.fire({
       title: "Exporting data",
@@ -1839,7 +1858,9 @@ export function Operation() {
       );
 
       if (!exportedItems.length) {
-        Swal.close();
+        closeExportProgress();
+        exportInFlightRef.current = false;
+        setExportLoading(false);
         await Swal.fire({
           icon: "info",
           title: "No data to export",
@@ -1854,50 +1875,29 @@ export function Operation() {
       );
       const fileRegistration =
         aircraft?.registration || `aircraft_${effectiveAircraftId}`;
-
-      if (format === "xlsx") {
-        const aoa: string[][] = [
-          selectedColumns.map((column) => column.label),
-          ...exportedItems.map((record) =>
-            selectedColumns.map((column) => column.getValue(record))
-          ),
-        ];
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "ATL");
-        XLSX.writeFile(wb, `${fileRegistration}_operation_export.xlsx`);
-        Swal.close();
-        setShowExportModal(false);
-        return;
-      }
-
-      const escapeCsvValue = (value: string) =>
-        `"${value.replace(/"/g, '""')}"`;
-      const csvLines = [
-        selectedColumns.map((column) => escapeCsvValue(column.label)).join(","),
+      const aoa: string[][] = [
+        selectedColumns.map((column) => column.label),
         ...exportedItems.map((record) =>
-          selectedColumns
-            .map((column) => escapeCsvValue(column.getValue(record)))
-            .join(",")
+          selectedColumns.map((column) => column.getValue(record))
         ),
       ];
 
-      const csvBlob = new Blob(["\uFEFF" + csvLines.join("\n")], {
-        type: "text/csv;charset=utf-8;",
-      });
-      const url = window.URL.createObjectURL(csvBlob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${fileRegistration}_operation_export.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      Swal.close();
+      if (format === "xlsx") {
+        downloadXlsxFromAoa(
+          aoa,
+          "ATL",
+          `${fileRegistration}_operation_export.xlsx`
+        );
+      } else {
+        downloadCsvFile(aoa, `${fileRegistration}_operation_export.csv`);
+      }
+      closeExportProgress();
       setShowExportModal(false);
     } catch (err: unknown) {
       console.error("Export error:", err);
-      Swal.close();
+      closeExportProgress();
+      exportInFlightRef.current = false;
+      setExportLoading(false);
       const swalContent = formatApiErrorForSwal(err, {
         defaultTitle: "Export failed",
         validationTitle: "Export validation error",
@@ -1908,6 +1908,7 @@ export function Operation() {
         confirmButtonColor: "#2563eb",
       });
     } finally {
+      exportInFlightRef.current = false;
       setExportLoading(false);
     }
   };
@@ -2284,15 +2285,19 @@ export function Operation() {
                 <button
                   type="button"
                   onClick={() => {
+                    if (exportLoading) return;
                     setSelectedExportColumns(
                       activeExportColumnDefinitions.map((column) => column.key)
                     );
                     setShowExportModal(true);
                   }}
-                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm"
+                  disabled={exportLoading}
+                  className="px-3 sm:px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-gray-700 flex items-center gap-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">Export</span>
+                  <span className="hidden sm:inline">
+                    {exportLoading ? "Exporting…" : "Export"}
+                  </span>
                 </button>
               )}
               {canCreateOperationAtl && (
@@ -4077,6 +4082,14 @@ export function Operation() {
           navigationBusy={editEntryNav.navigating}
           onLoadStateChange={(isLoading) => {
             if (!isLoading) editEntryNav.release();
+          }}
+          onEntryLoadFailed={(keepId) => {
+            setSelectedEntry((prev) => {
+              if (!prev || prev.id === keepId) return prev;
+              return (
+                fleetTimeRecords.find((row) => row.id === keepId) ?? prev
+              );
+            });
           }}
           onSuccess={async () => {
             // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).

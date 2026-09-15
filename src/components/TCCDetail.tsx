@@ -1073,6 +1073,15 @@ export const TCCDetailContent = forwardRef<
             data-atl-list-scroll
             className="maintenance-table-scroll maintenance-table-scroll--tcc"
           >
+            <DndContext
+              sensors={tccDndSensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleTccDragEnd}
+            >
+              <SortableContext
+                items={paginatedData.map((item) => item.id)}
+                strategy={verticalListSortingStrategy}
+              >
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
@@ -1194,15 +1203,6 @@ export const TCCDetailContent = forwardRef<
                   </th>
                 </tr>
               </thead>
-              <DndContext
-                sensors={tccDndSensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleTccDragEnd}
-              >
-                <SortableContext
-                  items={paginatedData.map((item) => item.id)}
-                  strategy={verticalListSortingStrategy}
-                >
                   <tbody className="divide-y divide-gray-200">
                     {computedRows.map((row) => {
                       const item = row.raw;
@@ -1400,9 +1400,9 @@ export const TCCDetailContent = forwardRef<
                       );
                     })}
                   </tbody>
-                </SortableContext>
-              </DndContext>
             </table>
+              </SortableContext>
+            </DndContext>
           </div>
         )}
 

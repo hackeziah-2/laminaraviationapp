@@ -3654,6 +3654,7 @@ input[data-slot="date-input"] {
   top: 50%;
   z-index: 70;
   transform: translateY(-50%);
+  pointer-events: auto;
 }
 
 .modal-record-nav--left {

@@ -32,6 +32,20 @@ describe("isEditableKeyboardTarget", () => {
     const button = document.createElement("button");
     expect(isEditableKeyboardTarget(button)).toBe(false);
   });
+
+  it("treats ATL dropdown fields and open panels as editable", () => {
+    const field = document.createElement("div");
+    field.className = "atl-dropdown-field";
+    const panel = document.createElement("div");
+    panel.className = "atl-dropdown-panel";
+    const option = document.createElement("button");
+    panel.appendChild(option);
+    document.body.append(field, panel);
+    expect(isEditableKeyboardTarget(field)).toBe(true);
+    expect(isEditableKeyboardTarget(option)).toBe(true);
+    field.remove();
+    panel.remove();
+  });
 });
 
 describe("ModalRecordNav", () => {
@@ -119,5 +133,29 @@ describe("ModalRecordNav", () => {
     expect(onNext).not.toHaveBeenCalled();
     expect(onPrevious).not.toHaveBeenCalled();
     swal.remove();
+  });
+
+  it("ignores arrow keys while an ATL dropdown is open", () => {
+    const onPrevious = vi.fn();
+    const onNext = vi.fn();
+    const panel = document.createElement("div");
+    panel.className = "atl-dropdown-panel";
+    document.body.appendChild(panel);
+    render(
+      <div className="relative">
+        <ModalRecordNav
+          onPrevious={onPrevious}
+          onNext={onNext}
+          hasPrevious={true}
+          hasNext={true}
+        />
+      </div>
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onPrevious).not.toHaveBeenCalled();
+    panel.remove();
   });
 });

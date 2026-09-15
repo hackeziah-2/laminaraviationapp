@@ -1806,6 +1806,8 @@ interface AddTechnicalLogbookEntryModalProps {
   sideGutter?: boolean;
   /** Overlay spinner while swapping the displayed record (View/Edit navigation). */
   contentLoading?: boolean;
+  /** Shown in the Edit modal when the next sequence fails to load. */
+  entrySwitchError?: string | null;
   /** Previous/next controls rendered in the overlay gutters. */
   recordNavigation?: ReactNode;
   onPrevious?: () => void | Promise<void>;
@@ -1828,6 +1830,7 @@ export function AddTechnicalLogbookEntryModal({
   defaultAtlBatchFk,
   sideGutter = false,
   contentLoading = false,
+  entrySwitchError = null,
   recordNavigation,
   onPrevious,
   onNext,
@@ -1853,7 +1856,7 @@ export function AddTechnicalLogbookEntryModal({
   const atlInitRequestIdRef = useRef(0);
   /** Increments on each Nature of Flight defaults fetch so stale responses cannot overwrite. */
   const nofDefaultsRequestIdRef = useRef(0);
-  const formScrollRef = useRef<HTMLFormElement>(null);
+  const formScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -4532,7 +4535,8 @@ export function AddTechnicalLogbookEntryModal({
   };
 
   const showSeqNav = Boolean(onPrevious && onNext);
-  const sequenceNavDisabled = contentLoading || navigationBusy || isSubmitting;
+  const sequenceNavDisabled =
+    contentLoading || navigationBusy || isSubmitting;
 
   const isAtlEditFormDirty = useCallback(() => {
     if (forceReadOnly || !editEntry) return false;
@@ -4853,7 +4857,7 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
 
-    if (isSubmitting) return;
+    if (isSubmitting || contentLoading) return;
 
     setIsSubmitting(true);
     try {
@@ -5504,7 +5508,7 @@ export function AddTechnicalLogbookEntryModal({
       }`}
     >
       {/* Overlay with blur */}
-      <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px]" />
+      <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px] pointer-events-none" />
       {showSeqNav ? (
         <ModalRecordNav
           onPrevious={handlePreviousSequence}
@@ -5522,17 +5526,13 @@ export function AddTechnicalLogbookEntryModal({
         className={`relative modal-navy-shell modal-responsive-dialog ${formModeClass} rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-hidden flex flex-col`}
         style={{ backgroundColor: "#022C75" }}
       >
-        {/* Loading overlay on create/edit submit or view-entry navigation */}
-        {(isSubmitting || contentLoading) && (
+        {/* Saving covers the whole card; entry loading covers only the form body. */}
+        {isSubmitting && (
           <div className="absolute inset-0 z-[65] flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
               <p className="text-sm font-medium text-gray-700">
-                {contentLoading
-                  ? "Loading entry…"
-                  : editEntry
-                  ? "Updating entry..."
-                  : "Creating entry..."}
+                {editEntry ? "Updating entry..." : "Creating entry..."}
               </p>
             </div>
           </div>
@@ -5555,14 +5555,38 @@ export function AddTechnicalLogbookEntryModal({
           }}
           className="relative z-[60]"
         />
+        {entrySwitchError && (
+          <div
+            className="shrink-0 bg-white px-4 sm:px-6 py-2 border-b border-gray-200"
+            role="alert"
+          >
+            <p className="text-sm text-red-600">{entrySwitchError}</p>
+          </div>
+        )}
 
         {/* Form Content */}
         <form
-          ref={formScrollRef}
           onSubmit={handleSubmit}
-          className={`${formModeClass} flex-1 overflow-y-auto min-h-0`}
+          className={`${formModeClass} flex-1 overflow-hidden min-h-0 flex flex-col`}
         >
-          <div className="modal-body p-4 sm:p-6 space-y-6">
+          <div
+            ref={formScrollRef}
+            className="relative flex-1 min-h-0 overflow-y-auto"
+          >
+            {contentLoading && (
+              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-white/80 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                  <p className="text-sm font-medium text-gray-700">
+                    Loading entry…
+                  </p>
+                </div>
+              </div>
+            )}
+            <div
+              className="modal-body p-4 sm:p-6 space-y-6"
+              aria-busy={contentLoading || undefined}
+            >
             {atlFormReadOnly && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                 {forceReadOnly
@@ -8155,6 +8179,7 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             )}
           </div>
+          </div>
 
           {/* Footer Actions */}
           <div className="relative z-[60] modal-navy-footer px-4 sm:px-6 py-4">
@@ -8172,9 +8197,14 @@ export function AddTechnicalLogbookEntryModal({
               {!atlFormReadOnly && (
                 <button
                   type="submit"
-                  disabled={!allowSubmit || isInitializing || isSubmitting}
+                  disabled={
+                    !allowSubmit ||
+                    isInitializing ||
+                    isSubmitting ||
+                    contentLoading
+                  }
                   className={`form-btn-primary px-4 py-2 text-white rounded-lg transition-colors ${
-                    allowSubmit && !isInitializing
+                    allowSubmit && !isInitializing && !contentLoading
                       ? "modal-navy-primary"
                       : "bg-gray-400 cursor-not-allowed"
                   }`}

@@ -750,6 +750,15 @@ export function AircraftFleetProfile() {
           {/* Aircraft Table */}
           <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
+              <DndContext
+                sensors={aircraftDndSensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleAircraftDragEnd}
+              >
+                <SortableContext
+                  items={aircrafts.map((ac) => ac.id)}
+                  strategy={verticalListSortingStrategy}
+                >
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -781,15 +790,6 @@ export function AircraftFleetProfile() {
                     <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
                   </tr>
                 </thead>
-              <DndContext
-                sensors={aircraftDndSensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleAircraftDragEnd}
-              >
-                <SortableContext
-                  items={aircrafts.map((ac) => ac.id)}
-                  strategy={verticalListSortingStrategy}
-                >
                 <tbody className="divide-y divide-gray-200">
                   {Array.isArray(aircrafts) && aircrafts.length > 0 ? (
                     aircrafts.map((ac) => (
@@ -967,9 +967,9 @@ export function AircraftFleetProfile() {
                     </tr>
                   )}
                 </tbody>
+              </table>
                 </SortableContext>
               </DndContext>
-              </table>
             </div>
 
             <DataTablePagination

@@ -18,6 +18,8 @@ export function isEditableKeyboardTarget(target: EventTarget | null): boolean {
         '[role="menu"]',
         '[aria-haspopup="listbox"]',
         '[aria-haspopup="dialog"]',
+        ".atl-dropdown-panel",
+        ".atl-dropdown-field",
       ].join(",")
     )
   ) {
