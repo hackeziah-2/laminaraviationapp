@@ -7,7 +7,7 @@ import Swal from "sweetalert2";
  */
 const AppSwal = Swal.mixin({
   allowOutsideClick: false,
-  allowEscapeKey: false,
+  allowEscapeKey: () => !Swal.isLoading(),
   scrollbarPadding: false,
   heightAuto: false,
 });

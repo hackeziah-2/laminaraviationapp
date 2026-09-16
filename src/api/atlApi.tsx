@@ -469,33 +469,19 @@ export const getAtlList = async (
   }
 };
 
-/**
- * ATL picker for TCC (and similar): aircraft-scoped ATL list, then fallback to
- * aircraft-technical-log search when the ATL endpoint returns no rows.
- */
-export const searchAtlOptionsForTcc = async (
-  sequenceOrSearch: string,
-  aircraftId?: number,
-  listOptions?: AtlListOptions
-): Promise<AtlItem[]> => {
-  const q = sequenceOrSearch.trim();
-  const aid =
-    aircraftId != null &&
-    Number.isFinite(Number(aircraftId)) &&
-    Number(aircraftId) > 0
-      ? Number(aircraftId)
-      : undefined;
-
-  const primary = await getAtlList(q, aid, listOptions);
-  if (primary.length > 0) return primary;
-
-  if (!q || !aid) return [];
-
-  try {
-    const tech = await searchAircraftTechnicalLogBySequence(q);
-    const filtered = tech.filter((t) => t.id > 0 && t.aircraft?.id === aid);
-    const lineStyle = listOptions?.resultLineStyle ?? "standard";
-    return filtered.map((t) => {
+function mapTechSearchToAtlItems(
+  tech: Awaited<ReturnType<typeof searchAircraftTechnicalLogBySequence>>,
+  aircraftId: number | undefined,
+  lineStyle: AtlListOptions["resultLineStyle"]
+): AtlItem[] {
+  return tech
+    .filter((t) => {
+      if (!(t.id > 0)) return false;
+      const rowAid = t.aircraft?.id ?? 0;
+      if (aircraftId && rowAid > 0) return rowAid === aircraftId;
+      return true;
+    })
+    .map((t) => {
       const seq = String(t.sequenceNo ?? "").trim() || String(t.id);
       const natureDisplay = formatNatureOfFlightForDisplay(t.natureOfFlight);
       const reg = (t.aircraft?.registration ?? "").trim() || "—";
@@ -530,7 +516,40 @@ export const searchAtlOptionsForTcc = async (
         ),
       };
     });
-  } catch {
-    return [];
+}
+
+/**
+ * ATL picker for TCC (and similar). Sequence search uses
+ * GET /api/v1/aircraft-technical-log/?search= (never blank `?search=`).
+ * Empty query still loads recent aircraft ATLs via the aircraft ATL list.
+ */
+export const searchAtlOptionsForTcc = async (
+  sequenceOrSearch: string,
+  aircraftId?: number,
+  listOptions?: AtlListOptions
+): Promise<AtlItem[]> => {
+  const q = sequenceOrSearch.trim();
+  const aid =
+    aircraftId != null &&
+    Number.isFinite(Number(aircraftId)) &&
+    Number(aircraftId) > 0
+      ? Number(aircraftId)
+      : undefined;
+  const lineStyle = listOptions?.resultLineStyle ?? "standard";
+
+  if (q) {
+    try {
+      const mapped = mapTechSearchToAtlItems(
+        await searchAircraftTechnicalLogBySequence(q, aid),
+        aid,
+        lineStyle
+      );
+      if (mapped.length > 0) return mapped;
+    } catch {
+      // Fall back to the aircraft ATL list when technical-log search fails.
+    }
   }
+
+  if (!aid && !q) return [];
+  return getAtlList(q, aid, listOptions);
 };

@@ -9,6 +9,7 @@ import {
   type OemItemTypeOption,
 } from "../api/oemTechnicalPublicationApi";
 import { Spinner } from "./ui/spinner";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 interface AddOemItemTypeModalProps {
   isOpen: boolean;
@@ -83,6 +84,15 @@ export function AddOemItemTypeModal({
       cancelled = true;
     };
   }, [isOpen, editTypeId, onClose]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting || loadingType) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen) return null;
 

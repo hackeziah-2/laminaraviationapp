@@ -1,9 +1,11 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import {
   formatAtlListDate,
   formatTimeZulu,
   toCamelDeep,
 } from "../utility/utils";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
 
 // Component Parts Record Interfaces
@@ -451,6 +453,55 @@ export function parseAtlAssigneeIdForApi(
 }
 
 /**
+ * Pilot Acceptance Name for create/update: the form value only.
+ * Empty / None / No Selected Name → null. Does not copy from a previous ATL,
+ * logged-in user, or any other record.
+ */
+export function pilotAcceptanceNameFieldsForApi(
+  formValue: string | number | null | undefined
+): { pilotFk: number | null; pilotAcceptedBy: number | null } {
+  const id = parseAtlAssigneeIdForApi(formValue);
+  return { pilotFk: id, pilotAcceptedBy: id };
+}
+
+/**
+ * Rewrite Pilot Acceptance Name keys already present on create/update.
+ * Empty sentinels become null. Partial updates without those keys are unchanged.
+ * Leaves Pilot Acceptance date/time untouched.
+ */
+export function normalizeAtlPilotAcceptanceNameForApi(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const hasDedicated =
+    "pilot_accepted_by" in payload || "pilotAcceptedBy" in payload;
+  const hasPilotFk = "pilot_fk" in payload || "pilotFk" in payload;
+  if (!hasDedicated && !hasPilotFk) return payload;
+
+  const sourceKey = [
+    "pilot_accepted_by",
+    "pilotAcceptedBy",
+    "pilot_fk",
+    "pilotFk",
+  ].find((key) => key in payload);
+  const id = parseAtlAssigneeIdForApi(
+    (sourceKey != null ? payload[sourceKey] : undefined) as
+      | string
+      | number
+      | null
+      | undefined
+  );
+  if (hasDedicated) {
+    payload.pilot_accepted_by = id;
+    if ("pilotAcceptedBy" in payload) payload.pilotAcceptedBy = id;
+  }
+  if (hasPilotFk) {
+    payload.pilot_fk = id;
+    if ("pilotFk" in payload) payload.pilotFk = id;
+  }
+  return payload;
+}
+
+/**
  * True when engine_tsn / propeller_tsn is present (including 0).
  * Null, undefined, or blank → false (UNK / no auto-computation).
  */
@@ -512,6 +563,7 @@ function extractPagedLogRows(payload: unknown): unknown[] {
     if (Array.isArray(p.records)) return p.records;
     if (Array.isArray(p.logs)) return p.logs;
     if (Array.isArray(p.entries)) return p.entries;
+    if (Array.isArray(p.list)) return p.list;
     if (Array.isArray(p.data)) return p.data;
     return [];
   };
@@ -574,7 +626,7 @@ export function normalizeAtlPagedSortParam(sort: string): string {
 const fetchAircraftTechnicalLogs = async (
   endpoint: string,
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number,
   sort = "",
@@ -584,7 +636,7 @@ const fetchAircraftTechnicalLogs = async (
   try {
     const params = new URLSearchParams();
 
-    // Query order: atl_batch* first, then page, limit, aircraft_id/aircraft_fk, sort, search, work_status
+    // Query order: atl_batch* first, then page, page_size, aircraft_id/aircraft_fk, sort, search, work_status
     // e.g. .../paged?...&sort=sequence_no (asc) or sort=-created_at (desc)
     if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
       const idStr = String(atlBatchFk);
@@ -592,8 +644,7 @@ const fetchAircraftTechnicalLogs = async (
       params.append("atl_batch_fk", idStr);
     }
 
-    params.append("page", page.toString());
-    params.append("limit", limit.toString());
+    appendPagedQueryParams(params, page, limit);
 
     const aircraftIdNum = aircraftFk != null ? Number(aircraftFk) : NaN;
     if (Number.isFinite(aircraftIdNum) && aircraftIdNum > 0) {
@@ -669,7 +720,7 @@ const fetchAircraftTechnicalLogs = async (
  */
 export const getAircraftTechnicalLogs = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number,
   sort = "",
@@ -692,7 +743,7 @@ export const getAircraftTechnicalLogs = async (
  */
 export const getManagedAircraftTechnicalLogs = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   aircraftFk?: number,
   sort = "",
@@ -726,93 +777,151 @@ export const getAircraftTechnicalLogById = async (
   }
 };
 
+function parsePositiveId(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function parseOptionalNumber(value: unknown): number | undefined {
+  if (value == null || value === "") return undefined;
+  const n = Number(typeof value === "string" ? value.replace(/,/g, "") : value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Rows from GET /aircraft-technical-log/?search= across array, paged, and single-object envelopes. */
+export function extractAircraftTechnicalLogSearchRows(
+  responseData: unknown
+): unknown[] {
+  const payload =
+    responseData &&
+    typeof responseData === "object" &&
+    (responseData as { data?: unknown }).data !== undefined
+      ? (responseData as { data: unknown }).data
+      : responseData;
+
+  const rows = extractPagedLogRows(payload);
+  if (rows.length > 0) return rows;
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    ((payload as { sequence_no?: unknown }).sequence_no != null ||
+      (payload as { sequenceNo?: unknown }).sequenceNo != null ||
+      (payload as { sequence_number?: unknown }).sequence_number != null)
+  ) {
+    return [payload];
+  }
+
+  return [];
+}
+
+export function mapAircraftTechnicalLogSearchItem(
+  item: unknown
+): AircraftTechnicalLogSearchResult {
+  const row =
+    item && typeof item === "object"
+      ? (item as Record<string, unknown>)
+      : {};
+
+  const nested = row.aircraft;
+  const fkRaw =
+    row.aircraft_fk ??
+    row.aircraftFk ??
+    row.aircraft_id ??
+    row.aircraftId ??
+    (nested != null && typeof nested !== "object" ? nested : undefined);
+
+  let aircraft: AircraftTechnicalLogSearchAircraft;
+  if (nested && typeof nested === "object") {
+    const a = nested as Record<string, unknown>;
+    aircraft = {
+      id: parsePositiveId(a.id ?? a.pk ?? fkRaw),
+      registration: String(
+        a.registration ?? a.registration_mark ?? a.ident ?? ""
+      ),
+      model: String(a.model ?? ""),
+      type: String(a.type ?? ""),
+    };
+  } else {
+    aircraft = {
+      id: parsePositiveId(fkRaw),
+      registration: String(
+        row.aircraft_registration ?? row.ac_reg ?? row.registration ?? ""
+      ),
+      model: "",
+      type: "",
+    };
+  }
+
+  const originDateRaw =
+    row.origin_date ??
+    row.originDate ??
+    row.date_of_origin ??
+    row.dateOfOrigin;
+  const originDate =
+    originDateRaw != null && String(originDateRaw).trim() !== ""
+      ? String(originDateRaw).trim()
+      : undefined;
+
+  const natureRaw = row.nature_of_flight ?? row.natureOfFlight;
+  const sequenceNo = String(
+    row.sequence_no ?? row.sequenceNo ?? row.sequence_number ?? ""
+  );
+
+  return {
+    id: parsePositiveId(row.id ?? row.pk),
+    sequenceNo,
+    aircraft,
+    natureOfFlight:
+      natureRaw != null && String(natureRaw).trim() !== ""
+        ? String(natureRaw)
+        : undefined,
+    tachometerEnd: parseOptionalNumber(
+      row.tachometer_end ??
+        row.tachometerEnd ??
+        row.tach_end ??
+        row.tachEnd
+    ),
+    autoAirframeAftt: parseOptionalNumber(
+      row.auto_airframe_aftt ??
+        row.autoAirframeAftt ??
+        row.airframe_aftt ??
+        row.airframeAftt
+    ),
+    originDate,
+  };
+}
+
 /**
  * Search Aircraft Technical Log by ATL Sequence Number.
  * GET /api/v1/aircraft-technical-log/?search=<query>
+ * Blank search is not sent (avoids `?search=` listing the full table).
  * Returns items with sequence_no and aircraft { id, registration, model, type }.
  */
 export const searchAircraftTechnicalLogBySequence = async (
-  search: string
+  search: string,
+  aircraftId?: number
 ): Promise<AircraftTechnicalLogSearchResult[]> => {
-  try {
-    const params = new URLSearchParams();
-    if (search.trim() !== "") {
-      params.append("search", search.trim());
-    }
-    const response = await apiClient.get(
-      `aircraft-technical-log/?${params.toString()}`,
-      { headers: { Accept: "application/json" } }
-    );
-    const data = response.data?.data ?? response.data;
-    let raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
-    if (!Array.isArray(raw) || raw.length === 0) {
-      if (
-        data &&
-        typeof data === "object" &&
-        !Array.isArray(data) &&
-        data.sequence_no != null
-      ) {
-        raw = [data];
-      }
-    }
-    const list = Array.isArray(raw) ? raw : [];
-    return list.map((item: any) => {
-      const aircraft = item.aircraft ?? item.aircraft_fk;
-      const aircraftObj =
-        aircraft && typeof aircraft === "object"
-          ? {
-              id: aircraft.id ?? aircraft.pk ?? 0,
-              registration: aircraft.registration ?? "",
-              model: aircraft.model ?? "",
-              type: aircraft.type ?? "",
-            }
-          : { id: 0, registration: "", model: "", type: "" };
-      const logId = Number(item.id ?? item.pk ?? 0);
-      const tachRaw =
-        item.tachometer_end ??
-        item.tachometerEnd ??
-        item.tach_end ??
-        item.tachEnd;
-      const tachNum =
-        tachRaw != null && tachRaw !== ""
-          ? Number(
-              typeof tachRaw === "string" ? tachRaw.replace(/,/g, "") : tachRaw
-            )
-          : NaN;
-      const afttRaw =
-        item.auto_airframe_aftt ??
-        item.autoAirframeAftt ??
-        item.airframe_aftt ??
-        item.airframeAftt;
-      const afttNum =
-        afttRaw != null && afttRaw !== ""
-          ? Number(
-              typeof afttRaw === "string" ? afttRaw.replace(/,/g, "") : afttRaw
-            )
-          : NaN;
-      const originDateRaw =
-        item.origin_date ??
-        item.originDate ??
-        item.date_of_origin ??
-        item.dateOfOrigin;
-      return {
-        id: Number.isFinite(logId) ? logId : 0,
-        sequenceNo:
-          item.sequence_no ?? item.sequenceNo ?? item.sequence_number ?? "",
-        aircraft: aircraftObj,
-        natureOfFlight:
-          item.nature_of_flight ?? item.natureOfFlight ?? undefined,
-        tachometerEnd: Number.isFinite(tachNum) ? tachNum : undefined,
-        autoAirframeAftt: Number.isFinite(afttNum) ? afttNum : undefined,
-        originDate:
-          originDateRaw != null && String(originDateRaw).trim() !== ""
-            ? String(originDateRaw).trim()
-            : undefined,
-      };
-    });
-  } catch (error) {
-    throw error;
+  const q = search.trim();
+  if (!q) return [];
+
+  const params = new URLSearchParams();
+  params.append("search", q);
+
+  const aid = parsePositiveId(aircraftId);
+  if (aid > 0) {
+    params.append("aircraft_id", String(aid));
+    params.append("aircraft_fk", String(aid));
   }
+
+  const response = await apiClient.get(
+    `aircraft-technical-log/?${params.toString()}`,
+    { headers: { Accept: "application/json" } }
+  );
+  return extractAircraftTechnicalLogSearchRows(response.data).map(
+    mapAircraftTechnicalLogSearchItem
+  );
 };
 
 /** Optional file uploads for WHITE ATL and DFP — uploaded via module upload API first */
@@ -850,9 +959,11 @@ export const createAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const payload = await mergeAtlFilePathsIntoPayload(
-      data as Record<string, unknown>,
-      files
+    const payload = normalizeAtlPilotAcceptanceNameForApi(
+      await mergeAtlFilePathsIntoPayload(
+        data as Record<string, unknown>,
+        files
+      )
     );
     const response = await apiClient.post("aircraft-technical-log/", payload);
     const raw = response.data?.data ?? response.data;
@@ -872,9 +983,11 @@ export const updateAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const payload = await mergeAtlFilePathsIntoPayload(
-      data as Record<string, unknown>,
-      files
+    const payload = normalizeAtlPilotAcceptanceNameForApi(
+      await mergeAtlFilePathsIntoPayload(
+        data as Record<string, unknown>,
+        files
+      )
     );
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
@@ -1325,13 +1438,28 @@ export interface AtlBatch {
   id: number;
   name: string;
   description?: string;
+  aircraftId?: number | null;
   /** ISO or parseable date when API sends created_at / createdAt */
   createdAt?: string;
 }
 
+function unwrapAtlBatchRecord(raw: unknown): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") return {};
+  const r = raw as Record<string, unknown>;
+  const nested = r.data ?? r.atl_batch ?? r.atlBatch ?? r.result ?? r.item;
+  if (
+    nested &&
+    typeof nested === "object" &&
+    !Array.isArray(nested) &&
+    (nested as Record<string, unknown>).id != null
+  ) {
+    return nested as Record<string, unknown>;
+  }
+  return r;
+}
+
 function parseAtlBatchPayload(raw: unknown): AtlBatch {
-  const r =
-    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const r = unwrapAtlBatchRecord(raw);
   const id = Number(r.id ?? r.pk ?? 0);
   const name = String(r.name ?? r.batch_name ?? r.batchName ?? "").trim();
   const description =
@@ -1341,12 +1469,19 @@ function parseAtlBatchPayload(raw: unknown): AtlBatch {
     createdRaw != null && String(createdRaw).trim() !== ""
       ? String(createdRaw).trim()
       : undefined;
+  const aircraftRaw = r.aircraft_id ?? r.aircraftId;
+  const aircraftId =
+    aircraftRaw == null || aircraftRaw === ""
+      ? null
+      : Number(aircraftRaw);
   if (!Number.isFinite(id) || id <= 0) {
     throw new Error("Invalid ATL batch response from server.");
   }
   return {
     id,
     name: name || `Batch ${id}`,
+    aircraftId:
+      aircraftId != null && Number.isFinite(aircraftId) ? aircraftId : null,
     ...(description !== undefined && description !== "" ? { description } : {}),
     ...(createdAt !== undefined ? { createdAt } : {}),
   };
@@ -1377,15 +1512,14 @@ export interface PaginatedAtlBatchesResponse {
 
 /**
  * Paged list for ATL Batch Settings.
- * GET /api/v1/atl-batch/paged?page=&limit=
+ * GET /api/v1/atl-batch/paged?page=&page_size=
  */
 export async function getAtlBatchesPaged(
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<PaginatedAtlBatchesResponse> {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   const res = await apiClient.get(`atl-batch/paged?${params.toString()}`, {
     headers: { Accept: "application/json" },
   });
@@ -1415,11 +1549,21 @@ export async function getAtlBatchesPaged(
  * Options for ATL batch `<select>` (filter form, entry modal).
  * GET /api/v1/atl-batch/list
  */
-export async function getAtlBatchesForSelect(): Promise<AtlBatch[]> {
+export async function getAtlBatchesForSelect(
+  aircraftId?: number | null
+): Promise<AtlBatch[]> {
   try {
-    const res = await apiClient.get("atl-batch/list", {
-      headers: { Accept: "application/json" },
-    });
+    const params = new URLSearchParams();
+    if (aircraftId != null && Number.isFinite(aircraftId) && aircraftId > 0) {
+      params.set("aircraft_id", String(aircraftId));
+    }
+    const qs = params.toString();
+    const res = await apiClient.get(
+      qs ? `atl-batch/list?${qs}` : "atl-batch/list",
+      {
+        headers: { Accept: "application/json" },
+      }
+    );
     const data = res.data?.data ?? res.data;
     const raw = Array.isArray(data) ? data : data?.results ?? data?.items ?? [];
     const list = Array.isArray(raw) ? raw : [];
@@ -1454,11 +1598,15 @@ export async function getAtlBatchById(id: number): Promise<AtlBatch> {
 export async function createAtlBatch(payload: {
   name: string;
   description?: string;
+  aircraftId?: number | null;
 }): Promise<AtlBatch> {
   const body = {
     name: payload.name.trim(),
     ...(payload.description != null && payload.description.trim() !== ""
       ? { description: payload.description.trim() }
+      : {}),
+    ...(payload.aircraftId != null && Number.isFinite(payload.aircraftId)
+      ? { aircraft_id: payload.aircraftId }
       : {}),
   };
   const res = await apiClient.post("atl-batch/", body, {

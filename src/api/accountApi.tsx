@@ -1,4 +1,6 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 const BASE = "account-information";
 
@@ -13,6 +15,8 @@ export interface Account {
   licenseNo: string;
   designation: string;
   roleId: number;
+  /** Role display name when the list/detail payload includes it. */
+  roleName?: string;
   status: boolean;
   createdAt: string;
   lastLogin: string;
@@ -36,6 +40,36 @@ export interface AccountListResponse {
   designation?: string;
 }
 
+function pickAccountRoleId(raw: Record<string, unknown>): number {
+  const nested = raw.role;
+  const nestedId =
+    nested && typeof nested === "object"
+      ? Number(
+          (nested as Record<string, unknown>).id ??
+            (nested as Record<string, unknown>).pk ??
+            0
+        )
+      : NaN;
+  const n = Number(
+    raw.role_id ?? raw.roleId ?? raw.role_fk ?? raw.roleFk ?? nestedId ?? 0
+  );
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function pickAccountRoleName(raw: Record<string, unknown>): string {
+  const nested = raw.role;
+  if (typeof nested === "string" && nested.trim()) return nested.trim();
+  if (nested && typeof nested === "object") {
+    const name = (nested as Record<string, unknown>).name;
+    if (typeof name === "string" && name.trim()) return name.trim();
+  }
+  for (const key of ["role_name", "roleName"] as const) {
+    const value = raw[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function normalizeAccount(raw: Record<string, unknown>): Account {
   const getStr = (k: string, fallback = "") =>
     String(
@@ -48,6 +82,7 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
     .replace(/\s+/g, " ")
     .trim();
   const id = Number(raw.id ?? 0);
+  const roleName = pickAccountRoleName(raw);
   return {
     id: isNaN(id) ? 0 : id,
     firstName,
@@ -58,7 +93,8 @@ function normalizeAccount(raw: Record<string, unknown>): Account {
     email: getStr("email"),
     licenseNo: getStr("license_no") || getStr("licenseNo", ""),
     designation: getStr("designation", ""),
-    roleId: Number(raw.role_id ?? raw.roleId ?? 0),
+    roleId: pickAccountRoleId(raw),
+    roleName: roleName || undefined,
     status: Boolean(raw.status ?? true),
     createdAt: getStr("created_at"),
     lastLogin: getStr("last_login"),
@@ -110,13 +146,12 @@ export interface PaginatedAccountsResponse {
 /** Paged: GET /api/v1/account-information/paged */
 export const getAccountsPaged = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   roles = ""
 ): Promise<PaginatedAccountsResponse> => {
   const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("limit", String(limit));
+  appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.set("search", search.trim());
   if (roles.trim()) params.set("roles", roles.trim());
   const response = await apiClient.get(`${BASE}/paged?${params.toString()}`);

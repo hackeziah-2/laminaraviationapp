@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { getAircraftAll, getAircrafts } from "../api/aircraftApi";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 
 export interface AircraftRow {
   id: number;
@@ -65,24 +66,23 @@ export const useAircrafts = (
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
 
     getAircrafts(page, limit, search, status, sortParam)
       .then((res) => {
+        if (cancelled) return;
         const data = res?.data ?? {};
         const rawItems = data.items ?? data.results ?? data.data ?? [];
         const list = Array.isArray(rawItems) ? rawItems : [];
         const total = Number(data.total ?? data.count ?? list.length) || 0;
-        const safeLimit = Number(limit) || 10;
+        const safeLimit = Number(limit) || DEFAULT_API_PAGE_SIZE;
         const pages = Math.max(
-          1,
-          Math.min(
-            9999,
-            Number(data.pages ?? data.total_pages) ||
-              Math.ceil(total / safeLimit) ||
-              1
-          )
+          0,
+          Number(data.pages ?? data.total_pages) ||
+            Math.ceil(total / safeLimit) ||
+            0
         );
         setAircrafts(
           list
@@ -93,14 +93,21 @@ export const useAircrafts = (
         setTotalItems(total);
       })
       .catch((err) => {
+        if (cancelled) return;
         setError(err?.message ?? "Failed to load aircraft");
         setAircrafts([]);
         setTotalPages(0);
         setTotalItems(0);
       })
       .finally(() => {
-        setTimeout(() => setLoading(false), 360);
+        if (!cancelled) {
+          setTimeout(() => setLoading(false), 360);
+        }
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [page, limit, search, status, sortParam, refreshKey]);
 
   return {

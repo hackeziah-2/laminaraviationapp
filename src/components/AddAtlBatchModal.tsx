@@ -10,11 +10,14 @@ import {
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import { Spinner } from "./ui/spinner";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 interface AddAtlBatchModalProps {
   isOpen: boolean;
   /** When set, modal PATCHes `/api/v1/atl-batch/{id}/`; otherwise POST create */
   editBatchId: number | null;
+  /** Scopes a new batch to this aircraft. Ignored on edit. */
+  aircraftId?: number | null;
   onClose: () => void;
   onSaved: (batch: AtlBatch) => void;
   /** Capture list scroll before confirm/success Swal opens (updates only). */
@@ -26,6 +29,7 @@ interface AddAtlBatchModalProps {
 export function AddAtlBatchModal({
   isOpen,
   editBatchId,
+  aircraftId,
   onClose,
   onSaved,
   onBeforeConfirmSave,
@@ -90,6 +94,15 @@ export function AddAtlBatchModal({
     };
   }, [isOpen, editBatchId]);
 
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting || loadingBatch) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -106,12 +119,12 @@ export function AddAtlBatchModal({
 
     setSubmitting(true);
     try {
-      // Capture before confirm/success Swal so window scroll is not already reset.
       if (isEdit) {
         onBeforeConfirmSave?.();
       }
+      let savedBatch: AtlBatch | null = null;
       const saved = await confirmSaveEntry(isEdit, async () => {
-        const batch = isEdit
+        savedBatch = isEdit
           ? await updateAtlBatch(editBatchId!, {
               name: trimmed,
               description: description,
@@ -119,11 +132,16 @@ export function AddAtlBatchModal({
           : await createAtlBatch({
               name: trimmed,
               description: description.trim() || undefined,
+              aircraftId:
+                aircraftId != null && Number.isFinite(aircraftId) && aircraftId > 0
+                  ? aircraftId
+                  : undefined,
             });
-        onSaved(batch);
-        onClose();
       });
-      if (isEdit && !saved) {
+      if (saved && savedBatch) {
+        onSaved(savedBatch);
+        onClose();
+      } else if (isEdit && !saved) {
         onSaveCancelled?.();
       }
     } finally {

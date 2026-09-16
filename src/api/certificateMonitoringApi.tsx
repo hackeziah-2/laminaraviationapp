@@ -1,9 +1,11 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import {
   downloadModuleFile,
   FILE_UPLOAD_MODULES,
   resolveUploadedFilePath,
 } from "./fileUploadApi";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 /** Deep transform snake_case keys to camelCase */
 function deepToCamel(obj: any): any {
@@ -145,13 +147,12 @@ const LIST_PATH = "documents-on-board/certificates";
  */
 export const getCertificatesMonitoring = async (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   statusFilter = "All Status"
 ): Promise<PaginatedResponse<CertificateMonitoring>> => {
   const params = new URLSearchParams();
-  params.append("limit", limit.toString());
-  params.append("page", page.toString());
+  appendPagedQueryParams(params, page, limit);
   if (search.trim() !== "") params.append("search", search);
   if (statusFilter && statusFilter !== "All Status")
     params.append("status", statusFilter);
@@ -167,7 +168,7 @@ export const getCertificatesMonitoring = async (
     if (!Array.isArray(rawItems)) rawItems = [];
     const total = responseData.total ?? responseData.count ?? rawItems.length;
     const pageNum = responseData.page ?? page;
-    const limitNum = responseData.limit ?? limit;
+    const limitNum = responseData.page_size ?? responseData.limit ?? limit;
     const pages =
       responseData.pages ??
       Math.max(1, Math.ceil(Number(total) / (limitNum || 1)));

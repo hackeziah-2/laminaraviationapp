@@ -11,6 +11,7 @@ import {
   Trash2,
   RefreshCw,
   Filter,
+  Loader2,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
@@ -21,6 +22,10 @@ import {
 import Swal from "../utils/swalDefaults";
 import { Spinner } from "../components/ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { AddTechnicalLogbookEntryModal } from "./AddTechnicalLogbookEntryModal";
 import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal";
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
@@ -40,6 +45,7 @@ import { getAircraftList } from "../api/aircraftApi";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
+import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
 import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import {
   ATL_WORK_STATUS_KEYS,
@@ -71,7 +77,16 @@ import {
 import {
   formatDisplayDate,
   formatAtlTotalFlightHoursForDisplay,
+  formatApiErrorForSwal,
 } from "../utility/utils";
+import { collectAllPagedItems } from "../utils/pagedQuery";
+import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 interface LogbookEntry {
   id: number;
@@ -108,6 +123,29 @@ function formatLogbookSequenceNoCell(
   return seq;
 }
 
+const LOGBOOK_EXPORT_HEADERS = [
+  "Sequence No",
+  "A/C Reg",
+  "Work Status",
+  "Created At",
+] as const;
+
+function logbookEntryToExportRow(
+  entry: LogbookEntry,
+  allBatchesMode: boolean
+): string[] {
+  return [
+    formatLogbookSequenceNoCell(
+      entry.seqNo,
+      entry.atlBatchName,
+      allBatchesMode
+    ),
+    entry.acReg ?? "",
+    entry.workStatus?.trim() || "—",
+    entry.createdAt ?? "",
+  ];
+}
+
 export function AircraftTechnicalLogbook() {
   const { user, canUpdate, canCreate, canDelete } = useUserPermissions();
   const location = useLocation();
@@ -119,13 +157,15 @@ export function AircraftTechnicalLogbook() {
   >([]);
   const [sortBy, setSortBy] = useState("-created_at"); // Default: newest first
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [selectedAtlBatchId, setSelectedAtlBatchId] = useState("");
   const [selectedWorkStatus, setSelectedWorkStatus] = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
   const [atlBatchFilterOptions, setAtlBatchFilterOptions] = useState<
     { id: number; name: string }[]
   >([]);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const exportInFlightRef = useRef(false);
   const atlBatchFilterTouchedRef = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -146,6 +186,8 @@ export function AircraftTechnicalLogbook() {
   const lastAppliedAtlQueryRef = useRef<string | null>(null);
   /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
   const skipNextPagedFetchRef = useRef(false);
+  const listFetchSeqRef = useRef(0);
+  const prevListQueryKeyRef = useRef("");
 
   const {
     listScrollRef,
@@ -255,38 +297,127 @@ export function AircraftTechnicalLogbook() {
     };
   };
 
+  const fetchLogbookPage = (page: number, pageSize: number) =>
+    !isMaintenancePlanner || isAtlDeepLinkRoute
+      ? getManagedAircraftTechnicalLogs(
+          page,
+          pageSize,
+          debouncedSearchTerm,
+          selectedAircraftFk,
+          sortBy,
+          selectedWorkStatusFilter,
+          selectedAtlBatchFk
+        )
+      : getAircraftTechnicalLogs(
+          page,
+          pageSize,
+          debouncedSearchTerm,
+          selectedAircraftFk,
+          sortBy,
+          selectedWorkStatusFilter,
+          selectedAtlBatchFk
+        );
+
+  const closeExportProgress = () => {
+    try {
+      Swal.close();
+    } catch {
+      // Progress dialog close must never block loading-state reset.
+    }
+  };
+
+  const handleLogbookExport = async (format: "csv" | "xlsx") => {
+    if (exportInFlightRef.current) return;
+    exportInFlightRef.current = true;
+    setExportLoading(true);
+    void Swal.fire({
+      title: "Exporting data",
+      text: "Fetching records and preparing your file…",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
+    try {
+      const exportedItems = await collectAllPagedItems((page, pageSize) =>
+        fetchLogbookPage(page, pageSize)
+      );
+      if (!exportedItems.length) {
+        closeExportProgress();
+        exportInFlightRef.current = false;
+        setExportLoading(false);
+        await Swal.fire({
+          icon: "info",
+          title: "No data to export",
+          text: "There are no records matching the current filters.",
+          confirmButtonColor: "#2563eb",
+        });
+        return;
+      }
+
+      const rows = exportedItems.map((item) =>
+        logbookEntryToExportRow(mapToLogbookEntry(item), showSeqWithBatchName)
+      );
+      const stamp = new Date().toISOString().slice(0, 10);
+      const selectedAircraft = aircraftOptions.find(
+        (aircraft) => aircraft.id === selectedAircraftFk
+      );
+      const aircraftLabel =
+        selectedAircraft?.registration?.trim() ||
+        (selectedAircraftFk != null
+          ? `aircraft_${selectedAircraftFk}`
+          : "all_aircraft");
+      const baseName = `atl_logbook_${aircraftLabel}_export_${stamp}`;
+
+      if (format === "xlsx") {
+        downloadXlsxFromAoa(
+          [[...LOGBOOK_EXPORT_HEADERS], ...rows],
+          "Logbook",
+          `${baseName}.xlsx`
+        );
+      } else {
+        downloadCsvFile(
+          [[...LOGBOOK_EXPORT_HEADERS], ...rows],
+          `${baseName}.csv`
+        );
+      }
+      closeExportProgress();
+    } catch (err: unknown) {
+      closeExportProgress();
+      exportInFlightRef.current = false;
+      setExportLoading(false);
+      const swalContent = formatApiErrorForSwal(err, {
+        defaultTitle: "Export failed",
+        validationTitle: "Export validation error",
+        fallbackMessage: "Failed to export records.",
+      });
+      await Swal.fire({
+        ...swalContent,
+        confirmButtonColor: "#2563eb",
+      });
+    } finally {
+      exportInFlightRef.current = false;
+      setExportLoading(false);
+    }
+  };
+
   // Fetch entries from API
   const fetchEntries = async (options?: { preserveView?: boolean }) => {
     const preserveView = Boolean(options?.preserveView);
     const pageToFetch = preserveView
       ? getPendingPage(currentPage)
       : currentPage;
+    const requestId = ++listFetchSeqRef.current;
     if (!preserveView) {
       setLoading(true);
     }
     setError(null);
     try {
-      // Notification deep-link: always use manage/paged with atl_batch, search, etc.
-      const response =
-        !isMaintenancePlanner || isAtlDeepLinkRoute
-          ? await getManagedAircraftTechnicalLogs(
-              pageToFetch,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            )
-          : await getAircraftTechnicalLogs(
-              pageToFetch,
-              itemsPerPage,
-              debouncedSearchTerm,
-              selectedAircraftFk,
-              sortBy,
-              selectedWorkStatusFilter,
-              selectedAtlBatchFk
-            );
+      const response = await fetchLogbookPage(pageToFetch, itemsPerPage);
+
+      if (listFetchSeqRef.current !== requestId) return;
 
       const mappedEntries = response.items.map((entry) =>
         mapToLogbookEntry(entry)
@@ -302,6 +433,7 @@ export function AircraftTechnicalLogbook() {
         setCurrentPage(pageToFetch);
       }
     } catch (err: any) {
+      if (listFetchSeqRef.current !== requestId) return;
       // Check for network errors (backend not running)
       if (
         err.code === "ERR_NETWORK" ||
@@ -320,6 +452,7 @@ export function AircraftTechnicalLogbook() {
       setTotalPages(0);
       setTotalEntries(0);
     } finally {
+      if (listFetchSeqRef.current !== requestId) return;
       if (!preserveView) {
         setTimeout(() => setLoading(false), 360);
       } else {
@@ -349,10 +482,19 @@ export function AircraftTechnicalLogbook() {
     };
   }, [searchTerm]);
 
+  const listQueryKey = `${debouncedSearchTerm}|${selectedAircraftFk ?? ""}|${selectedAtlBatchFk ?? ""}|${selectedWorkStatusFilter ?? ""}|${sortBy}|${itemsPerPage}`;
+
   useEffect(() => {
     if (skipNextPagedFetchRef.current) {
       skipNextPagedFetchRef.current = false;
       return;
+    }
+    if (prevListQueryKeyRef.current !== listQueryKey) {
+      prevListQueryKeyRef.current = listQueryKey;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
     }
     fetchEntries();
   }, [
@@ -365,24 +507,8 @@ export function AircraftTechnicalLogbook() {
     sortBy,
     isMaintenancePlanner,
     isAtlDeepLinkRoute,
+    listQueryKey,
   ]);
-
-  // Reset to page 1 when sort changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [sortBy]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedAircraftId]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedAtlBatchId]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedWorkStatus]);
 
   useEffect(() => {
     setSelectedEntryIds(new Set());
@@ -402,7 +528,7 @@ export function AircraftTechnicalLogbook() {
       return;
     }
     let cancelled = false;
-    getAtlBatchesForSelect()
+    getAtlBatchesForSelect(selectedAircraftFk)
       .then((list) => {
         if (cancelled) return;
         const batches = Array.isArray(list) ? list : [];
@@ -423,7 +549,7 @@ export function AircraftTechnicalLogbook() {
     return () => {
       cancelled = true;
     };
-  }, [showAtlBatchFilter]);
+  }, [showAtlBatchFilter, selectedAircraftFk]);
 
   useEffect(() => {
     let isMounted = true;
@@ -796,6 +922,76 @@ export function AircraftTechnicalLogbook() {
     }
   };
 
+  const viewEntryNav = usePagedRecordNavigation<LogbookEntry>({
+    isOpen: isViewModalOpen,
+    records: entries,
+    currentId: selectedEntry?.id,
+    currentPage,
+    totalPages,
+    holdBusyUntilIdle: true,
+    fetchPage: async (page) => {
+      const response = await fetchLogbookPage(page, itemsPerPage);
+      return {
+        items: response.items.map((item) => mapToLogbookEntry(item)),
+        pages: response.pages,
+        total: response.total,
+      };
+    },
+    applyPage: (page, result) => {
+      skipNextPagedFetchRef.current = true;
+      setEntries(result.items);
+      setCurrentPage(page);
+      if (result.pages != null) {
+        setTotalPages(
+          result.total && result.total > 0
+            ? Math.max(1, result.pages)
+            : result.pages
+        );
+      }
+      if (result.total != null) setTotalEntries(result.total);
+    },
+    onSelect: (record) => {
+      setSelectedFullEntry(null);
+      setSelectedEntry(record);
+      setIsViewModalOpen(true);
+    },
+  });
+
+  const editEntryNav = usePagedRecordNavigation<LogbookEntry>({
+    isOpen: isEditModalOpen,
+    records: entries,
+    currentId: selectedEntry?.id,
+    currentPage,
+    totalPages,
+    holdBusyUntilIdle: true,
+    fetchPage: async (page) => {
+      const response = await fetchLogbookPage(page, itemsPerPage);
+      return {
+        items: response.items.map((item) => mapToLogbookEntry(item)),
+        pages: response.pages,
+        total: response.total,
+      };
+    },
+    applyPage: (page, result) => {
+      skipNextPagedFetchRef.current = true;
+      setEntries(result.items);
+      setCurrentPage(page);
+      if (result.pages != null) {
+        setTotalPages(
+          result.total && result.total > 0
+            ? Math.max(1, result.pages)
+            : result.pages
+        );
+      }
+      if (result.total != null) setTotalEntries(result.total);
+    },
+    onSelect: (record) => {
+      setSelectedFullEntry(null);
+      setSelectedEntry(record);
+      setIsEditModalOpen(true);
+    },
+  });
+
   const canOpenAtlEditForEntry = (_entry: LogbookEntry) =>
     canOpenAtlEditModal(logbookAtlRole);
 
@@ -970,10 +1166,45 @@ export function AircraftTechnicalLogbook() {
             <Printer className="w-4 h-4 text-gray-600" />
             <span className="text-gray-700 hidden sm:inline">Print</span>
           </button>
-          <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm">
-            <Download className="w-4 h-4 text-gray-600" />
-            <span className="text-gray-700 hidden sm:inline">Export</span>
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                disabled={exportLoading}
+                className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm disabled:opacity-50 disabled:pointer-events-none"
+              >
+                {exportLoading ? (
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-gray-600" />
+                )}
+                <span className="text-gray-700 hidden sm:inline">
+                  {exportLoading ? "Exporting…" : "Export"}
+                </span>
+                <ChevronDown className="w-4 h-4 shrink-0 text-gray-600 opacity-70" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              className="min-w-[11rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+            >
+              <DropdownMenuItem
+                disabled={exportLoading}
+                onSelect={() => void handleLogbookExport("csv")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={exportLoading}
+                onSelect={() => void handleLogbookExport("xlsx")}
+                className="bg-white text-gray-900 focus:bg-gray-100 focus:text-gray-900 data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900"
+              >
+                Export XLSX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {canCreate("logbook") && (
             <button
               onClick={() => setIsModalOpen(true)}
@@ -1434,7 +1665,7 @@ export function AircraftTechnicalLogbook() {
               totalLabel="entries"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[10, 20, 30, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
               disabled={loading}
               className="px-6"
             />
@@ -1469,12 +1700,27 @@ export function AircraftTechnicalLogbook() {
           }}
           onSuccess={handleUpdateSuccess}
           entryId={selectedEntry.id}
+          aircraftId={selectedAircraftFk}
           permissionModuleCode="logbook"
           viewerRole={logbookAtlRole}
           editRestrictedToWhiteAtlDfpOnly={isTechnicalPublicationRestrictedEdit(
             logbookAtlRole,
             selectedEntry.workStatus
           )}
+          onPrevious={editEntryNav.goPrevious}
+          onNext={editEntryNav.goNext}
+          hasPrevious={editEntryNav.hasPrevious}
+          hasNext={editEntryNav.hasNext}
+          navigationBusy={editEntryNav.navigating}
+          onLoadStateChange={(isLoading) => {
+            if (!isLoading) editEntryNav.release();
+          }}
+          onEntryLoadFailed={(keepId) => {
+            setSelectedEntry((prev) => {
+              if (!prev || prev.id === keepId) return prev;
+              return entries.find((row) => row.id === keepId) ?? prev;
+            });
+          }}
         />
       )}
 
@@ -1500,6 +1746,14 @@ export function AircraftTechnicalLogbook() {
         entry={selectedEntry}
         fullEntry={selectedFullEntry}
         permissionModuleCode="logbook"
+        onPrevious={viewEntryNav.goPrevious}
+        onNext={viewEntryNav.goNext}
+        hasPrevious={viewEntryNav.hasPrevious}
+        hasNext={viewEntryNav.hasNext}
+        navigationBusy={viewEntryNav.navigating}
+        onLoadStateChange={(isLoading) => {
+          if (!isLoading) viewEntryNav.release();
+        }}
       />
     </div>
   );

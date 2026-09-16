@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAuditLogDetail } from "../../hooks/useAuditLogs";
 import { Spinner } from "../ui/spinner";
+import { useOverlayEscape } from "../../hooks/useOverlayEscape";
 import { AuditTrailActionBadge } from "./AuditTrailActionBadge";
 import {
   formatAuditDateTime,
@@ -119,6 +120,11 @@ export function AuditTrailDetailModal({
   );
 
   const close = () => onOpenChange(false);
+
+  useOverlayEscape({
+    enabled: open,
+    onClose: close,
+  });
 
   if (!open) return null;
 

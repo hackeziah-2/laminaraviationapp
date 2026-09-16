@@ -11,6 +11,10 @@ import { useUserPermissions } from "../../hooks/useUserPermissions";
 import { AddAuthorizationScopeModal } from "../AddAuthorizationScopeModal";
 import { ViewAuthorizationScopeModal } from "../ViewAuthorizationScopeModal";
 import { DataTablePagination } from "../ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../../constants/pagination";
 
 export interface AuthorizationScopePanelConfig {
   scopeType: AuthorizationScopeType;
@@ -83,7 +87,7 @@ export function AuthorizationScopeSettingsPanel({
   const [editScopeId, setEditScopeId] = useState<number | null>(null);
   const [viewScopeId, setViewScopeId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalScopes, setTotalScopes] = useState(0);
 
@@ -308,7 +312,7 @@ export function AuthorizationScopeSettingsPanel({
               totalLabel={config.entityLabelPlural}
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[5, 10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             />
           )}
         </div>
@@ -354,6 +358,19 @@ export const AUTH_SCOPE_BARON_CONFIG: AuthorizationScopePanelConfig = {
   title: "Auth Scope Baron",
   description:
     "Create, view, edit, and remove authorization scopes for Baron aircraft (95-C55).",
+  entityLabel: "auth scope",
+  entityLabelPlural: "scopes",
+  createButtonLabel: "Add new",
+  emptyTitle: "No auth scopes yet",
+  emptyDescription:
+    "Create an authorization scope for use in Personnel Authorization.",
+};
+
+export const AUTH_SCOPE_PIPER_CONFIG: AuthorizationScopePanelConfig = {
+  scopeType: "piper",
+  title: "Auth Scope PIPER PA-34",
+  description:
+    "Create, view, edit, and remove authorization scopes for PIPER PA-34 aircraft.",
   entityLabel: "auth scope",
   entityLabelPlural: "scopes",
   createButtonLabel: "Add new",

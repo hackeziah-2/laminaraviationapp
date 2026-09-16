@@ -10,6 +10,7 @@ import {
   type AuthorizationScopeType,
 } from "../api/authorizationScopeApi";
 import { Spinner } from "./ui/spinner";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 interface AddAuthorizationScopeModalProps {
   scopeType: AuthorizationScopeType;
@@ -81,6 +82,15 @@ export function AddAuthorizationScopeModal({
       cancelled = true;
     };
   }, [isOpen, editScopeId, onClose, scopeType, entityLabel]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting || loadingScope) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen) return null;
 

@@ -6,6 +6,7 @@ import { SpinnerIcon } from "./ui/spinner";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { formatDateForApi } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 interface AddTCCModalProps {
   isOpen: boolean;
@@ -233,6 +234,15 @@ export function AddTCCModal({
     setAtlSearchDebounced("");
     setAtlOptions([]);
   };
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: handleClose,
+  });
+  useOverlayEscape({
+    enabled: isOpen && atlOpen,
+    onClose: () => setAtlOpen(false),
+  });
 
   if (!isOpen) return null;
 

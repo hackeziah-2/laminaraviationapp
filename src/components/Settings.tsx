@@ -42,7 +42,12 @@ import {
   getModuleLabel,
 } from "../constants/modulePermissions";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
@@ -269,6 +274,17 @@ function AddUsersByJsonModal({
   const [jsonText, setJsonText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting) return;
+      setJsonText("");
+      setProgress({ current: 0, total: 0 });
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen) return null;
 
@@ -517,6 +533,15 @@ function AddUserModal({ isOpen, onClose, onAdd, roles }: AddUserModalProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen) return null;
 
@@ -945,6 +970,15 @@ function EditUserModal({
       .catch(() => {});
   }, [isOpen, user?.id]);
 
+  useOverlayEscape({
+    enabled: Boolean(isOpen && user),
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
+
   if (!isOpen || !user) return null;
 
   const validate = () => {
@@ -1257,6 +1291,15 @@ function DeactivateUserModal({
 }: DeactivateUserModalProps) {
   const [submitting, setSubmitting] = useState(false);
 
+  useOverlayEscape({
+    enabled: Boolean(isOpen && user),
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
+
   if (!isOpen || !user) return null;
 
   const isDeactivating = user.status === "active";
@@ -1406,6 +1449,15 @@ function ResetPasswordModal({
       setPasswordError("");
     }
   }, [isOpen]);
+
+  useOverlayEscape({
+    enabled: Boolean(isOpen && user),
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen || !user) return null;
 
@@ -1647,6 +1699,15 @@ function EditRoleModal({
       };
     }
   }, [role, permissions, moduleList]);
+
+  useOverlayEscape({
+    enabled: Boolean(isOpen && role),
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
 
   if (!isOpen || !role) return null;
 
@@ -1906,6 +1967,15 @@ function CreateRoleModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (submitting) return;
+      onClose();
+    },
+    isBusy: submitting,
+  });
+
   if (!isOpen) return null;
 
   const togglePermission = (
@@ -2154,7 +2224,7 @@ export function Settings() {
   const [usersError, setUsersError] = useState<string | null>(null);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalUsers, setTotalUsers] = useState(0);
 
@@ -3106,7 +3176,7 @@ export function Settings() {
                         totalLabel="items"
                         itemsPerPage={itemsPerPage}
                         onItemsPerPageChange={setItemsPerPage}
-                        pageSizeOptions={[10, 20, 50]}
+                        pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
                       />
                     )}
                 </div>

@@ -35,10 +35,15 @@ import {
 } from "../api/aircraftApi";
 import { SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import { SortableTableRow } from "./SortableTableRow";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useTableDisplayOrderReorder } from "../hooks/useTableDisplayOrderReorder";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDisplayDate } from "../utility/utils";
 import {
   AIRCRAFT_ARRANGEMENT_DISABLED_TOOLTIP,
@@ -179,7 +184,7 @@ export function AircraftFleetDailyUpdate() {
   const [searchDebounced, setSearchDebounced] = useState("");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [items, setItems] = useState<FleetDailyUpdateItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -601,6 +606,15 @@ export function AircraftFleetDailyUpdate() {
     );
   };
 
+  useOverlayEscape({
+    enabled: showRemarkModal,
+    onClose: () => {
+      if (savingRemark) return;
+      setShowRemarkModal(false);
+    },
+    isBusy: savingRemark,
+  });
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -735,6 +749,17 @@ export function AircraftFleetDailyUpdate() {
               <SpinnerIcon size="lg" />
             </div>
           ) : null}
+          <DndContext
+            sensors={dailyDndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDailyDragEnd}
+          >
+            <SortableContext
+              items={items
+                .map((item) => getAircraftSortId(item))
+                .filter((id) => id > 0)}
+              strategy={verticalListSortingStrategy}
+            >
           <table className="w-full">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-300">
@@ -817,17 +842,6 @@ export function AircraftFleetDailyUpdate() {
                 <th></th>
               </tr>
             </thead>
-            <DndContext
-              sensors={dailyDndSensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDailyDragEnd}
-            >
-              <SortableContext
-                items={items
-                  .map((item) => getAircraftSortId(item))
-                  .filter((id) => id > 0)}
-                strategy={verticalListSortingStrategy}
-              >
                 <tbody>
                   {items.length === 0 ? (
                     <tr>
@@ -1033,9 +1047,9 @@ export function AircraftFleetDailyUpdate() {
                     })
                   )}
                 </tbody>
-              </SortableContext>
-            </DndContext>
           </table>
+            </SortableContext>
+          </DndContext>
         </div>
 
         {total > 0 && !loading && (
@@ -1054,7 +1068,7 @@ export function AircraftFleetDailyUpdate() {
               setItemsPerPage(size);
               setCurrentPage(1);
             }}
-            pageSizeOptions={[10, 25, 50]}
+            pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             disabled={loading || dailyReordering || bulkEditMode}
             className="px-6"
           />

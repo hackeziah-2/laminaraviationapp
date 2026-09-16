@@ -11,7 +11,12 @@ import {
 } from "lucide-react";
 import { formatTimeZulu, formatDisplayDate } from "../utility/utils";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { PageSizeSelect } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 
 interface ReliabilityRecord {
   atlSeqNo: string;
@@ -47,7 +52,7 @@ export function ReliabilityMonitoring() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [filterMonth, setFilterMonth] = useState("April");
   const [filterYear, setFilterYear] = useState("2023");
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [formData, setFormData] = useState({
     atlSeqNo: "",
     workStartedDate: "",
@@ -291,6 +296,11 @@ export function ReliabilityMonitoring() {
     },
   ];
 
+  useOverlayEscape({
+    enabled: showAddModal,
+    onClose: () => setShowAddModal(false),
+  });
+
   return (
     <div className="flex-1 overflow-auto">
       {/* Header */}
@@ -409,7 +419,7 @@ export function ReliabilityMonitoring() {
 
               <PageSizeSelect
                 value={itemsPerPage}
-                options={[10, 25, 50]}
+                options={[...API_PAGE_SIZE_OPTIONS]}
                 onChange={setItemsPerPage}
               />
             </div>

@@ -1,5 +1,4 @@
 import {
-  X,
   Plus,
   Trash2,
   ChevronDown,
@@ -13,12 +12,24 @@ import {
   useEffect,
   useRef,
   useMemo,
+  useCallback,
   type ChangeEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
+import { navigateAfterDiscardCheck } from "../utils/confirmDiscardUnsavedChanges";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
+import {
+  ATL_FORM_UPPERCASE_SKIP_KEYS,
+  toUppercaseInput,
+  wrapUppercaseComponentRecordsSetter,
+  wrapUppercaseFormSetter,
+} from "../utils/uppercaseTextInput";
+import { ModalRecordNav } from "./ui/ModalRecordNav";
+import { ModalChromeHeader } from "./ui/ModalChromeHeader";
+import { AutoResizeTextarea } from "./ui/AutoResizeTextarea";
 import { getAircrafts, getAircraftById } from "../api/aircraftApi";
 import {
   getAccountsByDesignation,
@@ -41,6 +52,7 @@ import {
   hasTsnValue,
   parseAtlAssigneeIdForApi,
   isAtlEmptyAssigneeValue,
+  pilotAcceptanceNameFieldsForApi,
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
@@ -48,6 +60,7 @@ import {
   computeTotalBlockTimeFromUtc,
   toCamel,
   formatOptionalNumber2dp,
+  formatAtlTachHobbsDisplay1dp,
   formatAtlTboDisplay1dp,
   formatTotalFlightTimeForDisplay,
   formatZuluTimeKeyboardInput,
@@ -100,6 +113,12 @@ import {
  */
 const DEFAULT_ATL_PREV_TIME = "0.00";
 
+type AtlTachHobbsEditableField =
+  | "tachometerStart"
+  | "tachometerEnd"
+  | "hobbsMeterStart"
+  | "hobbsMeterEnd";
+
 function parseAtlBatchFkForLatest(
   raw: string | null | undefined
 ): number | undefined {
@@ -136,8 +155,10 @@ function formatAtlLifeLimitFromPrevious(value: unknown): string {
 }
 
 /**
- * Fuel Qty. (Gals) keyboard order: Left then Right per row, then Oil Qty. Uplift.
- * Enter advances to the next field and must not submit the form.
+ * Fuel Qty. keyboard: Enter advances Left/Right then Oil Uplift.
+ * Tab order is DOM order (Landings → Fuel → Oil → Tach → Hobbs).
+ * Do not use positive tabIndex here — it would jump these fields to the
+ * start of the form.
  */
 function handleFuelQtyKeyDown(event: KeyboardEvent<HTMLInputElement>) {
   if (event.key !== "Enter") return;
@@ -145,8 +166,12 @@ function handleFuelQtyKeyDown(event: KeyboardEvent<HTMLInputElement>) {
   if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
   const form = event.currentTarget.form;
   if (!form) return;
+  const current = Number(
+    event.currentTarget.getAttribute("data-atl-enter-seq")
+  );
+  if (!Number.isFinite(current) || current <= 0) return;
   const next = form.querySelector<HTMLElement>(
-    `[tabindex="${event.currentTarget.tabIndex + 1}"]`
+    `[data-atl-enter-seq="${current + 1}"]`
   );
   next?.focus();
 }
@@ -241,16 +266,13 @@ function inspectionDueFieldsFromPreviousAtl(
 
   const raw = previousAtl as AircraftTechnicalLog & Record<string, unknown>;
   const inspRaw =
-    previousAtl.nextInspectionDue ??
-    raw.next_inspection_due ??
-    raw.nextInspDue;
+    previousAtl.nextInspectionDue ?? raw.next_inspection_due ?? raw.nextInspDue;
   const nextInspectionDue =
     inspRaw != null && String(inspRaw).trim() !== ""
       ? String(inspRaw).trim()
       : "";
 
-  const rawTach =
-    previousAtl.tachTimeDue ?? raw.tach_time_due ?? raw.tachDue;
+  const rawTach = previousAtl.tachTimeDue ?? raw.tach_time_due ?? raw.tachDue;
   let tachTimeDue = "";
   if (rawTach != null && rawTach !== "") {
     if (typeof rawTach === "number") {
@@ -264,11 +286,12 @@ function inspectionDueFieldsFromPreviousAtl(
 }
 
 /**
- * Create-only: Pilot's Acceptance Name and Pilot Remarks Name (pilotAcceptedBy)
- * from the previous/latest ATL (highest numeric sequenceNo for aircraft + batch).
- * Empty string when missing / invalid. Edit must not use this.
+ * Create-only: Pilot Remarks Name from the previous/latest ATL's
+ * Pilot Acceptance Name (pilotAcceptedBy). Empty string when missing / invalid.
+ * Pilot Acceptance Name itself is never inherited — it stays blank on create.
+ * Edit must not use this.
  */
-function pilotAcceptedByFromPreviousAtl(
+function remarksPersonFromPreviousAtl(
   previousAtl: AircraftTechnicalLog | null
 ): string {
   if (!previousAtl) return "";
@@ -278,9 +301,7 @@ function pilotAcceptedByFromPreviousAtl(
     raw.pilot_accepted_by ??
     previousAtl.pilotFk ??
     raw.pilot_fk;
-  return atlAssigneeIdToFormValue(
-    value as string | number | null | undefined
-  );
+  return atlAssigneeIdToFormValue(value as string | number | null | undefined);
 }
 
 /**
@@ -295,6 +316,9 @@ function atlAssigneeIdToFormValue(
 
 /** Closed-select display when no person is assigned — blank, never None/null/"No Selected Name". */
 const ATL_ASSIGNEE_NONE_LABEL = "";
+
+/** Dropdown option to clear Pilot Acceptance Name; closed field stays blank. */
+const PILOT_ACCEPTANCE_CLEAR_OPTION_LABEL = "";
 
 function isAtlAssigneeNoneSelected(
   accountId: string | undefined | null,
@@ -396,7 +420,7 @@ function AtlNameDropdownOption({
       onClick={onSelect}
       className={atlNameDropdownOptionClassName(highlighted, selected)}
     >
-      <span className="text-gray-900 text-sm">{children}</span>
+      <span className="atl-dropdown-name text-sm">{children}</span>
       {selected && <Check className="w-4 h-4 text-blue-600" />}
     </li>
   );
@@ -442,6 +466,11 @@ function useAtlNameDropdownKeyboard({
     scrollAtlNameOptionIntoView(optionRefs.current[highlightedIndex]);
   }, [highlightedIndex, isOpen, optionIdsKey]);
 
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => onCloseRef.current(),
+  });
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -468,6 +497,7 @@ function useAtlNameDropdownKeyboard({
       });
     } else if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       onCloseRef.current();
     }
   };
@@ -537,7 +567,7 @@ function applyZeroFlightMeterEndsFromStarts<
     tachometerEnd: string;
     hobbsMeterStart: string;
     hobbsMeterEnd: string;
-  },
+  }
 >(form: T): T {
   return {
     ...form,
@@ -578,7 +608,7 @@ function resolveAircraftBaseLocation(aircraft: unknown): string {
  * - replace: when the selected aircraft changes
  */
 function applyOffBlocksStationFromBaseLocation<
-  T extends { offBlocksStation: string },
+  T extends { offBlocksStation: string }
 >(
   form: T,
   baseLocation: string | undefined | null,
@@ -797,9 +827,7 @@ type AtlComponentMetricsContext = {
 };
 
 /** Aircraft Profile TSN gate: GET /api/v1/aircraft/{id} engine_tsn / propeller_tsn. */
-function resolveAircraftProfileTsnGate(
-  aircraft: Aircraft | null | undefined
-): {
+function resolveAircraftProfileTsnGate(aircraft: Aircraft | null | undefined): {
   engineTsnEnabled: boolean;
   propellerTsnEnabled: boolean;
   engineTsnBaseline: number | null;
@@ -883,7 +911,10 @@ function resolveAtlLifeLimitForCompute(
   aircraftLifeLimit?: string
 ): string {
   if (parseFiniteFloatField(formLifeLimit) != null) return formLifeLimit;
-  if (aircraftLifeLimit != null && parseFiniteFloatField(aircraftLifeLimit) != null) {
+  if (
+    aircraftLifeLimit != null &&
+    parseFiniteFloatField(aircraftLifeLimit) != null
+  ) {
     return aircraftLifeLimit;
   }
   return formLifeLimit || aircraftLifeLimit || "";
@@ -1373,7 +1404,11 @@ function recomputeEngineChainFromRunTime(
   );
   if (tso != null) {
     patch.engineTso = tso;
-    patch.engineTbo = recomputeAtlTboOnTsoChange(lifeLimit, tso, form.engineTbo);
+    patch.engineTbo = recomputeAtlTboOnTsoChange(
+      lifeLimit,
+      tso,
+      form.engineTbo
+    );
   }
   return patch;
 }
@@ -1727,6 +1762,27 @@ function hasTechPubAttachmentOrLinkUpdate(
   return false;
 }
 
+function fileSnapshotToken(value: unknown): string | null {
+  if (value instanceof File) {
+    return `file:${value.name}:${value.size}:${value.lastModified}`;
+  }
+  return null;
+}
+
+function serializeAtlEditSnapshot(
+  formData: Record<string, unknown>,
+  componentRecords: Array<{ id?: string; [key: string]: unknown }>
+): string {
+  const form: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(formData)) {
+    form[key] = value instanceof File ? fileSnapshotToken(value) : value;
+  }
+  return JSON.stringify({
+    form,
+    parts: componentRecords.map(({ id: _id, ...rest }) => rest),
+  });
+}
+
 interface AddTechnicalLogbookEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -1746,6 +1802,19 @@ interface AddTechnicalLogbookEntryModalProps {
   forceReadOnly?: boolean;
   /** When creating, pre-select ATL batch (e.g. match parent "Filter by ATL batch"). Ignored when editEntry is set. */
   defaultAtlBatchFk?: number;
+  /** Extra side padding so previous/next controls do not cover the card. */
+  sideGutter?: boolean;
+  /** Overlay spinner while swapping the displayed record (View/Edit navigation). */
+  contentLoading?: boolean;
+  /** Shown in the Edit modal when the next sequence fails to load. */
+  entrySwitchError?: string | null;
+  /** Previous/next controls rendered in the overlay gutters. */
+  recordNavigation?: ReactNode;
+  onPrevious?: () => void | Promise<void>;
+  onNext?: () => void | Promise<void>;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  navigationBusy?: boolean;
 }
 
 export function AddTechnicalLogbookEntryModal({
@@ -1759,6 +1828,15 @@ export function AddTechnicalLogbookEntryModal({
   editRestrictedToWhiteAtlDfpOnly = false,
   forceReadOnly = false,
   defaultAtlBatchFk,
+  sideGutter = false,
+  contentLoading = false,
+  entrySwitchError = null,
+  recordNavigation,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
+  navigationBusy = false,
 }: AddTechnicalLogbookEntryModalProps) {
   const {
     canUpdate,
@@ -1778,6 +1856,12 @@ export function AddTechnicalLogbookEntryModal({
   const atlInitRequestIdRef = useRef(0);
   /** Increments on each Nature of Flight defaults fetch so stale responses cannot overwrite. */
   const nofDefaultsRequestIdRef = useRef(0);
+  const formScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    formScrollRef.current?.scrollTo({ top: 0 });
+  }, [isOpen, editEntry?.id]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1788,6 +1872,12 @@ export function AddTechnicalLogbookEntryModal({
       setIsInitializing(false);
       setLoadingNofDefaults(false);
       setNofDefaultsMessage(null);
+      setIsAircraftDropdownOpen(false);
+      setIsRemarksDropdownOpen(false);
+      setIsActionsTakenDropdownOpen(false);
+      setIsPilotDropdownOpen(false);
+      setIsRtsDropdownOpen(false);
+      setTachHobbsFocusedField(null);
       return;
     }
     if (!editEntry) {
@@ -1904,12 +1994,11 @@ export function AddTechnicalLogbookEntryModal({
   const mainFormLocked =
     atlFormReadOnly || attachmentsOnlyLocked || isInitializing;
   /** View / full read-only: no uploads. Attachment-only edit may still upload when allowed. */
-  const canUploadAtlInCurrentMode =
-    !forceReadOnly && canEditWhiteAtlDfpSection;
+  const canUploadAtlInCurrentMode = !forceReadOnly && canEditWhiteAtlDfpSection;
 
   const mod = permissionModuleCode;
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormDataRaw] = useState({
     seqNo: "",
     workStatus: "FOR_REVIEW",
     acReg: "",
@@ -2000,6 +2089,14 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitEngine: "",
     lifeTimeLimitPropeller: "",
   });
+  const setFormData = useMemo(
+    () =>
+      wrapUppercaseFormSetter(
+        setFormDataRaw,
+        ATL_FORM_UPPERCASE_SKIP_KEYS
+      ),
+    [setFormDataRaw]
+  );
 
   const techPubCanSubmitAttachmentsOnlyEdit = useMemo(() => {
     if (!attachmentsOnlyLocked || !canUploadAtlInCurrentMode) return false;
@@ -2092,9 +2189,51 @@ export function AddTechnicalLogbookEntryModal({
     partRemark: string;
   }
 
-  const [componentRecords, setComponentRecords] = useState<ComponentRecord[]>(
-    []
+  const [componentRecords, setComponentRecordsRaw] = useState<
+    ComponentRecord[]
+  >([]);
+  const setComponentRecords = useMemo(
+    () => wrapUppercaseComponentRecordsSetter(setComponentRecordsRaw),
+    [setComponentRecordsRaw]
   );
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
+  const componentRecordsRef = useRef(componentRecords);
+  componentRecordsRef.current = componentRecords;
+  const atlEditSnapshotRef = useRef<string | null>(null);
+  const atlEditHydratingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen || !editEntry || forceReadOnly) {
+      atlEditSnapshotRef.current = null;
+      atlEditHydratingRef.current = false;
+      return;
+    }
+    atlEditHydratingRef.current = true;
+    atlEditSnapshotRef.current = null;
+    const entryId = editEntry.id;
+    let cancelled = false;
+    const captureBaseline = () => {
+      if (cancelled || editEntry.id !== entryId) return;
+      if (editAtlInitialHydrationRef.current) {
+        timer = window.setTimeout(captureBaseline, 50);
+        return;
+      }
+      timer = window.setTimeout(() => {
+        if (cancelled || editEntry.id !== entryId) return;
+        atlEditSnapshotRef.current = serializeAtlEditSnapshot(
+          formDataRef.current as unknown as Record<string, unknown>,
+          componentRecordsRef.current
+        );
+        atlEditHydratingRef.current = false;
+      }, 250);
+    };
+    let timer = window.setTimeout(captureBaseline, 50);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, editEntry?.id, forceReadOnly]);
 
   // Aircraft searchable dropdown state
   const [aircrafts, setAircrafts] = useState<
@@ -2111,6 +2250,8 @@ export function AddTechnicalLogbookEntryModal({
   const [nofDefaultsMessage, setNofDefaultsMessage] = useState<string | null>(
     null
   );
+  const [tachHobbsFocusedField, setTachHobbsFocusedField] =
+    useState<AtlTachHobbsEditableField | null>(null);
 
   const [atlBatchOptions, setAtlBatchOptions] = useState<AtlBatch[]>([]);
 
@@ -2211,7 +2352,8 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
     let cancelled = false;
-    getAtlBatchesForSelect()
+    const batchAircraftId = aircraftId ?? selectedAircraftId ?? null;
+    getAtlBatchesForSelect(batchAircraftId)
       .then((list) => {
         if (!cancelled) setAtlBatchOptions(Array.isArray(list) ? list : []);
       })
@@ -2221,7 +2363,7 @@ export function AddTechnicalLogbookEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, editEntry, showAtlBatchFilter]);
+  }, [isOpen, editEntry, showAtlBatchFilter, aircraftId, selectedAircraftId]);
 
   // Auto-select aircraft when aircraftId prop is provided (from useParams)
   useEffect(() => {
@@ -2477,7 +2619,9 @@ export function AddTechnicalLogbookEntryModal({
         pilotName: "",
         // Pilot's Acceptance Name ← pilotAcceptedBy (same unassigned/null behavior as RTS)
         pilotFk: atlAssigneeIdToFormValue(
-          editEntry.pilotAcceptedBy ?? editEntry.pilotFk
+          editEntry.pilotAcceptedBy !== undefined
+            ? editEntry.pilotAcceptedBy
+            : editEntry.pilotFk
         ),
         pilotAcceptDate: editEntry.pilotAcceptDate || "",
         pilotAcceptTime: formatTimeFromAPI(editEntry.pilotAcceptTime),
@@ -2589,7 +2733,9 @@ export function AddTechnicalLogbookEntryModal({
             : undefined
         );
         const pilotResolved = await resolveLabel(
-          editEntry.pilotAcceptedBy ?? editEntry.pilotFk ?? null
+          editEntry.pilotAcceptedBy !== undefined
+            ? editEntry.pilotAcceptedBy
+            : (editEntry.pilotFk ?? null)
         );
         const rtsResolved = await resolveLabel(editEntry.rtsSignedBy ?? null);
 
@@ -2991,10 +3137,10 @@ export function AddTechnicalLogbookEntryModal({
           batchFk != null && Number.isFinite(batchFk) && batchFk > 0
             ? batchFk
             : defaultAtlBatchFk != null &&
-                Number.isFinite(defaultAtlBatchFk) &&
-                defaultAtlBatchFk > 0
-              ? defaultAtlBatchFk
-              : undefined;
+              Number.isFinite(defaultAtlBatchFk) &&
+              defaultAtlBatchFk > 0
+            ? defaultAtlBatchFk
+            : undefined;
 
         if (batchForPrevious != null) {
           try {
@@ -3085,11 +3231,11 @@ export function AddTechnicalLogbookEntryModal({
           latestEntry.tachometerEnd != null && latestEntry.tachometerEnd !== 0
             ? latestEntry.tachometerEnd.toString()
             : "0";
-        // Create-only: Pilot's Acceptance ← latest ATL (highest sequenceNo for aircraft + batch)
-        // Fall back to /previous row when latest has no assignee.
-        const pilotAcceptedByFromPrevious =
-          pilotAcceptedByFromPreviousAtl(latestEntry) ||
-          pilotAcceptedByFromPreviousAtl(previousBySequenceAtl);
+        // Create-only: Pilot Remarks Name ← previous ATL Pilot Acceptance Name.
+        // Pilot Acceptance Name itself stays blank (no autofill).
+        const remarksPersonFromPrevious =
+          remarksPersonFromPreviousAtl(latestEntry) ||
+          remarksPersonFromPreviousAtl(previousBySequenceAtl);
 
         setFormData((prev) => {
           if (editEntry) {
@@ -3143,11 +3289,11 @@ export function AddTechnicalLogbookEntryModal({
             lifeTimeLimitPropeller,
             // Assign previous ATL NEXT INSP. DUE / TACH TIME DUE onto new create
             ...inspectionDueFieldsFromPreviousAtl(previousBySequenceAtl),
-            // Create: inherit pilotAcceptedBy from latest ATL; empty → blank (null on save)
-            pilotFk: pilotAcceptedByFromPrevious,
+            // Create: Pilot Acceptance Name is blank; no copy from previous ATL or user
+            pilotFk: "",
             pilotName: "",
             // Create: Pilot Remarks Name ← previous ATL pilot_accepted_by (editable; blank if missing)
-            remarksPerson: pilotAcceptedByFromPrevious,
+            remarksPerson: remarksPersonFromPrevious,
             remarksPersonName: "",
             // RTS Name stays unassigned (blank) by default on create
             rtsSignedBy: "",
@@ -3180,42 +3326,31 @@ export function AddTechnicalLogbookEntryModal({
             ),
           };
         });
-        // Create-only: resolve inherited pilotAcceptedBy → display labels (user may change)
-        if (isAddEntry && pilotAcceptedByFromPrevious) {
+        // Create-only: resolve inherited remarks person → display label (user may change)
+        if (isAddEntry && remarksPersonFromPrevious) {
           void (async () => {
             try {
               const account = await getAccount(
-                Number(pilotAcceptedByFromPrevious)
+                Number(remarksPersonFromPrevious)
               );
               if (atlInitRequestIdRef.current !== requestId) return;
               const label = formatAccountNameLicense(
                 account.fullName,
                 account.licenseNo
               );
-              setPilotAccounts((prev) => {
-                if (prev.some((a) => a.id === account.id)) return prev;
-                return [account, ...prev];
-              });
               setRemarksAccounts((prev) => {
                 if (prev.some((a) => a.id === account.id)) return prev;
                 return [account, ...prev];
               });
               setFormData((prev) => {
-                const next = { ...prev };
-                let changed = false;
-                if (prev.pilotFk === pilotAcceptedByFromPrevious) {
-                  next.pilotName = label;
-                  changed = true;
+                if (prev.remarksPerson !== remarksPersonFromPrevious) {
+                  return prev;
                 }
-                if (prev.remarksPerson === pilotAcceptedByFromPrevious) {
-                  next.remarksPersonName = label;
-                  changed = true;
-                }
-                return changed ? next : prev;
+                return { ...prev, remarksPersonName: label };
               });
             } catch (err) {
               console.error(
-                "Could not resolve previous ATL pilotAcceptedBy account:",
+                "Could not resolve previous ATL remarks person account:",
                 err
               );
             }
@@ -3226,9 +3361,8 @@ export function AddTechnicalLogbookEntryModal({
       }
 
       // No previous ATL — initial values from Aircraft Details
-      const aircraftFallback = buildAtlInitialValuesFromAircraftFallback(
-        aircraftCamelForInit
-      );
+      const aircraftFallback =
+        buildAtlInitialValuesFromAircraftFallback(aircraftCamelForInit);
       if (atlInitRequestIdRef.current !== requestId) return;
 
       syncAtlAircraftLifeLimitsRef({
@@ -3296,9 +3430,7 @@ export function AddTechnicalLogbookEntryModal({
           hobbsMeterTotal: "",
           tachometerStart: "0",
           airframeAftt: aircraftFallback.airframeAftt,
-          engineTsn: tsnGate.engineTsnEnabled
-            ? aircraftFallback.engineTsn
-            : "",
+          engineTsn: tsnGate.engineTsnEnabled ? aircraftFallback.engineTsn : "",
           engineTso: aircraftFallback.engineTso,
           engineTbo: aircraftFallback.engineTbo,
           propellerTsn: tsnGate.propellerTsnEnabled
@@ -4283,12 +4415,7 @@ export function AddTechnicalLogbookEntryModal({
 
       // Prev Time / AFTT / TSN / TSO → full table recompute
       if (isAtlTableCalculationField(field)) {
-        return recomputeAtlComponentTableFields(
-          next,
-          field,
-          ctx,
-          lifeLimits
-        );
+        return recomputeAtlComponentTableFields(next, field, ctx, lifeLimits);
       }
 
       // Blocks / Hobbs (and other meter fields)
@@ -4406,6 +4533,77 @@ export function AddTechnicalLogbookEntryModal({
       };
     });
   };
+
+  const showSeqNav = Boolean(onPrevious && onNext);
+  const sequenceNavDisabled =
+    contentLoading || navigationBusy || isSubmitting;
+
+  const isAtlEditFormDirty = useCallback(() => {
+    if (forceReadOnly || !editEntry) return false;
+    const currentForm = formDataRef.current as unknown as {
+      whiteAtl?: File | null;
+      dfp?: File | null;
+    };
+    if (
+      currentForm.whiteAtl instanceof File ||
+      currentForm.dfp instanceof File
+    ) {
+      return true;
+    }
+    if (atlEditHydratingRef.current) return false;
+    if (!atlEditSnapshotRef.current) return false;
+    return (
+      serializeAtlEditSnapshot(
+        formDataRef.current as unknown as Record<string, unknown>,
+        componentRecordsRef.current
+      ) !== atlEditSnapshotRef.current
+    );
+  }, [forceReadOnly, editEntry]);
+
+  const requestSequenceNavigate = useCallback(
+    async (navigate?: () => void | Promise<void>) => {
+      if (!navigate) return;
+      await navigateAfterDiscardCheck(isAtlEditFormDirty, navigate);
+    },
+    [isAtlEditFormDirty]
+  );
+
+  const handlePreviousSequence = useCallback(() => {
+    void requestSequenceNavigate(onPrevious);
+  }, [requestSequenceNavigate, onPrevious]);
+
+  const handleNextSequence = useCallback(() => {
+    void requestSequenceNavigate(onNext);
+  }, [requestSequenceNavigate, onNext]);
+
+  const closeFileViewModal = useCallback(() => {
+    setFileViewBlobUrl((current) => {
+      if (current) window.URL.revokeObjectURL(current);
+      return null;
+    });
+    setShowFileViewModal(false);
+    setFileViewMimeType(null);
+    setFileViewError(null);
+  }, []);
+
+  const requestClose = useCallback(async () => {
+    if (isSubmitting) return;
+    await navigateAfterDiscardCheck(isAtlEditFormDirty, onClose);
+  }, [isSubmitting, isAtlEditFormDirty, onClose]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: requestClose,
+    isBusy: isSubmitting,
+  });
+  useOverlayEscape({
+    enabled: isOpen && showFileViewModal,
+    onClose: closeFileViewModal,
+  });
+  useOverlayEscape({
+    enabled: isOpen && isAircraftDropdownOpen,
+    onClose: () => setIsAircraftDropdownOpen(false),
+  });
 
   if (!isOpen) return null;
 
@@ -4659,7 +4857,7 @@ export function AddTechnicalLogbookEntryModal({
       return;
     }
 
-    if (isSubmitting) return;
+    if (isSubmitting || contentLoading) return;
 
     setIsSubmitting(true);
     try {
@@ -4699,14 +4897,16 @@ export function AddTechnicalLogbookEntryModal({
             formData.natureOfFlight === "VOID"
               ? "VOID"
               : formData.natureOfFlight?.trim() || "TR",
-          nextInspectionDue: formData.nextInspectionDue || undefined,
+          nextInspectionDue: formData.nextInspectionDue
+            ? toUppercaseInput(formData.nextInspectionDue)
+            : undefined,
           tachTimeDue: formData.tachTimeDue
             ? parseFloat(formData.tachTimeDue)
             : undefined,
-          originStation: formData.offBlocksStation,
+          originStation: toUppercaseInput(formData.offBlocksStation),
           originDate: formData.offBlocksDate,
           originTime: convertTimeToAPIFormat(formData.offBlocksTime),
-          destinationStation: formData.onBlocksStation,
+          destinationStation: toUppercaseInput(formData.onBlocksStation),
           destinationDate: formData.onBlocksDate,
           destinationTime: convertTimeToAPIFormat(formData.onBlocksTime),
           numberOfLandings: parseFloat(formData.numberOfLandings) || 0,
@@ -4836,13 +5036,18 @@ export function AddTechnicalLogbookEntryModal({
           oilQtyAfterOnBlks: formData.oilQtyAfterOnBlks
             ? parseFloat(formData.oilQtyAfterOnBlks)
             : undefined,
-          remarks: combineAtlRemarks(
-            formData.pilotReport,
-            formData.maintenanceEntry
-          ),
-          actionsTaken: formData.actionsTaken || undefined,
-          // Keep pilot_fk in sync with Pilot's Acceptance (null when unassigned, same as rtsSignedBy)
-          pilotFk: parseAtlAssigneeIdForApi(formData.pilotFk),
+          remarks: (() => {
+            const combined = combineAtlRemarks(
+              formData.pilotReport,
+              formData.maintenanceEntry
+            );
+            return combined == null ? undefined : toUppercaseInput(combined);
+          })(),
+          actionsTaken: formData.actionsTaken
+            ? toUppercaseInput(formData.actionsTaken)
+            : undefined,
+          // Pilot Acceptance Name: form selection only (null when None/cleared)
+          ...pilotAcceptanceNameFieldsForApi(formData.pilotFk),
           // Remarks / Actions Taken Name: null when unassigned (same as pilotAcceptedBy)
           remarkPerson: parseAtlAssigneeIdForApi(formData.remarksPerson),
           // DB column is actiontaken_person → camel key must be actiontakenPerson for snakeAllKeys
@@ -4853,8 +5058,6 @@ export function AddTechnicalLogbookEntryModal({
           maintenanceFk: parseAtlAssigneeIdForApi(
             formData.remarksPerson || formData.actionsTakenPerson
           ),
-          // Always send null when cleared so create/update persist NULL (omit would keep prior on edit)
-          pilotAcceptedBy: parseAtlAssigneeIdForApi(formData.pilotFk),
           pilotAcceptDate: formData.pilotAcceptDate || undefined,
           pilotAcceptTime: formData.pilotAcceptTime
             ? convertTimeToAPIFormat(formData.pilotAcceptTime)
@@ -4904,24 +5107,41 @@ export function AddTechnicalLogbookEntryModal({
               original?.part_installed_remaining_time;
             return {
               qty: parseFloat(record.qty) || 0,
-              unit: record.unit,
-              nomenclature: record.nomenclature,
-              removedPartNo: record.removedPartNo || undefined,
-              removedSerialNo: record.removedSerialNo || undefined,
-              installedPartNo: record.installedPartNo || undefined,
-              installedSerialNo: record.installedSerialNo || undefined,
-              ataChapter: record.ataChapter || undefined,
-              partRemark: record.partRemark?.trim() || undefined,
+              unit: toUppercaseInput(record.unit),
+              nomenclature: toUppercaseInput(record.nomenclature),
+              removedPartNo: record.removedPartNo
+                ? toUppercaseInput(record.removedPartNo)
+                : undefined,
+              removedSerialNo: record.removedSerialNo
+                ? toUppercaseInput(record.removedSerialNo)
+                : undefined,
+              installedPartNo: record.installedPartNo
+                ? toUppercaseInput(record.installedPartNo)
+                : undefined,
+              installedSerialNo: record.installedSerialNo
+                ? toUppercaseInput(record.installedSerialNo)
+                : undefined,
+              ataChapter: record.ataChapter
+                ? toUppercaseInput(record.ataChapter)
+                : undefined,
+              partRemark: record.partRemark?.trim()
+                ? toUppercaseInput(record.partRemark.trim())
+                : undefined,
               // Preserve backend values on edit so existing DB columns stay intact
               ...(preservedRemoved != null &&
               String(preservedRemoved).trim() !== ""
-                ? { partRemovedRemainingTime: preservedRemoved as string | number }
+                ? {
+                    partRemovedRemainingTime: preservedRemoved as
+                      | string
+                      | number,
+                  }
                 : {}),
               ...(preservedInstalled != null &&
               String(preservedInstalled).trim() !== ""
                 ? {
-                    partInstalledRemainingTime:
-                      preservedInstalled as string | number,
+                    partInstalledRemainingTime: preservedInstalled as
+                      | string
+                      | number,
                   }
                 : {}),
             };
@@ -5230,14 +5450,6 @@ export function AddTechnicalLogbookEntryModal({
   );
   const existingDfpFilePath = getAtlStoredUploadFilePath(editEntry?.dfp);
 
-  const closeFileViewModal = () => {
-    if (fileViewBlobUrl) window.URL.revokeObjectURL(fileViewBlobUrl);
-    setShowFileViewModal(false);
-    setFileViewBlobUrl(null);
-    setFileViewMimeType(null);
-    setFileViewError(null);
-  };
-
   // Component Record handlers
   const addComponentRecord = () => {
     const newRecord: ComponentRecord = {
@@ -5280,19 +5492,43 @@ export function AddTechnicalLogbookEntryModal({
   const modalTitle = modalSeqTitle
     ? `${modalActionTitle} – ${modalSeqTitle}`
     : modalActionTitle;
+  const formModeClass = editEntry ? "edit-form" : "add-form";
+  const tachHobbsFieldValue = (
+    field: AtlTachHobbsEditableField,
+    raw: string
+  ) => {
+    if (!atlFormReadOnly && tachHobbsFocusedField === field) return raw;
+    return formatAtlTachHobbsDisplay1dp(raw);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className={`modal-responsive-overlay fixed inset-0 z-50 flex items-center justify-center${
+        sideGutter || showSeqNav ? " modal-responsive-overlay--nav" : ""
+      }`}
+    >
       {/* Overlay with blur */}
-      <div
-        className="absolute inset-0 bg-white/15 backdrop-blur-[4px]"
-      />
+      <div className="absolute inset-0 bg-white/15 backdrop-blur-[4px] pointer-events-none" />
+      {showSeqNav ? (
+        <ModalRecordNav
+          onPrevious={handlePreviousSequence}
+          onNext={handleNextSequence}
+          hasPrevious={hasPrevious}
+          hasNext={hasNext}
+          disabled={sequenceNavDisabled}
+        />
+      ) : (
+        recordNavigation
+      )}
 
       {/* Modal */}
-      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Loading overlay on create/edit submit */}
+      <div
+        className={`relative modal-navy-shell modal-responsive-dialog ${formModeClass} rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-hidden flex flex-col`}
+        style={{ backgroundColor: "#022C75" }}
+      >
+        {/* Saving covers the whole card; entry loading covers only the form body. */}
         {isSubmitting && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
+          <div className="absolute inset-0 z-[65] flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-lg">
             <div className="flex flex-col items-center gap-3">
               <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
               <p className="text-sm font-medium text-gray-700">
@@ -5312,30 +5548,54 @@ export function AddTechnicalLogbookEntryModal({
             </div>
           </div>
         )}
-        {/* Header */}
-        <div className="relative z-[60] flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
-          <h2 className="text-lg font-semibold text-gray-900">{modalTitle}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded transition-colors"
+        <ModalChromeHeader
+          title={modalTitle}
+          onClose={() => {
+            void requestClose();
+          }}
+          className="relative z-[60]"
+        />
+        {entrySwitchError && (
+          <div
+            className="shrink-0 bg-white px-4 sm:px-6 py-2 border-b border-gray-200"
+            role="alert"
           >
-            <X className="w-5 h-5 text-gray-600" />
-          </button>
-        </div>
+            <p className="text-sm text-red-600">{entrySwitchError}</p>
+          </div>
+        )}
 
         {/* Form Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          className={`${formModeClass} flex-1 overflow-hidden min-h-0 flex flex-col`}
+        >
+          <div
+            ref={formScrollRef}
+            className="relative flex-1 min-h-0 overflow-y-auto"
+          >
+            {contentLoading && (
+              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-white/80 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                  <p className="text-sm font-medium text-gray-700">
+                    Loading entry…
+                  </p>
+                </div>
+              </div>
+            )}
+            <div
+              className="modal-body p-4 sm:p-6 space-y-6"
+              aria-busy={contentLoading || undefined}
+            >
             {atlFormReadOnly && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                 {forceReadOnly
                   ? "View only — fields cannot be edited."
                   : editEntry &&
-                      isAtlCompletedWorkStatus(editEntry.workStatus) &&
-                      !isAdminRole(atlRoleForWorkStatus)
-                    ? "This entry is completed. Only Admin may update fields."
-                    : "This entry is read-only for your role at the current work status."}
+                    isAtlCompletedWorkStatus(editEntry.workStatus) &&
+                    !isAdminRole(atlRoleForWorkStatus)
+                  ? "This entry is completed. Only Admin may update fields."
+                  : "This entry is read-only for your role at the current work status."}
               </p>
             )}
             <div
@@ -5346,11 +5606,11 @@ export function AddTechnicalLogbookEntryModal({
               }`}
               {...(mainFormLocked ? ({ inert: true } as object) : {})}
             >
-              {/* Sequence No. | Work Status | ATL batch (one row); A/C Registration below when picking aircraft */}
+              {/* Row 1 — Basic Information */}
               <div className="space-y-4">
                 <div
-                  className={`grid grid-cols-1 gap-4 ${
-                    showAtlBatchFormField ? "md:grid-cols-3" : "md:grid-cols-2"
+                  className={`grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0 ${
+                    showAtlBatchFormField ? "xl:grid-cols-4" : "xl:grid-cols-3"
                   }`}
                 >
                   <div>
@@ -5381,10 +5641,33 @@ export function AddTechnicalLogbookEntryModal({
                       required
                     />
                     {validationErrors.seqNo && (
-                      <p className="mt-1 text-xs text-red-600">
+                      <p className="form-error mt-1 text-xs text-red-600">
                         {validationErrors.seqNo}
                       </p>
                     )}
+                  </div>
+                  <div>
+                    <label className="block text-gray-700 text-sm mb-1.5">
+                      Nature of Flight
+                    </label>
+                    <select
+                      value={formData.natureOfFlight}
+                      onChange={(e) =>
+                        handleNatureOfFlightChange(e.target.value)
+                      }
+                      className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                    >
+                      <option value="TR">TR - Training Flight</option>
+                      <option value="PSF">PSF - Post Flight Inspection</option>
+                      <option value="PRF">PRF - Pre Flight Inspection</option>
+                      <option value="EGR">EGR - Engine Run-up</option>
+                      <option value="ME">ME - Maintenance Entry</option>
+                      <option value="TR_WITH_PIREM">
+                        TR W/ PIREM - Training Flight with Pilot Remarks
+                      </option>
+                      <option value="VOID">VOID - Void</option>
+                      <option value="ATL_REPL">ATL REPL</option>
+                    </select>
                   </div>
                   <div className="pointer-events-auto opacity-100">
                     <label className="block text-gray-700 text-sm mb-1.5">
@@ -5400,7 +5683,7 @@ export function AddTechnicalLogbookEntryModal({
                               workStatus: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                          className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                           aria-label="Work status"
                         >
                           {workStatusDropdownKeys.map((key) => (
@@ -5411,7 +5694,7 @@ export function AddTechnicalLogbookEntryModal({
                         </select>
                       ) : (
                         <div
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-900"
+                          className="form-readonly-display atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50"
                           title={
                             workStatusChangeLocked
                               ? "Work status cannot be changed for your role at this status"
@@ -5425,7 +5708,7 @@ export function AddTechnicalLogbookEntryModal({
                         </div>
                       )
                     ) : (
-                      <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600">
+                      <div className="form-readonly-display atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50">
                         FOR REVIEW
                       </div>
                     )}
@@ -5438,7 +5721,7 @@ export function AddTechnicalLogbookEntryModal({
                       <select
                         value={formData.atlBatchFk}
                         onChange={(e) => handleAtlBatchFkChange(e.target.value)}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900"
+                        className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                         aria-label="ATL batch"
                       >
                         {atlBatchOptions.map((b) => (
@@ -5469,6 +5752,9 @@ export function AddTechnicalLogbookEntryModal({
                         <div className="relative">
                           <input
                             type="text"
+                            role="combobox"
+                            aria-expanded={isAircraftDropdownOpen}
+                            aria-controls="atl-name-aircraft-list"
                             value={
                               isAircraftDropdownOpen
                                 ? aircraftSearchTerm
@@ -5489,7 +5775,7 @@ export function AddTechnicalLogbookEntryModal({
                               setIsAircraftDropdownOpen(true);
                               setAircraftSearchTerm("");
                             }}
-                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
                               validationErrors.acReg
                                 ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                                 : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
@@ -5513,22 +5799,26 @@ export function AddTechnicalLogbookEntryModal({
                         </div>
 
                         {isAircraftDropdownOpen && (
-                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                             {loadingAircrafts ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                 Loading aircrafts...
                               </div>
                             ) : filteredAircrafts.length === 0 ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                 {aircraftSearchTerm
                                   ? "No aircrafts found"
                                   : "No aircrafts available"}
                               </div>
                             ) : (
-                              <ul className="py-1">
+                              <ul id="atl-name-aircraft-list" className="py-1" role="listbox">
                                 {filteredAircrafts.map((aircraft) => (
                                   <li
                                     key={aircraft.id}
+                                    role="option"
+                                    aria-selected={
+                                      formData.acReg === aircraft.registration
+                                    }
                                     onClick={() =>
                                       handleAircraftSelect(
                                         aircraft.id,
@@ -5541,7 +5831,7 @@ export function AddTechnicalLogbookEntryModal({
                                         : ""
                                     }`}
                                   >
-                                    <span className="text-gray-900">
+                                    <span className="atl-dropdown-name">
                                       {aircraft.registration}
                                     </span>
                                     {formData.acReg ===
@@ -5557,7 +5847,7 @@ export function AddTechnicalLogbookEntryModal({
                       </div>
                     )}
                     {validationErrors.acReg && (
-                      <p className="mt-1 text-xs text-red-600">
+                      <p className="form-error mt-1 text-xs text-red-600">
                         {validationErrors.acReg}
                       </p>
                     )}
@@ -5565,71 +5855,12 @@ export function AddTechnicalLogbookEntryModal({
                 )}
               </div>
 
-              {/* Nature of Flight, NEXT INSP. DUE, TACH TIME DUE */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Nature of Flight
-                  </label>
-                  <select
-                    value={formData.natureOfFlight}
-                    onChange={(e) =>
-                      handleNatureOfFlightChange(e.target.value)
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-                  >
-                    <option value="TR">TR - Training Flight</option>
-                    <option value="PSF">PSF - Post Flight Inspection</option>
-                    <option value="PRF">PRF - Pre Flight Inspection</option>
-                    <option value="EGR">EGR - Engine Run-up</option>
-                    <option value="ME">ME - Maintenance Entry</option>
-                    <option value="TR_WITH_PIREM">
-                      TR W/ PIREM - Training Flight with Pilot Remarks
-                    </option>
-                    <option value="VOID">VOID - Void</option>
-                    <option value="ATL_REPL">ATL REPL</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    NEXT INSP. DUE
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.nextInspectionDue}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        nextInspectionDue: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    TACH TIME DUE
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.tachTimeDue}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        tachTimeDue: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                  />
-                </div>
-              </div>
-
-              {/* Off-Blocks/Origin & On-Blocks/Destination */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Row 2 — Flight Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 min-w-0">
                 {/* Off-Blocks/Origin */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Off-Blocks / Origin</h3>
-                  <div className="space-y-3">
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Off-Blocks / Origin</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
                     <div>
                       <label className="block text-gray-700 text-sm mb-1">
                         Station (STN)
@@ -5656,111 +5887,110 @@ export function AddTechnicalLogbookEntryModal({
                         }`}
                       />
                       {validationErrors.offBlocksStation && (
-                        <p className="mt-1 text-xs text-red-600">
+                        <p className="form-error mt-1 text-xs text-red-600">
                           {validationErrors.offBlocksStation}
                         </p>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Date (UTC)
+                      </label>
+                      <DateInput
+                        value={formData.offBlocksDate}
+                        onChange={(offBlocksDate) => {
+                          handleCalculationFieldChange(
+                            "offBlocksDate",
+                            offBlocksDate
+                          );
+                          if (validationErrors.offBlocksDate) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              offBlocksDate: "",
+                            });
+                          }
+                        }}
+                        displayFormat="dmy-short"
+                        aria-invalid={!!validationErrors.offBlocksDate}
+                        inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
+                          validationErrors.offBlocksDate
+                            ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                            : "border-gray-300"
+                        }`}
+                      />
+                      {validationErrors.offBlocksDate && (
+                        <p className="form-error mt-1 text-xs text-red-600">
+                          {validationErrors.offBlocksDate}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Zulu Time
+                      </label>
                       <div>
-                        <label className="block text-gray-700 text-sm mb-1">
-                          Date (UTC)
-                        </label>
-                        <DateInput
-                          value={formData.offBlocksDate}
-                          onChange={(offBlocksDate) => {
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={formData.offBlocksTime}
+                          onChange={(e) => {
                             handleCalculationFieldChange(
-                              "offBlocksDate",
-                              offBlocksDate
+                              "offBlocksTime",
+                              formatZuluTimeKeyboardInput(e.target.value)
                             );
-                            if (validationErrors.offBlocksDate) {
+                            if (validationErrors.offBlocksTime) {
                               setValidationErrors({
                                 ...validationErrors,
-                                offBlocksDate: "",
+                                offBlocksTime: "",
                               });
                             }
                           }}
-                          aria-invalid={!!validationErrors.offBlocksDate}
-                          inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
-                            validationErrors.offBlocksDate
+                          onBlur={(e) => {
+                            const normalized = normalizeOptionalZuluTimeInput(
+                              e.target.value
+                            );
+                            handleCalculationFieldChange(
+                              "offBlocksTime",
+                              normalized
+                            );
+                            const err = validateOptionalZuluTime(normalized);
+                            setValidationErrors((prev) => ({
+                              ...prev,
+                              offBlocksTime: err ?? "",
+                            }));
+                          }}
+                          maxLength={5}
+                          title="HH:mm (UTC)"
+                          placeholder="HH:mm"
+                          pattern="[0-9]{2}:[0-9]{2}"
+                          aria-invalid={!!validationErrors.offBlocksTime}
+                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                            validationErrors.offBlocksTime
                               ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                           }`}
                         />
-                        {validationErrors.offBlocksDate && (
-                          <p className="mt-1 text-xs text-red-600">
-                            {validationErrors.offBlocksDate}
+                        {!validationErrors.offBlocksTime ? (
+                          <p className="text-xs text-gray-500 mt-1">
+                            24-hour HH:mm (UTC), 00:00–23:59
+                          </p>
+                        ) : (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.offBlocksTime}
                           </p>
                         )}
-                      </div>
-                      <div>
-                        <label className="block text-gray-700 text-sm mb-1">
-                          Zulu Time
-                        </label>
-                        <div>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            autoComplete="off"
-                            value={formData.offBlocksTime}
-                            onChange={(e) => {
-                              handleCalculationFieldChange(
-                                "offBlocksTime",
-                                formatZuluTimeKeyboardInput(e.target.value)
-                              );
-                              if (validationErrors.offBlocksTime) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  offBlocksTime: "",
-                                });
-                              }
-                            }}
-                            onBlur={(e) => {
-                              const normalized = normalizeOptionalZuluTimeInput(
-                                e.target.value
-                              );
-                              handleCalculationFieldChange(
-                                "offBlocksTime",
-                                normalized
-                              );
-                              const err = validateOptionalZuluTime(normalized);
-                              setValidationErrors((prev) => ({
-                                ...prev,
-                                offBlocksTime: err ?? "",
-                              }));
-                            }}
-                            maxLength={5}
-                            title="HH:mm (UTC)"
-                            placeholder="HH:mm"
-                            pattern="[0-9]{2}:[0-9]{2}"
-                            aria-invalid={!!validationErrors.offBlocksTime}
-                            className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
-                              validationErrors.offBlocksTime
-                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                            }`}
-                          />
-                          {!validationErrors.offBlocksTime ? (
-                            <p className="text-xs text-gray-500 mt-1">
-                              24-hour HH:mm (UTC), 00:00–23:59
-                            </p>
-                          ) : (
-                            <p className="mt-1 text-xs text-red-600">
-                              {validationErrors.offBlocksTime}
-                            </p>
-                          )}
-                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 {/* On-Blocks/Destination */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">
                     On-Blocks / Destination
                   </h3>
-                  <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
                     <div>
                       <label className="block text-gray-700 text-sm mb-1">
                         Station (STN)
@@ -5777,436 +6007,477 @@ export function AddTechnicalLogbookEntryModal({
                         className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Date (UTC)
+                      </label>
+                      <DateInput
+                        value={formData.onBlocksDate}
+                        onChange={(onBlocksDate) =>
+                          handleCalculationFieldChange(
+                            "onBlocksDate",
+                            onBlocksDate
+                          )
+                        }
+                        displayFormat="dmy-short"
+                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Zulu Time
+                      </label>
                       <div>
-                        <label className="block text-gray-700 text-sm mb-1">
-                          Date (UTC)
-                        </label>
-                        <DateInput
-                          value={formData.onBlocksDate}
-                          onChange={(onBlocksDate) =>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={formData.onBlocksTime}
+                          onChange={(e) => {
                             handleCalculationFieldChange(
-                              "onBlocksDate",
-                              onBlocksDate
-                            )
-                          }
-                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                              "onBlocksTime",
+                              formatZuluTimeKeyboardInput(e.target.value)
+                            );
+                            if (validationErrors.onBlocksTime) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                onBlocksTime: "",
+                              });
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const normalized = normalizeOptionalZuluTimeInput(
+                              e.target.value
+                            );
+                            handleCalculationFieldChange(
+                              "onBlocksTime",
+                              normalized
+                            );
+                            const err = validateOptionalZuluTime(normalized);
+                            setValidationErrors((prev) => ({
+                              ...prev,
+                              onBlocksTime: err ?? "",
+                            }));
+                          }}
+                          maxLength={5}
+                          title="HH:mm (UTC)"
+                          placeholder="HH:mm"
+                          pattern="[0-9]{2}:[0-9]{2}"
+                          aria-invalid={!!validationErrors.onBlocksTime}
+                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                            validationErrors.onBlocksTime
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
                         />
+                        {!validationErrors.onBlocksTime ? (
+                          <p className="text-xs text-gray-500 mt-1">
+                            24-hour HH:mm (UTC), 00:00–23:59
+                          </p>
+                        ) : (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.onBlocksTime}
+                          </p>
+                        )}
                       </div>
-                      <div>
-                        <label className="block text-gray-700 text-sm mb-1">
-                          Zulu Time
-                        </label>
-                        <div>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            autoComplete="off"
-                            value={formData.onBlocksTime}
-                            onChange={(e) => {
-                              handleCalculationFieldChange(
-                                "onBlocksTime",
-                                formatZuluTimeKeyboardInput(e.target.value)
-                              );
-                              if (validationErrors.onBlocksTime) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  onBlocksTime: "",
-                                });
-                              }
-                            }}
-                            onBlur={(e) => {
-                              const normalized = normalizeOptionalZuluTimeInput(
-                                e.target.value
-                              );
-                              handleCalculationFieldChange(
-                                "onBlocksTime",
-                                normalized
-                              );
-                              const err = validateOptionalZuluTime(normalized);
-                              setValidationErrors((prev) => ({
-                                ...prev,
-                                onBlocksTime: err ?? "",
-                              }));
-                            }}
-                            maxLength={5}
-                            title="HH:mm (UTC)"
-                            placeholder="HH:mm"
-                            pattern="[0-9]{2}:[0-9]{2}"
-                            aria-invalid={!!validationErrors.onBlocksTime}
-                            className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
-                              validationErrors.onBlocksTime
-                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                            }`}
-                          />
-                          {!validationErrors.onBlocksTime ? (
-                            <p className="text-xs text-gray-500 mt-1">
-                              24-hour HH:mm (UTC), 00:00–23:59
-                            </p>
-                          ) : (
-                            <p className="mt-1 text-xs text-red-600">
-                              {validationErrors.onBlocksTime}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Flight Summary */}
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Flight Summary</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 min-w-0">
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Total Flight Time
+                      </label>
+                      <input
+                        type="text"
+                        value={formatTotalFlightTimeForDisplay(
+                          formData.totalFlightTime
+                        )}
+                        disabled
+                        readOnly
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1">
+                        Number of Landings
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.numberOfLandings}
+                        onChange={(e) => {
+                          // Only allow numeric input
+                          const value = e.target.value.replace(/\D/g, "");
+                          setFormData({
+                            ...formData,
+                            numberOfLandings: value,
+                          });
+                        }}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Total Flight Time & Number of Landings */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Total Flight Time
-                  </label>
-                  <input
-                    type="text"
-                    value={formatTotalFlightTimeForDisplay(
-                      formData.totalFlightTime
-                    )}
-                    disabled
-                    readOnly
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
-                  />
-                </div>
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Number of Landings
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.numberOfLandings}
-                    onChange={(e) => {
-                      // Only allow numeric input
-                      const value = e.target.value.replace(/\D/g, "");
-                      setFormData({
-                        ...formData,
-                        numberOfLandings: value,
-                      });
-                    }}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                  />
-                </div>
-              </div>
-
-              {/* Tachometer & Hobbs Meter */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Tachometer */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Tachometer</h3>
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-gray-700 text-xs mb-1">
-                          Start
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.tachometerStart}
-                          onChange={(event) => {
-                            handleCalculationFieldChange(
-                              "tachometerStart",
-                              event.target.value
-                            );
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-gray-700 text-xs mb-1">
-                          End
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.tachometerEnd}
-                          onChange={(event) => {
-                            handleCalculationFieldChange(
-                              "tachometerEnd",
-                              event.target.value
-                            );
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </div>
-                    </div>
+              {/* Row 3 — Fuel, Oil and Meter Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 min-w-0">
+                {/* Fuel Quantity */}
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Fuel Quantity</h3>
+                  <div className="grid grid-cols-2 gap-2 min-w-0">
                     <div>
                       <label className="block text-gray-700 text-xs mb-1">
-                        Tachometer Total
+                        Uplift Left
                       </label>
                       <input
                         type="text"
-                        value={formatOptionalNumber2dp(
+                        data-atl-enter-seq={1}
+                        value={formData.fuelQtyLeftUpliftQty}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyLeftUpliftQty: e.target.value,
+                          })
+                        }
+                        onKeyDown={handleFuelQtyKeyDown}
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Uplift Right
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={2}
+                        value={formData.fuelQtyRightUpliftQty}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyRightUpliftQty: e.target.value,
+                          })
+                        }
+                        onKeyDown={handleFuelQtyKeyDown}
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Prior Departure Left
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={3}
+                        value={formData.fuelQtyLeftPriorDeparture}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyLeftPriorDeparture: e.target.value,
+                          })
+                        }
+                        onKeyDown={handleFuelQtyKeyDown}
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Prior Departure Right
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={4}
+                        value={formData.fuelQtyRightPriorDeparture}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyRightPriorDeparture: e.target.value,
+                          })
+                        }
+                        onKeyDown={handleFuelQtyKeyDown}
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        After On-Blocks Left
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={5}
+                        value={formData.fuelQtyLeftAfterOnBlks}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyLeftAfterOnBlks: e.target.value,
+                          })
+                        }
+                        onKeyDown={handleFuelQtyKeyDown}
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        After On-Blocks Right
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={6}
+                        value={formData.fuelQtyRightAfterOnBlks}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            fuelQtyRightAfterOnBlks: e.target.value,
+                          })
+                        }
+                        onKeyDown={handleFuelQtyKeyDown}
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Oil Quantity */}
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Oil Quantity</h3>
+                  <div className="grid grid-cols-1 gap-2 min-w-0">
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Uplift Quantity
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={7}
+                        value={formData.oilQtyUpliftQty}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            oilQtyUpliftQty: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Prior Departure
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={8}
+                        value={formData.oilQtyPriorDeparture}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            oilQtyPriorDeparture: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        After On-Blocks
+                      </label>
+                      <input
+                        type="text"
+                        data-atl-enter-seq={9}
+                        value={formData.oilQtyAfterOnBlks}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            oilQtyAfterOnBlks: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tachometer */}
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Tachometer</h3>
+                  <div className="grid grid-cols-3 gap-2 min-w-0">
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Start
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={tachHobbsFieldValue(
+                          "tachometerStart",
+                          formData.tachometerStart
+                        )}
+                        onFocus={() => setTachHobbsFocusedField("tachometerStart")}
+                        onBlur={() => setTachHobbsFocusedField(null)}
+                        onChange={(event) => {
+                          handleCalculationFieldChange(
+                            "tachometerStart",
+                            event.target.value
+                          );
+                        }}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        End
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={tachHobbsFieldValue(
+                          "tachometerEnd",
+                          formData.tachometerEnd
+                        )}
+                        onFocus={() => setTachHobbsFocusedField("tachometerEnd")}
+                        onBlur={() => setTachHobbsFocusedField(null)}
+                        onChange={(event) => {
+                          handleCalculationFieldChange(
+                            "tachometerEnd",
+                            event.target.value
+                          );
+                        }}
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Total
+                      </label>
+                      <input
+                        type="text"
+                        value={formatAtlTachHobbsDisplay1dp(
                           formData.tachometerTotal,
-                          "0.00"
+                          "0.0"
                         )}
                         readOnly
                         disabled
                         aria-label="Tachometer Total"
                         title="Auto: Tach End − Tach Start"
-                        className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Hobbs Meter */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Hobbs Meter</h3>
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-gray-700 text-xs mb-1">
-                          Start
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.hobbsMeterStart}
-                          onChange={(e) =>
-                            handleCalculationFieldChange(
-                              "hobbsMeterStart",
-                              e.target.value
-                            )
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-gray-700 text-xs mb-1">
-                          End
-                        </label>
-                        <input
-                          type="text"
-                          value={formData.hobbsMeterEnd}
-                          onChange={(e) =>
-                            handleCalculationFieldChange(
-                              "hobbsMeterEnd",
-                              e.target.value
-                            )
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </div>
-                    </div>
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Hobbs Meter</h3>
+                  <div className="grid grid-cols-3 gap-2 min-w-0">
                     <div>
                       <label className="block text-gray-700 text-xs mb-1">
-                        Hobbs Meter Total
+                        Start
                       </label>
                       <input
                         type="text"
-                        value={formatOptionalNumber2dp(
+                        inputMode="decimal"
+                        value={tachHobbsFieldValue(
+                          "hobbsMeterStart",
+                          formData.hobbsMeterStart
+                        )}
+                        onFocus={() => setTachHobbsFocusedField("hobbsMeterStart")}
+                        onBlur={() => setTachHobbsFocusedField(null)}
+                        onChange={(e) =>
+                          handleCalculationFieldChange(
+                            "hobbsMeterStart",
+                            e.target.value
+                          )
+                        }
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        End
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={tachHobbsFieldValue(
+                          "hobbsMeterEnd",
+                          formData.hobbsMeterEnd
+                        )}
+                        onFocus={() => setTachHobbsFocusedField("hobbsMeterEnd")}
+                        onBlur={() => setTachHobbsFocusedField(null)}
+                        onChange={(e) =>
+                          handleCalculationFieldChange(
+                            "hobbsMeterEnd",
+                            e.target.value
+                          )
+                        }
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        Total
+                      </label>
+                      <input
+                        type="text"
+                        value={formatAtlTachHobbsDisplay1dp(
                           formData.hobbsMeterTotal,
-                          "0.00"
+                          "0.0"
                         )}
                         readOnly
                         disabled
-                        className="w-full px-3 py-2 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inspection Due */}
+                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <h3 className="text-gray-900 mb-2">Inspection Due</h3>
+                  <div className="grid grid-cols-1 gap-2 min-w-0">
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        NEXT INSP. DUE
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.nextInspectionDue}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            nextInspectionDue: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-xs mb-1">
+                        TACH TIME DUE
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.tachTimeDue}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            tachTimeDue: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                       />
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Fuel & Oil Section — FUEL matches paper ATL (LEFT | RIGHT columns) */}
-              <div className="border border-gray-300 rounded-lg overflow-hidden bg-white">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100 border-b border-gray-300">
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
-                      <th
-                        colSpan={2}
-                        className="px-4 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"
-                      >
-                        FUEL QTY. (GALS)
-                      </th>
-                      <th
-                        colSpan={3}
-                        className="px-4 py-2 text-center text-xs font-semibold text-gray-900"
-                      >
-                        OIL QTY. (QTS)
-                      </th>
-                    </tr>
-                    <tr className="bg-gray-100 border-b border-gray-300">
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300"></th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                        LEFT
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                        RIGHT
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                        UPLIFT QTY.
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900 border-r border-gray-300">
-                        PRIOR DEPARTURE
-                      </th>
-                      <th className="px-3 py-2 text-center text-xs font-semibold text-gray-900">
-                        AFTER ON-BLKS
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
-                        UPLIFT QTY.
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={1}
-                          value={formData.fuelQtyLeftUpliftQty}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              fuelQtyLeftUpliftQty: e.target.value,
-                            })
-                          }
-                          onKeyDown={handleFuelQtyKeyDown}
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={2}
-                          value={formData.fuelQtyRightUpliftQty}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              fuelQtyRightUpliftQty: e.target.value,
-                            })
-                          }
-                          onKeyDown={handleFuelQtyKeyDown}
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={7}
-                          value={formData.oilQtyUpliftQty}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              oilQtyUpliftQty: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={8}
-                          value={formData.oilQtyPriorDeparture}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              oilQtyPriorDeparture: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <input
-                          type="text"
-                          tabIndex={9}
-                          value={formData.oilQtyAfterOnBlks}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              oilQtyAfterOnBlks: e.target.value,
-                            })
-                          }
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
-                        PRIOR DEPARTURE
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={3}
-                          value={formData.fuelQtyLeftPriorDeparture}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              fuelQtyLeftPriorDeparture: e.target.value,
-                            })
-                          }
-                          onKeyDown={handleFuelQtyKeyDown}
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={4}
-                          value={formData.fuelQtyRightPriorDeparture}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              fuelQtyRightPriorDeparture: e.target.value,
-                            })
-                          }
-                          onKeyDown={handleFuelQtyKeyDown}
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300 bg-gray-50"></td>
-                      <td className="px-3 py-2 border-r border-gray-300 bg-gray-50"></td>
-                      <td className="px-3 py-2 bg-gray-50"></td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-white">
-                        AFTER ON-BLKS
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={5}
-                          value={formData.fuelQtyLeftAfterOnBlks}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              fuelQtyLeftAfterOnBlks: e.target.value,
-                            })
-                          }
-                          onKeyDown={handleFuelQtyKeyDown}
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300">
-                        <input
-                          type="text"
-                          tabIndex={6}
-                          value={formData.fuelQtyRightAfterOnBlks}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              fuelQtyRightAfterOnBlks: e.target.value,
-                            })
-                          }
-                          onKeyDown={handleFuelQtyKeyDown}
-                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                        />
-                      </td>
-                      <td className="px-3 py-2 border-r border-gray-300 bg-gray-50"></td>
-                      <td className="px-3 py-2 border-r border-gray-300 bg-gray-50"></td>
-                      <td className="px-3 py-2 bg-gray-50"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
               {/* Remarks Section — visibility by Nature of Flight (UI only) */}
-              <div className="relative space-y-4" aria-busy={loadingNofDefaults}>
+              <div
+                className="relative space-y-4"
+                aria-busy={loadingNofDefaults}
+              >
                 {loadingNofDefaults && (
                   <div className="absolute inset-0 z-10 flex items-start justify-end pt-1 pr-1 pointer-events-none">
                     <span className="inline-flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs text-gray-600 shadow-sm border border-gray-200">
@@ -6215,14 +6486,13 @@ export function AddTechnicalLogbookEntryModal({
                     </span>
                   </div>
                 )}
-                {resolveAtlRemarksSectionVisibility(
-                  formData.natureOfFlight
-                ) === "pilotReport" && (
+                {resolveAtlRemarksSectionVisibility(formData.natureOfFlight) ===
+                  "pilotReport" && (
                   <div>
                     <label className="block text-gray-700 mb-2">
                       Pilot Report
                     </label>
-                    <textarea
+                    <AutoResizeTextarea
                       value={formData.pilotReport}
                       onChange={(e) =>
                         setFormData({
@@ -6230,20 +6500,18 @@ export function AddTechnicalLogbookEntryModal({
                           pilotReport: e.target.value,
                         })
                       }
-                      rows={3}
                       disabled={loadingNofDefaults}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
                 )}
-                {resolveAtlRemarksSectionVisibility(
-                  formData.natureOfFlight
-                ) === "maintenanceEntry" && (
+                {resolveAtlRemarksSectionVisibility(formData.natureOfFlight) ===
+                  "maintenanceEntry" && (
                   <div>
                     <label className="block text-gray-700 mb-2">
                       Maintenance Entry
                     </label>
-                    <textarea
+                    <AutoResizeTextarea
                       value={formData.maintenanceEntry}
                       onChange={(e) =>
                         setFormData({
@@ -6251,18 +6519,16 @@ export function AddTechnicalLogbookEntryModal({
                           maintenanceEntry: e.target.value,
                         })
                       }
-                      rows={3}
                       disabled={loadingNofDefaults}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
                 )}
-                {resolveAtlRemarksSectionVisibility(
-                  formData.natureOfFlight
-                ) === "remarks" && (
+                {resolveAtlRemarksSectionVisibility(formData.natureOfFlight) ===
+                  "remarks" && (
                   <div>
                     <label className="block text-gray-700 mb-2">Remarks</label>
-                    <textarea
+                    <AutoResizeTextarea
                       value={
                         combineAtlRemarks(
                           formData.pilotReport,
@@ -6277,9 +6543,8 @@ export function AddTechnicalLogbookEntryModal({
                           maintenanceEntry: split.maintenanceEntry,
                         });
                       }}
-                      rows={3}
                       disabled={loadingNofDefaults}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                     />
                   </div>
                 )}
@@ -6324,7 +6589,7 @@ export function AddTechnicalLogbookEntryModal({
                             ? `atl-name-remarks-${remarksNav.highlightedIndex}`
                             : undefined
                         }
-                        className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        className="atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white"
                         placeholder="Search name..."
                       />
                       <button
@@ -6349,13 +6614,17 @@ export function AddTechnicalLogbookEntryModal({
                     </div>
 
                     {isRemarksDropdownOpen && (
-                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                      <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                         {loadingRemarksAccounts ? (
-                          <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                          <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                             Loading...
                           </div>
                         ) : (
-                          <ul id="atl-name-remarks-list" className="py-1" role="listbox">
+                          <ul
+                            id="atl-name-remarks-list"
+                            className="py-1"
+                            role="listbox"
+                          >
                             {shouldShowAtlAssigneeNoneOption(
                               remarksSearchTerm
                             ) && (
@@ -6379,7 +6648,7 @@ export function AddTechnicalLogbookEntryModal({
                             !shouldShowAtlAssigneeNoneOption(
                               remarksSearchTerm
                             ) ? (
-                              <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                              <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                 {remarksSearchTerm
                                   ? "No accounts found"
                                   : "No accounts available"}
@@ -6440,17 +6709,16 @@ export function AddTechnicalLogbookEntryModal({
                   <label className="block text-gray-700 mb-2">
                     Actions Taken
                   </label>
-                  <textarea
+                  <AutoResizeTextarea
                     value={formData.actionsTaken}
                     onChange={(e) =>
                       setFormData({ ...formData, actionsTaken: e.target.value })
                     }
-                    rows={2}
                     disabled={loadingNofDefaults}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 resize-none disabled:bg-gray-50 disabled:text-gray-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                   />
                   {nofDefaultsMessage && (
-                    <p className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    <p className="atl-nof-defaults-message mt-2 text-sm bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                       {nofDefaultsMessage}
                     </p>
                   )}
@@ -6498,7 +6766,7 @@ export function AddTechnicalLogbookEntryModal({
                               ? `atl-name-actions-taken-${actionsTakenNav.highlightedIndex}`
                               : undefined
                           }
-                          className="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          className="atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white"
                           placeholder="Search name..."
                         />
                         <button
@@ -6523,9 +6791,9 @@ export function AddTechnicalLogbookEntryModal({
                       </div>
 
                       {isActionsTakenDropdownOpen && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                        <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                           {loadingActionsTakenAccounts ? (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                            <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                               Loading...
                             </div>
                           ) : (
@@ -6559,7 +6827,7 @@ export function AddTechnicalLogbookEntryModal({
                               !shouldShowAtlAssigneeNoneOption(
                                 actionsTakenSearchTerm
                               ) ? (
-                                <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                   {actionsTakenSearchTerm
                                     ? "No accounts found"
                                     : "No accounts available"}
@@ -6623,30 +6891,33 @@ export function AddTechnicalLogbookEntryModal({
 
               {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
               <div className="min-w-0 bg-white p-4 rounded-lg border border-gray-200">
-                <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                   <h3 className="text-white font-semibold">
                     AIRFRAME, ENGINE & PROPELLER TIMES
                   </h3>
                 </div>
-                <div className="min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-[480px] border-collapse">
+                <div className="form-table-scroll min-w-0">
+                  <table className="w-full border-collapse">
                     <thead>
-                      <tr className="bg-gray-50">
-                        <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-gray-700"></th>
-                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
+                      <tr className="bg-[#022C75]">
+                        <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-white"></th>
+                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
                           AIRFRAME
                         </th>
-                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
                           ENGINE
                         </th>
-                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
                           PROPELLER
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
+                    <tbody className="bg-[#022C75] border-b border-[#022C75]">
+                      <tr className="">
+                        <td
+                          className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
+                          style={{ backgroundColor: "#022C75" }}
+                        >
                           PREV. TIME
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
@@ -6690,7 +6961,10 @@ export function AddTechnicalLogbookEntryModal({
                         </td>
                       </tr>
                       <tr>
-                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
+                        <td
+                          className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
+                          style={{ backgroundColor: "#022C75" }}
+                        >
                           FLIGHT TIME
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
@@ -6725,7 +6999,10 @@ export function AddTechnicalLogbookEntryModal({
                         </td>
                       </tr>
                       <tr>
-                        <td className="border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50">
+                        <td
+                          className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
+                          style={{ backgroundColor: "#022C75" }}
+                        >
                           TOTAL TIME
                         </td>
                         <td className="border border-gray-300 px-3 py-2">
@@ -6767,8 +7044,8 @@ export function AddTechnicalLogbookEntryModal({
                 </div>
 
                 {/* ATL component times: single connected table (AIRFRAME | ENGINE | PROPELLER) */}
-                <div className="mt-4 min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-[720px] table-fixed border-collapse border border-gray-300">
+                <div className="form-table-scroll mt-4 min-w-0">
+                  <table className="w-full table-fixed border-collapse border border-gray-300">
                     <colgroup>
                       <col className="w-[10%]" />
                       <col className="w-[10%]" />
@@ -6785,52 +7062,52 @@ export function AddTechnicalLogbookEntryModal({
                       <tr>
                         <th
                           colSpan={2}
-                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
                         >
                           AIRFRAME
                         </th>
                         <th
                           colSpan={4}
-                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
                         >
                           ENGINE
                         </th>
                         <th
                           colSpan={4}
-                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-900 bg-gray-200"
+                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
                         >
                           PROPELLER
                         </th>
                       </tr>
                       <tr>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           RUN TIME
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           AFTT
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           RUN TIME
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           TSN
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           TSO
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           TBO
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           RUN TIME
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           TSN
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           TSO
                         </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-gray-700 bg-gray-100">
+                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
                           TBO
                         </th>
                       </tr>
@@ -6899,7 +7176,7 @@ export function AddTechnicalLogbookEntryModal({
                             }
                           />
                           {validationErrors.engineTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center break-words">
+                            <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
                               {validationErrors.engineTsn}
                             </p>
                           )}
@@ -6969,7 +7246,7 @@ export function AddTechnicalLogbookEntryModal({
                             }
                           />
                           {validationErrors.propellerTsn && (
-                            <p className="text-red-500 text-xs mt-0.5 text-center break-words">
+                            <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
                               {validationErrors.propellerTsn}
                             </p>
                           )}
@@ -7012,41 +7289,41 @@ export function AddTechnicalLogbookEntryModal({
 
               {/* COMPONENT RECORD */}
               <div className="bg-white p-4 rounded-lg border border-gray-200">
-                <div className="bg-blue-600 text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
                   <h3 className="text-white font-semibold">COMPONENT RECORD</h3>
                 </div>
-                <div className="overflow-x-auto">
+                <div className="form-table-scroll form-table-scroll--wide">
                   <table className="w-full border-collapse min-w-full">
                     <thead>
-                      <tr className="bg-gray-50">
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                      <tr className="bg-[#022C75]">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           QTY
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           UNIT
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           NOMENCLATURE
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           REMOVED P/N
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           REMOVED S/N
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           INSTALLED P/N
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           INSTALLED S/N
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           ATA CHAPTER
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           PART REMARKS
                         </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-gray-700">
+                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                           DELETE?
                         </th>
                       </tr>
@@ -7217,7 +7494,6 @@ export function AddTechnicalLogbookEntryModal({
                 </div>
               </div>
 
-
               {/* Signatures Section */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Return to Service */}
@@ -7277,7 +7553,7 @@ export function AddTechnicalLogbookEntryModal({
                                 ? `atl-name-rts-${rtsNav.highlightedIndex}`
                                 : undefined
                             }
-                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
                               validationErrors.rtsSignedBy
                                 ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                                 : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
@@ -7310,13 +7586,17 @@ export function AddTechnicalLogbookEntryModal({
                         </div>
 
                         {isRtsDropdownOpen && (
-                          <div className="absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          <div className="atl-dropdown-panel absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                             {loadingRtsAccounts ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                 Loading...
                               </div>
                             ) : (
-                              <ul id="atl-name-rts-list" className="py-1" role="listbox">
+                              <ul
+                                id="atl-name-rts-list"
+                                className="py-1"
+                                role="listbox"
+                              >
                                 {shouldShowAtlAssigneeNoneOption(
                                   rtsSearchTerm
                                 ) && (
@@ -7340,7 +7620,7 @@ export function AddTechnicalLogbookEntryModal({
                                 !shouldShowAtlAssigneeNoneOption(
                                   rtsSearchTerm
                                 ) ? (
-                                  <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                  <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                     {rtsSearchTerm
                                       ? "No accounts found"
                                       : "No accounts available"}
@@ -7397,7 +7677,7 @@ export function AddTechnicalLogbookEntryModal({
                         )}
                       </div>
                       {validationErrors.rtsSignedBy && (
-                        <p className="mt-1 text-xs text-red-600">
+                        <p className="form-error mt-1 text-xs text-red-600">
                           {validationErrors.rtsSignedBy}
                         </p>
                       )}
@@ -7414,6 +7694,7 @@ export function AddTechnicalLogbookEntryModal({
                             rtsDate,
                           })
                         }
+                        displayFormat="dmy-short"
                         inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
                     </div>
@@ -7502,7 +7783,7 @@ export function AddTechnicalLogbookEntryModal({
                                 ? `atl-name-pilot-${pilotNav.highlightedIndex}`
                                 : undefined
                             }
-                            className={`w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
                               validationErrors.pilotFk
                                 ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                                 : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
@@ -7535,13 +7816,17 @@ export function AddTechnicalLogbookEntryModal({
                         </div>
 
                         {isPilotDropdownOpen && (
-                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                          <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                             {loadingPilotAccounts ? (
-                              <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                 Loading pilots...
                               </div>
                             ) : (
-                              <ul id="atl-name-pilot-list" className="py-1" role="listbox">
+                              <ul
+                                id="atl-name-pilot-list"
+                                className="py-1"
+                                role="listbox"
+                              >
                                 {shouldShowAtlAssigneeNoneOption(
                                   pilotSearchTerm
                                 ) && (
@@ -7560,14 +7845,14 @@ export function AddTechnicalLogbookEntryModal({
                                     }
                                     optionRef={pilotNav.getOptionRef(0)}
                                   >
-                                    {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                                    {PILOT_ACCEPTANCE_CLEAR_OPTION_LABEL}
                                   </AtlNameDropdownOption>
                                 )}
                                 {filteredPilotAccounts.length === 0 &&
                                 !shouldShowAtlAssigneeNoneOption(
                                   pilotSearchTerm
                                 ) ? (
-                                  <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                                  <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                     {pilotSearchTerm
                                       ? "No pilots found"
                                       : "No pilots available"}
@@ -7626,7 +7911,7 @@ export function AddTechnicalLogbookEntryModal({
                         )}
                       </div>
                       {validationErrors.pilotFk && (
-                        <p className="mt-1 text-xs text-red-600">
+                        <p className="form-error mt-1 text-xs text-red-600">
                           {validationErrors.pilotFk}
                         </p>
                       )}
@@ -7643,6 +7928,7 @@ export function AddTechnicalLogbookEntryModal({
                             pilotAcceptDate,
                           })
                         }
+                        displayFormat="dmy-short"
                         inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
                     </div>
@@ -7708,8 +7994,8 @@ export function AddTechnicalLogbookEntryModal({
                                     existingWhiteAtlFilePath
                                   )
                                 : canUploadAtlInCurrentMode
-                                  ? undefined
-                                  : "N/A"
+                                ? undefined
+                                : "N/A"
                             }
                             error={whiteAtlFileError}
                             onSelect={(selected) =>
@@ -7774,10 +8060,12 @@ export function AddTechnicalLogbookEntryModal({
                             }
                             existingLabel={
                               existingDfpFilePath
-                                ? formatShortDisplayFileName(existingDfpFilePath)
+                                ? formatShortDisplayFileName(
+                                    existingDfpFilePath
+                                  )
                                 : canUploadAtlInCurrentMode
-                                  ? undefined
-                                  : "N/A"
+                                ? undefined
+                                : "N/A"
                             }
                             error={dfpFileError}
                             onSelect={(selected) =>
@@ -7891,25 +8179,33 @@ export function AddTechnicalLogbookEntryModal({
               </div>
             )}
           </div>
+          </div>
 
           {/* Footer Actions */}
-          <div className="relative z-[60] px-6 py-4 border-t border-gray-200 bg-white">
-            <div className="flex justify-end gap-3">
+          <div className="relative z-[60] modal-navy-footer px-4 sm:px-6 py-4">
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => {
+                  void requestClose();
+                }}
                 disabled={isSubmitting}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="form-btn-primary px-4 py-2 text-white rounded-lg transition-colors transition-colors disabled:opacity-50"
               >
                 {atlFormReadOnly ? "Close" : "Cancel"}
               </button>
               {!atlFormReadOnly && (
                 <button
                   type="submit"
-                  disabled={!allowSubmit || isInitializing || isSubmitting}
-                  className={`px-4 py-2 text-white rounded-lg transition-colors ${
-                    allowSubmit && !isInitializing
-                      ? "bg-blue-600 hover:bg-blue-700"
+                  disabled={
+                    !allowSubmit ||
+                    isInitializing ||
+                    isSubmitting ||
+                    contentLoading
+                  }
+                  className={`form-btn-primary px-4 py-2 text-white rounded-lg transition-colors ${
+                    allowSubmit && !isInitializing && !contentLoading
+                      ? "modal-navy-primary"
                       : "bg-gray-400 cursor-not-allowed"
                   }`}
                 >
@@ -7924,26 +8220,22 @@ export function AddTechnicalLogbookEntryModal({
       {/* File View Modal – View button for White ATL / DFP (image popup or download for other types) */}
       {showFileViewModal && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          className="modal-responsive-overlay fixed inset-0 z-[60] flex items-center justify-center"
+          data-nested-overlay="true"
           style={{
             backgroundColor: "rgba(0,0,0,0.5)",
             backdropFilter: "blur(4px)",
           }}
         >
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">
-                View file
-              </span>
-              <button
-                type="button"
-                onClick={closeFileViewModal}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+          <div
+            className="modal-navy-shell modal-responsive-dialog rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            style={{ backgroundColor: "#022C75" }}
+          >
+            <ModalChromeHeader
+              title="View file"
+              onClose={closeFileViewModal}
+              className="rounded-t-xl"
+            />
             <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
               {fileViewLoading && (
                 <div className="flex flex-col items-center gap-2 text-gray-500">

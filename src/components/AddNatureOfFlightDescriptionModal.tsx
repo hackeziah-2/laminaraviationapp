@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Loader, X } from "lucide-react";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import {
   NATURE_OF_FLIGHT_OPTIONS,
   natureOfFlightApiFieldErrors,
@@ -56,6 +57,15 @@ export function AddNatureOfFlightDescriptionModal({
     }
     setErrors({});
   }, [isOpen, editingItem]);
+
+  useOverlayEscape({
+    enabled: isOpen,
+    onClose: () => {
+      if (saving) return;
+      onClose();
+    },
+    isBusy: saving,
+  });
 
   if (!isOpen) return null;
 

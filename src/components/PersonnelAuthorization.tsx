@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Plus,
   Download,
@@ -22,6 +23,8 @@ import {
 import {
   getPersonnelAuthorizations,
   getPersonnelAuthorizationsMatrix2,
+  getPersonnelAuthorizationsPaged,
+  getPersonnelAuthorizationsMatrix2Paged,
   createPersonnelAuthorization,
   updatePersonnelAuthorization,
   deletePersonnelAuthorization,
@@ -39,13 +42,17 @@ const displayDate = (v?: string | null) =>
 import {
   getAuthorizationScopeCessnaList,
   getAuthorizationScopeBaronList,
+  getAuthorizationScopePiperList,
   getAuthorizationScopeOthersList,
-  createAuthorizationScopeCessna,
-  createAuthorizationScopeBaron,
-  createAuthorizationScopeOthers,
+  createAuthorizationScope,
   type AuthorizationScopeOption,
+  type AuthorizationScopeType,
 } from "../api/authorizationScopeApi";
 import { DataTablePagination } from "./ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../constants/pagination";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useOverlayEscape } from "../hooks/useOverlayEscape";
 
 /** Same shape as API record for view/edit. */
 type Personnel = PersonnelAuthorizationRecord;
@@ -74,6 +82,16 @@ function PersonnelDetailRow({
 
 const AUTH_SEARCH_DEBOUNCE_MS = 350;
 
+const SCOPE_ID_FIELD: Record<
+  AuthorizationScopeType,
+  "scopeCessnaId" | "scopeBaronId" | "scopePiperId" | "scopeOthersId"
+> = {
+  cessna: "scopeCessnaId",
+  baron: "scopeBaronId",
+  piper: "scopePiperId",
+  others: "scopeOthersId",
+};
+
 const MATRIX1_EXPORT_HEADERS = [
   "AUTH NO",
   "NAME",
@@ -86,7 +104,7 @@ const MATRIX1_EXPORT_HEADERS = [
   "EXPIRY_DATE",
 ] as const;
 
-/** 16 columns; type-training Cessna, Baron, and PIPER PA-34 sub-columns match table labels. */
+/** 17 columns; type-training Cessna, Baron, and PIPER PA-34 sub-columns match table labels. */
 const MATRIX2_EXPORT_HEADERS = [
   "AUTHORIZATION NO",
   "NAME",
@@ -97,6 +115,7 @@ const MATRIX2_EXPORT_HEADERS = [
   "AUTH EXPIRY DATE",
   "AUTHORIZATION SCOPE — CESSNA 150, 152, 172",
   "AUTHORIZATION SCOPE — BARON 95-C55",
+  "AUTHORIZATION SCOPE — PIPER PA-34",
   "AUTHORIZATION SCOPE — OTHERS",
   "OTHERS EXPIRY DATE",
   "CAAP LIC EXPIRY",
@@ -254,7 +273,7 @@ function complianceExpiryDateForItemType(
 export function PersonnelAuthorization() {
   const { canUpdate, canCreate, canDelete } = useUserPermissions();
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingPersonnel, setEditingPersonnel] = useState<Personnel | null>(
     null
@@ -293,14 +312,16 @@ export function PersonnelAuthorization() {
   const [scopeBaronOptions, setScopeBaronOptions] = useState<
     AuthorizationScopeOption[]
   >([]);
+  const [scopePiperOptions, setScopePiperOptions] = useState<
+    AuthorizationScopeOption[]
+  >([]);
   const [scopeOthersOptions, setScopeOthersOptions] = useState<
     AuthorizationScopeOption[]
   >([]);
   const [scopeListsLoading, setScopeListsLoading] = useState(false);
   const [showNewScopeModal, setShowNewScopeModal] = useState(false);
-  const [newScopeType, setNewScopeType] = useState<
-    "cessna" | "baron" | "others"
-  >("cessna");
+  const [newScopeType, setNewScopeType] =
+    useState<AuthorizationScopeType>("cessna");
   const [newScopeValue, setNewScopeValue] = useState("");
   const [addingScope, setAddingScope] = useState(false);
 
@@ -321,6 +342,7 @@ export function PersonnelAuthorization() {
     othersExpiryDate: "",
     scopeCessnaId: 0 as number,
     scopeBaronId: 0 as number,
+    scopePiperId: 0 as number,
     scopeOthersId: 0 as number,
     caapLicExpiry: "",
     hfTrainingExpiry: "",
@@ -330,6 +352,8 @@ export function PersonnelAuthorization() {
   });
 
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [saving, setSaving] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
 
@@ -348,30 +372,42 @@ export function PersonnelAuthorization() {
   const fetchPersonnel = useCallback(
     async (options?: { preserveView?: boolean }) => {
       const preserveView = Boolean(options?.preserveView);
+      const pageToFetch = preserveView
+        ? getPendingPage(currentPage)
+        : currentPage;
       if (!preserveView) {
         setListLoading(true);
       }
       try {
-        const rows =
+        const listOptions = {
+          sortExpiryDate: expiryDateSort,
+          name: debouncedNameSearch.trim() || undefined,
+        };
+        const res =
           listGroupBy === "matrix2"
-            ? await getPersonnelAuthorizationsMatrix2({
-                sortExpiryDate: expiryDateSort,
-                name: debouncedNameSearch.trim() || undefined,
-              })
-            : await getPersonnelAuthorizations({
-                itemType: itemTypeFilter || undefined,
-                sortExpiryDate: expiryDateSort,
-                name: debouncedNameSearch.trim() || undefined,
-              });
-        setPersonnel(rows);
-        if (preserveView) {
-          const pendingPage = getPendingPage(currentPage);
-          if (pendingPage !== currentPage) {
-            setCurrentPage(pendingPage);
-          }
+            ? await getPersonnelAuthorizationsMatrix2Paged(
+                pageToFetch,
+                itemsPerPage,
+                listOptions
+              )
+            : await getPersonnelAuthorizationsPaged(
+                pageToFetch,
+                itemsPerPage,
+                {
+                  ...listOptions,
+                  itemType: itemTypeFilter || undefined,
+                }
+              );
+        setPersonnel(res.items);
+        setTotal(res.total);
+        setTotalPages(res.pages);
+        if (preserveView && pageToFetch !== currentPage) {
+          setCurrentPage(pageToFetch);
         }
       } catch {
         setPersonnel([]);
+        setTotal(0);
+        setTotalPages(0);
       } finally {
         if (!preserveView) {
           setListLoading(false);
@@ -385,47 +421,52 @@ export function PersonnelAuthorization() {
       itemTypeFilter,
       expiryDateSort,
       debouncedNameSearch,
+      currentPage,
+      itemsPerPage,
       getPendingPage,
       beginPreserveViewSettle,
     ]
   );
 
-  const total = personnel.length;
-  const totalPages = Math.max(1, Math.ceil(total / itemsPerPage) || 1);
-  const personnelPage = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return personnel.slice(start, start + itemsPerPage);
-  }, [personnel, currentPage, itemsPerPage]);
+  const personnelPage = personnel;
 
   const viewingItemType = viewingPersonnel
     ? itemTypeFromApi(viewingPersonnel.itemType)
     : ("" as const);
 
+  const personnelFilterKey = `${listGroupBy}|${itemTypeFilter}|${expiryDateSort}|${debouncedNameSearch}|${itemsPerPage}`;
+  const prevPersonnelFilterKeyRef = useRef(personnelFilterKey);
+
   useEffect(() => {
+    if (prevPersonnelFilterKeyRef.current !== personnelFilterKey) {
+      prevPersonnelFilterKeyRef.current = personnelFilterKey;
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+        return;
+      }
+    }
     fetchPersonnel();
-  }, [fetchPersonnel]);
+  }, [fetchPersonnel, personnelFilterKey, currentPage]);
 
-  useEffect(() => {
-    const pages = Math.max(1, Math.ceil(personnel.length / itemsPerPage) || 1);
-    if (currentPage > pages) setCurrentPage(pages);
-  }, [personnel.length, itemsPerPage, currentPage]);
-
-  // Fetch scope dropdown lists from API (authorization-scope-cessna/list, authorization-scope-baron/list, authorization-scope-others/list)
+  // Fetch scope dropdown lists from API (authorization-scope-cessna/list, authorization-scope-baron/list, authorization-scope-piper/list, authorization-scope-others/list)
   useEffect(() => {
     setScopeListsLoading(true);
     Promise.all([
       getAuthorizationScopeCessnaList(),
       getAuthorizationScopeBaronList(),
+      getAuthorizationScopePiperList(),
       getAuthorizationScopeOthersList(),
     ])
-      .then(([cessna, baron, others]) => {
+      .then(([cessna, baron, piper, others]) => {
         setScopeCessnaOptions(cessna);
         setScopeBaronOptions(baron);
+        setScopePiperOptions(piper);
         setScopeOthersOptions(others);
       })
       .catch(() => {
         setScopeCessnaOptions([]);
         setScopeBaronOptions([]);
+        setScopePiperOptions([]);
         setScopeOthersOptions([]);
       })
       .finally(() => setScopeListsLoading(false));
@@ -447,10 +488,6 @@ export function PersonnelAuthorization() {
     }, AUTH_SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [nameSearch]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [debouncedNameSearch]);
 
   // Authorization Number: get data from list of auth_stamp in account information
   useEffect(() => {
@@ -494,6 +531,7 @@ export function PersonnelAuthorization() {
       othersExpiryDate: "",
       scopeCessnaId: 0,
       scopeBaronId: 0,
+      scopePiperId: 0,
       scopeOthersId: 0,
       caapLicExpiry: "",
       hfTrainingExpiry: "",
@@ -524,6 +562,7 @@ export function PersonnelAuthorization() {
       othersExpiryDate: toDateInput(person.othersExpiryDate),
       scopeCessnaId: person.scopeCessnaId ?? 0,
       scopeBaronId: person.scopeBaronId ?? 0,
+      scopePiperId: person.scopePiperId ?? 0,
       scopeOthersId: person.scopeOthersId ?? 0,
       caapLicExpiry: toDateInput(person.caapLicExpiry),
       hfTrainingExpiry: toDateInput(person.hfTrainingExpiry),
@@ -538,6 +577,15 @@ export function PersonnelAuthorization() {
     setShowCreateModal(false);
     setEditingPersonnel(null);
     setCreateFormErrors({});
+    setShowNewScopeModal(false);
+    setNewScopeValue("");
+    setAddingScope(false);
+  };
+
+  const closeNewScopeModal = () => {
+    if (addingScope) return;
+    setShowNewScopeModal(false);
+    setNewScopeValue("");
   };
 
   const validateCreateForm = () => {
@@ -593,6 +641,7 @@ export function PersonnelAuthorization() {
       item_type: createForm.itemType.trim(),
       authorization_scope_cessna_id: createForm.scopeCessnaId,
       authorization_scope_baron_id: createForm.scopeBaronId,
+      authorization_scope_piper_id: createForm.scopePiperId,
       authorization_scope_others_id: createForm.scopeOthersId,
       auth_issue_date: createForm.authIssueDate.trim() || undefined,
       expiry_date: expiryDate || undefined,
@@ -756,6 +805,7 @@ export function PersonnelAuthorization() {
           displayDate(p.authExpiryDate),
           p.scopeCessna,
           p.scopeBaron,
+          p.scopePiper,
           p.scopeOthers,
           displayDate(p.othersExpiryDate),
           displayDate(p.caapLicExpiry),
@@ -806,28 +856,53 @@ export function PersonnelAuthorization() {
     }
   };
 
-  const getScopeTypeLabel = (type: "cessna" | "baron" | "others") => {
+  const getScopeTypeLabel = (type: AuthorizationScopeType) => {
     switch (type) {
       case "cessna":
         return "Authorization Scope (Cessna 150, 152, 172)";
       case "baron":
         return "Authorization Scope (Baron 95-C55)";
+      case "piper":
+        return "Authorization Scope (PIPER PA-34)";
       case "others":
         return "Authorization Scope (Others)";
     }
   };
 
-  const refetchScopeList = async (type: "cessna" | "baron" | "others") => {
+  const currentScopeOptions = (type: AuthorizationScopeType) => {
+    if (type === "cessna") return scopeCessnaOptions;
+    if (type === "baron") return scopeBaronOptions;
+    if (type === "piper") return scopePiperOptions;
+    return scopeOthersOptions;
+  };
+
+  const refetchScopeList = async (type: AuthorizationScopeType) => {
     if (type === "cessna") {
       const list = await getAuthorizationScopeCessnaList();
       setScopeCessnaOptions(list);
-    } else if (type === "baron") {
+      return list;
+    }
+    if (type === "baron") {
       const list = await getAuthorizationScopeBaronList();
       setScopeBaronOptions(list);
-    } else {
-      const list = await getAuthorizationScopeOthersList();
-      setScopeOthersOptions(list);
+      return list;
     }
+    if (type === "piper") {
+      const list = await getAuthorizationScopePiperList();
+      setScopePiperOptions(list);
+      return list;
+    }
+    const list = await getAuthorizationScopeOthersList();
+    setScopeOthersOptions(list);
+    return list;
+  };
+
+  const findScopeIdByLabel = (
+    opts: AuthorizationScopeOption[],
+    label: string
+  ) => {
+    const needle = label.trim().toLowerCase();
+    return opts.find((opt) => opt.label.trim().toLowerCase() === needle)?.id ?? 0;
   };
 
   const handleAddNewScope = async () => {
@@ -840,126 +915,77 @@ export function PersonnelAuthorization() {
       });
       return;
     }
-    const scopeLabel = getScopeTypeLabel(newScopeType);
-    const findIdByLabel = (opts: AuthorizationScopeOption[]) =>
-      opts.find((o) => o.label === trimmed)?.id ?? 0;
+    if (addingScope) return;
 
-    if (newScopeType === "cessna") {
-      const existingId = findIdByLabel(scopeCessnaOptions);
-      if (existingId) {
-        setCreateForm((prev) => ({ ...prev, scopeCessnaId: existingId }));
+    const type = newScopeType;
+    const formKey = SCOPE_ID_FIELD[type];
+    const scopeLabel = getScopeTypeLabel(type);
+    const existingId = findScopeIdByLabel(currentScopeOptions(type), trimmed);
+
+    if (existingId) {
+      setCreateForm((prev) => ({ ...prev, [formKey]: existingId }));
+      setShowNewScopeModal(false);
+      setNewScopeValue("");
+      await Swal.fire({
+        icon: "info",
+        title: "Scope selected",
+        text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      return;
+    }
+
+    setAddingScope(true);
+    try {
+      const saved = await confirmSaveEntry(false, async () => {
+        const created = await createAuthorizationScope(type, { name: trimmed });
+        const list = await refetchScopeList(type);
+        const newId =
+          created.id > 0 ? created.id : findScopeIdByLabel(list, trimmed);
+        if (newId > 0) {
+          setCreateForm((prev) => ({ ...prev, [formKey]: newId }));
+        } else if (created.name) {
+          const next = [
+            ...list,
+            { id: created.id || Date.now(), label: created.name },
+          ];
+          if (type === "cessna") setScopeCessnaOptions(next);
+          else if (type === "baron") setScopeBaronOptions(next);
+          else if (type === "piper") setScopePiperOptions(next);
+          else setScopeOthersOptions(next);
+          setCreateForm((prev) => ({
+            ...prev,
+            [formKey]: created.id || next[next.length - 1].id,
+          }));
+        }
+      });
+      if (saved) {
         setShowNewScopeModal(false);
         setNewScopeValue("");
-        await Swal.fire({
-          icon: "info",
-          title: "Scope selected",
-          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        try {
-          await createAuthorizationScopeCessna(trimmed);
-          const list = await getAuthorizationScopeCessnaList();
-          setScopeCessnaOptions(list);
-          const newId = findIdByLabel(list);
-          setCreateForm((prev) => ({ ...prev, scopeCessnaId: newId }));
-          setShowNewScopeModal(false);
-          setNewScopeValue("");
-          await Swal.fire({
-            icon: "success",
-            title: "Created",
-            text: `"${trimmed}" has been added to ${scopeLabel}.`,
-            timer: 2000,
-            showConfirmButton: false,
-          });
-        } catch (err) {
-          await Swal.fire({
-            icon: "error",
-            title: "Error",
-            text:
-              err instanceof Error ? err.message : "Failed to create scope.",
-          });
-        }
       }
-    } else if (newScopeType === "baron") {
-      const existingId = findIdByLabel(scopeBaronOptions);
-      if (existingId) {
-        setCreateForm((prev) => ({ ...prev, scopeBaronId: existingId }));
-        setShowNewScopeModal(false);
-        setNewScopeValue("");
-        await Swal.fire({
-          icon: "info",
-          title: "Scope selected",
-          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        try {
-          await createAuthorizationScopeBaron(trimmed);
-          const list = await getAuthorizationScopeBaronList();
-          setScopeBaronOptions(list);
-          const newId = findIdByLabel(list);
-          setCreateForm((prev) => ({ ...prev, scopeBaronId: newId }));
-          setShowNewScopeModal(false);
-          setNewScopeValue("");
-          await Swal.fire({
-            icon: "success",
-            title: "Created",
-            text: `"${trimmed}" has been added to ${scopeLabel}.`,
-            timer: 2000,
-            showConfirmButton: false,
-          });
-        } catch (err) {
-          await Swal.fire({
-            icon: "error",
-            title: "Error",
-            text:
-              err instanceof Error ? err.message : "Failed to create scope.",
-          });
-        }
-      }
-    } else {
-      const existingId = findIdByLabel(scopeOthersOptions);
-      if (existingId) {
-        setCreateForm((prev) => ({ ...prev, scopeOthersId: existingId }));
-        setShowNewScopeModal(false);
-        setNewScopeValue("");
-        await Swal.fire({
-          icon: "info",
-          title: "Scope selected",
-          text: `"${trimmed}" is already in the list and has been selected for ${scopeLabel}.`,
-          timer: 2000,
-          showConfirmButton: false,
-        });
-      } else {
-        try {
-          await createAuthorizationScopeOthers(trimmed);
-          const list = await getAuthorizationScopeOthersList();
-          setScopeOthersOptions(list);
-          const newId = findIdByLabel(list);
-          setCreateForm((prev) => ({ ...prev, scopeOthersId: newId }));
-          setShowNewScopeModal(false);
-          setNewScopeValue("");
-          await Swal.fire({
-            icon: "success",
-            title: "Created",
-            text: `"${trimmed}" has been added to ${scopeLabel}.`,
-            timer: 2000,
-            showConfirmButton: false,
-          });
-        } catch (err) {
-          await Swal.fire({
-            icon: "error",
-            title: "Error",
-            text:
-              err instanceof Error ? err.message : "Failed to create scope.",
-          });
-        }
-      }
+    } finally {
+      setAddingScope(false);
     }
   };
+
+  useOverlayEscape({
+    enabled: Boolean(viewingPersonnel),
+    onClose: () => setViewingPersonnel(null),
+  });
+  useOverlayEscape({
+    enabled: showCreateModal,
+    onClose: closeCreateModal,
+  });
+  useOverlayEscape({
+    enabled: showNewScopeModal,
+    onClose: closeNewScopeModal,
+    isBusy: addingScope,
+  });
+  useOverlayEscape({
+    enabled: showCreateModal && isAuthDropdownOpen,
+    onClose: () => setIsAuthDropdownOpen(false),
+  });
 
   return (
     <div className="space-y-4 sm:space-y-6 p-4 sm:p-6">
@@ -1238,7 +1264,7 @@ export function PersonnelAuthorization() {
                     </button>
                   </th>
                   <th
-                    colSpan={3}
+                    colSpan={4}
                     className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
                   >
                     AUTHORIZATION SCOPE
@@ -1276,6 +1302,9 @@ export function PersonnelAuthorization() {
                     BARON 95-C55
                   </th>
                   <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                    PIPER PA-34
+                  </th>
+                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     OTHERS
                   </th>
                   <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
@@ -1294,7 +1323,7 @@ export function PersonnelAuthorization() {
               {listLoading ? (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 16}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 17}
                     className="px-6 py-12 text-center"
                   >
                     <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto inline-block" />
@@ -1512,6 +1541,11 @@ export function PersonnelAuthorization() {
                         )}
                       </td>
                       <td className={cellClassNoWrap}>
+                        {person.scopePiper || (
+                          <span className={placeholderClass}>—</span>
+                        )}
+                      </td>
+                      <td className={cellClassNoWrap}>
                         {person.scopeOthers || (
                           <span className={placeholderClass}>—</span>
                         )}
@@ -1552,7 +1586,7 @@ export function PersonnelAuthorization() {
               ) : (
                 <tr>
                   <td
-                    colSpan={listGroupBy === "matrix1" ? 10 : 16}
+                    colSpan={listGroupBy === "matrix1" ? 10 : 17}
                     className="px-6 py-12 text-center text-gray-500"
                   >
                     No personnel found
@@ -1574,6 +1608,7 @@ export function PersonnelAuthorization() {
             setItemsPerPage(size);
             setCurrentPage(1);
           }}
+          pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
           disabled={listLoading}
         />
       </div>
@@ -1665,10 +1700,16 @@ export function PersonnelAuthorization() {
                 </>
               )}
               {viewingItemType === "PIPER PA-34" && (
-                <PersonnelDetailRow
-                  label="Type Training Expiry (PIPER PA-34)"
-                  value={displayDate(viewingPersonnel.typeTrainingPiper)}
-                />
+                <>
+                  <PersonnelDetailRow
+                    label="Authorization Scope (PIPER PA-34)"
+                    value={viewingPersonnel.scopePiper}
+                  />
+                  <PersonnelDetailRow
+                    label="Type Training Expiry (PIPER PA-34)"
+                    value={displayDate(viewingPersonnel.typeTrainingPiper)}
+                  />
+                </>
               )}
               {viewingItemType === "OTHERS" && (
                 <>
@@ -2204,24 +2245,59 @@ export function PersonnelAuthorization() {
                 )}
 
                 {createForm.itemType === "PIPER PA-34" && (
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Type Training Expiry (PIPER PA-34){" "}
-                      <span className="text-red-500">*</span>
-                    </label>
-                    <DateInput
-                      name="expiry_date"
-                      required
-                      value={createForm.typeTrainingPiper}
-                      onChange={(typeTrainingPiper) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          typeTrainingPiper,
-                        }))
-                      }
-                      inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Authorization Scope (PIPER PA-34)
+                      </label>
+                      <select
+                        value={createForm.scopePiperId || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__create_new__") {
+                            setNewScopeType("piper");
+                            setNewScopeValue("");
+                            setShowNewScopeModal(true);
+                            return;
+                          }
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            scopePiperId: v ? Number(v) : 0,
+                          }));
+                        }}
+                        disabled={scopeListsLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8 disabled:opacity-60"
+                      >
+                        <option value="">
+                          {scopeListsLoading ? "Loading..." : "Select Scope"}
+                        </option>
+                        {scopePiperOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                        <option value="__create_new__">— Create New —</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Type Training Expiry (PIPER PA-34){" "}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <DateInput
+                        name="expiry_date"
+                        required
+                        value={createForm.typeTrainingPiper}
+                        onChange={(typeTrainingPiper) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            typeTrainingPiper,
+                          }))
+                        }
+                        inputClassName="border-gray-300 rounded-md text-sm bg-white text-gray-900"
+                      />
+                    </div>
+                  </>
                 )}
 
                 {createForm.itemType === "OTHERS" && (
@@ -2351,91 +2427,103 @@ export function PersonnelAuthorization() {
               )}
             </div>
           </div>
-
-          {/* Add New Scope - pops up on top of Personnel Authorization modal */}
-          {showNewScopeModal && (
-            <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-              <div
-                className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
-                aria-hidden
-              />
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="new-scope-title"
-                className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
-              >
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-                  <h2
-                    id="new-scope-title"
-                    className="text-lg font-semibold text-gray-900"
-                  >
-                    Add New Scope
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!addingScope) {
-                        setShowNewScopeModal(false);
-                        setNewScopeValue("");
-                      }
-                    }}
-                    className="p-1 hover:bg-gray-100 rounded"
-                  >
-                    <X className="w-5 h-5 text-gray-600" />
-                  </button>
-                </div>
-                <div className="px-6 py-4 space-y-3">
-                  <p className="text-sm text-gray-600">
-                    {newScopeType === "cessna" &&
-                      "Authorization Scope (Cessna 150, 152, 172)"}
-                    {newScopeType === "baron" &&
-                      "Authorization Scope (Baron 95-C55)"}
-                    {newScopeType === "others" &&
-                      "Authorization Scope (Others)"}
-                  </p>
-                  <label className="block text-gray-700 text-sm mb-1">
-                    Scope value
-                  </label>
-                  <input
-                    type="text"
-                    value={newScopeValue}
-                    onChange={(e) => setNewScopeValue(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
-                    placeholder="Enter scope value"
-                  />
-                </div>
-                <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!addingScope) {
-                        setShowNewScopeModal(false);
-                        setNewScopeValue("");
-                      }
-                    }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setAddingScope(true);
-                      await handleAddNewScope();
-                      setAddingScope(false);
-                    }}
-                    disabled={!newScopeValue.trim()}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
-                  >
-                    Add
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
+
+      {showNewScopeModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+            data-nested-overlay="true"
+          >
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+              aria-hidden
+              onClick={closeNewScopeModal}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="new-scope-title"
+              className="relative z-[81] bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <h2
+                  id="new-scope-title"
+                  className="text-lg font-semibold text-gray-900"
+                >
+                  Add New Scope
+                </h2>
+                <button
+                  type="button"
+                  onClick={closeNewScopeModal}
+                  disabled={addingScope}
+                  className="p-1 hover:bg-gray-100 rounded disabled:opacity-40"
+                >
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
+              <div className="px-6 py-4 space-y-3">
+                <p className="text-sm text-gray-600">
+                  {getScopeTypeLabel(newScopeType)}
+                </p>
+                <label
+                  htmlFor="new-scope-value"
+                  className="block text-gray-700 text-sm mb-1"
+                >
+                  Scope value
+                </label>
+                <input
+                  id="new-scope-value"
+                  type="text"
+                  autoFocus
+                  value={newScopeValue}
+                  onChange={(e) => setNewScopeValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.stopPropagation();
+                      closeNewScopeModal();
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleAddNewScope();
+                    }
+                  }}
+                  disabled={addingScope}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 disabled:bg-gray-50"
+                  placeholder="Enter scope value"
+                />
+              </div>
+              <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={closeNewScopeModal}
+                  disabled={addingScope}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 text-sm disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAddNewScope()}
+                  disabled={addingScope || !newScopeValue.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-2"
+                >
+                  {addingScope ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

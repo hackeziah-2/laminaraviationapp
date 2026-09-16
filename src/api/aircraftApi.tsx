@@ -1,6 +1,8 @@
 import apiClient from "./index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { Aircraft } from "../types/Aircraft";
 import { toCamel, toCamelDeep } from "../utility/utils";
+import { appendPagedQueryParams, parsePagedMeta } from "../utils/pagedQuery";
 import {
   getLatestAircraftTechnicalLog,
   type AircraftTechnicalLog,
@@ -160,15 +162,14 @@ export const getAircraftDetails = async (
 
 export const getAircrafts = (
   page = 1,
-  limit = 10,
+  limit = DEFAULT_API_PAGE_SIZE,
   search = "",
   status = "",
   sortParam = ""
 ) => {
   const params = new URLSearchParams();
 
-  params.append("page", page.toString());
-  params.append("limit", limit.toString());
+  appendPagedQueryParams(params, page, limit);
 
   if (search.trim() !== "") {
     params.append("search", search);
@@ -185,8 +186,16 @@ export const getAircrafts = (
   return apiClient.get(`aircraft/paged?${params.toString()}`);
 };
 
-export const getAircraftAll = (page = 1, limit = 10, search = "") =>
-  apiClient.get(`aircraft/paged?limit=${limit}&page=${page}&search=${search}`);
+export const getAircraftAll = (
+  page = 1,
+  limit = DEFAULT_API_PAGE_SIZE,
+  search = ""
+) => {
+  const params = new URLSearchParams();
+  appendPagedQueryParams(params, page, limit);
+  if (search.trim() !== "") params.append("search", search);
+  return apiClient.get(`aircraft/paged?${params.toString()}`);
+};
 
 export const getAircraftList = () => apiClient.get("aircraft/list");
 
@@ -402,11 +411,10 @@ export interface AircraftHistoryPagedResponse {
 export const getAircraftHistory = async (
   aircraftId: number,
   page = 1,
-  limit = 10
+  limit = DEFAULT_API_PAGE_SIZE
 ): Promise<AircraftHistoryPagedResponse> => {
   const params = new URLSearchParams();
-  params.set("limit", String(limit));
-  params.set("page", String(page));
+  appendPagedQueryParams(params, page, limit);
 
   const response = await apiClient.get(
     `aircraft/${aircraftId}/history?${params.toString()}`,
@@ -431,10 +439,9 @@ export const getAircraftHistory = async (
   ) as AircraftHistoryRow[];
 
   const total = Number(dataObj.count ?? dataObj.total ?? items.length);
-  const currentPage = Number(dataObj.page ?? page);
-  const pages = Number(
-    dataObj.pages ?? Math.max(1, Math.ceil(total / Math.max(1, limit)))
-  );
+  const meta = parsePagedMeta(dataObj, page, limit);
+  const currentPage = meta.page;
+  const pages = meta.pages || Math.max(1, Math.ceil(total / Math.max(1, limit)));
 
   return {
     items,

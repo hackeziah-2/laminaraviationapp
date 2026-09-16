@@ -1,4 +1,6 @@
 import apiClient from "../api/index";
+import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
+import { appendPagedQueryParams } from "../utils/pagedQuery";
 
 function extractAccountDisplayName(value: unknown): string | null {
   if (value == null) return null;
@@ -140,8 +142,13 @@ export function formatAuditLogDateEnd(date: string): string {
 
 function buildSearchParams(params: AuditLogQueryParams): URLSearchParams {
   const searchParams = new URLSearchParams();
-  if (params.page != null) searchParams.set("page", String(params.page));
-  if (params.limit != null) searchParams.set("limit", String(params.limit));
+  if (params.page != null || params.limit != null) {
+    appendPagedQueryParams(
+      searchParams,
+      params.page ?? 1,
+      params.limit ?? DEFAULT_API_PAGE_SIZE
+    );
+  }
   if (params.moduleName) searchParams.set("module_name", params.moduleName);
   if (params.action) searchParams.set("action", params.action);
   if (params.performedByName) {
@@ -173,7 +180,7 @@ export async function getAuditLogs(
 
   return {
     page: Number(raw.page ?? params.page ?? 1),
-    limit: Number(raw.limit ?? params.limit ?? 10),
+    limit: Number(raw.page_size ?? raw.limit ?? params.limit ?? DEFAULT_API_PAGE_SIZE),
     total: Number(raw.total ?? items.length),
     summary: normalizeSummary(raw.summary),
     items,
@@ -199,6 +206,16 @@ export async function getAuditLogFilterOptions(): Promise<AuditLogFilterOptions>
 export async function exportAuditLogs(
   params: AuditLogQueryParams = {}
 ): Promise<AuditLog[]> {
-  const res = await getAuditLogs({ ...params, page: 1, limit: 5000 });
-  return res.items;
+  const pageSize = 500;
+  const first = await getAuditLogs({ ...params, page: 1, limit: pageSize });
+  const items = [...first.items];
+  const pages = Math.max(
+    1,
+    Math.ceil((first.total || items.length) / pageSize) || 1
+  );
+  for (let page = 2; page <= pages; page += 1) {
+    const res = await getAuditLogs({ ...params, page, limit: pageSize });
+    items.push(...res.items);
+  }
+  return items;
 }

@@ -37,9 +37,14 @@ import {
   AUTH_SCOPE_BARON_CONFIG,
   AUTH_SCOPE_CESSNA_CONFIG,
   AUTH_SCOPE_OTHERS_CONFIG,
+  AUTH_SCOPE_PIPER_CONFIG,
   AuthorizationScopeSettingsPanel,
 } from "./AuthorizationScopeSettingsPanel";
 import { DataTablePagination } from "../ui/DataTablePagination";
+import {
+  API_PAGE_SIZE_OPTIONS,
+  DEFAULT_API_PAGE_SIZE,
+} from "../../constants/pagination";
 
 type ActiveModuleKey = Exclude<ModuleSettingKey, "">;
 
@@ -126,7 +131,7 @@ function AtlBatchSettingsPanel() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editBatchId, setEditBatchId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalBatches, setTotalBatches] = useState(0);
 
@@ -392,7 +397,7 @@ function AtlBatchSettingsPanel() {
               totalLabel="batches"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[5, 10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             />
           )}
         </div>
@@ -432,7 +437,7 @@ function OaApprovalTypeSettingsPanel() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTypeId, setEditTypeId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalTypes, setTotalTypes] = useState(0);
 
@@ -679,7 +684,7 @@ function OaApprovalTypeSettingsPanel() {
               totalLabel="types"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[5, 10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             />
           )}
         </div>
@@ -719,7 +724,7 @@ function OemItemTypesSettingsPanel() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editTypeId, setEditTypeId] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_API_PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [totalTypes, setTotalTypes] = useState(0);
 
@@ -963,7 +968,7 @@ function OemItemTypesSettingsPanel() {
               totalLabel="types"
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
-              pageSizeOptions={[5, 10, 20, 50]}
+              pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}
             />
           )}
         </div>
@@ -1011,6 +1016,11 @@ export function SettingsModuleSettings({
   if (moduleKey === "auth-scope-baron") {
     return (
       <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_BARON_CONFIG} />
+    );
+  }
+  if (moduleKey === "auth-scope-piper") {
+    return (
+      <AuthorizationScopeSettingsPanel config={AUTH_SCOPE_PIPER_CONFIG} />
     );
   }
   if (moduleKey === "auth-scope-others") {
