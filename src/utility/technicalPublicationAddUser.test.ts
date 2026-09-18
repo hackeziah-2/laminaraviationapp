@@ -10,7 +10,7 @@ import {
 } from "./technicalPublicationAddUser";
 
 describe("isAssignableTechnicalPublicationUserRole", () => {
-  it("allows Pilot and any role name that contains Mechanic", () => {
+  it("allows Pilot and any role name that contains Mechanic except Maintenance Manager aliases", () => {
     expect(isAssignableTechnicalPublicationUserRole("Pilot")).toBe(true);
     expect(isAssignableTechnicalPublicationUserRole("mechanic")).toBe(true);
     expect(isAssignableTechnicalPublicationUserRole("Line Mechanic")).toBe(
@@ -19,6 +19,12 @@ describe("isAssignableTechnicalPublicationUserRole", () => {
     expect(isAssignableTechnicalPublicationUserRole("Admin")).toBe(false);
     expect(
       isAssignableTechnicalPublicationUserRole("Technical Publication")
+    ).toBe(false);
+    expect(
+      isAssignableTechnicalPublicationUserRole("Maintenance Manager")
+    ).toBe(false);
+    expect(
+      isAssignableTechnicalPublicationUserRole("Mechanic - Maintenance Manager")
     ).toBe(false);
   });
 });
@@ -41,12 +47,14 @@ describe("resolveTechnicalPublicationAccountRoleName", () => {
 });
 
 describe("pickAssignableTechnicalPublicationRoles", () => {
-  it("returns Pilot first, then every Mechanic-named role", () => {
+  it("returns Pilot first, then every Mechanic-named role except Maintenance Manager aliases", () => {
     const picked = pickAssignableTechnicalPublicationRoles([
       { id: 9, name: "Admin" },
       { id: 5, name: "Line Mechanic" },
       { id: 4, name: "Mechanic" },
       { id: 2, name: "Pilot" },
+      { id: 10, name: "Maintenance Manager" },
+      { id: 11, name: "Mechanic - Maintenance Manager" },
     ]);
     expect(picked.map((r) => r.name)).toEqual([
       "Pilot",
