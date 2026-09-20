@@ -1196,7 +1196,7 @@ export function CertificateMonitoring() {
                           Choose file or drag here
                         </span>
                         <span className="text-xs text-gray-500">
-                          Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 10MB)
+                          Supported formats: PDF, DOC, DOCX, JPG, PNG (Max 50MB)
                         </span>
                       </label>
                     </div>

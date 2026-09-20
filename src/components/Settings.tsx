@@ -51,6 +51,11 @@ import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { formatDisplayDate, formatDisplayDateTime } from "../utility/utils";
 import { DateInput } from "./ui/DateInput";
+import {
+  isCanonicalMaintenanceManagerRole,
+  lookupMappedValueForRole,
+  shouldLoadCanonicalPermissionRole,
+} from "../utility/roleAuthorization";
 
 interface User {
   id: number;
@@ -2502,18 +2507,33 @@ export function Settings() {
 
     const fallback =
       customPermissions[selectedRole] ??
-      permissionsByRole[selectedRole] ??
+      lookupMappedValueForRole(selectedRole, permissionsByRole) ??
       getDefaultModulePermissions(modulesList);
 
     void (async () => {
       try {
         const perms = await rolesApi.getRolePermissions(role.id);
-        const source =
-          customPermissions[selectedRole]?.length
-            ? customPermissions[selectedRole]
-            : perms.length > 0
-              ? perms
-              : fallback;
+        let source: Permission[];
+        if (customPermissions[selectedRole]?.length) {
+          source = customPermissions[selectedRole];
+        } else if (shouldLoadCanonicalPermissionRole(selectedRole)) {
+          const mm = roles.find((item) =>
+            isCanonicalMaintenanceManagerRole(item.name)
+          );
+          const mmPerms = mm
+            ? await rolesApi.getRolePermissions(mm.id)
+            : [];
+          source =
+            mmPerms.length > 0
+              ? mmPerms
+              : perms.length > 0
+                ? perms
+                : fallback;
+        } else if (perms.length > 0) {
+          source = perms;
+        } else {
+          source = fallback;
+        }
         if (!cancelled) {
           setMatrixPermissions(
             mergePermissionsWithModuleList(moduleRows, source)
@@ -3230,15 +3250,29 @@ export function Settings() {
                             <button
                               onClick={async () => {
                                 const fallbackPerms =
-                                  getDefaultModulePermissions(modulesList);
+                                  lookupMappedValueForRole(
+                                    role.name,
+                                    permissionsByRole
+                                  ) ?? getDefaultModulePermissions(modulesList);
                                 try {
                                   const roleWithPerms = await rolesApi.getRole(
                                     role.id
                                   );
-                                  const perms =
+                                  let perms =
                                     roleWithPerms.permissions?.length > 0
                                       ? roleWithPerms.permissions
                                       : fallbackPerms;
+                                  if (shouldLoadCanonicalPermissionRole(role.name)) {
+                                    const mm = roles.find((item) =>
+                                      isCanonicalMaintenanceManagerRole(item.name)
+                                    );
+                                    if (mm) {
+                                      const mmRole = await rolesApi.getRole(mm.id);
+                                      if (mmRole.permissions?.length) {
+                                        perms = mmRole.permissions;
+                                      }
+                                    }
+                                  }
                                   const roleName =
                                     roleWithPerms.name || role.name;
                                   const userCount =
@@ -3667,7 +3701,10 @@ export function Settings() {
         permissions={
           selectedRoleForEdit
             ? customPermissions[selectedRoleForEdit.name] ??
-              permissionsByRole[selectedRoleForEdit.name] ??
+              lookupMappedValueForRole(
+                selectedRoleForEdit.name,
+                permissionsByRole
+              ) ??
               getDefaultModulePermissions(modulesList)
             : []
         }

@@ -1,7 +1,7 @@
 import { useRef, useState, type DragEvent, type ChangeEvent } from "react";
 import { Upload } from "lucide-react";
 
-export const ATL_FILE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export const ATL_FILE_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 
 export const ATL_FILE_UPLOAD_ACCEPT =
   ".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,application/pdf";
@@ -217,7 +217,7 @@ export function FileDropzone({
               </p>
               {!disabled && (
                 <p className="text-xs text-gray-500 mt-1">
-                  PDF, DOC, DOCX, JPG, PNG, GIF, WEBP (Max 10MB)
+                  PDF, DOC, DOCX, JPG, PNG, GIF, WEBP (Max 50MB)
                 </p>
               )}
             </>
