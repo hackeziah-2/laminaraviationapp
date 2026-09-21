@@ -100,14 +100,14 @@ export function accountConflictsWithUsernameOrEmail(
   ) {
     fields.username = "Username is already taken";
   }
-  if (
-    wantEmail &&
-    accounts.some(
-      (a) => String(a.email ?? "").trim().toLowerCase() === wantEmail
-    )
-  ) {
-    fields.email = "Email address is already taken";
-  }
+  // if (
+  //   wantEmail &&
+  //   accounts.some(
+  //     (a) => String(a.email ?? "").trim().toLowerCase() === wantEmail
+  //   )
+  // ) {
+  //   fields.email = "Email address is already taken";
+  // }
   return fields;
 }
 
