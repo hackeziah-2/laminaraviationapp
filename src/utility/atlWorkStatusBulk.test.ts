@@ -29,6 +29,9 @@ describe("getAtlBulkSelectableSourceStatusesForRole", () => {
     expect(
       getAtlBulkSelectableSourceStatusesForRole("Maintenance Manager")
     ).toHaveLength(3);
+    expect(
+      getAtlBulkSelectableSourceStatusesForRole("Mechanic - Maintenance Manager")
+    ).toEqual(getAtlBulkSelectableSourceStatusesForRole("Maintenance Manager"));
   });
 
   it("returns quality manager sources without COMPLETED", () => {

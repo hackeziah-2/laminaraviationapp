@@ -1,3 +1,8 @@
+import {
+  isMechanicMaintenanceManagerRole,
+  normalizeRoleNameForMatch,
+} from "./roleAuthorization";
+
 /**
  * ATL (Aircraft Technical Log) RBAC for Operation / Technical Logbook modules.
  *
@@ -6,7 +11,7 @@
  * - Maintenance Planner → may edit at FOR_REVIEW, AWAITING_ATTACHMENT, PENDING, REJECTED_MAINTENANCE;
  *   on edit at PENDING / REJECTED_MAINTENANCE: Work Status is shown but locked (no status change)
  * - Technical Publication → AWAITING_ATTACHMENT, PENDING
- * - Maintenance Manager → PENDING, REJECTED_MAINTENANCE, APPROVED
+ * - Maintenance Manager (and Mechanic - Maintenance Manager) → PENDING, REJECTED_MAINTENANCE, APPROVED
  * - Quality Manager → APPROVED, REJECTED_QUALITY (COMPLETED entries are view-only)
  * - All other roles → view only (no field edits)
  *
@@ -99,17 +104,6 @@ export function normalizeAtlWorkStatus(
     : "";
 }
 
-function normalizeRoleNameForMatch(raw: string | undefined): string {
-  return (raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/[.'"]/g, "")
-    .replace(/\s*\([^)]*\)\s*/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function isAtlLockedWorkStatus(
   workStatus: string | undefined
 ): boolean {
@@ -178,6 +172,7 @@ export function isMaintenancePlannerRole(
 export function isMaintenanceManagerRole(
   userRole: string | undefined
 ): boolean {
+  if (isMechanicMaintenanceManagerRole(userRole)) return true;
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
   return (
@@ -352,6 +347,7 @@ export function isAtlWhiteAtlDfpOnlyEdit(
 }
 
 export function isMechanicRole(userRole: string | undefined): boolean {
+  if (isMaintenanceManagerRole(userRole)) return false;
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
   return (
@@ -369,23 +365,6 @@ export function canManageAtlBatchFilter(
   return true;
 }
 
-function isMaintenancePlannerRoleName(n: string): boolean {
-  return (
-    n === "maintenance planner" ||
-    n === "maint planner" ||
-    n === "maintenance planning" ||
-    n.endsWith(" maintenance planner")
-  );
-}
-
-function isMaintenanceManagerRoleName(n: string): boolean {
-  return (
-    n === "maintenance manager" ||
-    n === "maint manager" ||
-    n.endsWith(" maintenance manager")
-  );
-}
-
 export function canCreateAtlBatch(userRole: string | undefined): boolean {
   return isAdminRole(userRole) || isMaintenancePlannerRole(userRole);
 }
@@ -397,11 +376,10 @@ export function canEditAtlBatch(userRole: string | undefined): boolean {
 export function resolveAtlRbacRole(
   userRole: string | undefined
 ): AtlRbacRole | null {
-  const n = normalizeRoleNameForMatch(userRole);
-  if (!n) return null;
+  if (!normalizeRoleNameForMatch(userRole)) return null;
 
-  if (isMaintenancePlannerRoleName(n)) return "maintenance_planner";
-  if (isMaintenanceManagerRoleName(n)) return "maintenance_manager";
+  if (isMaintenancePlannerRole(userRole)) return "maintenance_planner";
+  if (isMaintenanceManagerRole(userRole)) return "maintenance_manager";
   if (isTechnicalPublicationRole(userRole)) return "technical_publication";
   if (isQualityManagerRole(userRole)) return "quality_manager";
 

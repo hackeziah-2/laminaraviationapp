@@ -1754,13 +1754,13 @@ export function MaintenanceLogbook() {
 
     // Validate file if uploaded
       if (uploadFile) {
-        // Check file size (10MB = 10 * 1024 * 1024 bytes)
-        const maxSize = 10 * 1024 * 1024; // 10MB
+        // Check file size (50MB = 50 * 1024 * 1024 bytes)
+        const maxSize = 50 * 1024 * 1024; // 50MB
         if (uploadFile.size > maxSize) {
           Swal.fire({
             icon: "error",
             title: "File Too Large",
-            text: "File size must be less than 10MB. Please choose a smaller file.",
+            text: "File size must be less than 50MB. Please choose a smaller file.",
           });
           return;
         }

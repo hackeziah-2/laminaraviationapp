@@ -171,6 +171,13 @@ describe("getTechnicalPublicationAssignableRoles", () => {
       { id: 1, name: "Admin", description: "", userCount: 0 },
       { id: 4, name: "Mechanic", description: "", userCount: 0 },
       { id: 5, name: "Line Mechanic", description: "", userCount: 0 },
+      { id: 10, name: "Maintenance Manager", description: "", userCount: 0 },
+      {
+        id: 11,
+        name: "Mechanic - Maintenance Manager",
+        description: "",
+        userCount: 0,
+      },
     ]);
 
     await expect(getTechnicalPublicationAssignableRoles()).resolves.toEqual([

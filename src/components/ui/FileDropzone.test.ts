@@ -15,7 +15,7 @@ function makeFile(
 }
 
 describe("validateAtlUploadFile", () => {
-  it("accepts allowed types under 10MB", () => {
+  it("accepts allowed types under 50MB", () => {
     expect(validateAtlUploadFile(makeFile("log.pdf", 1024))).toBeNull();
     expect(validateAtlUploadFile(makeFile("photo.PNG", 2048, "image/png"))).toBeNull();
   });
@@ -26,9 +26,9 @@ describe("validateAtlUploadFile", () => {
     );
   });
 
-  it("rejects files larger than 10MB", () => {
+  it("rejects files larger than 50MB", () => {
     expect(
-      validateAtlUploadFile(makeFile("huge.pdf", 10 * 1024 * 1024 + 1))
+      validateAtlUploadFile(makeFile("huge.pdf", 50 * 1024 * 1024 + 1))
     ).toMatch(/too large/i);
   });
 });

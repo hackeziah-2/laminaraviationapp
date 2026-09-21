@@ -1,3 +1,5 @@
+import { inheritsMaintenanceManagerAuthorization } from "./roleAuthorization";
+
 const EMAIL_FORMAT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export type TechnicalPublicationAddUserFormValues = {
@@ -31,7 +33,7 @@ export const EMPTY_TECHNICAL_PUBLICATION_ADD_USER_FORM: TechnicalPublicationAddU
     confirmPassword: "",
   };
 
-/** Pilot (exact) or any role whose name contains “Mechanic”. */
+/** Pilot (exact) or any role whose name contains “Mechanic”, excluding Maintenance Manager aliases. */
 export function isAssignableTechnicalPublicationUserRole(
   name: string | undefined | null
 ): boolean {
@@ -39,6 +41,7 @@ export function isAssignableTechnicalPublicationUserRole(
     .trim()
     .toLowerCase();
   if (!n) return false;
+  if (inheritsMaintenanceManagerAuthorization(name)) return false;
   return n === "pilot" || n.includes("mechanic");
 }
 
@@ -61,8 +64,10 @@ export function pickAssignableTechnicalPublicationRoles<
   const pilot = roles.find(
     (role) => role.name.trim().toLowerCase() === "pilot"
   );
-  const mechanics = roles.filter((role) =>
-    role.name.trim().toLowerCase().includes("mechanic")
+  const mechanics = roles.filter(
+    (role) =>
+      role.name.trim().toLowerCase() !== "pilot" &&
+      isAssignableTechnicalPublicationUserRole(role.name)
   );
   const seen = new Set<string>();
   const out: T[] = [];

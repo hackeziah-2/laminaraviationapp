@@ -3229,6 +3229,121 @@ input[data-slot="date-input"] {
   font-weight: 600;
 }
 
+/* ATL form rows — paper-style horizontal bands that wrap on small screens */
+.add-form .atl-general-info-row,
+.edit-form .atl-general-info-row,
+.add-form .atl-flight-info-row,
+.edit-form .atl-flight-info-row,
+.add-form .atl-readings-row,
+.edit-form .atl-readings-row {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.add-form .atl-general-info-row,
+.edit-form .atl-general-info-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.add-form .atl-flight-info-row,
+.edit-form .atl-flight-info-row,
+.add-form .atl-readings-row,
+.edit-form .atl-readings-row {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.add-form .atl-readings-row > *,
+.edit-form .atl-readings-row > *,
+.add-form .atl-flight-info-row > *,
+.edit-form .atl-flight-info-row > *,
+.add-form .atl-general-info-row > *,
+.edit-form .atl-general-info-row > * {
+  min-width: 0;
+}
+
+.add-form .atl-meter-stack,
+.edit-form .atl-meter-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.add-form .atl-blocks-fields,
+.edit-form .atl-blocks-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.add-form .atl-blocks-fields > *,
+.edit-form .atl-blocks-fields > * {
+  min-width: 0;
+}
+
+.add-form .atl-fuel-qty-grid,
+.edit-form .atl-fuel-qty-grid {
+  display: grid;
+  grid-template-columns: minmax(4.25rem, 0.95fr) minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 0.5rem;
+  row-gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+
+@media (min-width: 640px) {
+  .add-form .atl-general-info-row,
+  .edit-form .atl-general-info-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .add-form .atl-readings-row,
+  .edit-form .atl-readings-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .add-form .atl-blocks-fields,
+  .edit-form .atl-blocks-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .add-form .atl-flight-info-row,
+  .edit-form .atl-flight-info-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .add-form .atl-general-info-row--4,
+  .edit-form .atl-general-info-row--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .add-form .atl-general-info-row--3,
+  .edit-form .atl-general-info-row--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .add-form .atl-flight-info-row,
+  .edit-form .atl-flight-info-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .add-form .atl-readings-row,
+  .edit-form .atl-readings-row {
+    grid-template-columns:
+      minmax(0, 1.75fr)
+      minmax(0, 1.05fr)
+      minmax(6.75rem, 0.68fr)
+      minmax(6.75rem, 0.68fr)
+      minmax(0, 1fr);
+  }
+}
+
 .add-form input:not([type="hidden"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([data-slot="date-input"]),
 .add-form textarea,
 .add-form select,

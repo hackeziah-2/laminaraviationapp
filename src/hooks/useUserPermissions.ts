@@ -5,6 +5,10 @@ import {
   MODULE_PERMISSIONS_LIST,
   getModuleLabel,
 } from "../constants/modulePermissions";
+import {
+  resolvePermissionSourceRoleId,
+  shouldLoadCanonicalPermissionRole,
+} from "../utility/roleAuthorization";
 
 export type Permission = rolesApi.Permission;
 
@@ -53,14 +57,16 @@ export function useUserPermissions(): UserPermissionsState {
       const me = await authApi.getMe();
       let roleId = me.roleId;
       let userOut = me;
+      let roles: rolesApi.Role[] = [];
 
       const needsRoleList =
         (!me.role?.trim() && !!me.roleId) ||
         roleId == null ||
-        roleId === 0;
+        roleId === 0 ||
+        shouldLoadCanonicalPermissionRole(me.role);
 
       if (needsRoleList) {
-        const roles = await rolesApi.getRoles();
+        roles = await rolesApi.getRoles();
         if (!me.role?.trim() && me.roleId) {
           const byId = roles.find((r) => r.id === me.roleId);
           if (byId?.name?.trim()) {
@@ -76,10 +82,20 @@ export function useUserPermissions(): UserPermissionsState {
         }
       }
 
+      if (!roles.length && shouldLoadCanonicalPermissionRole(userOut.role)) {
+        roles = await rolesApi.getRoles();
+      }
+
       setUser(userOut);
 
-      if (roleId) {
-        const perms = await rolesApi.getRolePermissions(roleId);
+      const sourceRoleId = resolvePermissionSourceRoleId({
+        userRoleName: userOut.role,
+        userRoleId: roleId,
+        roles,
+      });
+
+      if (sourceRoleId) {
+        const perms = await rolesApi.getRolePermissions(sourceRoleId);
         setPermissions(perms);
       } else {
         setPermissions([]);

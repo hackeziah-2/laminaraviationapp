@@ -2090,11 +2090,7 @@ export function AddTechnicalLogbookEntryModal({
     lifeTimeLimitPropeller: "",
   });
   const setFormData = useMemo(
-    () =>
-      wrapUppercaseFormSetter(
-        setFormDataRaw,
-        ATL_FORM_UPPERCASE_SKIP_KEYS
-      ),
+    () => wrapUppercaseFormSetter(setFormDataRaw, ATL_FORM_UPPERCASE_SKIP_KEYS),
     [setFormDataRaw]
   );
 
@@ -2735,7 +2731,7 @@ export function AddTechnicalLogbookEntryModal({
         const pilotResolved = await resolveLabel(
           editEntry.pilotAcceptedBy !== undefined
             ? editEntry.pilotAcceptedBy
-            : (editEntry.pilotFk ?? null)
+            : editEntry.pilotFk ?? null
         );
         const rtsResolved = await resolveLabel(editEntry.rtsSignedBy ?? null);
 
@@ -4535,8 +4531,7 @@ export function AddTechnicalLogbookEntryModal({
   };
 
   const showSeqNav = Boolean(onPrevious && onNext);
-  const sequenceNavDisabled =
-    contentLoading || navigationBusy || isSubmitting;
+  const sequenceNavDisabled = contentLoading || navigationBusy || isSubmitting;
 
   const isAtlEditFormDirty = useCallback(() => {
     if (forceReadOnly || !editEntry) return false;
@@ -5587,1183 +5582,1035 @@ export function AddTechnicalLogbookEntryModal({
               className="modal-body p-4 sm:p-6 space-y-6"
               aria-busy={contentLoading || undefined}
             >
-            {atlFormReadOnly && (
-              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                {forceReadOnly
-                  ? "View only — fields cannot be edited."
-                  : editEntry &&
-                    isAtlCompletedWorkStatus(editEntry.workStatus) &&
-                    !isAdminRole(atlRoleForWorkStatus)
-                  ? "This entry is completed. Only Admin may update fields."
-                  : "This entry is read-only for your role at the current work status."}
-              </p>
-            )}
-            <div
-              className={`space-y-6 ${
-                mainFormLocked
-                  ? "pointer-events-none select-none opacity-[0.92]"
-                  : ""
-              }`}
-              {...(mainFormLocked ? ({ inert: true } as object) : {})}
-            >
-              {/* Row 1 — Basic Information */}
-              <div className="space-y-4">
-                <div
-                  className={`grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0 ${
-                    showAtlBatchFormField ? "xl:grid-cols-4" : "xl:grid-cols-3"
-                  }`}
-                >
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Sequence No. *
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={formData.seqNo}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, "");
-                        setFormData({ ...formData, seqNo: digits });
-                        if (validationErrors.seqNo) {
-                          setValidationErrors({
-                            ...validationErrors,
-                            seqNo: "",
-                          });
+              {atlFormReadOnly && (
+                <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  {forceReadOnly
+                    ? "View only — fields cannot be edited."
+                    : editEntry &&
+                      isAtlCompletedWorkStatus(editEntry.workStatus) &&
+                      !isAdminRole(atlRoleForWorkStatus)
+                    ? "This entry is completed. Only Admin may update fields."
+                    : "This entry is read-only for your role at the current work status."}
+                </p>
+              )}
+              <div
+                className={`space-y-6 ${
+                  mainFormLocked
+                    ? "pointer-events-none select-none opacity-[0.92]"
+                    : ""
+                }`}
+                {...(mainFormLocked ? ({ inert: true } as object) : {})}
+              >
+                {/* Row 1 — General Information */}
+                <div className="space-y-4">
+                  <div
+                    className={`atl-general-info-row gap-3 min-w-0 ${
+                      showAtlBatchFormField
+                        ? "atl-general-info-row--4"
+                        : "atl-general-info-row--3"
+                    }`}
+                  >
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Sequence No. *
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={formData.seqNo}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, "");
+                          setFormData({ ...formData, seqNo: digits });
+                          if (validationErrors.seqNo) {
+                            setValidationErrors({
+                              ...validationErrors,
+                              seqNo: "",
+                            });
+                          }
+                        }}
+                        className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900 placeholder:text-gray-400 ${
+                          validationErrors.seqNo
+                            ? "border-red-500 ring-1 ring-red-400"
+                            : "border-gray-300"
+                        }`}
+                        placeholder="e.g. 001"
+                        required
+                      />
+                      {validationErrors.seqNo && (
+                        <p className="form-error mt-1 text-xs text-red-600">
+                          {validationErrors.seqNo}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Nature of Flight
+                      </label>
+                      <select
+                        value={formData.natureOfFlight}
+                        onChange={(e) =>
+                          handleNatureOfFlightChange(e.target.value)
                         }
-                      }}
-                      className={`w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-900 placeholder:text-gray-400 ${
-                        validationErrors.seqNo
-                          ? "border-red-500 ring-1 ring-red-400"
-                          : "border-gray-300"
-                      }`}
-                      placeholder="e.g. 001"
-                      required
-                    />
-                    {validationErrors.seqNo && (
-                      <p className="form-error mt-1 text-xs text-red-600">
-                        {validationErrors.seqNo}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Nature of Flight
-                    </label>
-                    <select
-                      value={formData.natureOfFlight}
-                      onChange={(e) =>
-                        handleNatureOfFlightChange(e.target.value)
-                      }
-                      className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
-                    >
-                      <option value="TR">TR - Training Flight</option>
-                      <option value="PSF">PSF - Post Flight Inspection</option>
-                      <option value="PRF">PRF - Pre Flight Inspection</option>
-                      <option value="EGR">EGR - Engine Run-up</option>
-                      <option value="ME">ME - Maintenance Entry</option>
-                      <option value="TR_WITH_PIREM">
-                        TR W/ PIREM - Training Flight with Pilot Remarks
-                      </option>
-                      <option value="VOID">VOID - Void</option>
-                      <option value="ATL_REPL">ATL REPL</option>
-                    </select>
-                  </div>
-                  <div className="pointer-events-auto opacity-100">
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      Work Status
-                    </label>
-                    {editEntry ? (
-                      canChangeWorkStatusOnEdit ? (
+                        className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
+                      >
+                        <option value="TR">TR - Training Flight</option>
+                        <option value="PSF">
+                          PSF - Post Flight Inspection
+                        </option>
+                        <option value="PRF">PRF - Pre Flight Inspection</option>
+                        <option value="EGR">EGR - Engine Run-up</option>
+                        <option value="ME">ME - Maintenance Entry</option>
+                        <option value="TR_WITH_PIREM">
+                          TR W/ PIREM - Training Flight with Pilot Remarks
+                        </option>
+                        <option value="VOID">VOID - Void</option>
+                        <option value="ATL_REPL">ATL REPL</option>
+                      </select>
+                    </div>
+                    <div className="pointer-events-auto opacity-100">
+                      <label className="block text-gray-700 text-sm mb-1.5">
+                        Work Status
+                      </label>
+                      {editEntry ? (
+                        canChangeWorkStatusOnEdit ? (
+                          <select
+                            value={formData.workStatus}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                workStatus: e.target.value,
+                              })
+                            }
+                            className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                            aria-label="Work status"
+                          >
+                            {workStatusDropdownKeys.map((key) => (
+                              <option key={key} value={key}>
+                                {formatAtlWorkStatusLabel(key)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div
+                            className="form-readonly-display atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50"
+                            title={
+                              workStatusChangeLocked
+                                ? "Work status cannot be changed for your role at this status"
+                                : mainFormLocked
+                                ? "Work status is read-only for your role at this status"
+                                : undefined
+                            }
+                            aria-label={`Work status: ${displayWorkStatusLabel}`}
+                          >
+                            {displayWorkStatusLabel}
+                          </div>
+                        )
+                      ) : (
+                        <div className="form-readonly-display atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50">
+                          FOR REVIEW
+                        </div>
+                      )}
+                    </div>
+                    {showAtlBatchFormField && (
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1.5">
+                          ATL batch
+                        </label>
                         <select
-                          value={formData.workStatus}
+                          value={formData.atlBatchFk}
                           onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              workStatus: e.target.value,
-                            })
+                            handleAtlBatchFkChange(e.target.value)
                           }
                           className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                          aria-label="Work status"
+                          aria-label="ATL batch"
                         >
-                          {workStatusDropdownKeys.map((key) => (
-                            <option key={key} value={key}>
-                              {formatAtlWorkStatusLabel(key)}
+                          {atlBatchOptions.map((b) => (
+                            <option key={b.id} value={String(b.id)}>
+                              {b.name}
                             </option>
                           ))}
                         </select>
-                      ) : (
-                        <div
-                          className="form-readonly-display atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50"
-                          title={
-                            workStatusChangeLocked
-                              ? "Work status cannot be changed for your role at this status"
-                              : mainFormLocked
-                              ? "Work status is read-only for your role at this status"
-                              : undefined
-                          }
-                          aria-label={`Work status: ${displayWorkStatusLabel}`}
-                        >
-                          {displayWorkStatusLabel}
-                        </div>
-                      )
-                    ) : (
-                      <div className="form-readonly-display atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50">
-                        FOR REVIEW
                       </div>
                     )}
                   </div>
-                  {showAtlBatchFormField && (
+                  {!aircraftId && (
                     <div>
                       <label className="block text-gray-700 text-sm mb-1.5">
-                        ATL batch
+                        A/C Registration *
                       </label>
-                      <select
-                        value={formData.atlBatchFk}
-                        onChange={(e) => handleAtlBatchFkChange(e.target.value)}
-                        className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                        aria-label="ATL batch"
-                      >
-                        {atlBatchOptions.map((b) => (
-                          <option key={b.id} value={String(b.id)}>
-                            {b.name}
-                          </option>
-                        ))}
-                      </select>
+                      {editEntry ? (
+                        <input
+                          type="text"
+                          value={formData.acReg}
+                          readOnly
+                          disabled
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
+                          aria-label="A/C Registration"
+                        />
+                      ) : (
+                        <div className="relative" ref={aircraftDropdownRef}>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              role="combobox"
+                              aria-expanded={isAircraftDropdownOpen}
+                              aria-controls="atl-name-aircraft-list"
+                              value={
+                                isAircraftDropdownOpen
+                                  ? aircraftSearchTerm
+                                  : formData.acReg
+                              }
+                              onChange={(e) => {
+                                setAircraftSearchTerm(e.target.value);
+                                setIsAircraftDropdownOpen(true);
+                                // Clear error when user starts typing
+                                if (validationErrors.acReg) {
+                                  setValidationErrors({
+                                    ...validationErrors,
+                                    acReg: "",
+                                  });
+                                }
+                              }}
+                              onFocus={() => {
+                                setIsAircraftDropdownOpen(true);
+                                setAircraftSearchTerm("");
+                              }}
+                              className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
+                                validationErrors.acReg
+                                  ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                  : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                              }`}
+                              required
+                              placeholder="Search aircraft registration..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setIsAircraftDropdownOpen(
+                                  !isAircraftDropdownOpen
+                                )
+                              }
+                              className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                            >
+                              <ChevronDown
+                                className={`w-4 h-4 transition-transform ${
+                                  isAircraftDropdownOpen ? "rotate-180" : ""
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          {isAircraftDropdownOpen && (
+                            <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                              {loadingAircrafts ? (
+                                <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
+                                  Loading aircrafts...
+                                </div>
+                              ) : filteredAircrafts.length === 0 ? (
+                                <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
+                                  {aircraftSearchTerm
+                                    ? "No aircrafts found"
+                                    : "No aircrafts available"}
+                                </div>
+                              ) : (
+                                <ul
+                                  id="atl-name-aircraft-list"
+                                  className="py-1"
+                                  role="listbox"
+                                >
+                                  {filteredAircrafts.map((aircraft) => (
+                                    <li
+                                      key={aircraft.id}
+                                      role="option"
+                                      aria-selected={
+                                        formData.acReg === aircraft.registration
+                                      }
+                                      onClick={() =>
+                                        handleAircraftSelect(
+                                          aircraft.id,
+                                          aircraft.registration
+                                        )
+                                      }
+                                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
+                                        formData.acReg === aircraft.registration
+                                          ? "bg-blue-50"
+                                          : ""
+                                      }`}
+                                    >
+                                      <span className="atl-dropdown-name">
+                                        {aircraft.registration}
+                                      </span>
+                                      {formData.acReg ===
+                                        aircraft.registration && (
+                                        <Check className="w-4 h-4 text-blue-600" />
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {validationErrors.acReg && (
+                        <p className="form-error mt-1 text-xs text-red-600">
+                          {validationErrors.acReg}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
-                {!aircraftId && (
-                  <div>
-                    <label className="block text-gray-700 text-sm mb-1.5">
-                      A/C Registration *
-                    </label>
-                    {editEntry ? (
-                      <input
-                        type="text"
-                        value={formData.acReg}
-                        readOnly
-                        disabled
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
-                        aria-label="A/C Registration"
-                      />
-                    ) : (
-                      <div className="relative" ref={aircraftDropdownRef}>
-                        <div className="relative">
+
+                {/* Row 2 — Flight Information */}
+                <div className="atl-flight-info-row gap-3 min-w-0">
+                  {/* Off-Blocks/Origin */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Off-Blocks / Origin</h3>
+                    <div className="atl-blocks-fields">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Station (STN)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.offBlocksStation}
+                          onChange={(e) => {
+                            setFormData({
+                              ...formData,
+                              offBlocksStation: e.target.value,
+                            });
+                            if (validationErrors.offBlocksStation) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                offBlocksStation: "",
+                              });
+                            }
+                          }}
+                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            validationErrors.offBlocksStation
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
+                        />
+                        {validationErrors.offBlocksStation && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.offBlocksStation}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Date (UTC)
+                        </label>
+                        <DateInput
+                          value={formData.offBlocksDate}
+                          onChange={(offBlocksDate) => {
+                            handleCalculationFieldChange(
+                              "offBlocksDate",
+                              offBlocksDate
+                            );
+                            if (validationErrors.offBlocksDate) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                offBlocksDate: "",
+                              });
+                            }
+                          }}
+                          displayFormat="dmy-short"
+                          aria-invalid={!!validationErrors.offBlocksDate}
+                          inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
+                            validationErrors.offBlocksDate
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300"
+                          }`}
+                        />
+                        {validationErrors.offBlocksDate && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.offBlocksDate}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Zulu Time
+                        </label>
+                        <div>
                           <input
                             type="text"
-                            role="combobox"
-                            aria-expanded={isAircraftDropdownOpen}
-                            aria-controls="atl-name-aircraft-list"
-                            value={
-                              isAircraftDropdownOpen
-                                ? aircraftSearchTerm
-                                : formData.acReg
-                            }
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={formData.offBlocksTime}
                             onChange={(e) => {
-                              setAircraftSearchTerm(e.target.value);
-                              setIsAircraftDropdownOpen(true);
-                              // Clear error when user starts typing
-                              if (validationErrors.acReg) {
+                              handleCalculationFieldChange(
+                                "offBlocksTime",
+                                formatZuluTimeKeyboardInput(e.target.value)
+                              );
+                              if (validationErrors.offBlocksTime) {
                                 setValidationErrors({
                                   ...validationErrors,
-                                  acReg: "",
+                                  offBlocksTime: "",
                                 });
                               }
                             }}
-                            onFocus={() => {
-                              setIsAircraftDropdownOpen(true);
-                              setAircraftSearchTerm("");
+                            onBlur={(e) => {
+                              const normalized = normalizeOptionalZuluTimeInput(
+                                e.target.value
+                              );
+                              handleCalculationFieldChange(
+                                "offBlocksTime",
+                                normalized
+                              );
+                              const err = validateOptionalZuluTime(normalized);
+                              setValidationErrors((prev) => ({
+                                ...prev,
+                                offBlocksTime: err ?? "",
+                              }));
                             }}
-                            className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
-                              validationErrors.acReg
+                            maxLength={5}
+                            title="HH:mm (UTC)"
+                            placeholder="HH:mm"
+                            pattern="[0-9]{2}:[0-9]{2}"
+                            aria-invalid={!!validationErrors.offBlocksTime}
+                            className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                              validationErrors.offBlocksTime
                                 ? "border-red-500 focus:ring-red-400 focus:border-red-400"
                                 : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
                             }`}
-                            required
-                            placeholder="Search aircraft registration..."
                           />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setIsAircraftDropdownOpen(!isAircraftDropdownOpen)
-                            }
-                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                          >
-                            <ChevronDown
-                              className={`w-4 h-4 transition-transform ${
-                                isAircraftDropdownOpen ? "rotate-180" : ""
-                              }`}
-                            />
-                          </button>
+                          {!validationErrors.offBlocksTime ? (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {/* 24-hour HH:mm (UTC), 00:00–23:59 */}
+                            </p>
+                          ) : (
+                            <p className="form-error mt-1 text-xs text-red-600">
+                              {validationErrors.offBlocksTime}
+                            </p>
+                          )}
                         </div>
-
-                        {isAircraftDropdownOpen && (
-                          <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                            {loadingAircrafts ? (
-                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                Loading aircrafts...
-                              </div>
-                            ) : filteredAircrafts.length === 0 ? (
-                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                {aircraftSearchTerm
-                                  ? "No aircrafts found"
-                                  : "No aircrafts available"}
-                              </div>
-                            ) : (
-                              <ul id="atl-name-aircraft-list" className="py-1" role="listbox">
-                                {filteredAircrafts.map((aircraft) => (
-                                  <li
-                                    key={aircraft.id}
-                                    role="option"
-                                    aria-selected={
-                                      formData.acReg === aircraft.registration
-                                    }
-                                    onClick={() =>
-                                      handleAircraftSelect(
-                                        aircraft.id,
-                                        aircraft.registration
-                                      )
-                                    }
-                                    className={`px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between ${
-                                      formData.acReg === aircraft.registration
-                                        ? "bg-blue-50"
-                                        : ""
-                                    }`}
-                                  >
-                                    <span className="atl-dropdown-name">
-                                      {aircraft.registration}
-                                    </span>
-                                    {formData.acReg ===
-                                      aircraft.registration && (
-                                      <Check className="w-4 h-4 text-blue-600" />
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
                       </div>
-                    )}
-                    {validationErrors.acReg && (
-                      <p className="form-error mt-1 text-xs text-red-600">
-                        {validationErrors.acReg}
-                      </p>
-                    )}
+                    </div>
                   </div>
-                )}
-              </div>
 
-              {/* Row 2 — Flight Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 min-w-0">
-                {/* Off-Blocks/Origin */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Off-Blocks / Origin</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Station (STN)
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.offBlocksStation}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            offBlocksStation: e.target.value,
-                          });
-                          if (validationErrors.offBlocksStation) {
-                            setValidationErrors({
-                              ...validationErrors,
-                              offBlocksStation: "",
-                            });
+                  {/* On-Blocks/Destination */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">
+                      On-Blocks / Destination
+                    </h3>
+                    <div className="atl-blocks-fields">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Station (STN)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.onBlocksStation}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              onBlocksStation: e.target.value,
+                            })
                           }
-                        }}
-                        className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
-                          validationErrors.offBlocksStation
-                            ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                            : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                        }`}
-                      />
-                      {validationErrors.offBlocksStation && (
-                        <p className="form-error mt-1 text-xs text-red-600">
-                          {validationErrors.offBlocksStation}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Date (UTC)
-                      </label>
-                      <DateInput
-                        value={formData.offBlocksDate}
-                        onChange={(offBlocksDate) => {
-                          handleCalculationFieldChange(
-                            "offBlocksDate",
-                            offBlocksDate
-                          );
-                          if (validationErrors.offBlocksDate) {
-                            setValidationErrors({
-                              ...validationErrors,
-                              offBlocksDate: "",
-                            });
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Date (UTC)
+                        </label>
+                        <DateInput
+                          value={formData.onBlocksDate}
+                          onChange={(onBlocksDate) =>
+                            handleCalculationFieldChange(
+                              "onBlocksDate",
+                              onBlocksDate
+                            )
                           }
-                        }}
-                        displayFormat="dmy-short"
-                        aria-invalid={!!validationErrors.offBlocksDate}
-                        inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
-                          validationErrors.offBlocksDate
-                            ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                            : "border-gray-300"
-                        }`}
-                      />
-                      {validationErrors.offBlocksDate && (
-                        <p className="form-error mt-1 text-xs text-red-600">
-                          {validationErrors.offBlocksDate}
-                        </p>
-                      )}
+                          displayFormat="dmy-short"
+                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Zulu Time
+                        </label>
+                        <div>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={formData.onBlocksTime}
+                            onChange={(e) => {
+                              handleCalculationFieldChange(
+                                "onBlocksTime",
+                                formatZuluTimeKeyboardInput(e.target.value)
+                              );
+                              if (validationErrors.onBlocksTime) {
+                                setValidationErrors({
+                                  ...validationErrors,
+                                  onBlocksTime: "",
+                                });
+                              }
+                            }}
+                            onBlur={(e) => {
+                              const normalized = normalizeOptionalZuluTimeInput(
+                                e.target.value
+                              );
+                              handleCalculationFieldChange(
+                                "onBlocksTime",
+                                normalized
+                              );
+                              const err = validateOptionalZuluTime(normalized);
+                              setValidationErrors((prev) => ({
+                                ...prev,
+                                onBlocksTime: err ?? "",
+                              }));
+                            }}
+                            maxLength={5}
+                            title="HH:mm (UTC)"
+                            placeholder="HH:mm"
+                            pattern="[0-9]{2}:[0-9]{2}"
+                            aria-invalid={!!validationErrors.onBlocksTime}
+                            className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                              validationErrors.onBlocksTime
+                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                            }`}
+                          />
+                          {!validationErrors.onBlocksTime ? (
+                            <p className="text-xs text-gray-500 mt-1">
+                              {/* 24-hour HH:mm (UTC), 00:00–23:59 */}
+                            </p>
+                          ) : (
+                            <p className="form-error mt-1 text-xs text-red-600">
+                              {validationErrors.onBlocksTime}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Zulu Time
-                      </label>
+                  </div>
+
+                  {/* Flight Summary */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Flight Summary</h3>
+                    <div className="grid grid-cols-1 gap-2 min-w-0">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Total Flight Time
+                        </label>
+                        <input
+                          type="text"
+                          value={formatTotalFlightTimeForDisplay(
+                            formData.totalFlightTime
+                          )}
+                          disabled
+                          readOnly
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Number of Landings
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.numberOfLandings}
+                          onChange={(e) => {
+                            // Only allow numeric input
+                            const value = e.target.value.replace(/\D/g, "");
+                            setFormData({
+                              ...formData,
+                              numberOfLandings: value,
+                            });
+                          }}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 3 — Aircraft Readings */}
+                <div className="atl-readings-row gap-3 min-w-0">
+                  {/* Fuel Quantity */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Fuel Quantity</h3>
+                    <div className="atl-fuel-qty-grid">
+                      <div aria-hidden="true" />
+                      <div className="text-center text-gray-700 text-xs font-medium">
+                        Left
+                      </div>
+                      <div className="text-center text-gray-700 text-xs font-medium">
+                        Right
+                      </div>
+                      <div className="text-gray-700 text-xs leading-tight">
+                        Uplift
+                      </div>
                       <div>
                         <input
                           type="text"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          value={formData.offBlocksTime}
-                          onChange={(e) => {
-                            handleCalculationFieldChange(
-                              "offBlocksTime",
-                              formatZuluTimeKeyboardInput(e.target.value)
-                            );
-                            if (validationErrors.offBlocksTime) {
-                              setValidationErrors({
-                                ...validationErrors,
-                                offBlocksTime: "",
-                              });
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const normalized = normalizeOptionalZuluTimeInput(
-                              e.target.value
-                            );
-                            handleCalculationFieldChange(
-                              "offBlocksTime",
-                              normalized
-                            );
-                            const err = validateOptionalZuluTime(normalized);
-                            setValidationErrors((prev) => ({
-                              ...prev,
-                              offBlocksTime: err ?? "",
-                            }));
-                          }}
-                          maxLength={5}
-                          title="HH:mm (UTC)"
-                          placeholder="HH:mm"
-                          pattern="[0-9]{2}:[0-9]{2}"
-                          aria-invalid={!!validationErrors.offBlocksTime}
-                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
-                            validationErrors.offBlocksTime
-                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                          }`}
+                          data-atl-enter-seq={1}
+                          value={formData.fuelQtyLeftUpliftQty}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              fuelQtyLeftUpliftQty: e.target.value,
+                            })
+                          }
+                          onKeyDown={handleFuelQtyKeyDown}
+                          aria-label="Uplift Left"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
-                        {!validationErrors.offBlocksTime ? (
-                          <p className="text-xs text-gray-500 mt-1">
-                            24-hour HH:mm (UTC), 00:00–23:59
-                          </p>
-                        ) : (
-                          <p className="form-error mt-1 text-xs text-red-600">
-                            {validationErrors.offBlocksTime}
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* On-Blocks/Destination */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">
-                    On-Blocks / Destination
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Station (STN)
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.onBlocksStation}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            onBlocksStation: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Date (UTC)
-                      </label>
-                      <DateInput
-                        value={formData.onBlocksDate}
-                        onChange={(onBlocksDate) =>
-                          handleCalculationFieldChange(
-                            "onBlocksDate",
-                            onBlocksDate
-                          )
-                        }
-                        displayFormat="dmy-short"
-                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Zulu Time
-                      </label>
                       <div>
                         <input
                           type="text"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          value={formData.onBlocksTime}
-                          onChange={(e) => {
-                            handleCalculationFieldChange(
-                              "onBlocksTime",
-                              formatZuluTimeKeyboardInput(e.target.value)
-                            );
-                            if (validationErrors.onBlocksTime) {
-                              setValidationErrors({
-                                ...validationErrors,
-                                onBlocksTime: "",
-                              });
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const normalized = normalizeOptionalZuluTimeInput(
-                              e.target.value
-                            );
-                            handleCalculationFieldChange(
-                              "onBlocksTime",
-                              normalized
-                            );
-                            const err = validateOptionalZuluTime(normalized);
-                            setValidationErrors((prev) => ({
-                              ...prev,
-                              onBlocksTime: err ?? "",
-                            }));
-                          }}
-                          maxLength={5}
-                          title="HH:mm (UTC)"
-                          placeholder="HH:mm"
-                          pattern="[0-9]{2}:[0-9]{2}"
-                          aria-invalid={!!validationErrors.onBlocksTime}
-                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
-                            validationErrors.onBlocksTime
-                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                          }`}
+                          data-atl-enter-seq={2}
+                          value={formData.fuelQtyRightUpliftQty}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              fuelQtyRightUpliftQty: e.target.value,
+                            })
+                          }
+                          onKeyDown={handleFuelQtyKeyDown}
+                          aria-label="Uplift Right"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
-                        {!validationErrors.onBlocksTime ? (
-                          <p className="text-xs text-gray-500 mt-1">
-                            24-hour HH:mm (UTC), 00:00–23:59
-                          </p>
-                        ) : (
-                          <p className="form-error mt-1 text-xs text-red-600">
-                            {validationErrors.onBlocksTime}
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Flight Summary */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Flight Summary</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Total Flight Time
-                      </label>
-                      <input
-                        type="text"
-                        value={formatTotalFlightTimeForDisplay(
-                          formData.totalFlightTime
-                        )}
-                        disabled
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded bg-gray-100 text-gray-600 cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Number of Landings
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.numberOfLandings}
-                        onChange={(e) => {
-                          // Only allow numeric input
-                          const value = e.target.value.replace(/\D/g, "");
-                          setFormData({
-                            ...formData,
-                            numberOfLandings: value,
-                          });
-                        }}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 3 — Fuel, Oil and Meter Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 min-w-0">
-                {/* Fuel Quantity */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Fuel Quantity</h3>
-                  <div className="grid grid-cols-2 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Uplift Left
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={1}
-                        value={formData.fuelQtyLeftUpliftQty}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyLeftUpliftQty: e.target.value,
-                          })
-                        }
-                        onKeyDown={handleFuelQtyKeyDown}
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Uplift Right
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={2}
-                        value={formData.fuelQtyRightUpliftQty}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyRightUpliftQty: e.target.value,
-                          })
-                        }
-                        onKeyDown={handleFuelQtyKeyDown}
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Prior Departure Left
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={3}
-                        value={formData.fuelQtyLeftPriorDeparture}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyLeftPriorDeparture: e.target.value,
-                          })
-                        }
-                        onKeyDown={handleFuelQtyKeyDown}
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Prior Departure Right
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={4}
-                        value={formData.fuelQtyRightPriorDeparture}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyRightPriorDeparture: e.target.value,
-                          })
-                        }
-                        onKeyDown={handleFuelQtyKeyDown}
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        After On-Blocks Left
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={5}
-                        value={formData.fuelQtyLeftAfterOnBlks}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyLeftAfterOnBlks: e.target.value,
-                          })
-                        }
-                        onKeyDown={handleFuelQtyKeyDown}
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        After On-Blocks Right
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={6}
-                        value={formData.fuelQtyRightAfterOnBlks}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            fuelQtyRightAfterOnBlks: e.target.value,
-                          })
-                        }
-                        onKeyDown={handleFuelQtyKeyDown}
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Oil Quantity */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Oil Quantity</h3>
-                  <div className="grid grid-cols-1 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Uplift Quantity
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={7}
-                        value={formData.oilQtyUpliftQty}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            oilQtyUpliftQty: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
+                      <div className="text-gray-700 text-xs leading-tight">
                         Prior Departure
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={8}
-                        value={formData.oilQtyPriorDeparture}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            oilQtyPriorDeparture: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={3}
+                          value={formData.fuelQtyLeftPriorDeparture}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              fuelQtyLeftPriorDeparture: e.target.value,
+                            })
+                          }
+                          onKeyDown={handleFuelQtyKeyDown}
+                          aria-label="Prior Departure Left"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={4}
+                          value={formData.fuelQtyRightPriorDeparture}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              fuelQtyRightPriorDeparture: e.target.value,
+                            })
+                          }
+                          onKeyDown={handleFuelQtyKeyDown}
+                          aria-label="Prior Departure Right"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div className="text-gray-700 text-xs leading-tight">
                         After On-Blocks
-                      </label>
-                      <input
-                        type="text"
-                        data-atl-enter-seq={9}
-                        value={formData.oilQtyAfterOnBlks}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            oilQtyAfterOnBlks: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={5}
+                          value={formData.fuelQtyLeftAfterOnBlks}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              fuelQtyLeftAfterOnBlks: e.target.value,
+                            })
+                          }
+                          onKeyDown={handleFuelQtyKeyDown}
+                          aria-label="After On-Blocks Left"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={6}
+                          value={formData.fuelQtyRightAfterOnBlks}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              fuelQtyRightAfterOnBlks: e.target.value,
+                            })
+                          }
+                          onKeyDown={handleFuelQtyKeyDown}
+                          aria-label="After On-Blocks Right"
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Tachometer */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Tachometer</h3>
-                  <div className="grid grid-cols-3 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Start
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={tachHobbsFieldValue(
-                          "tachometerStart",
-                          formData.tachometerStart
-                        )}
-                        onFocus={() => setTachHobbsFocusedField("tachometerStart")}
-                        onBlur={() => setTachHobbsFocusedField(null)}
-                        onChange={(event) => {
-                          handleCalculationFieldChange(
+                  {/* Oil Quantity */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Oil Quantity</h3>
+                    <div className="grid grid-cols-1 gap-2 min-w-0">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Uplift Quantity
+                        </label>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={7}
+                          value={formData.oilQtyUpliftQty}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              oilQtyUpliftQty: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Prior Departure
+                        </label>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={8}
+                          value={formData.oilQtyPriorDeparture}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              oilQtyPriorDeparture: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          After On-Blocks
+                        </label>
+                        <input
+                          type="text"
+                          data-atl-enter-seq={9}
+                          value={formData.oilQtyAfterOnBlks}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              oilQtyAfterOnBlks: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1 text-sm text-center border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tachometer */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Tachometer</h3>
+                    <div className="atl-meter-stack">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Start
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={tachHobbsFieldValue(
                             "tachometerStart",
-                            event.target.value
-                          );
-                        }}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        End
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={tachHobbsFieldValue(
-                          "tachometerEnd",
-                          formData.tachometerEnd
-                        )}
-                        onFocus={() => setTachHobbsFocusedField("tachometerEnd")}
-                        onBlur={() => setTachHobbsFocusedField(null)}
-                        onChange={(event) => {
-                          handleCalculationFieldChange(
+                            formData.tachometerStart
+                          )}
+                          onFocus={() =>
+                            setTachHobbsFocusedField("tachometerStart")
+                          }
+                          onBlur={() => setTachHobbsFocusedField(null)}
+                          onChange={(event) => {
+                            handleCalculationFieldChange(
+                              "tachometerStart",
+                              event.target.value
+                            );
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          End
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={tachHobbsFieldValue(
                             "tachometerEnd",
-                            event.target.value
-                          );
-                        }}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Total
-                      </label>
-                      <input
-                        type="text"
-                        value={formatAtlTachHobbsDisplay1dp(
-                          formData.tachometerTotal,
-                          "0.0"
-                        )}
-                        readOnly
-                        disabled
-                        aria-label="Tachometer Total"
-                        title="Auto: Tach End − Tach Start"
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
-                      />
+                            formData.tachometerEnd
+                          )}
+                          onFocus={() =>
+                            setTachHobbsFocusedField("tachometerEnd")
+                          }
+                          onBlur={() => setTachHobbsFocusedField(null)}
+                          onChange={(event) => {
+                            handleCalculationFieldChange(
+                              "tachometerEnd",
+                              event.target.value
+                            );
+                          }}
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Total
+                        </label>
+                        <input
+                          type="text"
+                          value={formatAtlTachHobbsDisplay1dp(
+                            formData.tachometerTotal,
+                            "0.0"
+                          )}
+                          readOnly
+                          disabled
+                          aria-label="Tachometer Total"
+                          title="Auto: Tach End − Tach Start"
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Hobbs Meter */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Hobbs Meter</h3>
-                  <div className="grid grid-cols-3 gap-2 min-w-0">
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Start
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={tachHobbsFieldValue(
-                          "hobbsMeterStart",
-                          formData.hobbsMeterStart
-                        )}
-                        onFocus={() => setTachHobbsFocusedField("hobbsMeterStart")}
-                        onBlur={() => setTachHobbsFocusedField(null)}
-                        onChange={(e) =>
-                          handleCalculationFieldChange(
+                  {/* Hobbs Meter */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Hobbs Meter</h3>
+                    <div className="atl-meter-stack">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Start
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={tachHobbsFieldValue(
                             "hobbsMeterStart",
-                            e.target.value
-                          )
-                        }
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        End
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={tachHobbsFieldValue(
-                          "hobbsMeterEnd",
-                          formData.hobbsMeterEnd
-                        )}
-                        onFocus={() => setTachHobbsFocusedField("hobbsMeterEnd")}
-                        onBlur={() => setTachHobbsFocusedField(null)}
-                        onChange={(e) =>
-                          handleCalculationFieldChange(
+                            formData.hobbsMeterStart
+                          )}
+                          onFocus={() =>
+                            setTachHobbsFocusedField("hobbsMeterStart")
+                          }
+                          onBlur={() => setTachHobbsFocusedField(null)}
+                          onChange={(e) =>
+                            handleCalculationFieldChange(
+                              "hobbsMeterStart",
+                              e.target.value
+                            )
+                          }
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          End
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={tachHobbsFieldValue(
                             "hobbsMeterEnd",
-                            e.target.value
-                          )
-                        }
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
-                      />
+                            formData.hobbsMeterEnd
+                          )}
+                          onFocus={() =>
+                            setTachHobbsFocusedField("hobbsMeterEnd")
+                          }
+                          onBlur={() => setTachHobbsFocusedField(null)}
+                          onChange={(e) =>
+                            handleCalculationFieldChange(
+                              "hobbsMeterEnd",
+                              e.target.value
+                            )
+                          }
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          Total
+                        </label>
+                        <input
+                          type="text"
+                          value={formatAtlTachHobbsDisplay1dp(
+                            formData.hobbsMeterTotal,
+                            "0.0"
+                          )}
+                          readOnly
+                          disabled
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        Total
-                      </label>
-                      <input
-                        type="text"
-                        value={formatAtlTachHobbsDisplay1dp(
-                          formData.hobbsMeterTotal,
-                          "0.0"
-                        )}
-                        readOnly
-                        disabled
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded bg-gray-100 text-gray-900 cursor-not-allowed"
-                      />
+                  </div>
+
+                  {/* Inspection Due */}
+                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                    <h3 className="text-gray-900 mb-2">Inspection Due</h3>
+                    <div className="grid grid-cols-1 gap-2 min-w-0">
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          NEXT INSP. DUE
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.nextInspectionDue}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              nextInspectionDue: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-xs mb-1">
+                          TACH TIME DUE
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.tachTimeDue}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              tachTimeDue: e.target.value,
+                            })
+                          }
+                          className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Inspection Due */}
-                <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
-                  <h3 className="text-gray-900 mb-2">Inspection Due</h3>
-                  <div className="grid grid-cols-1 gap-2 min-w-0">
+                {/* Remarks Section — visibility by Nature of Flight (UI only) */}
+                <div
+                  className="relative space-y-4"
+                  aria-busy={loadingNofDefaults}
+                >
+                  {loadingNofDefaults && (
+                    <div className="absolute inset-0 z-10 flex items-start justify-end pt-1 pr-1 pointer-events-none">
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs text-gray-600 shadow-sm border border-gray-200">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Loading defaults…
+                      </span>
+                    </div>
+                  )}
+                  {resolveAtlRemarksSectionVisibility(
+                    formData.natureOfFlight
+                  ) === "pilotReport" && (
                     <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        NEXT INSP. DUE
+                      <label className="block text-gray-700 mb-2">
+                        Pilot Report
                       </label>
-                      <input
-                        type="text"
-                        value={formData.nextInspectionDue}
+                      <AutoResizeTextarea
+                        value={formData.pilotReport}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            nextInspectionDue: e.target.value,
+                            pilotReport: e.target.value,
                           })
                         }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        disabled={loadingNofDefaults}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                       />
                     </div>
+                  )}
+                  {resolveAtlRemarksSectionVisibility(
+                    formData.natureOfFlight
+                  ) === "maintenanceEntry" && (
                     <div>
-                      <label className="block text-gray-700 text-xs mb-1">
-                        TACH TIME DUE
+                      <label className="block text-gray-700 mb-2">
+                        Maintenance Entry
                       </label>
-                      <input
-                        type="text"
-                        value={formData.tachTimeDue}
+                      <AutoResizeTextarea
+                        value={formData.maintenanceEntry}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            tachTimeDue: e.target.value,
+                            maintenanceEntry: e.target.value,
                           })
                         }
-                        className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                        disabled={loadingNofDefaults}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                       />
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Remarks Section — visibility by Nature of Flight (UI only) */}
-              <div
-                className="relative space-y-4"
-                aria-busy={loadingNofDefaults}
-              >
-                {loadingNofDefaults && (
-                  <div className="absolute inset-0 z-10 flex items-start justify-end pt-1 pr-1 pointer-events-none">
-                    <span className="inline-flex items-center gap-1.5 rounded-md bg-white/90 px-2 py-1 text-xs text-gray-600 shadow-sm border border-gray-200">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Loading defaults…
-                    </span>
-                  </div>
-                )}
-                {resolveAtlRemarksSectionVisibility(formData.natureOfFlight) ===
-                  "pilotReport" && (
-                  <div>
-                    <label className="block text-gray-700 mb-2">
-                      Pilot Report
-                    </label>
-                    <AutoResizeTextarea
-                      value={formData.pilotReport}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          pilotReport: e.target.value,
-                        })
-                      }
-                      disabled={loadingNofDefaults}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
-                    />
-                  </div>
-                )}
-                {resolveAtlRemarksSectionVisibility(formData.natureOfFlight) ===
-                  "maintenanceEntry" && (
-                  <div>
-                    <label className="block text-gray-700 mb-2">
-                      Maintenance Entry
-                    </label>
-                    <AutoResizeTextarea
-                      value={formData.maintenanceEntry}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          maintenanceEntry: e.target.value,
-                        })
-                      }
-                      disabled={loadingNofDefaults}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
-                    />
-                  </div>
-                )}
-                {resolveAtlRemarksSectionVisibility(formData.natureOfFlight) ===
-                  "remarks" && (
-                  <div>
-                    <label className="block text-gray-700 mb-2">Remarks</label>
-                    <AutoResizeTextarea
-                      value={
-                        combineAtlRemarks(
-                          formData.pilotReport,
-                          formData.maintenanceEntry
-                        ) ?? ""
-                      }
-                      onChange={(e) => {
-                        const split = splitAtlRemarks(e.target.value);
-                        setFormData({
-                          ...formData,
-                          pilotReport: split.pilotReport,
-                          maintenanceEntry: split.maintenanceEntry,
-                        });
-                      }}
-                      disabled={loadingNofDefaults}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-gray-700 text-sm mb-1.5">
-                    Name
-                  </label>
-                  <div className="relative" ref={remarksDropdownRef}>
-                    <div className="relative">
-                      <input
-                        type="text"
+                  )}
+                  {resolveAtlRemarksSectionVisibility(
+                    formData.natureOfFlight
+                  ) === "remarks" && (
+                    <div>
+                      <label className="block text-gray-700 mb-2">
+                        Remarks
+                      </label>
+                      <AutoResizeTextarea
                         value={
-                          isRemarksDropdownOpen
-                            ? remarksSearchTerm
-                            : getSelectedRemarksPerson()
+                          combineAtlRemarks(
+                            formData.pilotReport,
+                            formData.maintenanceEntry
+                          ) ?? ""
                         }
                         onChange={(e) => {
-                          setRemarksSearchTerm(e.target.value);
-                          setIsRemarksDropdownOpen(true);
+                          const split = splitAtlRemarks(e.target.value);
+                          setFormData({
+                            ...formData,
+                            pilotReport: split.pilotReport,
+                            maintenanceEntry: split.maintenanceEntry,
+                          });
                         }}
-                        onFocus={() => {
-                          setIsRemarksDropdownOpen(true);
-                          if (
-                            !isAtlAssigneeNoneSelected(
-                              formData.remarksPerson,
-                              formData.remarksPersonName
-                            ) &&
-                            formData.remarksPersonName
-                          ) {
-                            setRemarksSearchTerm(formData.remarksPersonName);
-                          } else {
-                            setRemarksSearchTerm("");
-                          }
-                        }}
-                        onKeyDown={remarksNav.handleKeyDown}
-                        autoComplete="off"
-                        role="combobox"
-                        aria-expanded={isRemarksDropdownOpen}
-                        aria-controls="atl-name-remarks-list"
-                        aria-activedescendant={
-                          isRemarksDropdownOpen && remarksOptionIds.length > 0
-                            ? `atl-name-remarks-${remarksNav.highlightedIndex}`
-                            : undefined
-                        }
-                        className="atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white"
-                        placeholder="Search name..."
+                        disabled={loadingNofDefaults}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                       />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = !isRemarksDropdownOpen;
-                          setIsRemarksDropdownOpen(next);
-                          if (next) {
-                            focusAtlNameDropdownInput(
-                              remarksDropdownRef.current
-                            );
-                          }
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform ${
-                            isRemarksDropdownOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </button>
                     </div>
-
-                    {isRemarksDropdownOpen && (
-                      <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                        {loadingRemarksAccounts ? (
-                          <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                            Loading...
-                          </div>
-                        ) : (
-                          <ul
-                            id="atl-name-remarks-list"
-                            className="py-1"
-                            role="listbox"
-                          >
-                            {shouldShowAtlAssigneeNoneOption(
-                              remarksSearchTerm
-                            ) && (
-                              <AtlNameDropdownOption
-                                optionId="atl-name-remarks-0"
-                                highlighted={remarksNav.highlightedIndex === 0}
-                                selected={isAtlAssigneeNoneSelected(
-                                  formData.remarksPerson,
-                                  formData.remarksPersonName
-                                )}
-                                onSelect={handleRemarksPersonSelectNone}
-                                onHighlight={() =>
-                                  remarksNav.setHighlightedIndex(0)
-                                }
-                                optionRef={remarksNav.getOptionRef(0)}
-                              >
-                                {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
-                              </AtlNameDropdownOption>
-                            )}
-                            {filteredRemarksAccounts.length === 0 &&
-                            !shouldShowAtlAssigneeNoneOption(
-                              remarksSearchTerm
-                            ) ? (
-                              <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                {remarksSearchTerm
-                                  ? "No accounts found"
-                                  : "No accounts available"}
-                              </li>
-                            ) : (
-                              filteredRemarksAccounts.map((account, index) => {
-                                const optionIndex =
-                                  (shouldShowAtlAssigneeNoneOption(
-                                    remarksSearchTerm
-                                  )
-                                    ? 1
-                                    : 0) + index;
-                                return (
-                                  <AtlNameDropdownOption
-                                    key={account.id}
-                                    optionId={`atl-name-remarks-${optionIndex}`}
-                                    highlighted={
-                                      remarksNav.highlightedIndex ===
-                                      optionIndex
-                                    }
-                                    selected={
-                                      formData.remarksPerson ===
-                                      account.id.toString()
-                                    }
-                                    onSelect={() =>
-                                      handleRemarksPersonSelect(
-                                        account.id.toString(),
-                                        formatAccountNameLicense(
-                                          account.fullName,
-                                          account.licenseNo
-                                        )
-                                      )
-                                    }
-                                    onHighlight={() =>
-                                      remarksNav.setHighlightedIndex(
-                                        optionIndex
-                                      )
-                                    }
-                                    optionRef={remarksNav.getOptionRef(
-                                      optionIndex
-                                    )}
-                                  >
-                                    {formatAccountNameLicense(
-                                      account.fullName,
-                                      account.licenseNo
-                                    )}
-                                  </AtlNameDropdownOption>
-                                );
-                              })
-                            )}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-gray-700 mb-2">
-                    Actions Taken
-                  </label>
-                  <AutoResizeTextarea
-                    value={formData.actionsTaken}
-                    onChange={(e) =>
-                      setFormData({ ...formData, actionsTaken: e.target.value })
-                    }
-                    disabled={loadingNofDefaults}
-                    className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
-                  />
-                  {nofDefaultsMessage && (
-                    <p className="atl-nof-defaults-message mt-2 text-sm bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                      {nofDefaultsMessage}
-                    </p>
                   )}
-                  <div className="mt-2">
+                  <div>
                     <label className="block text-gray-700 text-sm mb-1.5">
                       Name
                     </label>
-                    <div className="relative" ref={actionsTakenDropdownRef}>
+                    <div className="relative" ref={remarksDropdownRef}>
                       <div className="relative">
                         <input
                           type="text"
                           value={
-                            isActionsTakenDropdownOpen
-                              ? actionsTakenSearchTerm
-                              : getSelectedActionsTakenPerson()
+                            isRemarksDropdownOpen
+                              ? remarksSearchTerm
+                              : getSelectedRemarksPerson()
                           }
                           onChange={(e) => {
-                            setActionsTakenSearchTerm(e.target.value);
-                            setIsActionsTakenDropdownOpen(true);
+                            setRemarksSearchTerm(e.target.value);
+                            setIsRemarksDropdownOpen(true);
                           }}
                           onFocus={() => {
-                            setIsActionsTakenDropdownOpen(true);
+                            setIsRemarksDropdownOpen(true);
                             if (
                               !isAtlAssigneeNoneSelected(
-                                formData.actionsTakenPerson,
-                                formData.actionsTakenPersonName
+                                formData.remarksPerson,
+                                formData.remarksPersonName
                               ) &&
-                              formData.actionsTakenPersonName
+                              formData.remarksPersonName
                             ) {
-                              setActionsTakenSearchTerm(
-                                formData.actionsTakenPersonName
-                              );
+                              setRemarksSearchTerm(formData.remarksPersonName);
                             } else {
-                              setActionsTakenSearchTerm("");
+                              setRemarksSearchTerm("");
                             }
                           }}
-                          onKeyDown={actionsTakenNav.handleKeyDown}
+                          onKeyDown={remarksNav.handleKeyDown}
                           autoComplete="off"
                           role="combobox"
-                          aria-expanded={isActionsTakenDropdownOpen}
-                          aria-controls="atl-name-actions-taken-list"
+                          aria-expanded={isRemarksDropdownOpen}
+                          aria-controls="atl-name-remarks-list"
                           aria-activedescendant={
-                            isActionsTakenDropdownOpen &&
-                            actionsTakenOptionIds.length > 0
-                              ? `atl-name-actions-taken-${actionsTakenNav.highlightedIndex}`
+                            isRemarksDropdownOpen && remarksOptionIds.length > 0
+                              ? `atl-name-remarks-${remarksNav.highlightedIndex}`
                               : undefined
                           }
                           className="atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white"
@@ -6772,11 +6619,11 @@ export function AddTechnicalLogbookEntryModal({
                         <button
                           type="button"
                           onClick={() => {
-                            const next = !isActionsTakenDropdownOpen;
-                            setIsActionsTakenDropdownOpen(next);
+                            const next = !isRemarksDropdownOpen;
+                            setIsRemarksDropdownOpen(next);
                             if (next) {
                               focusAtlNameDropdownInput(
-                                actionsTakenDropdownRef.current
+                                remarksDropdownRef.current
                               );
                             }
                           }}
@@ -6784,77 +6631,77 @@ export function AddTechnicalLogbookEntryModal({
                         >
                           <ChevronDown
                             className={`w-4 h-4 transition-transform ${
-                              isActionsTakenDropdownOpen ? "rotate-180" : ""
+                              isRemarksDropdownOpen ? "rotate-180" : ""
                             }`}
                           />
                         </button>
                       </div>
 
-                      {isActionsTakenDropdownOpen && (
+                      {isRemarksDropdownOpen && (
                         <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                          {loadingActionsTakenAccounts ? (
+                          {loadingRemarksAccounts ? (
                             <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                               Loading...
                             </div>
                           ) : (
                             <ul
-                              id="atl-name-actions-taken-list"
+                              id="atl-name-remarks-list"
                               className="py-1"
                               role="listbox"
                             >
                               {shouldShowAtlAssigneeNoneOption(
-                                actionsTakenSearchTerm
+                                remarksSearchTerm
                               ) && (
                                 <AtlNameDropdownOption
-                                  optionId="atl-name-actions-taken-0"
+                                  optionId="atl-name-remarks-0"
                                   highlighted={
-                                    actionsTakenNav.highlightedIndex === 0
+                                    remarksNav.highlightedIndex === 0
                                   }
                                   selected={isAtlAssigneeNoneSelected(
-                                    formData.actionsTakenPerson,
-                                    formData.actionsTakenPersonName
+                                    formData.remarksPerson,
+                                    formData.remarksPersonName
                                   )}
-                                  onSelect={handleActionsTakenPersonSelectNone}
+                                  onSelect={handleRemarksPersonSelectNone}
                                   onHighlight={() =>
-                                    actionsTakenNav.setHighlightedIndex(0)
+                                    remarksNav.setHighlightedIndex(0)
                                   }
-                                  optionRef={actionsTakenNav.getOptionRef(0)}
+                                  optionRef={remarksNav.getOptionRef(0)}
                                 >
                                   {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
                                 </AtlNameDropdownOption>
                               )}
-                              {filteredActionsTakenAccounts.length === 0 &&
+                              {filteredRemarksAccounts.length === 0 &&
                               !shouldShowAtlAssigneeNoneOption(
-                                actionsTakenSearchTerm
+                                remarksSearchTerm
                               ) ? (
                                 <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                  {actionsTakenSearchTerm
+                                  {remarksSearchTerm
                                     ? "No accounts found"
                                     : "No accounts available"}
                                 </li>
                               ) : (
-                                filteredActionsTakenAccounts.map(
+                                filteredRemarksAccounts.map(
                                   (account, index) => {
                                     const optionIndex =
                                       (shouldShowAtlAssigneeNoneOption(
-                                        actionsTakenSearchTerm
+                                        remarksSearchTerm
                                       )
                                         ? 1
                                         : 0) + index;
                                     return (
                                       <AtlNameDropdownOption
                                         key={account.id}
-                                        optionId={`atl-name-actions-taken-${optionIndex}`}
+                                        optionId={`atl-name-remarks-${optionIndex}`}
                                         highlighted={
-                                          actionsTakenNav.highlightedIndex ===
+                                          remarksNav.highlightedIndex ===
                                           optionIndex
                                         }
                                         selected={
-                                          formData.actionsTakenPerson ===
+                                          formData.remarksPerson ===
                                           account.id.toString()
                                         }
                                         onSelect={() =>
-                                          handleActionsTakenPersonSelect(
+                                          handleRemarksPersonSelect(
                                             account.id.toString(),
                                             formatAccountNameLicense(
                                               account.fullName,
@@ -6863,11 +6710,11 @@ export function AddTechnicalLogbookEntryModal({
                                           )
                                         }
                                         onHighlight={() =>
-                                          actionsTakenNav.setHighlightedIndex(
+                                          remarksNav.setHighlightedIndex(
                                             optionIndex
                                           )
                                         }
-                                        optionRef={actionsTakenNav.getOptionRef(
+                                        optionRef={remarksNav.getOptionRef(
                                           optionIndex
                                         )}
                                       >
@@ -6886,692 +6733,81 @@ export function AddTechnicalLogbookEntryModal({
                       )}
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
-              <div className="min-w-0 bg-white p-4 rounded-lg border border-gray-200">
-                <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
-                  <h3 className="text-white font-semibold">
-                    AIRFRAME, ENGINE & PROPELLER TIMES
-                  </h3>
-                </div>
-                <div className="form-table-scroll min-w-0">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="bg-[#022C75]">
-                        <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-white"></th>
-                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
-                          AIRFRAME
-                        </th>
-                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
-                          ENGINE
-                        </th>
-                        <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
-                          PROPELLER
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-[#022C75] border-b border-[#022C75]">
-                      <tr className="">
-                        <td
-                          className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
-                          style={{ backgroundColor: "#022C75" }}
-                        >
-                          PREV. TIME
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.airframePrevTime}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "airframePrevTime"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.enginePrevTime}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "enginePrevTime"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.propellerPrevTime}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "propellerPrevTime"
-                              )
-                            }
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td
-                          className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
-                          style={{ backgroundColor: "#022C75" }}
-                        >
-                          FLIGHT TIME
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.airframeFlightTime}
-                            disabled
-                            readOnly
-                            title="Synced from tachometer total"
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.engineFlightTime}
-                            disabled
-                            readOnly
-                            title="Synced from tachometer total"
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.propellerFlightTime}
-                            disabled
-                            readOnly
-                            title="Synced from tachometer total"
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                          />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td
-                          className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
-                          style={{ backgroundColor: "#022C75" }}
-                        >
-                          TOTAL TIME
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.airframeTotalTime}
-                            disabled
-                            readOnly
-                            aria-label="Airframe Total Time"
-                            title="Auto: Prev Time + Run Time"
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.engineTotalTime}
-                            disabled
-                            readOnly
-                            aria-label="Engine Total Time"
-                            title="Auto: Prev Time + Run Time"
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                          />
-                        </td>
-                        <td className="border border-gray-300 px-3 py-2">
-                          <input
-                            type="text"
-                            value={formData.propellerTotalTime}
-                            disabled
-                            readOnly
-                            aria-label="Propeller Total Time"
-                            title="Auto: Prev Time + Run Time"
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* ATL component times: single connected table (AIRFRAME | ENGINE | PROPELLER) */}
-                <div className="form-table-scroll mt-4 min-w-0">
-                  <table className="w-full table-fixed border-collapse border border-gray-300">
-                    <colgroup>
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[10%]" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th
-                          colSpan={2}
-                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
-                        >
-                          AIRFRAME
-                        </th>
-                        <th
-                          colSpan={4}
-                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
-                        >
-                          ENGINE
-                        </th>
-                        <th
-                          colSpan={4}
-                          className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
-                        >
-                          PROPELLER
-                        </th>
-                      </tr>
-                      <tr>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          RUN TIME
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          AFTT
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          RUN TIME
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          TSN
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          TSO
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          TBO
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          RUN TIME
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          TSN
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          TSO
-                        </th>
-                        <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
-                          TBO
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.airframeRunTime}
-                            disabled
-                            readOnly
-                            aria-label="Airframe Run Time"
-                            title="Auto: Tach End − Tach Start"
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.airframeAftt}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "airframeAftt"
-                              )
-                            }
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="AFTT"
-                            title="Auto: Prev AFTT + Airframe Run"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.engineRunTime}
-                            disabled
-                            readOnly
-                            aria-label="Engine Run Time"
-                            title="Auto: Tach End − Tach Start"
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={formData.engineTsn}
-                            onChange={(event) => {
-                              if (!engineTsnEnabled) return;
-                              handleCalculationFieldChange(event, "engineTsn");
-                            }}
-                            disabled={!engineTsnEnabled || mainFormLocked}
-                            className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
-                              !engineTsnEnabled || mainFormLocked
-                                ? "bg-gray-100 text-gray-600 cursor-not-allowed"
-                                : "bg-white"
-                            }`}
-                            placeholder={!engineTsnEnabled ? "UNK" : ""}
-                            title={
-                              !engineTsnEnabled
-                                ? "Aircraft Profile Engine TSN is empty (UNK)"
-                                : "Auto: Prev Engine TSN + Engine Run"
-                            }
-                          />
-                          {validationErrors.engineTsn && (
-                            <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
-                              {validationErrors.engineTsn}
-                            </p>
-                          )}
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.engineTso}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(event, "engineTso")
-                            }
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TSO"
-                            title="TBO auto-updates: life limit − TSO"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.engineTbo}
-                            onChange={(e) =>
-                              setFormData((previous) => ({
-                                ...previous,
-                                engineTbo: e.target.value,
-                              }))
-                            }
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TBO"
-                            title="Auto: life limit − TSO"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.propellerRunTime}
-                            disabled
-                            readOnly
-                            aria-label="Propeller Run Time"
-                            title="Auto: Tach End − Tach Start"
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={formData.propellerTsn}
-                            onChange={(event) => {
-                              if (!propellerTsnEnabled) return;
-                              handleCalculationFieldChange(
-                                event,
-                                "propellerTsn"
-                              );
-                            }}
-                            disabled={!propellerTsnEnabled || mainFormLocked}
-                            className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
-                              !propellerTsnEnabled || mainFormLocked
-                                ? "bg-gray-100 text-gray-600 cursor-not-allowed"
-                                : "bg-white"
-                            }`}
-                            placeholder={!propellerTsnEnabled ? "UNK" : ""}
-                            title={
-                              !propellerTsnEnabled
-                                ? "Aircraft Profile Propeller TSN is empty (UNK)"
-                                : "Auto: Prev Propeller TSN + Prop Run"
-                            }
-                          />
-                          {validationErrors.propellerTsn && (
-                            <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
-                              {validationErrors.propellerTsn}
-                            </p>
-                          )}
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.propellerTso}
-                            onChange={(event) =>
-                              handleCalculationFieldChange(
-                                event,
-                                "propellerTso"
-                              )
-                            }
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TSO"
-                            title="TBO auto-updates: life limit − TSO"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-1.5 align-top">
-                          <input
-                            type="text"
-                            value={formData.propellerTbo}
-                            onChange={(e) =>
-                              setFormData((previous) => ({
-                                ...previous,
-                                propellerTbo: e.target.value,
-                              }))
-                            }
-                            className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
-                            placeholder="TBO"
-                            title="Auto: life limit − TSO"
-                          />
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* COMPONENT RECORD */}
-              <div className="bg-white p-4 rounded-lg border border-gray-200">
-                <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
-                  <h3 className="text-white font-semibold">COMPONENT RECORD</h3>
-                </div>
-                <div className="form-table-scroll form-table-scroll--wide">
-                  <table className="w-full border-collapse min-w-full">
-                    <thead>
-                      <tr className="bg-[#022C75]">
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          QTY
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          UNIT
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          NOMENCLATURE
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          REMOVED P/N
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          REMOVED S/N
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          INSTALLED P/N
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          INSTALLED S/N
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          ATA CHAPTER
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          PART REMARKS
-                        </th>
-                        <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                          DELETE?
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {componentRecords.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={10}
-                            className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
-                          >
-                            No component records added. Click "Add another
-                            Component" to add one.
-                          </td>
-                        </tr>
-                      ) : (
-                        componentRecords.map((record) => (
-                          <tr key={record.id} className="hover:bg-gray-50">
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.qty}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "qty",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.unit}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "unit",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.nomenclature}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "nomenclature",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.removedPartNo}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "removedPartNo",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.removedSerialNo}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "removedSerialNo",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.installedPartNo}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "installedPartNo",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.installedSerialNo}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "installedSerialNo",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.ataChapter}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "ataChapter",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2">
-                              <input
-                                type="text"
-                                value={record.partRemark}
-                                onChange={(e) =>
-                                  updateComponentRecord(
-                                    record.id,
-                                    "partRemark",
-                                    e.target.value
-                                  )
-                                }
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
-                              />
-                            </td>
-                            <td className="border border-gray-300 px-2 py-2 text-center">
-                              <button
-                                type="button"
-                                onClick={() => removeComponentRecord(record.id)}
-                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                  <button
-                    type="button"
-                    onClick={addComponentRecord}
-                    className="mt-3 flex items-center gap-2 text-green-600 hover:text-green-700 font-medium text-sm transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add another Component
-                  </button>
-                </div>
-              </div>
-
-              {/* Signatures Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Return to Service */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Return to Service</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
+                  <div>
+                    <label className="block text-gray-700 mb-2">
+                      Actions Taken
+                    </label>
+                    <AutoResizeTextarea
+                      value={formData.actionsTaken}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          actionsTaken: e.target.value,
+                        })
+                      }
+                      disabled={loadingNofDefaults}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
+                    />
+                    {nofDefaultsMessage && (
+                      <p className="atl-nof-defaults-message mt-2 text-sm bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                        {nofDefaultsMessage}
+                      </p>
+                    )}
+                    <div className="mt-2">
+                      <label className="block text-gray-700 text-sm mb-1.5">
                         Name
                       </label>
-                      <div className="relative" ref={rtsDropdownRef}>
+                      <div className="relative" ref={actionsTakenDropdownRef}>
                         <div className="relative">
                           <input
                             type="text"
                             value={
-                              isRtsDropdownOpen
-                                ? rtsSearchTerm
-                                : getSelectedRts()
+                              isActionsTakenDropdownOpen
+                                ? actionsTakenSearchTerm
+                                : getSelectedActionsTakenPerson()
                             }
                             onChange={(e) => {
-                              setRtsSearchTerm(e.target.value);
-                              setIsRtsDropdownOpen(true);
-                              // Clear error when user starts typing
-                              if (validationErrors.rtsSignedBy) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  rtsSignedBy: "",
-                                });
-                              }
+                              setActionsTakenSearchTerm(e.target.value);
+                              setIsActionsTakenDropdownOpen(true);
                             }}
                             onFocus={() => {
-                              setIsRtsDropdownOpen(true);
-                              // Seed search with current assignee name (not the unassigned label)
+                              setIsActionsTakenDropdownOpen(true);
                               if (
                                 !isAtlAssigneeNoneSelected(
-                                  formData.rtsSignedBy,
-                                  formData.rtsName
+                                  formData.actionsTakenPerson,
+                                  formData.actionsTakenPersonName
                                 ) &&
-                                formData.rtsName
+                                formData.actionsTakenPersonName
                               ) {
-                                setRtsSearchTerm(formData.rtsName);
+                                setActionsTakenSearchTerm(
+                                  formData.actionsTakenPersonName
+                                );
                               } else {
-                                setRtsSearchTerm("");
-                              }
-                              // Fetch accounts if not already loaded
-                              if (rtsAccounts.length === 0) {
-                                fetchRtsAccounts("");
+                                setActionsTakenSearchTerm("");
                               }
                             }}
-                            onKeyDown={rtsNav.handleKeyDown}
+                            onKeyDown={actionsTakenNav.handleKeyDown}
                             autoComplete="off"
                             role="combobox"
-                            aria-expanded={isRtsDropdownOpen}
-                            aria-controls="atl-name-rts-list"
+                            aria-expanded={isActionsTakenDropdownOpen}
+                            aria-controls="atl-name-actions-taken-list"
                             aria-activedescendant={
-                              isRtsDropdownOpen && rtsOptionIds.length > 0
-                                ? `atl-name-rts-${rtsNav.highlightedIndex}`
+                              isActionsTakenDropdownOpen &&
+                              actionsTakenOptionIds.length > 0
+                                ? `atl-name-actions-taken-${actionsTakenNav.highlightedIndex}`
                                 : undefined
                             }
-                            className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
-                              validationErrors.rtsSignedBy
-                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                            }`}
-                            placeholder="Search Mechanic or mechanic..."
+                            className="atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white"
+                            placeholder="Search name..."
                           />
                           <button
                             type="button"
                             onClick={() => {
-                              const next = !isRtsDropdownOpen;
-                              setIsRtsDropdownOpen(next);
-                              // Fetch accounts if opening and not already loaded
-                              if (next && rtsAccounts.length === 0) {
-                                fetchRtsAccounts("");
-                              }
+                              const next = !isActionsTakenDropdownOpen;
+                              setIsActionsTakenDropdownOpen(next);
                               if (next) {
                                 focusAtlNameDropdownInput(
-                                  rtsDropdownRef.current
+                                  actionsTakenDropdownRef.current
                                 );
                               }
                             }}
@@ -7579,307 +6815,79 @@ export function AddTechnicalLogbookEntryModal({
                           >
                             <ChevronDown
                               className={`w-4 h-4 transition-transform ${
-                                isRtsDropdownOpen ? "rotate-180" : ""
+                                isActionsTakenDropdownOpen ? "rotate-180" : ""
                               }`}
                             />
                           </button>
                         </div>
 
-                        {isRtsDropdownOpen && (
-                          <div className="atl-dropdown-panel absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                            {loadingRtsAccounts ? (
+                        {isActionsTakenDropdownOpen && (
+                          <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {loadingActionsTakenAccounts ? (
                               <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
                                 Loading...
                               </div>
                             ) : (
                               <ul
-                                id="atl-name-rts-list"
+                                id="atl-name-actions-taken-list"
                                 className="py-1"
                                 role="listbox"
                               >
                                 {shouldShowAtlAssigneeNoneOption(
-                                  rtsSearchTerm
+                                  actionsTakenSearchTerm
                                 ) && (
                                   <AtlNameDropdownOption
-                                    optionId="atl-name-rts-0"
-                                    highlighted={rtsNav.highlightedIndex === 0}
-                                    selected={isAtlAssigneeNoneSelected(
-                                      formData.rtsSignedBy,
-                                      formData.rtsName
-                                    )}
-                                    onSelect={handleRtsSelectNone}
-                                    onHighlight={() =>
-                                      rtsNav.setHighlightedIndex(0)
+                                    optionId="atl-name-actions-taken-0"
+                                    highlighted={
+                                      actionsTakenNav.highlightedIndex === 0
                                     }
-                                    optionRef={rtsNav.getOptionRef(0)}
+                                    selected={isAtlAssigneeNoneSelected(
+                                      formData.actionsTakenPerson,
+                                      formData.actionsTakenPersonName
+                                    )}
+                                    onSelect={
+                                      handleActionsTakenPersonSelectNone
+                                    }
+                                    onHighlight={() =>
+                                      actionsTakenNav.setHighlightedIndex(0)
+                                    }
+                                    optionRef={actionsTakenNav.getOptionRef(0)}
                                   >
                                     {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
                                   </AtlNameDropdownOption>
                                 )}
-                                {filteredRtsAccounts.length === 0 &&
+                                {filteredActionsTakenAccounts.length === 0 &&
                                 !shouldShowAtlAssigneeNoneOption(
-                                  rtsSearchTerm
+                                  actionsTakenSearchTerm
                                 ) ? (
                                   <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                    {rtsSearchTerm
+                                    {actionsTakenSearchTerm
                                       ? "No accounts found"
                                       : "No accounts available"}
                                   </li>
                                 ) : (
-                                  filteredRtsAccounts.map((account, index) => {
-                                    const optionIndex =
-                                      (shouldShowAtlAssigneeNoneOption(
-                                        rtsSearchTerm
-                                      )
-                                        ? 1
-                                        : 0) + index;
-                                    return (
-                                      <AtlNameDropdownOption
-                                        key={account.id}
-                                        optionId={`atl-name-rts-${optionIndex}`}
-                                        highlighted={
-                                          rtsNav.highlightedIndex ===
-                                          optionIndex
-                                        }
-                                        selected={
-                                          formData.rtsSignedBy ===
-                                          account.id.toString()
-                                        }
-                                        onSelect={() =>
-                                          handleRtsSelect(
-                                            account.id.toString(),
-                                            formatAccountNameLicense(
-                                              account.fullName,
-                                              account.licenseNo
-                                            )
-                                          )
-                                        }
-                                        onHighlight={() =>
-                                          rtsNav.setHighlightedIndex(
-                                            optionIndex
-                                          )
-                                        }
-                                        optionRef={rtsNav.getOptionRef(
-                                          optionIndex
-                                        )}
-                                      >
-                                        {formatAccountNameLicense(
-                                          account.fullName,
-                                          account.licenseNo
-                                        )}
-                                      </AtlNameDropdownOption>
-                                    );
-                                  })
-                                )}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {validationErrors.rtsSignedBy && (
-                        <p className="form-error mt-1 text-xs text-red-600">
-                          {validationErrors.rtsSignedBy}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Date
-                      </label>
-                      <DateInput
-                        value={formData.rtsDate}
-                        onChange={(rtsDate) =>
-                          setFormData({
-                            ...formData,
-                            rtsDate,
-                          })
-                        }
-                        displayFormat="dmy-short"
-                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Time (Zulu)
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.rtsTime}
-                        onChange={(e) => {
-                          const formatted = formatTimeInput(e.target.value);
-                          setFormData({
-                            ...formData,
-                            rtsTime: formatted,
-                          });
-                          if (validationErrors.rtsTime) {
-                            setValidationErrors({
-                              ...validationErrors,
-                              rtsTime: "",
-                            });
-                          }
-                        }}
-                        placeholder="HH:MM"
-                        maxLength={5}
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Pilot Signature */}
-                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                  <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Name
-                      </label>
-                      <div className="relative" ref={pilotDropdownRef}>
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={
-                              isPilotDropdownOpen
-                                ? pilotSearchTerm
-                                : getSelectedPilot()
-                            }
-                            onChange={(e) => {
-                              setPilotSearchTerm(e.target.value);
-                              setIsPilotDropdownOpen(true);
-                              // Clear error when user starts typing
-                              if (validationErrors.pilotFk) {
-                                setValidationErrors({
-                                  ...validationErrors,
-                                  pilotFk: "",
-                                });
-                              }
-                            }}
-                            onFocus={() => {
-                              setIsPilotDropdownOpen(true);
-                              // Seed search with current assignee name (not the unassigned label)
-                              if (
-                                !isAtlAssigneeNoneSelected(
-                                  formData.pilotFk,
-                                  formData.pilotName
-                                ) &&
-                                formData.pilotName
-                              ) {
-                                setPilotSearchTerm(formData.pilotName);
-                              } else {
-                                setPilotSearchTerm("");
-                              }
-                              // Fetch accounts if not already loaded
-                              if (pilotAccounts.length === 0) {
-                                fetchPilotAccounts("");
-                              }
-                            }}
-                            onKeyDown={pilotNav.handleKeyDown}
-                            autoComplete="off"
-                            role="combobox"
-                            aria-expanded={isPilotDropdownOpen}
-                            aria-controls="atl-name-pilot-list"
-                            aria-activedescendant={
-                              isPilotDropdownOpen && pilotOptionIds.length > 0
-                                ? `atl-name-pilot-${pilotNav.highlightedIndex}`
-                                : undefined
-                            }
-                            className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
-                              validationErrors.pilotFk
-                                ? "border-red-500 focus:ring-red-400 focus:border-red-400"
-                                : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
-                            }`}
-                            placeholder="Search pilot..."
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = !isPilotDropdownOpen;
-                              setIsPilotDropdownOpen(next);
-                              // Fetch accounts if opening and not already loaded
-                              if (next && pilotAccounts.length === 0) {
-                                fetchPilotAccounts("");
-                              }
-                              if (next) {
-                                focusAtlNameDropdownInput(
-                                  pilotDropdownRef.current
-                                );
-                              }
-                            }}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
-                          >
-                            <ChevronDown
-                              className={`w-4 h-4 transition-transform ${
-                                isPilotDropdownOpen ? "rotate-180" : ""
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        {isPilotDropdownOpen && (
-                          <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                            {loadingPilotAccounts ? (
-                              <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                Loading pilots...
-                              </div>
-                            ) : (
-                              <ul
-                                id="atl-name-pilot-list"
-                                className="py-1"
-                                role="listbox"
-                              >
-                                {shouldShowAtlAssigneeNoneOption(
-                                  pilotSearchTerm
-                                ) && (
-                                  <AtlNameDropdownOption
-                                    optionId="atl-name-pilot-0"
-                                    highlighted={
-                                      pilotNav.highlightedIndex === 0
-                                    }
-                                    selected={isAtlAssigneeNoneSelected(
-                                      formData.pilotFk,
-                                      formData.pilotName
-                                    )}
-                                    onSelect={handlePilotSelectNone}
-                                    onHighlight={() =>
-                                      pilotNav.setHighlightedIndex(0)
-                                    }
-                                    optionRef={pilotNav.getOptionRef(0)}
-                                  >
-                                    {PILOT_ACCEPTANCE_CLEAR_OPTION_LABEL}
-                                  </AtlNameDropdownOption>
-                                )}
-                                {filteredPilotAccounts.length === 0 &&
-                                !shouldShowAtlAssigneeNoneOption(
-                                  pilotSearchTerm
-                                ) ? (
-                                  <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
-                                    {pilotSearchTerm
-                                      ? "No pilots found"
-                                      : "No pilots available"}
-                                  </li>
-                                ) : (
-                                  filteredPilotAccounts.map(
+                                  filteredActionsTakenAccounts.map(
                                     (account, index) => {
                                       const optionIndex =
                                         (shouldShowAtlAssigneeNoneOption(
-                                          pilotSearchTerm
+                                          actionsTakenSearchTerm
                                         )
                                           ? 1
                                           : 0) + index;
                                       return (
                                         <AtlNameDropdownOption
                                           key={account.id}
-                                          optionId={`atl-name-pilot-${optionIndex}`}
+                                          optionId={`atl-name-actions-taken-${optionIndex}`}
                                           highlighted={
-                                            pilotNav.highlightedIndex ===
+                                            actionsTakenNav.highlightedIndex ===
                                             optionIndex
                                           }
                                           selected={
-                                            formData.pilotFk ===
+                                            formData.actionsTakenPerson ===
                                             account.id.toString()
                                           }
                                           onSelect={() =>
-                                            handlePilotSelect(
+                                            handleActionsTakenPersonSelect(
                                               account.id.toString(),
                                               formatAccountNameLicense(
                                                 account.fullName,
@@ -7888,11 +6896,11 @@ export function AddTechnicalLogbookEntryModal({
                                             )
                                           }
                                           onHighlight={() =>
-                                            pilotNav.setHighlightedIndex(
+                                            actionsTakenNav.setHighlightedIndex(
                                               optionIndex
                                             )
                                           }
-                                          optionRef={pilotNav.getOptionRef(
+                                          optionRef={actionsTakenNav.getOptionRef(
                                             optionIndex
                                           )}
                                         >
@@ -7910,275 +6918,1316 @@ export function AddTechnicalLogbookEntryModal({
                           </div>
                         )}
                       </div>
-                      {validationErrors.pilotFk && (
-                        <p className="form-error mt-1 text-xs text-red-600">
-                          {validationErrors.pilotFk}
-                        </p>
-                      )}
                     </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Date
-                      </label>
-                      <DateInput
-                        value={formData.pilotAcceptDate}
-                        onChange={(pilotAcceptDate) =>
-                          setFormData({
-                            ...formData,
-                            pilotAcceptDate,
-                          })
-                        }
-                        displayFormat="dmy-short"
-                        inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 text-sm mb-1">
-                        Time (Zulu)
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.pilotAcceptTime}
-                        onChange={(e) => {
-                          const formatted = formatTimeInput(e.target.value);
-                          setFormData({
-                            ...formData,
-                            pilotAcceptTime: formatted,
-                          });
-                          if (validationErrors.pilotAcceptTime) {
-                            setValidationErrors({
-                              ...validationErrors,
-                              pilotAcceptTime: "",
-                            });
+                  </div>
+                </div>
+
+                {/* AIRFRAME, ENGINE & PROPELLER TIMES */}
+                <div className="min-w-0 bg-white p-4 rounded-lg border border-gray-200">
+                  <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                    <h3 className="text-white font-semibold">
+                      AIRFRAME, ENGINE & PROPELLER TIMES
+                    </h3>
+                  </div>
+                  <div className="form-table-scroll min-w-0">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-[#022C75]">
+                          <th className="border border-gray-300 px-3 py-2 text-left text-xs font-semibold text-white"></th>
+                          <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
+                            AIRFRAME
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
+                            ENGINE
+                          </th>
+                          <th className="border border-gray-300 px-3 py-2 text-center text-xs font-semibold text-white">
+                            PROPELLER
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-[#022C75] border-b border-[#022C75]">
+                        <tr className="">
+                          <td
+                            className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
+                            style={{ backgroundColor: "#022C75" }}
+                          >
+                            PREV. TIME
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.airframePrevTime}
+                              onChange={(event) =>
+                                handleCalculationFieldChange(
+                                  event,
+                                  "airframePrevTime"
+                                )
+                              }
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.enginePrevTime}
+                              onChange={(event) =>
+                                handleCalculationFieldChange(
+                                  event,
+                                  "enginePrevTime"
+                                )
+                              }
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.propellerPrevTime}
+                              onChange={(event) =>
+                                handleCalculationFieldChange(
+                                  event,
+                                  "propellerPrevTime"
+                                )
+                              }
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <td
+                            className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
+                            style={{ backgroundColor: "#022C75" }}
+                          >
+                            FLIGHT TIME
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.airframeFlightTime}
+                              disabled
+                              readOnly
+                              title="Synced from tachometer total"
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                            />
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.engineFlightTime}
+                              disabled
+                              readOnly
+                              title="Synced from tachometer total"
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                            />
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.propellerFlightTime}
+                              disabled
+                              readOnly
+                              title="Synced from tachometer total"
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <td
+                            className="border border-gray-300 px-3 py-2 text-sm font-semibold text-white bg-[#022C75]"
+                            style={{ backgroundColor: "#022C75" }}
+                          >
+                            TOTAL TIME
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.airframeTotalTime}
+                              disabled
+                              readOnly
+                              aria-label="Airframe Total Time"
+                              title="Auto: Prev Time + Run Time"
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                            />
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.engineTotalTime}
+                              disabled
+                              readOnly
+                              aria-label="Engine Total Time"
+                              title="Auto: Prev Time + Run Time"
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                            />
+                          </td>
+                          <td className="border border-gray-300 px-3 py-2">
+                            <input
+                              type="text"
+                              value={formData.propellerTotalTime}
+                              disabled
+                              readOnly
+                              aria-label="Propeller Total Time"
+                              title="Auto: Prev Time + Run Time"
+                              className="w-full px-2 py-1 border border-gray-300 rounded bg-gray-100 text-gray-600 text-sm cursor-not-allowed"
+                            />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* ATL component times: single connected table (AIRFRAME | ENGINE | PROPELLER) */}
+                  <div className="form-table-scroll mt-4 min-w-0">
+                    <table className="w-full table-fixed border-collapse border border-gray-300">
+                      <colgroup>
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[10%]" />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th
+                            colSpan={2}
+                            className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
+                          >
+                            AIRFRAME
+                          </th>
+                          <th
+                            colSpan={4}
+                            className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
+                          >
+                            ENGINE
+                          </th>
+                          <th
+                            colSpan={4}
+                            className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white bg-[#022C75]"
+                          >
+                            PROPELLER
+                          </th>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            RUN TIME
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            AFTT
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            RUN TIME
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            TSN
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            TSO
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            TBO
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            RUN TIME
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            TSN
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            TSO
+                          </th>
+                          <th className="border border-gray-300 px-1.5 py-1.5 text-center text-xs font-medium text-white bg-[#022C75]">
+                            TBO
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.airframeRunTime}
+                              disabled
+                              readOnly
+                              aria-label="Airframe Run Time"
+                              title="Auto: Tach End − Tach Start"
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.airframeAftt}
+                              onChange={(event) =>
+                                handleCalculationFieldChange(
+                                  event,
+                                  "airframeAftt"
+                                )
+                              }
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                              placeholder="AFTT"
+                              title="Auto: Prev AFTT + Airframe Run"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.engineRunTime}
+                              disabled
+                              readOnly
+                              aria-label="Engine Run Time"
+                              title="Auto: Tach End − Tach Start"
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={formData.engineTsn}
+                              onChange={(event) => {
+                                if (!engineTsnEnabled) return;
+                                handleCalculationFieldChange(
+                                  event,
+                                  "engineTsn"
+                                );
+                              }}
+                              disabled={!engineTsnEnabled || mainFormLocked}
+                              className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
+                                !engineTsnEnabled || mainFormLocked
+                                  ? "bg-gray-100 text-gray-600 cursor-not-allowed"
+                                  : "bg-white"
+                              }`}
+                              placeholder={!engineTsnEnabled ? "UNK" : ""}
+                              title={
+                                !engineTsnEnabled
+                                  ? "Aircraft Profile Engine TSN is empty (UNK)"
+                                  : "Auto: Prev Engine TSN + Engine Run"
+                              }
+                            />
+                            {validationErrors.engineTsn && (
+                              <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
+                                {validationErrors.engineTsn}
+                              </p>
+                            )}
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.engineTso}
+                              onChange={(event) =>
+                                handleCalculationFieldChange(event, "engineTso")
+                              }
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                              placeholder="TSO"
+                              title="TBO auto-updates: life limit − TSO"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.engineTbo}
+                              onChange={(e) =>
+                                setFormData((previous) => ({
+                                  ...previous,
+                                  engineTbo: e.target.value,
+                                }))
+                              }
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                              placeholder="TBO"
+                              title="Auto: life limit − TSO"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.propellerRunTime}
+                              disabled
+                              readOnly
+                              aria-label="Propeller Run Time"
+                              title="Auto: Tach End − Tach Start"
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-gray-100 text-gray-600 cursor-not-allowed"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={formData.propellerTsn}
+                              onChange={(event) => {
+                                if (!propellerTsnEnabled) return;
+                                handleCalculationFieldChange(
+                                  event,
+                                  "propellerTsn"
+                                );
+                              }}
+                              disabled={!propellerTsnEnabled || mainFormLocked}
+                              className={`box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center ${
+                                !propellerTsnEnabled || mainFormLocked
+                                  ? "bg-gray-100 text-gray-600 cursor-not-allowed"
+                                  : "bg-white"
+                              }`}
+                              placeholder={!propellerTsnEnabled ? "UNK" : ""}
+                              title={
+                                !propellerTsnEnabled
+                                  ? "Aircraft Profile Propeller TSN is empty (UNK)"
+                                  : "Auto: Prev Propeller TSN + Prop Run"
+                              }
+                            />
+                            {validationErrors.propellerTsn && (
+                              <p className="form-error text-red-500 text-xs mt-0.5 text-center break-words">
+                                {validationErrors.propellerTsn}
+                              </p>
+                            )}
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.propellerTso}
+                              onChange={(event) =>
+                                handleCalculationFieldChange(
+                                  event,
+                                  "propellerTso"
+                                )
+                              }
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                              placeholder="TSO"
+                              title="TBO auto-updates: life limit − TSO"
+                            />
+                          </td>
+                          <td className="border border-gray-300 p-1.5 align-top">
+                            <input
+                              type="text"
+                              value={formData.propellerTbo}
+                              onChange={(e) =>
+                                setFormData((previous) => ({
+                                  ...previous,
+                                  propellerTbo: e.target.value,
+                                }))
+                              }
+                              className="box-border w-full max-w-full px-1.5 py-1.5 border border-gray-300 rounded text-sm text-center bg-white"
+                              placeholder="TBO"
+                              title="Auto: life limit − TSO"
+                            />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* COMPONENT RECORD */}
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <div className="bg-[#022C75] text-white px-4 py-2 rounded-t-lg -mx-4 -mt-4 mb-4">
+                    <h3 className="text-white font-semibold">
+                      COMPONENT RECORD
+                    </h3>
+                  </div>
+                  <div className="form-table-scroll form-table-scroll--wide">
+                    <table className="w-full border-collapse min-w-full">
+                      <thead>
+                        <tr className="bg-[#022C75]">
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            QTY
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            UNIT
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            NOMENCLATURE
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            REMOVED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            REMOVED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            INSTALLED P/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            INSTALLED S/N
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            ATA CHAPTER
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            PART REMARKS
+                          </th>
+                          <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
+                            DELETE?
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {componentRecords.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={10}
+                              className="border border-gray-300 px-3 py-4 text-center text-gray-500 text-sm"
+                            >
+                              No component records added. Click "Add another
+                              Component" to add one.
+                            </td>
+                          </tr>
+                        ) : (
+                          componentRecords.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50">
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.qty}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "qty",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.unit}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "unit",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.nomenclature}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "nomenclature",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.removedPartNo}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "removedPartNo",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.removedSerialNo}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "removedSerialNo",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.installedPartNo}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "installedPartNo",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.installedSerialNo}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "installedSerialNo",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.ataChapter}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "ataChapter",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2">
+                                <input
+                                  type="text"
+                                  value={record.partRemark}
+                                  onChange={(e) =>
+                                    updateComponentRecord(
+                                      record.id,
+                                      "partRemark",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 text-sm"
+                                />
+                              </td>
+                              <td className="border border-gray-300 px-2 py-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeComponentRecord(record.id)
+                                  }
+                                  className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                    <button
+                      type="button"
+                      onClick={addComponentRecord}
+                      className="mt-3 flex items-center gap-2 text-green-600 hover:text-green-700 font-medium text-sm transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add another Component
+                    </button>
+                  </div>
+                </div>
+
+                {/* Signatures Section */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Return to Service */}
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h3 className="text-gray-900 mb-3">Return to Service</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Name
+                        </label>
+                        <div className="relative" ref={rtsDropdownRef}>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={
+                                isRtsDropdownOpen
+                                  ? rtsSearchTerm
+                                  : getSelectedRts()
+                              }
+                              onChange={(e) => {
+                                setRtsSearchTerm(e.target.value);
+                                setIsRtsDropdownOpen(true);
+                                // Clear error when user starts typing
+                                if (validationErrors.rtsSignedBy) {
+                                  setValidationErrors({
+                                    ...validationErrors,
+                                    rtsSignedBy: "",
+                                  });
+                                }
+                              }}
+                              onFocus={() => {
+                                setIsRtsDropdownOpen(true);
+                                // Seed search with current assignee name (not the unassigned label)
+                                if (
+                                  !isAtlAssigneeNoneSelected(
+                                    formData.rtsSignedBy,
+                                    formData.rtsName
+                                  ) &&
+                                  formData.rtsName
+                                ) {
+                                  setRtsSearchTerm(formData.rtsName);
+                                } else {
+                                  setRtsSearchTerm("");
+                                }
+                                // Fetch accounts if not already loaded
+                                if (rtsAccounts.length === 0) {
+                                  fetchRtsAccounts("");
+                                }
+                              }}
+                              onKeyDown={rtsNav.handleKeyDown}
+                              autoComplete="off"
+                              role="combobox"
+                              aria-expanded={isRtsDropdownOpen}
+                              aria-controls="atl-name-rts-list"
+                              aria-activedescendant={
+                                isRtsDropdownOpen && rtsOptionIds.length > 0
+                                  ? `atl-name-rts-${rtsNav.highlightedIndex}`
+                                  : undefined
+                              }
+                              className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
+                                validationErrors.rtsSignedBy
+                                  ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                  : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                              }`}
+                              placeholder="Search Mechanic or mechanic..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = !isRtsDropdownOpen;
+                                setIsRtsDropdownOpen(next);
+                                // Fetch accounts if opening and not already loaded
+                                if (next && rtsAccounts.length === 0) {
+                                  fetchRtsAccounts("");
+                                }
+                                if (next) {
+                                  focusAtlNameDropdownInput(
+                                    rtsDropdownRef.current
+                                  );
+                                }
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                            >
+                              <ChevronDown
+                                className={`w-4 h-4 transition-transform ${
+                                  isRtsDropdownOpen ? "rotate-180" : ""
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          {isRtsDropdownOpen && (
+                            <div className="atl-dropdown-panel absolute z-50 w-full bottom-full mb-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                              {loadingRtsAccounts ? (
+                                <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
+                                  Loading...
+                                </div>
+                              ) : (
+                                <ul
+                                  id="atl-name-rts-list"
+                                  className="py-1"
+                                  role="listbox"
+                                >
+                                  {shouldShowAtlAssigneeNoneOption(
+                                    rtsSearchTerm
+                                  ) && (
+                                    <AtlNameDropdownOption
+                                      optionId="atl-name-rts-0"
+                                      highlighted={
+                                        rtsNav.highlightedIndex === 0
+                                      }
+                                      selected={isAtlAssigneeNoneSelected(
+                                        formData.rtsSignedBy,
+                                        formData.rtsName
+                                      )}
+                                      onSelect={handleRtsSelectNone}
+                                      onHighlight={() =>
+                                        rtsNav.setHighlightedIndex(0)
+                                      }
+                                      optionRef={rtsNav.getOptionRef(0)}
+                                    >
+                                      {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                                    </AtlNameDropdownOption>
+                                  )}
+                                  {filteredRtsAccounts.length === 0 &&
+                                  !shouldShowAtlAssigneeNoneOption(
+                                    rtsSearchTerm
+                                  ) ? (
+                                    <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
+                                      {rtsSearchTerm
+                                        ? "No accounts found"
+                                        : "No accounts available"}
+                                    </li>
+                                  ) : (
+                                    filteredRtsAccounts.map(
+                                      (account, index) => {
+                                        const optionIndex =
+                                          (shouldShowAtlAssigneeNoneOption(
+                                            rtsSearchTerm
+                                          )
+                                            ? 1
+                                            : 0) + index;
+                                        return (
+                                          <AtlNameDropdownOption
+                                            key={account.id}
+                                            optionId={`atl-name-rts-${optionIndex}`}
+                                            highlighted={
+                                              rtsNav.highlightedIndex ===
+                                              optionIndex
+                                            }
+                                            selected={
+                                              formData.rtsSignedBy ===
+                                              account.id.toString()
+                                            }
+                                            onSelect={() =>
+                                              handleRtsSelect(
+                                                account.id.toString(),
+                                                formatAccountNameLicense(
+                                                  account.fullName,
+                                                  account.licenseNo
+                                                )
+                                              )
+                                            }
+                                            onHighlight={() =>
+                                              rtsNav.setHighlightedIndex(
+                                                optionIndex
+                                              )
+                                            }
+                                            optionRef={rtsNav.getOptionRef(
+                                              optionIndex
+                                            )}
+                                          >
+                                            {formatAccountNameLicense(
+                                              account.fullName,
+                                              account.licenseNo
+                                            )}
+                                          </AtlNameDropdownOption>
+                                        );
+                                      }
+                                    )
+                                  )}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {validationErrors.rtsSignedBy && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.rtsSignedBy}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Date
+                        </label>
+                        <DateInput
+                          value={formData.rtsDate}
+                          onChange={(rtsDate) =>
+                            setFormData({
+                              ...formData,
+                              rtsDate,
+                            })
                           }
-                        }}
-                        placeholder="HH:MM"
-                        maxLength={5}
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
-                      />
+                          displayFormat="dmy-short"
+                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Time (Zulu)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.rtsTime}
+                          onChange={(e) => {
+                            const formatted = formatTimeInput(e.target.value);
+                            setFormData({
+                              ...formData,
+                              rtsTime: formatted,
+                            });
+                            if (validationErrors.rtsTime) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                rtsTime: "",
+                              });
+                            }
+                          }}
+                          placeholder="HH:MM"
+                          maxLength={5}
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pilot Signature */}
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Name
+                        </label>
+                        <div className="relative" ref={pilotDropdownRef}>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={
+                                isPilotDropdownOpen
+                                  ? pilotSearchTerm
+                                  : getSelectedPilot()
+                              }
+                              onChange={(e) => {
+                                setPilotSearchTerm(e.target.value);
+                                setIsPilotDropdownOpen(true);
+                                // Clear error when user starts typing
+                                if (validationErrors.pilotFk) {
+                                  setValidationErrors({
+                                    ...validationErrors,
+                                    pilotFk: "",
+                                  });
+                                }
+                              }}
+                              onFocus={() => {
+                                setIsPilotDropdownOpen(true);
+                                // Seed search with current assignee name (not the unassigned label)
+                                if (
+                                  !isAtlAssigneeNoneSelected(
+                                    formData.pilotFk,
+                                    formData.pilotName
+                                  ) &&
+                                  formData.pilotName
+                                ) {
+                                  setPilotSearchTerm(formData.pilotName);
+                                } else {
+                                  setPilotSearchTerm("");
+                                }
+                                // Fetch accounts if not already loaded
+                                if (pilotAccounts.length === 0) {
+                                  fetchPilotAccounts("");
+                                }
+                              }}
+                              onKeyDown={pilotNav.handleKeyDown}
+                              autoComplete="off"
+                              role="combobox"
+                              aria-expanded={isPilotDropdownOpen}
+                              aria-controls="atl-name-pilot-list"
+                              aria-activedescendant={
+                                isPilotDropdownOpen && pilotOptionIds.length > 0
+                                  ? `atl-name-pilot-${pilotNav.highlightedIndex}`
+                                  : undefined
+                              }
+                              className={`atl-dropdown-field w-full px-3 py-2 pr-10 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
+                                validationErrors.pilotFk
+                                  ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                                  : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                              }`}
+                              placeholder="Search pilot..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = !isPilotDropdownOpen;
+                                setIsPilotDropdownOpen(next);
+                                // Fetch accounts if opening and not already loaded
+                                if (next && pilotAccounts.length === 0) {
+                                  fetchPilotAccounts("");
+                                }
+                                if (next) {
+                                  focusAtlNameDropdownInput(
+                                    pilotDropdownRef.current
+                                  );
+                                }
+                              }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-auto text-gray-400"
+                            >
+                              <ChevronDown
+                                className={`w-4 h-4 transition-transform ${
+                                  isPilotDropdownOpen ? "rotate-180" : ""
+                                }`}
+                              />
+                            </button>
+                          </div>
+
+                          {isPilotDropdownOpen && (
+                            <div className="atl-dropdown-panel absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                              {loadingPilotAccounts ? (
+                                <div className="px-4 py-3 text-sm atl-dropdown-name text-center">
+                                  Loading pilots...
+                                </div>
+                              ) : (
+                                <ul
+                                  id="atl-name-pilot-list"
+                                  className="py-1"
+                                  role="listbox"
+                                >
+                                  {shouldShowAtlAssigneeNoneOption(
+                                    pilotSearchTerm
+                                  ) && (
+                                    <AtlNameDropdownOption
+                                      optionId="atl-name-pilot-0"
+                                      highlighted={
+                                        pilotNav.highlightedIndex === 0
+                                      }
+                                      selected={isAtlAssigneeNoneSelected(
+                                        formData.pilotFk,
+                                        formData.pilotName
+                                      )}
+                                      onSelect={handlePilotSelectNone}
+                                      onHighlight={() =>
+                                        pilotNav.setHighlightedIndex(0)
+                                      }
+                                      optionRef={pilotNav.getOptionRef(0)}
+                                    >
+                                      {PILOT_ACCEPTANCE_CLEAR_OPTION_LABEL}
+                                    </AtlNameDropdownOption>
+                                  )}
+                                  {filteredPilotAccounts.length === 0 &&
+                                  !shouldShowAtlAssigneeNoneOption(
+                                    pilotSearchTerm
+                                  ) ? (
+                                    <li className="px-4 py-3 text-sm atl-dropdown-name text-center">
+                                      {pilotSearchTerm
+                                        ? "No pilots found"
+                                        : "No pilots available"}
+                                    </li>
+                                  ) : (
+                                    filteredPilotAccounts.map(
+                                      (account, index) => {
+                                        const optionIndex =
+                                          (shouldShowAtlAssigneeNoneOption(
+                                            pilotSearchTerm
+                                          )
+                                            ? 1
+                                            : 0) + index;
+                                        return (
+                                          <AtlNameDropdownOption
+                                            key={account.id}
+                                            optionId={`atl-name-pilot-${optionIndex}`}
+                                            highlighted={
+                                              pilotNav.highlightedIndex ===
+                                              optionIndex
+                                            }
+                                            selected={
+                                              formData.pilotFk ===
+                                              account.id.toString()
+                                            }
+                                            onSelect={() =>
+                                              handlePilotSelect(
+                                                account.id.toString(),
+                                                formatAccountNameLicense(
+                                                  account.fullName,
+                                                  account.licenseNo
+                                                )
+                                              )
+                                            }
+                                            onHighlight={() =>
+                                              pilotNav.setHighlightedIndex(
+                                                optionIndex
+                                              )
+                                            }
+                                            optionRef={pilotNav.getOptionRef(
+                                              optionIndex
+                                            )}
+                                          >
+                                            {formatAccountNameLicense(
+                                              account.fullName,
+                                              account.licenseNo
+                                            )}
+                                          </AtlNameDropdownOption>
+                                        );
+                                      }
+                                    )
+                                  )}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {validationErrors.pilotFk && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.pilotFk}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Date
+                        </label>
+                        <DateInput
+                          value={formData.pilotAcceptDate}
+                          onChange={(pilotAcceptDate) =>
+                            setFormData({
+                              ...formData,
+                              pilotAcceptDate,
+                            })
+                          }
+                          displayFormat="dmy-short"
+                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 text-sm mb-1">
+                          Time (Zulu)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.pilotAcceptTime}
+                          onChange={(e) => {
+                            const formatted = formatTimeInput(e.target.value);
+                            setFormData({
+                              ...formData,
+                              pilotAcceptTime: formatted,
+                            });
+                            if (validationErrors.pilotAcceptTime) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                pilotAcceptTime: "",
+                              });
+                            }
+                          }}
+                          placeholder="HH:MM"
+                          maxLength={5}
+                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* White ATL / DFP — view when data exists; update: Admin / Tech Pub / Maint Manager */}
-            {canUseTechPubView && (
-              <div id="TechPubView">
-                <div className="bg-white p-4 rounded-lg border border-gray-200">
-                  {/* {!canUploadAtlInCurrentMode && (
+              {/* White ATL / DFP — view when data exists; update: Admin / Tech Pub / Maint Manager */}
+              {canUseTechPubView && (
+                <div id="TechPubView">
+                  <div className="bg-white p-4 rounded-lg border border-gray-200">
+                    {/* {!canUploadAtlInCurrentMode && (
                     <p className="mb-4 text-sm text-gray-600">
                       White ATL and DFP are view-only for your role. Only Admin,
                       Technical Publication, and Maintenance Manager may update
                       these fields.
                     </p>
                   )} */}
-                  <div className="mb-4">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div>
-                        <label className="block text-gray-700 mb-2">
-                          White ATL
-                        </label>
+                    <div className="mb-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div>
-                          <FileDropzone
-                            inputId="white-atl-file"
-                            disabled={!canUploadAtlInCurrentMode}
-                            file={
-                              formData.whiteAtl instanceof File
-                                ? formData.whiteAtl
-                                : null
-                            }
-                            existingLabel={
-                              existingWhiteAtlFilePath
-                                ? formatShortDisplayFileName(
-                                    existingWhiteAtlFilePath
-                                  )
-                                : canUploadAtlInCurrentMode
-                                ? undefined
-                                : "N/A"
-                            }
-                            error={whiteAtlFileError}
-                            onSelect={(selected) =>
-                              handleFileChange("whiteAtl", selected)
-                            }
-                            onError={setWhiteAtlFileError}
-                            onClearError={() => setWhiteAtlFileError("")}
-                          />
-                          {canUploadAtlInCurrentMode && whiteAtlFileName && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFile("whiteAtl")}
-                              className="text-xs text-red-600 hover:text-red-700 mt-1"
-                            >
-                              Remove file
-                            </button>
-                          )}
-                          {existingWhiteAtlFilePath !== "" && (
-                            <div className="flex flex-col gap-1 mt-2">
-                              {isImageFilePath(existingWhiteAtlFilePath) && (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                  onClick={() =>
-                                    handleViewAtlFile(
-                                      "white_atl",
+                          <label className="block text-gray-700 mb-2">
+                            White ATL
+                          </label>
+                          <div>
+                            <FileDropzone
+                              inputId="white-atl-file"
+                              disabled={!canUploadAtlInCurrentMode}
+                              file={
+                                formData.whiteAtl instanceof File
+                                  ? formData.whiteAtl
+                                  : null
+                              }
+                              existingLabel={
+                                existingWhiteAtlFilePath
+                                  ? formatShortDisplayFileName(
                                       existingWhiteAtlFilePath
                                     )
-                                  }
-                                >
-                                  <Eye className="w-4 h-4 flex-shrink-0" />
-                                  View
-                                </button>
-                              )}
+                                  : canUploadAtlInCurrentMode
+                                  ? undefined
+                                  : "N/A"
+                              }
+                              error={whiteAtlFileError}
+                              onSelect={(selected) =>
+                                handleFileChange("whiteAtl", selected)
+                              }
+                              onError={setWhiteAtlFileError}
+                              onClearError={() => setWhiteAtlFileError("")}
+                            />
+                            {canUploadAtlInCurrentMode && whiteAtlFileName && (
                               <button
                                 type="button"
-                                className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                onClick={() =>
-                                  handleDownloadAtlFile(
-                                    "white_atl",
-                                    existingWhiteAtlFilePath,
-                                    existingWhiteAtlFilePath.split("/").pop() ||
-                                      "white_atl"
-                                  )
-                                }
+                                onClick={() => handleRemoveFile("whiteAtl")}
+                                className="text-xs text-red-600 hover:text-red-700 mt-1"
                               >
-                                <Download className="w-4 h-4 flex-shrink-0" />
-                                Download
+                                Remove file
                               </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-gray-700 mb-2">DFP</label>
-                        <div>
-                          <FileDropzone
-                            inputId="dfp-file"
-                            disabled={!canUploadAtlInCurrentMode}
-                            file={
-                              formData.dfp instanceof File ? formData.dfp : null
-                            }
-                            existingLabel={
-                              existingDfpFilePath
-                                ? formatShortDisplayFileName(
-                                    existingDfpFilePath
-                                  )
-                                : canUploadAtlInCurrentMode
-                                ? undefined
-                                : "N/A"
-                            }
-                            error={dfpFileError}
-                            onSelect={(selected) =>
-                              handleFileChange("dfp", selected)
-                            }
-                            onError={setDfpFileError}
-                            onClearError={() => setDfpFileError("")}
-                          />
-                          {canUploadAtlInCurrentMode && dfpFileName && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFile("dfp")}
-                              className="text-xs text-red-600 hover:text-red-700 mt-1"
-                            >
-                              Remove file
-                            </button>
-                          )}
-                          {existingDfpFilePath !== "" && (
-                            <div className="flex flex-col gap-1 mt-2">
-                              {isImageFilePath(existingDfpFilePath) && (
+                            )}
+                            {existingWhiteAtlFilePath !== "" && (
+                              <div className="flex flex-col gap-1 mt-2">
+                                {isImageFilePath(existingWhiteAtlFilePath) && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                    onClick={() =>
+                                      handleViewAtlFile(
+                                        "white_atl",
+                                        existingWhiteAtlFilePath
+                                      )
+                                    }
+                                  >
+                                    <Eye className="w-4 h-4 flex-shrink-0" />
+                                    View
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
                                   onClick={() =>
-                                    handleViewAtlFile(
-                                      "dfp",
-                                      existingDfpFilePath
+                                    handleDownloadAtlFile(
+                                      "white_atl",
+                                      existingWhiteAtlFilePath,
+                                      existingWhiteAtlFilePath
+                                        .split("/")
+                                        .pop() || "white_atl"
                                     )
                                   }
                                 >
-                                  <Eye className="w-4 h-4 flex-shrink-0" />
-                                  View
+                                  <Download className="w-4 h-4 flex-shrink-0" />
+                                  Download
                                 </button>
-                              )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-gray-700 mb-2">
+                            DFP
+                          </label>
+                          <div>
+                            <FileDropzone
+                              inputId="dfp-file"
+                              disabled={!canUploadAtlInCurrentMode}
+                              file={
+                                formData.dfp instanceof File
+                                  ? formData.dfp
+                                  : null
+                              }
+                              existingLabel={
+                                existingDfpFilePath
+                                  ? formatShortDisplayFileName(
+                                      existingDfpFilePath
+                                    )
+                                  : canUploadAtlInCurrentMode
+                                  ? undefined
+                                  : "N/A"
+                              }
+                              error={dfpFileError}
+                              onSelect={(selected) =>
+                                handleFileChange("dfp", selected)
+                              }
+                              onError={setDfpFileError}
+                              onClearError={() => setDfpFileError("")}
+                            />
+                            {canUploadAtlInCurrentMode && dfpFileName && (
                               <button
                                 type="button"
-                                className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                onClick={() =>
-                                  handleDownloadAtlFile(
-                                    "dfp",
-                                    existingDfpFilePath,
-                                    existingDfpFilePath.split("/").pop() ||
-                                      "dfp"
-                                  )
-                                }
+                                onClick={() => handleRemoveFile("dfp")}
+                                className="text-xs text-red-600 hover:text-red-700 mt-1"
                               >
-                                <Download className="w-4 h-4 flex-shrink-0" />
-                                Download
+                                Remove file
                               </button>
-                            </div>
-                          )}
+                            )}
+                            {existingDfpFilePath !== "" && (
+                              <div className="flex flex-col gap-1 mt-2">
+                                {isImageFilePath(existingDfpFilePath) && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                    onClick={() =>
+                                      handleViewAtlFile(
+                                        "dfp",
+                                        existingDfpFilePath
+                                      )
+                                    }
+                                  >
+                                    <Eye className="w-4 h-4 flex-shrink-0" />
+                                    View
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                  onClick={() =>
+                                    handleDownloadAtlFile(
+                                      "dfp",
+                                      existingDfpFilePath,
+                                      existingDfpFilePath.split("/").pop() ||
+                                        "dfp"
+                                    )
+                                  }
+                                >
+                                  <Download className="w-4 h-4 flex-shrink-0" />
+                                  Download
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
-                    <div>
-                      <label className="block text-gray-700 mb-2">
-                        White ATL Link
-                      </label>
-                      <input
-                        type="url"
-                        value={formData.whiteAtlWebLink}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            whiteAtlWebLink: e.target.value,
-                          })
-                        }
-                        disabled={!canUploadAtlInCurrentMode}
-                        placeholder={
-                          canUploadAtlInCurrentMode
-                            ? "https://..."
-                            : "Edit not permitted for your role"
-                        }
-                        className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
-                          canUploadAtlInCurrentMode
-                            ? "bg-white text-gray-900"
-                            : "bg-gray-100 text-gray-500 cursor-not-allowed"
-                        }`}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 mb-2">
-                        DFP Link
-                      </label>
-                      <input
-                        type="url"
-                        value={formData.dfpWebLink}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            dfpWebLink: e.target.value,
-                          })
-                        }
-                        disabled={!canUploadAtlInCurrentMode}
-                        placeholder={
-                          canUploadAtlInCurrentMode
-                            ? "https://..."
-                            : "Edit not permitted for your role"
-                        }
-                        className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
-                          canUploadAtlInCurrentMode
-                            ? "bg-white text-gray-900"
-                            : "bg-gray-100 text-gray-500 cursor-not-allowed"
-                        }`}
-                      />
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+                      <div>
+                        <label className="block text-gray-700 mb-2">
+                          White ATL Link
+                        </label>
+                        <input
+                          type="url"
+                          value={formData.whiteAtlWebLink}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              whiteAtlWebLink: e.target.value,
+                            })
+                          }
+                          disabled={!canUploadAtlInCurrentMode}
+                          placeholder={
+                            canUploadAtlInCurrentMode
+                              ? "https://..."
+                              : "Edit not permitted for your role"
+                          }
+                          className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
+                            canUploadAtlInCurrentMode
+                              ? "bg-white text-gray-900"
+                              : "bg-gray-100 text-gray-500 cursor-not-allowed"
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-gray-700 mb-2">
+                          DFP Link
+                        </label>
+                        <input
+                          type="url"
+                          value={formData.dfpWebLink}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              dfpWebLink: e.target.value,
+                            })
+                          }
+                          disabled={!canUploadAtlInCurrentMode}
+                          placeholder={
+                            canUploadAtlInCurrentMode
+                              ? "https://..."
+                              : "Edit not permitted for your role"
+                          }
+                          className={`w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 ${
+                            canUploadAtlInCurrentMode
+                              ? "bg-white text-gray-900"
+                              : "bg-gray-100 text-gray-500 cursor-not-allowed"
+                          }`}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           </div>
 
           {/* Footer Actions */}

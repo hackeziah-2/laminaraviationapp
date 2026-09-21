@@ -1,6 +1,7 @@
 import apiClient from "./index";
 import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { appendPagedQueryParams } from "../utils/pagedQuery";
+import { inheritsMaintenanceManagerAuthorization } from "../utility/roleAuthorization";
 
 export interface AuthUser {
   id: number;
@@ -202,6 +203,7 @@ export const token = async (username?: string, password?: string): Promise<unkno
 
 /** Default route after sign-in: mechanics and technical publication on fleet profile, others on dashboard. */
 export function getPostLoginPath(role: string | undefined | null): string {
+  if (inheritsMaintenanceManagerAuthorization(role)) return "/dashboard";
   const r = role?.trim();
   if (r === "Mechanic" || r === "Technical Publication") return "/profile";
   return "/dashboard";

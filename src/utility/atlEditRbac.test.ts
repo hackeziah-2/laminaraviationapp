@@ -121,6 +121,35 @@ describe("ATL RBAC — Maintenance Manager", () => {
   });
 });
 
+describe("ATL RBAC — Mechanic - Maintenance Manager", () => {
+  const role = "Mechanic - Maintenance Manager";
+
+  it("matches Maintenance Manager edit statuses", () => {
+    expect(canEditAtlFields(role, "PENDING")).toBe(
+      canEditAtlFields("Maintenance Manager", "PENDING")
+    );
+    expect(canEditAtlFields(role, "REJECTED_MAINTENANCE")).toBe(
+      canEditAtlFields("Maintenance Manager", "REJECTED_MAINTENANCE")
+    );
+    expect(canEditAtlFields(role, "APPROVED")).toBe(
+      canEditAtlFields("Maintenance Manager", "APPROVED")
+    );
+    expect(canEditAtlFields(role, "COMPLETED")).toBe(
+      canEditAtlFields("Maintenance Manager", "COMPLETED")
+    );
+    expect(canEditAtlFields(role, "FOR_REVIEW")).toBe(
+      canEditAtlFields("Maintenance Manager", "FOR_REVIEW")
+    );
+  });
+
+  it("is not treated as a restricted Mechanic role", () => {
+    expect(canOpenAtlEditModal(role)).toBe(true);
+    expect(getAtlWorkStatusDropdownKeysForRole(role)).toEqual(
+      getAtlWorkStatusDropdownKeysForRole("Maintenance Manager")
+    );
+  });
+});
+
 describe("ATL RBAC — Quality Manager", () => {
   const role = "Quality Manager";
 
