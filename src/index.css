@@ -3037,7 +3037,8 @@ input[data-slot="date-input"] {
 }
 
 /* ATL Operation — sticky multi-row table header (vertical + horizontal)
-   Scroll lives ONLY on .atl-all-columns-scroll.
+   Used by All Columns and Group By views (Fuel/Oil, Maintenance Planning,
+   Reliability Monitoring). Scroll lives ONLY on .atl-all-columns-scroll.
    Ancestor overflow:hidden breaks sticky — keep parents overflow:visible.
    border-collapse:separate is required for position:sticky on th/td.
    Three header rows: group titles, sub labels, Component Record P/N S/N.
@@ -3099,6 +3100,15 @@ input[data-slot="date-input"] {
   top: calc(var(--atl-th-row1-h, 40px) + var(--atl-th-row2-h, 32px));
   z-index: 2;
   box-shadow: 0 1px 0 0 #d1d5db;
+}
+
+/* Bottom edge of the frozen header (1-, 2-, or 3-row) stays above body rows. */
+.atl-all-columns-table > thead > tr:last-child > th {
+  box-shadow: 0 1px 0 0 #d1d5db;
+}
+
+.atl-all-columns-table > thead > tr:last-child > th.atl-th-sticky-seq {
+  box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12), 0 1px 0 0 #d1d5db;
 }
 
 /* Main COMPONENT RECORD title */
