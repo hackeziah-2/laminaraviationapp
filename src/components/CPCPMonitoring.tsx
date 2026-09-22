@@ -39,6 +39,10 @@ import {
   type CPCPEntry,
 } from "../api/cpcpMonitoringApi";
 import { computeCpcpRow, getCpcpRemainingAlert } from "../utils/cpcpFormulas";
+import {
+  formatComponentLimitDisplay,
+  isConfiguredComponentLimit,
+} from "../utils/componentLimit";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { Spinner } from "./ui/spinner";
@@ -82,12 +86,20 @@ const CPCP_EXPORT_HEADERS = [
   "NEXT DUE AFTT",
 ] as const;
 
+function parseLimitValue(v: unknown): number | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || s === "-" || s === "—") return null;
+  const n = parseFloat(s.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 /** Remaining "months" from list/API → years (same basis as the MONTHS column ÷ 12) */
 function formatCpcpRemainingYearsFromMonths(monthsDisplay: string): string {
   const s = String(monthsDisplay ?? "").trim();
-  if (s === "" || s === "-" || s === "—") return "";
+  if (s === "" || s === "-" || s === "—") return "-";
   const n = parseFloat(s.replace(/,/g, ""));
-  if (!Number.isFinite(n)) return "";
+  if (!Number.isFinite(n)) return "-";
   return (n / 12).toFixed(2);
 }
 
@@ -105,8 +117,8 @@ function cpcpToExportRow(
     String(item.description ?? "")
       .replace(/\r\n/g, "\n")
       .trim(),
-    String(item.interval?.hours ?? ""),
-    String(item.interval?.months ?? ""),
+    formatComponentLimitDisplay(parseLimitValue(item.interval?.hours)),
+    formatComponentLimitDisplay(parseLimitValue(item.interval?.months)),
     String(item.lastDone?.date ?? "").trim(),
     String(item.lastDone?.tach ?? "").trim(),
     String(item.lastDone?.aftf ?? "").trim(),
@@ -927,12 +939,22 @@ export const CPCPMonitoring = forwardRef<
                               headerTach,
                               headerAftt
                             );
-                            const intervalHours = parseNum(
+                            const intervalHoursRaw = parseNum(
                               item.interval?.hours
                             );
-                            const intervalMonths = parseNum(
+                            const intervalMonthsRaw = parseNum(
                               item.interval?.months
                             );
+                            const intervalHours = isConfiguredComponentLimit(
+                              intervalHoursRaw
+                            )
+                              ? intervalHoursRaw
+                              : null;
+                            const intervalMonths = isConfiguredComponentLimit(
+                              intervalMonthsRaw
+                            )
+                              ? intervalMonthsRaw
+                              : null;
                             const intervalDays =
                               intervalMonths != null
                                 ? (intervalMonths * 365) / 12
@@ -1003,10 +1025,14 @@ export const CPCPMonitoring = forwardRef<
                                       </div>
                                     </td>
                                     <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
-                                      {item.interval?.hours ?? "0"}
+                                      {formatComponentLimitDisplay(
+                                        intervalHoursRaw
+                                      )}
                                     </td>
                                     <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap border-r border-gray-100">
-                                      {item.interval?.months ?? "0"}
+                                      {formatComponentLimitDisplay(
+                                        intervalMonthsRaw
+                                      )}
                                     </td>
                                     <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">
                                       {formatDisplayDate(item.lastDone?.date)}
@@ -1212,7 +1238,9 @@ export const CPCPMonitoring = forwardRef<
                         Interval Hours
                       </span>
                       <p className="text-gray-900">
-                        {viewEntry.interval?.hours ?? "0"}
+                        {formatComponentLimitDisplay(
+                          parseNum(viewEntry.interval?.hours)
+                        )}
                       </p>
                     </div>
                     <div>
@@ -1220,7 +1248,9 @@ export const CPCPMonitoring = forwardRef<
                         Interval Months
                       </span>
                       <p className="text-gray-900">
-                        {viewEntry.interval?.months ?? "0"}
+                        {formatComponentLimitDisplay(
+                          parseNum(viewEntry.interval?.months)
+                        )}
                       </p>
                     </div>
                   </div>
@@ -1290,8 +1320,22 @@ export const CPCPMonitoring = forwardRef<
                       headerTach,
                       headerAftt
                     );
-                    const intervalHours = parseNum(viewEntry.interval?.hours);
-                    const intervalMonths = parseNum(viewEntry.interval?.months);
+                    const intervalHoursRaw = parseNum(
+                      viewEntry.interval?.hours
+                    );
+                    const intervalMonthsRaw = parseNum(
+                      viewEntry.interval?.months
+                    );
+                    const intervalHours = isConfiguredComponentLimit(
+                      intervalHoursRaw
+                    )
+                      ? intervalHoursRaw
+                      : null;
+                    const intervalMonths = isConfiguredComponentLimit(
+                      intervalMonthsRaw
+                    )
+                      ? intervalMonthsRaw
+                      : null;
                     const intervalDays =
                       intervalMonths != null
                         ? (intervalMonths * 365) / 12

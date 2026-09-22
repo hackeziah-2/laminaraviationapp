@@ -61,6 +61,10 @@ import {
 } from "../utils/displayOrderReorder";
 import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
 import * as XLSX from "xlsx";
+import {
+  formatComponentLimitDisplay,
+  isConfiguredComponentLimit,
+} from "../utils/componentLimit";
 
 const TCC_EXPORT_HEADERS = [
   "CATEGORY",
@@ -199,13 +203,12 @@ export interface TCCComputedRow {
   limitHours: number;
 }
 
-/** Color for REMAINING group: Red <=0, Orange <=10, Yellow <=20, Green <=40 */
+/** Color for REMAINING group: Red <=0, Orange <=10, Yellow <=20, Green <=40. No color for missing remaining. */
 function getRemainingColorClass(remainingPct: number | null): string {
-  if (
-    remainingPct == null ||
-    !Number.isFinite(remainingPct) ||
-    remainingPct <= 0
-  ) {
+  if (remainingPct == null || !Number.isFinite(remainingPct)) {
+    return "";
+  }
+  if (remainingPct <= 0) {
     return "bg-red-100 text-red-800"; // Due
   }
   if (remainingPct <= 10) return "bg-orange-100 text-orange-800"; // >0 to 10% remaining
@@ -226,7 +229,8 @@ function computeTCCRow(
   const lastDoneTach = parseNum(item.lastDoneYear);
   const lastDoneAftt = parseNum(item.lastDoneAftt);
 
-  const hasLimitHours = Number.isFinite(limitHours);
+  const hasLimitHours = isConfiguredComponentLimit(limitHours);
+  const hasLimitYears = isConfiguredComponentLimit(limitYears);
   const hasLastDoneTach = Number.isFinite(lastDoneTach);
   const hasLastDoneAftt = Number.isFinite(lastDoneAftt);
 
@@ -236,7 +240,7 @@ function computeTCCRow(
     hasLimitHours && hasLastDoneAftt ? lastDoneAftt + limitHours : null;
 
   let nextDueDate: Date | null = null;
-  if (lastDoneDate != null && Number.isFinite(limitYears)) {
+  if (lastDoneDate != null && hasLimitYears) {
     const d = new Date(lastDoneDate);
     // Add integer years first to handle leap years correctly
     const wholeYears = Math.floor(limitYears);
@@ -271,30 +275,60 @@ function computeTCCRow(
   let outNextDueTach = nextDueTach;
   let outNextDueAftt = nextDueAftt;
 
-  if (item.remainingYears != null && Number.isFinite(item.remainingYears)) {
+  if (
+    hasLimitYears &&
+    item.remainingYears != null &&
+    Number.isFinite(item.remainingYears)
+  ) {
     outRemainingYears = item.remainingYears;
+  } else if (!hasLimitYears) {
+    outRemainingYears = null;
   }
-  if (item.remainingDays != null && Number.isFinite(item.remainingDays)) {
+  if (
+    hasLimitYears &&
+    item.remainingDays != null &&
+    Number.isFinite(item.remainingDays)
+  ) {
     outRemainingDays = item.remainingDays;
+  } else if (!hasLimitYears) {
+    outRemainingDays = null;
   }
-  if (item.remainingTach != null && Number.isFinite(item.remainingTach)) {
+  if (
+    hasLimitHours &&
+    item.remainingTach != null &&
+    Number.isFinite(item.remainingTach)
+  ) {
     outRemainingTach = item.remainingTach;
+  } else if (!hasLimitHours) {
+    outRemainingTach = null;
   }
-  if (item.remainingAftt != null && Number.isFinite(item.remainingAftt)) {
+  if (
+    hasLimitHours &&
+    item.remainingAftt != null &&
+    Number.isFinite(item.remainingAftt)
+  ) {
     outRemainingAftt = item.remainingAftt;
+  } else if (!hasLimitHours) {
+    outRemainingAftt = null;
   }
 
   const apiNextDueDate = parseDate(item.nextDueDate);
-  if (apiNextDueDate != null) {
+  if (hasLimitYears && apiNextDueDate != null) {
     outNextDueDate = apiNextDueDate;
+  } else if (!hasLimitYears) {
+    outNextDueDate = null;
   }
   const apiNextDueTach = parseNum(item.nextDueYear);
-  if (Number.isFinite(apiNextDueTach)) {
+  if (hasLimitHours && Number.isFinite(apiNextDueTach)) {
     outNextDueTach = apiNextDueTach;
+  } else if (!hasLimitHours) {
+    outNextDueTach = null;
   }
   const apiNextDueAftt = parseNum(item.nextDueAftt);
-  if (Number.isFinite(apiNextDueAftt)) {
+  if (hasLimitHours && Number.isFinite(apiNextDueAftt)) {
     outNextDueAftt = apiNextDueAftt;
+  } else if (!hasLimitHours) {
+    outNextDueAftt = null;
   }
 
   return {
@@ -341,8 +375,16 @@ function tccItemToExportCells(item: ComponentItem): string[] {
     String(item.lastDoneTach ?? item.lastDoneYear ?? "").trim(),
     String(item.lastDoneAftt ?? "").trim(),
     String(item.lastDoneMethodOfCompliance ?? "").trim(),
-    formatNum(parseNum(item.limitYears)),
-    formatNum(parseNum(item.limitHours)),
+    formatComponentLimitDisplay(
+      Number.isFinite(parseNum(item.limitYears))
+        ? parseNum(item.limitYears)
+        : null
+    ),
+    formatComponentLimitDisplay(
+      Number.isFinite(parseNum(item.limitHours))
+        ? parseNum(item.limitHours)
+        : null
+    ),
     String(item.reference ?? "").trim(),
   ];
 }
@@ -1232,7 +1274,8 @@ export const TCCDetailContent = forwardRef<
                               {/* REMAINING: Years — color by % remaining: Red<=0, Orange<=10, Yellow<=20, Green<=40 */}
                               {(() => {
                                 const pctYears =
-                                  row.limitYears > 0 && row.remainingYears != null
+                                  isConfiguredComponentLimit(row.limitYears) &&
+                                  row.remainingYears != null
                                     ? (row.remainingYears / row.limitYears) * 100
                                     : null;
                                 const colorYears = getRemainingColorClass(pctYears);
@@ -1242,17 +1285,20 @@ export const TCCDetailContent = forwardRef<
                                       colorYears || "text-gray-900"
                                     }`}
                                   >
-                                    {row.remainingYears != null
+                                    {isConfiguredComponentLimit(row.limitYears) &&
+                                    row.remainingYears != null
                                       ? row.remainingYears.toFixed(2)
-                                      : item.remaining}
+                                      : "-"}
                                   </td>
                                 );
                               })()}
                               {/* REMAINING: Days */}
                               {(() => {
                                 const pctDays =
-                                  row.limitYears > 0 && row.remainingDays != null
-                                    ? (row.remainingDays / (row.limitYears * 365)) * 100
+                                  isConfiguredComponentLimit(row.limitYears) &&
+                                  row.remainingDays != null
+                                    ? (row.remainingDays / (row.limitYears * 365)) *
+                                      100
                                     : null;
                                 const colorDays = getRemainingColorClass(pctDays);
                                 return (
@@ -1261,16 +1307,18 @@ export const TCCDetailContent = forwardRef<
                                       colorDays || "text-gray-900"
                                     }`}
                                   >
-                                    {row.remainingDays != null
+                                    {isConfiguredComponentLimit(row.limitYears) &&
+                                    row.remainingDays != null
                                       ? String(row.remainingDays)
-                                      : item.date}
+                                      : "-"}
                                   </td>
                                 );
                               })()}
                               {/* REMAINING: TACH */}
                               {(() => {
                                 const pctTach =
-                                  row.limitHours > 0 && row.remainingTach != null
+                                  isConfiguredComponentLimit(row.limitHours) &&
+                                  row.remainingTach != null
                                     ? (row.remainingTach / row.limitHours) * 100
                                     : null;
                                 const colorTach = getRemainingColorClass(pctTach);
@@ -1280,14 +1328,18 @@ export const TCCDetailContent = forwardRef<
                                       colorTach || "text-gray-900"
                                     }`}
                                   >
-                                    {formatNum(row.remainingTach) || item.when}
+                                    {isConfiguredComponentLimit(row.limitHours) &&
+                                    row.remainingTach != null
+                                      ? formatNum(row.remainingTach)
+                                      : "-"}
                                   </td>
                                 );
                               })()}
                               {/* REMAINING: AFTT */}
                               {(() => {
                                 const pctAftt =
-                                  row.limitHours > 0 && row.remainingAftt != null
+                                  isConfiguredComponentLimit(row.limitHours) &&
+                                  row.remainingAftt != null
                                     ? (row.remainingAftt / row.limitHours) * 100
                                     : null;
                                 const colorAftt = getRemainingColorClass(pctAftt);
@@ -1297,7 +1349,10 @@ export const TCCDetailContent = forwardRef<
                                       colorAftt || "text-gray-900"
                                     }`}
                                   >
-                                    {formatNum(row.remainingAftt) || item.aftt}
+                                    {isConfiguredComponentLimit(row.limitHours) &&
+                                    row.remainingAftt != null
+                                      ? formatNum(row.remainingAftt)
+                                      : "-"}
                                   </td>
                                 );
                               })()}
@@ -1313,10 +1368,14 @@ export const TCCDetailContent = forwardRef<
                               </td>
                               {/* COMPONENT LIMIT: Years, Hours (fixed from AMM/CMM/AD/SB) */}
                               <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
-                                {formatNum(parseNum(item.limitYears))}
+                                {formatComponentLimitDisplay(
+                                  parseNum(item.limitYears)
+                                )}
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-xs">
-                                {formatNum(parseNum(item.limitHours))}
+                                {formatComponentLimitDisplay(
+                                  parseNum(item.limitHours)
+                                )}
                               </td>
                               {/* METHOD OF COMPLIANCE (Overhaul, Replacement, etc.) */}
                               <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
@@ -1338,15 +1397,21 @@ export const TCCDetailContent = forwardRef<
                               <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">
                                 {row.nextDueDate
                                   ? formatDate(row.nextDueDate)
-                                  : formatDisplayDate(item.nextDueDate, {
-                                      fallback: item.nextDueDate ?? "",
-                                    })}
+                                  : isConfiguredComponentLimit(row.limitYears)
+                                    ? formatDisplayDate(item.nextDueDate, {
+                                        fallback: item.nextDueDate ?? "",
+                                      })
+                                    : "-"}
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-xs">
-                                {formatNum(row.nextDueTach) || item.nextDueYear}
+                                {isConfiguredComponentLimit(row.limitHours)
+                                  ? formatNum(row.nextDueTach) || item.nextDueYear
+                                  : "-"}
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-xs">
-                                {formatNum(row.nextDueAftt) || item.nextDueAftt}
+                                {isConfiguredComponentLimit(row.limitHours)
+                                  ? formatNum(row.nextDueAftt) || item.nextDueAftt
+                                  : "-"}
                               </td>
                               {/* ATL Reference: sequence_number */}
                               <td className="px-3 py-3 text-gray-900 text-xs border-l border-gray-200">

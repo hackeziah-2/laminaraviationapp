@@ -7,6 +7,7 @@ import {
 } from "../utility/utils";
 import { appendPagedQueryParams } from "../utils/pagedQuery";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
+import { assertAtlNatureRequiredFields } from "../utility/atlNatureRequiredFields";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -954,6 +955,11 @@ async function mergeAtlFilePathsIntoPayload(
  * Create a new Aircraft Technical Log entry.
  * File attachments are uploaded to white_atl/dfp module folders; paths are sent in JSON body.
  */
+export type AircraftTechnicalLogWriteOptions = {
+  /** Attachments-only edits skip nature-of-flight required-field rules. */
+  skipNatureRequiredValidation?: boolean;
+};
+
 export const createAircraftTechnicalLog = async (
   data: AircraftTechnicalLogCreate | Record<string, unknown>,
   files?: AircraftTechnicalLogFiles
@@ -965,6 +971,7 @@ export const createAircraftTechnicalLog = async (
         files
       )
     );
+    assertAtlNatureRequiredFields(payload, "create");
     const response = await apiClient.post("aircraft-technical-log/", payload);
     const raw = response.data?.data ?? response.data;
     return toCamelDeep(raw) as AircraftTechnicalLog;
@@ -980,7 +987,8 @@ export const createAircraftTechnicalLog = async (
 export const updateAircraftTechnicalLog = async (
   logId: number,
   data: AircraftTechnicalLogUpdate | Record<string, unknown>,
-  files?: AircraftTechnicalLogFiles
+  files?: AircraftTechnicalLogFiles,
+  options?: AircraftTechnicalLogWriteOptions
 ): Promise<AircraftTechnicalLog> => {
   try {
     const payload = normalizeAtlPilotAcceptanceNameForApi(
@@ -989,6 +997,9 @@ export const updateAircraftTechnicalLog = async (
         files
       )
     );
+    if (!options?.skipNatureRequiredValidation) {
+      assertAtlNatureRequiredFields(payload, "update");
+    }
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       payload

@@ -3262,6 +3262,11 @@ input[data-slot="date-input"] {
   min-width: 0;
 }
 
+.add-form .atl-flight-info-row,
+.edit-form .atl-flight-info-row {
+  align-items: stretch;
+}
+
 .add-form .atl-meter-stack,
 .edit-form .atl-meter-stack {
   display: grid;
@@ -3280,6 +3285,27 @@ input[data-slot="date-input"] {
 
 .add-form .atl-blocks-fields > *,
 .edit-form .atl-blocks-fields > * {
+  min-width: 0;
+}
+
+.add-form .atl-blocks-date .date-picker-field,
+.edit-form .atl-blocks-date .date-picker-field {
+  min-width: 0;
+}
+
+.add-form .atl-flight-summary,
+.edit-form .atl-flight-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+
+.add-form .atl-flight-summary-fields,
+.edit-form .atl-flight-summary-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
   min-width: 0;
 }
 
@@ -3306,7 +3332,11 @@ input[data-slot="date-input"] {
 
   .add-form .atl-blocks-fields,
   .edit-form .atl-blocks-fields {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Station and Zulu Time stay compact; Date (UTC) gets the extra width. */
+    grid-template-columns:
+      minmax(4.25rem, 0.78fr)
+      minmax(9rem, 1.55fr)
+      minmax(5rem, 0.85fr);
   }
 }
 
@@ -3330,7 +3360,12 @@ input[data-slot="date-input"] {
 
   .add-form .atl-flight-info-row,
   .edit-form .atl-flight-info-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Narrow Flight Summary so Off-Blocks / On-Blocks can fit Date (UTC). */
+    grid-template-columns:
+      minmax(0, 1.22fr)
+      minmax(0, 1.22fr)
+      minmax(11.25rem, 0.56fr);
+    align-items: stretch;
   }
 
   .add-form .atl-readings-row,

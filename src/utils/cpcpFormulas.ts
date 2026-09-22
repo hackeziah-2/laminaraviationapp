@@ -1,4 +1,5 @@
 import { formatDisplayDateFromDate } from "../utility/utils";
+import { isConfiguredComponentLimit } from "./componentLimit";
 
 /**
  * CPCP auto-compute formulas (Excel-like).
@@ -131,8 +132,12 @@ export function computeCpcpRow(
   const lastTach = parseNum(item.lastDone?.tach ?? item.lastDone?.tech);
   const lastAftt = parseNum(item.lastDone?.aftf);
   const lastDate = parseDate(item.lastDone?.date);
-  const intHours = parseNum(item.interval?.hours);
-  const intMonths = parseNum(item.interval?.months);
+  const intHoursRaw = parseNum(item.interval?.hours);
+  const intMonthsRaw = parseNum(item.interval?.months);
+  const intHours = isConfiguredComponentLimit(intHoursRaw) ? intHoursRaw : null;
+  const intMonths = isConfiguredComponentLimit(intMonthsRaw)
+    ? intMonthsRaw
+    : null;
 
   const aTach = parseNum(aircraftTach);
   const aAftt = parseNum(aircraftAftt);
@@ -163,15 +168,18 @@ export function computeCpcpRow(
     nextDueAftt != null && aAftt != null ? nextDueAftt - aAftt : null;
 
   // Prefer API numbers for status when the list endpoint provides them
-  const statusRemMonths = hasApiDisplayValue(apiRem?.months)
-    ? parseNum(apiRem.months)
-    : remainingMonths;
-  const statusRemTach = hasApiDisplayValue(apiRem?.tach)
-    ? parseNum(apiRem.tach)
-    : remainingTach;
-  const statusRemAftt = hasApiDisplayValue(apiRem?.aftf)
-    ? parseNum(apiRem.aftf)
-    : remainingAftt;
+  const statusRemMonths =
+    intMonths != null && hasApiDisplayValue(apiRem?.months)
+      ? parseNum(apiRem.months)
+      : remainingMonths;
+  const statusRemTach =
+    intHours != null && hasApiDisplayValue(apiRem?.tach)
+      ? parseNum(apiRem.tach)
+      : remainingTach;
+  const statusRemAftt =
+    intHours != null && hasApiDisplayValue(apiRem?.aftf)
+      ? parseNum(apiRem.aftf)
+      : remainingAftt;
 
   // Remaining % vs interval for status (legend: Due → red, <10% → orange, <20% → yellow, <40% → green)
   const percentages: number[] = [];
@@ -208,29 +216,36 @@ export function computeCpcpRow(
 
   return {
     nextDue: {
-      date: hasApiDisplayValue(apiNext?.date)
-        ? String(apiNext!.date).trim()
-        : nextDueDateStr,
-      tach: hasApiDisplayValue(apiNext?.tach ?? apiNext?.tech)
-        ? String(apiNext!.tach ?? apiNext!.tech).trim()
-        : nextDueTachStr,
-      aftf: hasApiDisplayValue(apiNext?.aftf)
-        ? String(apiNext!.aftf).trim()
-        : nextDueAfttStr,
+      date:
+        intMonths != null && hasApiDisplayValue(apiNext?.date)
+          ? String(apiNext!.date).trim()
+          : nextDueDateStr,
+      tach:
+        intHours != null && hasApiDisplayValue(apiNext?.tach ?? apiNext?.tech)
+          ? String(apiNext!.tach ?? apiNext!.tech).trim()
+          : nextDueTachStr,
+      aftf:
+        intHours != null && hasApiDisplayValue(apiNext?.aftf)
+          ? String(apiNext!.aftf).trim()
+          : nextDueAfttStr,
     },
     remaining: {
-      months: hasApiDisplayValue(apiRem?.months)
-        ? String(apiRem!.months).trim()
-        : remMonthsStr,
-      days: hasApiDisplayValue(apiRem?.days)
-        ? String(apiRem!.days).trim()
-        : remDaysStr,
-      tach: hasApiDisplayValue(apiRem?.tach)
-        ? String(apiRem!.tach).trim()
-        : remTachStr,
-      aftf: hasApiDisplayValue(apiRem?.aftf)
-        ? String(apiRem!.aftf).trim()
-        : remAfttStr,
+      months:
+        intMonths != null && hasApiDisplayValue(apiRem?.months)
+          ? String(apiRem!.months).trim()
+          : remMonthsStr,
+      days:
+        intMonths != null && hasApiDisplayValue(apiRem?.days)
+          ? String(apiRem!.days).trim()
+          : remDaysStr,
+      tach:
+        intHours != null && hasApiDisplayValue(apiRem?.tach)
+          ? String(apiRem!.tach).trim()
+          : remTachStr,
+      aftf:
+        intHours != null && hasApiDisplayValue(apiRem?.aftf)
+          ? String(apiRem!.aftf).trim()
+          : remAfttStr,
     },
     status,
   };

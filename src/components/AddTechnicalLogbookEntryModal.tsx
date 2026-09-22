@@ -73,6 +73,11 @@ import {
   formatApiErrorForSwal,
 } from "../utility/utils";
 import { getNatureOfFlightDescriptionByNature } from "../api/natureOfFlightDescriptionsApi";
+import {
+  collectAtlNatureRequiredFieldErrors,
+  natureRequiresPrfDetails,
+  natureRequiresTachHobbsEnd,
+} from "../utility/atlNatureRequiredFields";
 import { DateInput } from "./ui/DateInput";
 import { FileDropzone } from "./ui/FileDropzone";
 import {
@@ -4362,6 +4367,10 @@ export function AddTechnicalLogbookEntryModal({
         ? String(fieldOrValue ?? "")
         : eventOrField.target.value;
 
+    setValidationErrors((prev) =>
+      prev[field] ? { ...prev, [field]: "" } : prev
+    );
+
     setFormData((prev) => {
       let next = {
         ...prev,
@@ -4459,6 +4468,19 @@ export function AddTechnicalLogbookEntryModal({
    * - Any other value → clear End fields back to blank
    */
   const handleNatureOfFlightChange = (natureOfFlight: string) => {
+    setValidationErrors((prev) => ({
+      ...prev,
+      tachometerEnd: "",
+      hobbsMeterEnd: "",
+      offBlocksDate: "",
+      offBlocksTime: "",
+      rtsSignedBy: "",
+      rtsDate: "",
+      rtsTime: "",
+      pilotFk: "",
+      pilotAcceptDate: "",
+      pilotAcceptTime: "",
+    }));
     if (editAtlInitialHydrationRef.current) {
       setFormData((prev) => ({ ...prev, natureOfFlight }));
       return;
@@ -4667,11 +4689,32 @@ export function AddTechnicalLogbookEntryModal({
       errors.acReg = "A/C Registration is required";
     }
 
-    // Nature of Flight can be blank/empty; when blank we send VOID to the endpoint (no validation error)
+    // Nature of Flight can be blank/empty; when blank we send TR on create (no nature error).
+    Object.assign(
+      errors,
+      collectAtlNatureRequiredFieldErrors(
+        {
+          natureOfFlight: formData.natureOfFlight,
+          tachometerEnd: formData.tachometerEnd,
+          hobbsMeterEnd: formData.hobbsMeterEnd,
+          originDate: formData.offBlocksDate,
+          originTime: formData.offBlocksTime,
+          rtsSignedBy: formData.rtsSignedBy,
+          rtsDate: formData.rtsDate,
+          rtsTime: formData.rtsTime,
+          pilotFk: formData.pilotFk,
+          pilotAcceptDate: formData.pilotAcceptDate,
+          pilotAcceptTime: formData.pilotAcceptTime,
+        },
+        editEntry ? "update" : "create"
+      )
+    );
 
     // Off-Blocks / Origin and On-Blocks / Destination Zulu Time: optional; strict HH:mm UTC when set
     const offBlocksZuluErr = validateOptionalZuluTime(formData.offBlocksTime);
-    if (offBlocksZuluErr) errors.offBlocksTime = offBlocksZuluErr;
+    if (offBlocksZuluErr && !errors.offBlocksTime) {
+      errors.offBlocksTime = offBlocksZuluErr;
+    }
 
     const onBlocksZuluErr = validateOptionalZuluTime(formData.onBlocksTime);
     if (onBlocksZuluErr) errors.onBlocksTime = onBlocksZuluErr;
@@ -4748,6 +4791,13 @@ export function AddTechnicalLogbookEntryModal({
     }
 
     setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      window.requestAnimationFrame(() => {
+        formScrollRef.current
+          ?.querySelector(".form-error")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
     return { isValid: Object.keys(errors).length === 0, errors };
   };
 
@@ -5192,23 +5242,35 @@ export function AddTechnicalLogbookEntryModal({
               }
             : undefined;
 
-        if (editEntry) {
-          // Update existing entry
+        if (editEntry && attachmentsOnlyLocked) {
+          const slim: Record<string, unknown> = {};
+          if (apiDataSnake.work_status != null) {
+            slim.work_status = apiDataSnake.work_status;
+          }
+          if ("white_atl_web_link" in apiDataSnake) {
+            slim.white_atl_web_link = apiDataSnake.white_atl_web_link;
+          }
+          if ("dfp_web_link" in apiDataSnake) {
+            slim.dfp_web_link = apiDataSnake.dfp_web_link;
+          }
+          await updateAircraftTechnicalLog(editEntry.id, slim, files);
+        } else if (editEntry) {
           await updateAircraftTechnicalLog(
             editEntry.id,
             apiDataSnake as AircraftTechnicalLogUpdate,
             files
           );
+        } else {
+          await createAircraftTechnicalLog(apiDataSnake, files);
+        }
 
+        if (editEntry) {
           if (onSuccess) {
             await onSuccess();
           }
-
           onClose();
           return;
         }
-
-        await createAircraftTechnicalLog(apiDataSnake, files);
 
         if (onSuccess) {
           await onSuccess();
@@ -5488,6 +5550,10 @@ export function AddTechnicalLogbookEntryModal({
     ? `${modalActionTitle} – ${modalSeqTitle}`
     : modalActionTitle;
   const formModeClass = editEntry ? "edit-form" : "add-form";
+  const requireTachHobbsEnd = natureRequiresTachHobbsEnd(
+    formData.natureOfFlight
+  );
+  const requirePrfDetails = natureRequiresPrfDetails(formData.natureOfFlight);
   const tachHobbsFieldValue = (
     field: AtlTachHobbsEditableField,
     raw: string
@@ -5899,9 +5965,12 @@ export function AddTechnicalLogbookEntryModal({
                           </p>
                         )}
                       </div>
-                      <div>
+                      <div className="atl-blocks-date min-w-0">
                         <label className="block text-gray-700 text-sm mb-1">
                           Date (UTC)
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <DateInput
                           value={formData.offBlocksDate}
@@ -5934,6 +6003,9 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Zulu Time
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <div>
                           <input
@@ -6014,7 +6086,7 @@ export function AddTechnicalLogbookEntryModal({
                           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
                         />
                       </div>
-                      <div>
+                      <div className="atl-blocks-date min-w-0">
                         <label className="block text-gray-700 text-sm mb-1">
                           Date (UTC)
                         </label>
@@ -6092,9 +6164,9 @@ export function AddTechnicalLogbookEntryModal({
                   </div>
 
                   {/* Flight Summary */}
-                  <div className="atl-paper-section bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0">
+                  <div className="atl-paper-section atl-flight-summary bg-gray-50 p-3 rounded-lg border border-gray-200 min-w-0 h-full">
                     <h3 className="text-gray-900 mb-2">Flight Summary</h3>
-                    <div className="grid grid-cols-1 gap-2 min-w-0">
+                    <div className="atl-flight-summary-fields grid grid-cols-1 gap-2 min-w-0">
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Total Flight Time
@@ -6341,6 +6413,9 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-xs mb-1">
                           End
+                          {requireTachHobbsEnd ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <input
                           type="text"
@@ -6359,8 +6434,18 @@ export function AddTechnicalLogbookEntryModal({
                               event.target.value
                             );
                           }}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          aria-invalid={!!validationErrors.tachometerEnd}
+                          className={`w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            validationErrors.tachometerEnd
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
                         />
+                        {validationErrors.tachometerEnd && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.tachometerEnd}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-gray-700 text-xs mb-1">
@@ -6413,6 +6498,9 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-xs mb-1">
                           End
+                          {requireTachHobbsEnd ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <input
                           type="text"
@@ -6431,8 +6519,18 @@ export function AddTechnicalLogbookEntryModal({
                               e.target.value
                             )
                           }
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
+                          aria-invalid={!!validationErrors.hobbsMeterEnd}
+                          className={`w-full px-2 py-1.5 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 ${
+                            validationErrors.hobbsMeterEnd
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
                         />
+                        {validationErrors.hobbsMeterEnd && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.hobbsMeterEnd}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-gray-700 text-xs mb-1">
@@ -7538,11 +7636,19 @@ export function AddTechnicalLogbookEntryModal({
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Return to Service */}
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <h3 className="text-gray-900 mb-3">Return to Service</h3>
+                    <h3 className="text-gray-900 mb-3">
+                      Return to Service
+                      {requirePrfDetails ? (
+                        <span className="text-red-600"> *</span>
+                      ) : null}
+                    </h3>
                     <div className="space-y-3">
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Name
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <div className="relative" ref={rtsDropdownRef}>
                           <div className="relative">
@@ -7729,22 +7835,44 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Date
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <DateInput
                           value={formData.rtsDate}
-                          onChange={(rtsDate) =>
+                          onChange={(rtsDate) => {
                             setFormData({
                               ...formData,
                               rtsDate,
-                            })
-                          }
+                            });
+                            if (validationErrors.rtsDate) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                rtsDate: "",
+                              });
+                            }
+                          }}
                           displayFormat="dmy-short"
-                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                          aria-invalid={!!validationErrors.rtsDate}
+                          inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
+                            validationErrors.rtsDate
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300"
+                          }`}
                         />
+                        {validationErrors.rtsDate && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.rtsDate}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Time (Zulu)
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <input
                           type="text"
@@ -7764,19 +7892,37 @@ export function AddTechnicalLogbookEntryModal({
                           }}
                           placeholder="HH:MM"
                           maxLength={5}
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                          aria-invalid={!!validationErrors.rtsTime}
+                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                            validationErrors.rtsTime
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
                         />
+                        {validationErrors.rtsTime && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.rtsTime}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   {/* Pilot Signature */}
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <h3 className="text-gray-900 mb-3">Pilot's Acceptance</h3>
+                    <h3 className="text-gray-900 mb-3">
+                      Pilot's Acceptance
+                      {requirePrfDetails ? (
+                        <span className="text-red-600"> *</span>
+                      ) : null}
+                    </h3>
                     <div className="space-y-3">
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Name
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <div className="relative" ref={pilotDropdownRef}>
                           <div className="relative">
@@ -7963,22 +8109,44 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Date
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <DateInput
                           value={formData.pilotAcceptDate}
-                          onChange={(pilotAcceptDate) =>
+                          onChange={(pilotAcceptDate) => {
                             setFormData({
                               ...formData,
                               pilotAcceptDate,
-                            })
-                          }
+                            });
+                            if (validationErrors.pilotAcceptDate) {
+                              setValidationErrors({
+                                ...validationErrors,
+                                pilotAcceptDate: "",
+                              });
+                            }
+                          }}
                           displayFormat="dmy-short"
-                          inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
+                          aria-invalid={!!validationErrors.pilotAcceptDate}
+                          inputClassName={`rounded-lg text-sm bg-white text-gray-900 ${
+                            validationErrors.pilotAcceptDate
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300"
+                          }`}
                         />
+                        {validationErrors.pilotAcceptDate && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.pilotAcceptDate}
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Time (Zulu)
+                          {requirePrfDetails ? (
+                            <span className="text-red-600"> *</span>
+                          ) : null}
                         </label>
                         <input
                           type="text"
@@ -7998,8 +8166,18 @@ export function AddTechnicalLogbookEntryModal({
                           }}
                           placeholder="HH:MM"
                           maxLength={5}
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 font-mono"
+                          aria-invalid={!!validationErrors.pilotAcceptTime}
+                          className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-1 bg-white text-gray-900 font-mono ${
+                            validationErrors.pilotAcceptTime
+                              ? "border-red-500 focus:ring-red-400 focus:border-red-400"
+                              : "border-gray-300 focus:ring-gray-400 focus:border-gray-400"
+                          }`}
                         />
+                        {validationErrors.pilotAcceptTime && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.pilotAcceptTime}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
