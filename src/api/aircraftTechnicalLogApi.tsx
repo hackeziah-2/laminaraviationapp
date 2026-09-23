@@ -7,6 +7,7 @@ import {
 } from "../utility/utils";
 import { appendPagedQueryParams } from "../utils/pagedQuery";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
+import { assertAtlNatureRequiredFields } from "../utility/atlNatureRequiredFields";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -623,6 +624,26 @@ export function normalizeAtlPagedSortParam(sort: string): string {
   return trimmed;
 }
 
+/**
+ * `atl_batch=all` includes every row for the aircraft (assigned batch and NULL batch).
+ * A positive id restricts the list to that batch.
+ */
+export function appendAtlBatchFilterParams(
+  params: URLSearchParams,
+  atlBatchFk?: number | "all"
+): void {
+  if (atlBatchFk === "all") {
+    params.append("atl_batch", "all");
+    params.append("atl_batch_fk", "all");
+    return;
+  }
+  if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
+    const idStr = String(atlBatchFk);
+    params.append("atl_batch", idStr);
+    params.append("atl_batch_fk", idStr);
+  }
+}
+
 const fetchAircraftTechnicalLogs = async (
   endpoint: string,
   page = 1,
@@ -631,18 +652,14 @@ const fetchAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number
+  atlBatchFk?: number | "all"
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
 
     // Query order: atl_batch* first, then page, page_size, aircraft_id/aircraft_fk, sort, search, work_status
     // e.g. .../paged?...&sort=sequence_no (asc) or sort=-created_at (desc)
-    if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
-      const idStr = String(atlBatchFk);
-      params.append("atl_batch", idStr);
-      params.append("atl_batch_fk", idStr);
-    }
+    appendAtlBatchFilterParams(params, atlBatchFk);
 
     appendPagedQueryParams(params, page, limit);
 
@@ -725,7 +742,7 @@ export const getAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number
+  atlBatchFk?: number | "all"
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/paged",
@@ -739,7 +756,10 @@ export const getAircraftTechnicalLogs = async (
   );
 
 /**
- * Get paginated list of Aircraft Technical Log entries for manage/list views
+ * Get paginated list of Aircraft Technical Log entries for manage/list views.
+ * `GET /api/v1/aircraft-technical-log/manage/paged`
+ * `atl_batch=all` returns assigned and unassigned batches for the aircraft.
+ * A numeric `atl_batch` returns only rows in that batch and aircraft.
  */
 export const getManagedAircraftTechnicalLogs = async (
   page = 1,
@@ -748,7 +768,7 @@ export const getManagedAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number
+  atlBatchFk?: number | "all"
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/manage/paged",
@@ -954,6 +974,11 @@ async function mergeAtlFilePathsIntoPayload(
  * Create a new Aircraft Technical Log entry.
  * File attachments are uploaded to white_atl/dfp module folders; paths are sent in JSON body.
  */
+export type AircraftTechnicalLogWriteOptions = {
+  /** Attachments-only edits skip nature-of-flight required-field rules. */
+  skipNatureRequiredValidation?: boolean;
+};
+
 export const createAircraftTechnicalLog = async (
   data: AircraftTechnicalLogCreate | Record<string, unknown>,
   files?: AircraftTechnicalLogFiles
@@ -965,6 +990,7 @@ export const createAircraftTechnicalLog = async (
         files
       )
     );
+    assertAtlNatureRequiredFields(payload, "create");
     const response = await apiClient.post("aircraft-technical-log/", payload);
     const raw = response.data?.data ?? response.data;
     return toCamelDeep(raw) as AircraftTechnicalLog;
@@ -980,7 +1006,8 @@ export const createAircraftTechnicalLog = async (
 export const updateAircraftTechnicalLog = async (
   logId: number,
   data: AircraftTechnicalLogUpdate | Record<string, unknown>,
-  files?: AircraftTechnicalLogFiles
+  files?: AircraftTechnicalLogFiles,
+  options?: AircraftTechnicalLogWriteOptions
 ): Promise<AircraftTechnicalLog> => {
   try {
     const payload = normalizeAtlPilotAcceptanceNameForApi(
@@ -989,6 +1016,9 @@ export const updateAircraftTechnicalLog = async (
         files
       )
     );
+    if (!options?.skipNatureRequiredValidation) {
+      assertAtlNatureRequiredFields(payload, "update");
+    }
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       payload

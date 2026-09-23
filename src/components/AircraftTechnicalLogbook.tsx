@@ -79,6 +79,7 @@ import {
   formatAtlTotalFlightHoursForDisplay,
   formatApiErrorForSwal,
 } from "../utility/utils";
+import { atlBatchQueryParam, resetAtlManageListOnAircraftChange } from "../utility/atlManageListQuery";
 import { collectAllPagedItems } from "../utils/pagedQuery";
 import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
 import {
@@ -203,11 +204,12 @@ export function AircraftTechnicalLogbook() {
   const selectedAircraftFk =
     selectedAircraftId.trim() !== "" ? Number(selectedAircraftId) : undefined;
   const showAtlBatchFilter = canManageAtlBatchFilter(user?.role);
-  const selectedAtlBatchFk = useMemo(() => {
-    const n =
-      selectedAtlBatchId.trim() !== "" ? Number(selectedAtlBatchId) : NaN;
-    return Number.isFinite(n) && n > 0 ? n : undefined;
-  }, [selectedAtlBatchId]);
+  const selectedAtlBatchQuery = useMemo(
+    () => atlBatchQueryParam(selectedAtlBatchId),
+    [selectedAtlBatchId]
+  );
+  const selectedAtlBatchFk =
+    selectedAtlBatchQuery === "all" ? undefined : selectedAtlBatchQuery;
   const selectedWorkStatusFilter = useMemo(() => {
     const normalized = normalizeAtlWorkStatus(selectedWorkStatus);
     return normalized || undefined;
@@ -306,7 +308,7 @@ export function AircraftTechnicalLogbook() {
           selectedAircraftFk,
           sortBy,
           selectedWorkStatusFilter,
-          selectedAtlBatchFk
+          selectedAtlBatchQuery
         )
       : getAircraftTechnicalLogs(
           page,
@@ -315,7 +317,7 @@ export function AircraftTechnicalLogbook() {
           selectedAircraftFk,
           sortBy,
           selectedWorkStatusFilter,
-          selectedAtlBatchFk
+          selectedAtlBatchQuery
         );
 
   const closeExportProgress = () => {
@@ -485,13 +487,22 @@ export function AircraftTechnicalLogbook() {
   const listQueryKey = `${debouncedSearchTerm}|${selectedAircraftFk ?? ""}|${selectedAtlBatchFk ?? ""}|${selectedWorkStatusFilter ?? ""}|${sortBy}|${itemsPerPage}`;
 
   useEffect(() => {
-    if (skipNextPagedFetchRef.current) {
+    const queryChanged = prevListQueryKeyRef.current !== listQueryKey;
+    if (skipNextPagedFetchRef.current && !queryChanged) {
       skipNextPagedFetchRef.current = false;
       return;
     }
-    if (prevListQueryKeyRef.current !== listQueryKey) {
+    if (skipNextPagedFetchRef.current) {
+      skipNextPagedFetchRef.current = false;
+    }
+    if (queryChanged) {
       prevListQueryKeyRef.current = listQueryKey;
       if (currentPage !== 1) {
+        listFetchSeqRef.current += 1;
+        setEntries([]);
+        setTotalEntries(0);
+        setTotalPages(0);
+        setLoading(true);
         setCurrentPage(1);
         return;
       }
@@ -536,11 +547,21 @@ export function AircraftTechnicalLogbook() {
           batches.map((b) => ({ id: b.id, name: b.name }))
         );
         setSelectedAtlBatchId((prev) => {
-          if (batches.length === 0) return prev;
-          if (prev !== "") return prev;
-          if (atlBatchFilterTouchedRef.current) return prev;
+          const prevId = prev.trim();
+          const prevIsSpecific =
+            prevId !== "" &&
+            prevId.toLowerCase() !== "all" &&
+            Number(prevId) > 0;
+          if (batches.length === 0) {
+            return prevIsSpecific ? "" : prevId;
+          }
+          const belongsToAircraft =
+            prevIsSpecific && batches.some((b) => String(b.id) === prevId);
+          if (belongsToAircraft) return prevId;
+          // Drop a batch id from the previous aircraft. "All" stays all.
+          if (prevIsSpecific || atlBatchFilterTouchedRef.current) return "";
           const latest = pickLatestAtlBatchId(batches);
-          return latest != null ? String(latest) : prev;
+          return latest != null ? String(latest) : "";
         });
       })
       .catch(() => {
@@ -1297,7 +1318,25 @@ export function AircraftTechnicalLogbook() {
             <label className="block text-gray-700 mb-2">Aircraft</label>
             <select
               value={selectedAircraftId}
-              onChange={(e) => setSelectedAircraftId(e.target.value)}
+              onChange={(e) => {
+                const nextAircraftId = e.target.value;
+                const reset = resetAtlManageListOnAircraftChange({
+                  currentAircraftId: selectedAircraftId,
+                  nextAircraftId,
+                });
+                if (!reset) return;
+                // Drop the previous aircraft's batch filter and rows before the next fetch.
+                atlBatchFilterTouchedRef.current = true;
+                listFetchSeqRef.current += 1;
+                setSelectedAtlBatchId(reset.batchId);
+                setEntries([]);
+                setTotalEntries(0);
+                setTotalPages(0);
+                setError(null);
+                setLoading(true);
+                setCurrentPage(reset.page);
+                setSelectedAircraftId(nextAircraftId);
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"
             >
               <option value="">All Aircraft</option>

@@ -1,3 +1,5 @@
+import { isConfiguredComponentLimit } from "./componentLimit";
+
 /**
  * TCC Maintenance — same next-due / remaining rules as the TCC table (TCCDetail).
  * Used for API create/update payloads (next_due_*, remaining_*).
@@ -89,7 +91,8 @@ export function computeTccSchedulingSnapshot(
   const lastDoneTach = parseNum(input.lastDoneTach);
   const lastDoneAftt = parseNum(input.lastDoneAftt);
 
-  const hasLimitHours = Number.isFinite(limitHours);
+  const hasLimitHours = isConfiguredComponentLimit(limitHours);
+  const hasLimitYears = isConfiguredComponentLimit(limitYears);
   const hasLastDoneTach = Number.isFinite(lastDoneTach);
   const hasLastDoneAftt = Number.isFinite(lastDoneAftt);
   const currentTach = input.currentTach;
@@ -101,7 +104,7 @@ export function computeTccSchedulingSnapshot(
     hasLimitHours && hasLastDoneAftt ? lastDoneAftt + limitHours : null;
 
   let nextDueDate: Date | null = null;
-  if (lastDoneDate != null && Number.isFinite(limitYears)) {
+  if (lastDoneDate != null && hasLimitYears) {
     const d = new Date(lastDoneDate);
     const wholeYears = Math.floor(limitYears);
     const fractionalYear = limitYears - wholeYears;
