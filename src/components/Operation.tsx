@@ -66,6 +66,7 @@ import {
   DEFAULT_API_PAGE_SIZE,
 } from "../constants/pagination";
 import { collectAllPagedItems } from "../utils/pagedQuery";
+import { isReliabilityMonitoringNature } from "../utils/reliabilityMonitoringNature";
 import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
@@ -161,8 +162,10 @@ const ATL_CR_PN_SN_COL_CLASS =
   "atl-col-cr-pn-sn min-w-[100px] w-[100px] max-w-[100px]";
 const ATL_CR_PN_SN_PAIR_COL_CLASS =
   "atl-col-cr-pn-sn-pair min-w-[200px] w-[200px] max-w-[200px]";
-const ATL_CR_NOM_COL_CLASS = "atl-col-cr-nom min-w-[160px] w-[160px] max-w-[160px]";
-const ATL_CR_ATA_COL_CLASS = "atl-col-cr-ata min-w-[120px] w-[120px] max-w-[120px]";
+const ATL_CR_NOM_COL_CLASS =
+  "atl-col-cr-nom min-w-[160px] w-[160px] max-w-[160px]";
+const ATL_CR_ATA_COL_CLASS =
+  "atl-col-cr-ata min-w-[120px] w-[120px] max-w-[120px]";
 const ATL_CR_REMARKS_COL_CLASS =
   "atl-col-cr-remarks min-w-[160px] w-[160px] max-w-[160px]";
 const ATL_CR_GROUP_MIN_WIDTH_CLASS = "min-w-[840px]";
@@ -176,6 +179,15 @@ const ATL_TD_CR_LEFT_CLASS = `${ATL_TD_CR_BASE_CLASS} text-left`;
 const ATL_CR_HEADER_COLS_BEFORE = 36;
 const ATL_CR_HEADER_COLS_AFTER = 8;
 const ATL_CR_LEAF_COL_COUNT = 7;
+/** Leaf columns before Component Record in Reliability Monitoring. */
+const ATL_RM_HEADER_COLS_BEFORE = 8;
+/** Shared ACTION TAKEN width (All Columns + Reliability Monitoring). */
+const ATL_ACTION_TAKEN_COL_STYLE: CSSProperties = {
+  width: "360px",
+  minWidth: "360px",
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+};
 
 function AtlStickyHeaderFillCells({
   count,
@@ -203,12 +215,9 @@ function AtlStickyHeaderFillCells({
   );
 }
 
-function AtlAllColumnsColgroup() {
+function AtlCrLeafColgroupCols() {
   return (
-    <colgroup>
-      {Array.from({ length: ATL_CR_HEADER_COLS_BEFORE }, (_, i) => (
-        <col key={`before-${i}`} />
-      ))}
+    <>
       <col className={ATL_CR_PN_SN_COL_CLASS} />
       <col className={ATL_CR_PN_SN_COL_CLASS} />
       <col className={ATL_CR_PN_SN_COL_CLASS} />
@@ -216,9 +225,32 @@ function AtlAllColumnsColgroup() {
       <col className={ATL_CR_NOM_COL_CLASS} />
       <col className={ATL_CR_ATA_COL_CLASS} />
       <col className={ATL_CR_REMARKS_COL_CLASS} />
+    </>
+  );
+}
+
+function AtlAllColumnsColgroup() {
+  return (
+    <colgroup>
+      {Array.from({ length: ATL_CR_HEADER_COLS_BEFORE }, (_, i) => (
+        <col key={`before-${i}`} />
+      ))}
+      <AtlCrLeafColgroupCols />
       {Array.from({ length: ATL_CR_HEADER_COLS_AFTER }, (_, i) => (
         <col key={`after-${i}`} />
       ))}
+    </colgroup>
+  );
+}
+
+function AtlReliabilityMonitoringColgroup() {
+  return (
+    <colgroup>
+      {Array.from({ length: ATL_RM_HEADER_COLS_BEFORE - 1 }, (_, i) => (
+        <col key={`rm-before-${i}`} />
+      ))}
+      <col className="min-w-[360px] w-[360px]" />
+      <AtlCrLeafColgroupCols />
     </colgroup>
   );
 }
@@ -251,11 +283,7 @@ function AtlCrStackedValues({ values }: { values: unknown[] }) {
 }
 
 /** Always renders 7 Component Record <td>s so they share the thead column grid. */
-function AtlComponentRecordCells({
-  record,
-}: {
-  record: AircraftTechnicalLog;
-}) {
+function AtlComponentRecordCells({ record }: { record: AircraftTechnicalLog }) {
   const parts: Array<AtlComponentPartRow | undefined> =
     record.componentParts && record.componentParts.length > 0
       ? (record.componentParts as AtlComponentPartRow[])
@@ -267,7 +295,9 @@ function AtlComponentRecordCells({
   return (
     <>
       <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
-        <AtlCrStackedValues values={field("removedPartNo", "removed_part_no")} />
+        <AtlCrStackedValues
+          values={field("removedPartNo", "removed_part_no")}
+        />
       </td>
       <td className={`${ATL_TD_CR_CENTER_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
         <AtlCrStackedValues
@@ -941,7 +971,6 @@ export function Operation() {
   const showSeqNoWithBatchName = selectedAtlBatchFk == null;
 
   useLayoutEffect(() => {
-    if (groupBy !== "allColumns") return;
     const thead = atlAllColumnsTheadRef.current;
     const firstRow = thead?.rows[0];
     const secondRow = thead?.rows[1];
@@ -1081,7 +1110,9 @@ export function Operation() {
     }
   }, [showAtlBatchFilter]);
 
-  const listQueryKey = `${selectedSequenceNo}|${workStatusFilter}|${itemsPerPage}|${selectedAtlBatchFk ?? ""}|${sequenceSort}`;
+  const listQueryKey = `${selectedSequenceNo}|${workStatusFilter}|${itemsPerPage}|${
+    selectedAtlBatchFk ?? ""
+  }|${sequenceSort}`;
 
   // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
   useEffect(() => {
@@ -1150,7 +1181,12 @@ export function Operation() {
     listQueryKey,
   ]);
 
-  const paginatedRecords = fleetTimeRecords;
+  const paginatedRecords = useMemo(() => {
+    if (groupBy !== "reliabilityMonitoring") return fleetTimeRecords;
+    return fleetTimeRecords.filter((record) =>
+      isReliabilityMonitoringNature(record.natureOfFlight)
+    );
+  }, [groupBy, fleetTimeRecords]);
 
   const viewEntryNav = usePagedRecordNavigation<AircraftTechnicalLog>({
     isOpen: showViewModal,
@@ -1160,8 +1196,7 @@ export function Operation() {
     totalPages,
     holdBusyUntilIdle: true,
     fetchPage: async (page) => {
-      const sortParam =
-        sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
+      const sortParam = sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
       const response = await getAircraftTechnicalLogs(
         page,
         itemsPerPage,
@@ -1198,8 +1233,7 @@ export function Operation() {
     totalPages,
     holdBusyUntilIdle: true,
     fetchPage: async (page) => {
-      const sortParam =
-        sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
+      const sortParam = sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
       const response = await getAircraftTechnicalLogs(
         page,
         itemsPerPage,
@@ -1522,8 +1556,7 @@ export function Operation() {
       {
         key: "pilotAcceptedBy",
         label: "Pilot Acceptance Name",
-        getValue: (record) =>
-          formatAtlAssigneeListCell(record.pilotAcceptedBy),
+        getValue: (record) => formatAtlAssigneeListCell(record.pilotAcceptedBy),
       },
       {
         key: "pilotAcceptDate",
@@ -1585,10 +1618,10 @@ export function Operation() {
       reliabilityMonitoring: [
         "sequenceNo",
         "natureOfFlight",
-                "airframeRun",
+        "originDate",
+        "tachometerEnd",
         "airframeAftt",
-        "totalFlightHours",
-        "numberOfLandings",
+        "rtsSignedBy",
         "remarks",
         "actionsTaken",
         "componentRemovedPn",
@@ -1857,7 +1890,14 @@ export function Operation() {
         )
       );
 
-      if (!exportedItems.length) {
+      const itemsForFile =
+        groupBy === "reliabilityMonitoring"
+          ? exportedItems.filter((record) =>
+              isReliabilityMonitoringNature(record.natureOfFlight)
+            )
+          : exportedItems;
+
+      if (!itemsForFile.length) {
         closeExportProgress();
         exportInFlightRef.current = false;
         setExportLoading(false);
@@ -1877,7 +1917,7 @@ export function Operation() {
         aircraft?.registration || `aircraft_${effectiveAircraftId}`;
       const aoa: string[][] = [
         selectedColumns.map((column) => column.label),
-        ...exportedItems.map((record) =>
+        ...itemsForFile.map((record) =>
           selectedColumns.map((column) => column.getValue(record))
         ),
       ];
@@ -2254,11 +2294,10 @@ export function Operation() {
                   <span>
                     Propeller TSN:{" "}
                     {displayTSN(
-                      resolveAircraftEnginePropHour(aircraft, "propellerTsn") as
-                        | string
-                        | number
-                        | null
-                        | undefined
+                      resolveAircraftEnginePropHour(
+                        aircraft,
+                        "propellerTsn"
+                      ) as string | number | null | undefined
                     )}
                   </span>
                 </div>
@@ -2416,7 +2455,7 @@ export function Operation() {
               <div className="relative flex-1 min-w-[200px]">
                 <input
                   type="text"
-                  placeholder="Search by sequence number..."
+                  placeholder="Search"
                   value={searchQuery}
                   onChange={(e) => {
                     const nextSequenceNo = e.target.value;
@@ -2630,780 +2669,92 @@ export function Operation() {
                       } as CSSProperties
                     }
                   >
-                      <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
-                        <AtlAllColumnsColgroup />
-                        <thead ref={atlAllColumnsTheadRef}>
-                          <tr>
-                            <th
-                              className={`${STICKY_SEQ_CLASS} cursor-pointer select-none transition-colors`}
-                              onClick={() => {
-                                setSequenceSort((s) =>
-                                  s === "asc" ? "desc" : "asc"
-                                );
-                                setCurrentPage(1);
-                              }}
-                              title={
-                                sequenceSort === "asc"
-                                  ? "Sort descending"
-                                  : "Sort ascending"
-                              }
-                            >
-                              <span className="flex items-center gap-1">
-                                <b>SEQUENCE NO</b>
-                                {sequenceSort === "asc" ? (
-                                  <ChevronUp className="w-4 h-4 inline" />
-                                ) : (
-                                  <ChevronDown className="w-4 h-4 inline" />
-                                )}
-                              </span>
-                            </th>
-                            <th className={ATL_TH_BASE_CLASS}>
-                              WORK
-                              <br />
-                              STATUS
-                            </th>
-                            <th className={ATL_TH_BASE_CLASS}>
-                              NATURE OF
-                              <br />
-                              FLIGHT
-                            </th>
-                            <th className={ATL_TH_BASE_CLASS}>
-                              NEXT INSP.
-                              <br />
-                              DATE
-                            </th>
-                            <th className={ATL_TH_BASE_CLASS}>TACH TIME</th>
-                            <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
-                              OFF BLOCKS/ORIGIN
-                            </th>
-                            <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
-                              ON BLOCKS/DESTINATION
-                            </th>
-                            <th className={ATL_TH_BASE_CLASS}>
-                              Total
-                              <br />
-                              Flight
-                              <br />
-                              hours
-                            </th>
-                            <th className={ATL_TH_BASE_CLASS}>
-                              NO. OF
-                              <br />
-                              LAND-
-                              <br />
-                              INGS
-                            </th>
-                            <th colSpan={3} className={ATL_TH_GROUP_CLASS}>
-                              HOBBS METER
-                            </th>
-                            <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
-                              TACHOMETER
-                            </th>
-                            <th
-                              colSpan={2}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              AIRFRAME
-                            </th>
-                            <th
-                              colSpan={4}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              ENGINE
-                            </th>
-                            <th
-                              colSpan={4}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              PROPELLER
-                            </th>
-                            <th
-                              colSpan={3}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              FUEL QTY. (GALS)
-                            </th>
-                            <th
-                              colSpan={3}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              OIL
-                            </th>
-                            <th
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
-                              style={{
-                                width: "360px",
-                                minWidth: "360px",
-                                whiteSpace: "normal",
-                                overflowWrap: "anywhere",
-                              }}
-                            >
-                              REMARKS
-                            </th>
-                            <th
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
-                              style={{
-                                width: "220px",
-                                minWidth: "220px",
-                                whiteSpace: "normal",
-                                overflowWrap: "anywhere",
-                              }}
-                            >
-                              REMARK PERSON
-                            </th>
-                            <th
-                              className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
-                              style={{
-                                width: "360px",
-                                minWidth: "360px",
-                                whiteSpace: "normal",
-                                overflowWrap: "anywhere",
-                              }}
-                            >
-                              ACTION/S
-                              <br />
-                              TAKEN
-                            </th>
-                            <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              ACTION TAKEN
-                              <br />
-                              PERSON
-                            </th>
-                            <th
-                              colSpan={ATL_CR_LEAF_COL_COUNT}
-                              className={`atl-th-component-record px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_CR_GROUP_MIN_WIDTH_CLASS}`}
-                            >
-                              COMPONENT RECORD
-                            </th>
-                            <th
-                              colSpan={3}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              RETURN TO SERVICE
-                            </th>
-                            <th
-                              colSpan={5}
-                              className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                            >
-                              PILOT'S ACCEPTANCE
-                            </th>
-                          </tr>
-                          <tr>
-                            {/* Sticky fillers under leading top-only headers */}
-                            <th
-                              className={`${ATL_TH_STICKY_FILL_CLASS} atl-th-sticky-seq min-w-[140px] w-[140px]`}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
-                              {"\u00a0"}
-                            </th>
-                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
-                              {"\u00a0"}
-                            </th>
-                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
-                              {"\u00a0"}
-                            </th>
-                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={`${ATL_TH_SUB_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
-                            >
-                              DATE
-                            </th>
-                            <th className={ATL_TH_SUB_CLASS}>TIME (ZULU)</th>
-                            <th
-                              className={`${ATL_TH_SUB_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
-                            >
-                              DATE
-                            </th>
-                            <th className={ATL_TH_SUB_CLASS}>TIME (ZULU)</th>
-                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
-                              {"\u00a0"}
-                            </th>
-                            <th className={ATL_TH_STICKY_FILL_CLASS} aria-hidden="true">
-                              {"\u00a0"}
-                            </th>
-                            <th className={ATL_TH_SUB_CLASS}>START</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              END
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TOTAL
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TACH START
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TACH END
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              HRS
-                              <br />
-                              RUN
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              AFTT
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              HRS
-                              <br />
-                              RUN
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TSN
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TSO
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TBO
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              HRS
-                              <br />
-                              RUN
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TSN
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TSO
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TBO
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              UPLIFT QTY
-                              <br />
-                              (L+R)
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              PRIOR DEP.
-                              <br />
-                              (L+R)
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              AFTER ON-BLKS
-                              <br />
-                              (L+R)
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              UPLIFT
-                              <br />
-                              QTY
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              PRIOR DEP.
-                              <br />
-                              QRE
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              AFTER
-                              <br />
-                              ON-BLKS
-                            </th>
-
-                            {/* Sticky fillers under top-only headers (rowspan breaks sticky) */}
-                            <th
-                              className={ATL_TH_STICKY_FILL_CLASS}
-                              style={{ width: "360px", minWidth: "360px" }}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={ATL_TH_STICKY_FILL_CLASS}
-                              style={{ width: "220px", minWidth: "220px" }}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={ATL_TH_STICKY_FILL_CLASS}
-                              style={{ width: "360px", minWidth: "360px" }}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={ATL_TH_STICKY_FILL_CLASS}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              colSpan={2}
-                              className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
-                            >
-                              PARTS REMOVED
-                            </th>
-                            <th
-                              colSpan={2}
-                              className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
-                            >
-                              PARTS INSTALLED
-                            </th>
-                            <th className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_NOM_COL_CLASS}`}>
-                              NOMENCLATURE
-                            </th>
-                            <th className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_ATA_COL_CLASS}`}>
-                              ATA CHAPTER
-                            </th>
-                            <th
-                              className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
-                            >
-                              PART REMARKS
-                            </th>
-
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              NAME
-                            </th>
-                            <th
-                              className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                            >
-                              DATE
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TIME (ZULU)
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              NAME
-                            </th>
-                            <th
-                              className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                            >
-                              DATE
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              TIME (ZULU)
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              WHITE ATL
-                            </th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                              DFP
-                            </th>
-                          </tr>
-                          <tr>
-                            <AtlStickyHeaderFillCells
-                              count={ATL_CR_HEADER_COLS_BEFORE}
-                              stickySeqFirst
-                            />
-                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
-                              P/N
-                            </th>
-                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
-                              S/N
-                            </th>
-                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
-                              P/N
-                            </th>
-                            <th className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}>
-                              S/N
-                            </th>
-                            <th
-                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <th
-                              className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
-                              aria-hidden="true"
-                            >
-                              {"\u00a0"}
-                            </th>
-                            <AtlStickyHeaderFillCells
-                              count={ATL_CR_HEADER_COLS_AFTER}
-                            />
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 bg-white">
-                          {paginatedRecords.length === 0 ? (
-                            <tr>
-                              <td
-                                colSpan={51}
-                                className="px-6 py-12 text-center text-gray-500"
-                              >
-                                {searchQuery
-                                  ? `No records found matching "${searchQuery}"`
-                                  : "No records available"}
-                              </td>
-                            </tr>
-                          ) : (
-                            paginatedRecords.map((record) => (
-                              <tr
-                                key={record.id}
-                                data-atl-entry-id={record.id}
-                                data-list-entry-id={record.id}
-                                className="hover:bg-gray-50/50 transition-colors"
-                              >
-                                <td className={STICKY_SEQ_CELL_CLASS}>
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">
-                                      {formatAtlListCell(record.sequenceNo)}
-                                    </span>
-                                    <div className="flex items-center gap-1 text-blue-600 mt-1">
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEntry(record);
-                                          setShowViewModal(true);
-                                        }}
-                                        className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                        title="View"
-                                      >
-                                        View
-                                      </button>
-                                      {(canUpdateOperationAtl ||
-                                        operationTechPubCanEditAtl(record)) &&
-                                        canOpenAtlEditForRecord(record) && (
-                                          <>
-                                            <span className="text-gray-400">
-                                              |
-                                            </span>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                openEditAtlEntry(record)
-                                              }
-                                              className="hover:text-blue-700 hover:underline transition-colors text-xs"
-                                              title={atlEditButtonTitle(record)}
-                                            >
-                                              Edit
-                                            </button>
-                                          </>
-                                        )}
-                                      {canDeleteOperationAtl && (
-                                        <>
-                                          <span className="text-gray-400">
-                                            |
-                                          </span>
-                                          <button
-                                            onClick={() =>
-                                              handleDeleteAtl(record)
-                                            }
-                                            className="text-red-600 hover:underline text-xs"
-                                            title="Delete"
-                                          >
-                                            Delete
-                                          </button>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-                                <td
-                                  {...getFleetWorkStatusCellProps(
-                                    record.workStatus
-                                  )}
-                                >
-                                  {formatAtlListCell(record.workStatus)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.natureOfFlight)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.nextInspectionDue)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.tachTimeDue)}
-                                </td>
-                                <td
-                                  className={`px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                                >
-                                  {formatAtlListDate(record.originDate)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.originTime)}
-                                </td>
-                                <td
-                                  className={`px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                                >
-                                  {formatAtlListDate(record.destinationDate)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.destinationTime)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListFlightHours(record)}
-                                </td>
-
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.numberOfLandings)}
-                                </td>
-
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.hobbsMeterStart)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.hobbsMeterEnd)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.hobbsMeterTotal)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.tachometerStart)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.tachometerEnd)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.airframeRunTime)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListRowMetric2dp(record.airframeAftt)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.engineRunTime)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {displayTSN(record.engineTsn)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.engineTso)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.engineTbo)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.propellerRunTime)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {displayTSN(record.propellerTsn)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.propellerTso)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                  {formatAtlListCell(record.propellerTbo)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlFuelLeftRightForDisplay(
-                                    record.fuelQtyLeftUpliftQty,
-                                    record.fuelQtyRightUpliftQty
-                                  )}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlFuelLeftRightForDisplay(
-                                    record.fuelQtyLeftPriorDeparture,
-                                    record.fuelQtyRightPriorDeparture
-                                  )}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlFuelLeftRightForDisplay(
-                                    record.fuelQtyLeftAfterOnBlks,
-                                    record.fuelQtyRightAfterOnBlks
-                                  )}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.oilQtyUpliftQty)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.oilQtyPriorDeparture)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlListCell(record.oilQtyAfterOnBlks)}
-                                </td>
-                                <td
-                                  className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
-                                  style={{
-                                    width: "360px",
-                                    minWidth: "360px",
-                                    whiteSpace: "normal",
-                                    overflowWrap: "anywhere",
-                                  }}
-                                >
-                                  {formatAtlListCell(record.remarks)}
-                                </td>
-                                <td
-                                  className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
-                                  style={{
-                                    width: "220px",
-                                    minWidth: "220px",
-                                    whiteSpace: "normal",
-                                    overflowWrap: "anywhere",
-                                  }}
-                                >
-                                  {formatAtlPersonCell(record)}
-                                </td>
-                                <td
-                                  className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
-                                  style={{
-                                    width: "360px",
-                                    minWidth: "360px",
-                                    whiteSpace: "normal",
-                                    overflowWrap: "anywhere",
-                                  }}
-                                >
-                                  {formatAtlListCell(record.actionsTaken)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlPersonCell(record)}
-                                </td>
-                                <AtlComponentRecordCells record={record} />
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlAssigneeListCell(record.rtsSignedBy)}
-                                </td>
-                                <td
-                                  className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                                >
-                                  {formatAtlListDate(record.rtsDate)}
-                                </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.rtsTime)}
-                                </td>
-                                <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                  {formatAtlAssigneeListCell(
-                                    record.pilotAcceptedBy
-                                  )}
-                                </td>
-                                <td
-                                  className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
-                                >
-                                  {formatAtlListDate(record.pilotAcceptDate)}
-                                </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {formatTimeZulu(record.pilotAcceptTime)}
-                                </td>
-                                <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
-                                  {(() => {
-                                    const whiteAtlFile =
-                                      getAtlStoredUploadFilePath(
-                                        record.whiteAtl
-                                      );
-                                    return whiteAtlFile ? (
-                                      <div className="flex flex-col gap-1">
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                          onClick={() =>
-                                            handleDownloadFile(
-                                              "white_atl",
-                                              whiteAtlFile,
-                                              whiteAtlFile.split("/").pop() ||
-                                                "white_atl"
-                                            )
-                                          }
-                                        >
-                                          <Download className="w-4 h-4 flex-shrink-0" />
-                                          <span className="text-xs">
-                                            Download
-                                          </span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                          onClick={() =>
-                                            handleViewFile(
-                                              "white_atl",
-                                              whiteAtlFile
-                                            )
-                                          }
-                                        >
-                                          <Eye className="w-4 h-4 flex-shrink-0" />
-                                          <span className="text-xs">View</span>
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <span className="text-gray-900">N/A</span>
-                                    );
-                                  })()}
-                                </td>
-                                <td className="px-3 py-3 text-sm bg-white">
-                                  {(() => {
-                                    const dfpFile = getAtlStoredUploadFilePath(
-                                      record.dfp
-                                    );
-                                    return dfpFile ? (
-                                      <div className="flex flex-col gap-1">
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                          onClick={() =>
-                                            handleDownloadFile(
-                                              "dfp",
-                                              dfpFile,
-                                              dfpFile.split("/").pop() || "dfp"
-                                            )
-                                          }
-                                        >
-                                          <Download className="w-4 h-4 flex-shrink-0" />
-                                          <span className="text-xs">
-                                            Download
-                                          </span>
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                          onClick={() =>
-                                            handleViewFile("dfp", dfpFile)
-                                          }
-                                        >
-                                          <Eye className="w-4 h-4 flex-shrink-0" />
-                                          <span className="text-xs">View</span>
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <span className="text-gray-900">N/A</span>
-                                    );
-                                  })()}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                  </div>
-                )}
-
-                {/* Fuel and Oil Data */}
-                {groupBy === "fuelAndOilData" && (
-                  <div
-                    ref={fleetTableScrollRef}
-                    data-atl-fleet-scroll
-                    className="overflow-x-auto"
-                  >
-                    <table className="min-w-full border-collapse">
-                      <thead>
-                        <tr className="bg-gray-100">
+                    <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
+                      <AtlAllColumnsColgroup />
+                      <thead ref={atlAllColumnsTheadRef}>
+                        <tr>
                           <th
-                            rowSpan={2}
-                            className={`${STICKY_SEQ_CLASS} align-middle`}
+                            className={`${STICKY_SEQ_CLASS} cursor-pointer select-none transition-colors`}
+                            onClick={() => {
+                              setSequenceSort((s) =>
+                                s === "asc" ? "desc" : "asc"
+                              );
+                              setCurrentPage(1);
+                            }}
+                            title={
+                              sequenceSort === "asc"
+                                ? "Sort descending"
+                                : "Sort ascending"
+                            }
                           >
-                            ATL SEQ
+                            <span className="flex items-center gap-1">
+                              <b>SEQUENCE NO</b>
+                              {sequenceSort === "asc" ? (
+                                <ChevronUp className="w-4 h-4 inline" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 inline" />
+                              )}
+                            </span>
+                          </th>
+                          <th className={ATL_TH_BASE_CLASS}>
+                            WORK
+                            <br />
+                            STATUS
+                          </th>
+                          <th className={ATL_TH_BASE_CLASS}>
+                            NATURE OF
+                            <br />
+                            FLIGHT
+                          </th>
+                          <th className={ATL_TH_BASE_CLASS}>
+                            NEXT INSP.
+                            <br />
+                            DATE
+                          </th>
+                          <th className={ATL_TH_BASE_CLASS}>TACH TIME</th>
+                          <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
+                            OFF BLOCKS/ORIGIN
+                          </th>
+                          <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
+                            ON BLOCKS/DESTINATION
+                          </th>
+                          <th className={ATL_TH_BASE_CLASS}>
+                            Total
+                            <br />
+                            Flight
+                            <br />
+                            hours
+                          </th>
+                          <th className={ATL_TH_BASE_CLASS}>
+                            NO. OF
+                            <br />
+                            LAND-
+                            <br />
+                            INGS
+                          </th>
+                          <th colSpan={3} className={ATL_TH_GROUP_CLASS}>
+                            HOBBS METER
+                          </th>
+                          <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
+                            TACHOMETER
                           </th>
                           <th
-                            rowSpan={2}
-                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                            colSpan={2}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                           >
-                            NATURE OF FLIGHT
+                            AIRFRAME
                           </th>
                           <th
-                            rowSpan={2}
-                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_LIST_DATE_COL_CLASS}`}
+                            colSpan={4}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                           >
-                            OFF BLOCKS
+                            ENGINE
                           </th>
                           <th
-                            rowSpan={2}
-                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_LIST_DATE_COL_CLASS}`}
+                            colSpan={4}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
                           >
-                            ON BLOCKS
-                          </th>
-                          <th
-                            rowSpan={2}
-                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
-                          >
-                            TOTAL FLIGHT TIME
+                            PROPELLER
                           </th>
                           <th
                             colSpan={3}
@@ -3418,19 +2769,723 @@ export function Operation() {
                             OIL
                           </th>
                           <th
-                            rowSpan={2}
-                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle"
+                            className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
+                            style={{
+                              width: "360px",
+                              minWidth: "360px",
+                              whiteSpace: "normal",
+                              overflowWrap: "anywhere",
+                            }}
                           >
                             REMARKS
                           </th>
                           <th
-                            rowSpan={2}
-                            className="px-3 py-2 text-left text-xs font-medium text-gray-900 bg-gray-200 whitespace-nowrap align-middle"
+                            className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
+                            style={{
+                              width: "220px",
+                              minWidth: "220px",
+                              whiteSpace: "normal",
+                              overflowWrap: "anywhere",
+                            }}
                           >
+                            REMARK PERSON
+                          </th>
+                          <th
+                            className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
+                            style={{
+                              width: "360px",
+                              minWidth: "360px",
+                              whiteSpace: "normal",
+                              overflowWrap: "anywhere",
+                            }}
+                          >
+                            ACTION/S
+                            <br />
+                            TAKEN
+                          </th>
+                          <th className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            ACTION TAKEN
+                            <br />
+                            PERSON
+                          </th>
+                          <th
+                            colSpan={ATL_CR_LEAF_COL_COUNT}
+                            className={`atl-th-component-record px-3 py-3 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_CR_GROUP_MIN_WIDTH_CLASS}`}
+                          >
+                            COMPONENT RECORD
+                          </th>
+                          <th
+                            colSpan={3}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                          >
+                            RETURN TO SERVICE
+                          </th>
+                          <th
+                            colSpan={5}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                          >
+                            PILOT'S ACCEPTANCE
+                          </th>
+                        </tr>
+                        <tr>
+                          {/* Sticky fillers under leading top-only headers */}
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} atl-th-sticky-seq min-w-[140px] w-[140px]`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={`${ATL_TH_SUB_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            DATE
+                          </th>
+                          <th className={ATL_TH_SUB_CLASS}>TIME (ZULU)</th>
+                          <th
+                            className={`${ATL_TH_SUB_CLASS} ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            DATE
+                          </th>
+                          <th className={ATL_TH_SUB_CLASS}>TIME (ZULU)</th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th className={ATL_TH_SUB_CLASS}>START</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            END
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TOTAL
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TACH START
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TACH END
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            HRS
+                            <br />
+                            RUN
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AFTT
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            HRS
+                            <br />
+                            RUN
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TSN
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TSO
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TBO
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            HRS
+                            <br />
+                            RUN
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TSN
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TSO
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TBO
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            UPLIFT QTY
+                            <br />
+                            (L+R)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PRIOR DEP.
+                            <br />
+                            (L+R)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AFTER ON-BLKS
+                            <br />
+                            (L+R)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            UPLIFT
+                            <br />
+                            QTY
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            PRIOR DEP.
+                            <br />
+                            QRE
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            AFTER
+                            <br />
+                            ON-BLKS
+                          </th>
+
+                          {/* Sticky fillers under top-only headers (rowspan breaks sticky) */}
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={{ width: "360px", minWidth: "360px" }}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={{ width: "220px", minWidth: "220px" }}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={{ width: "360px", minWidth: "360px" }}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            colSpan={2}
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
+                          >
+                            PARTS REMOVED
+                          </th>
+                          <th
+                            colSpan={2}
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
+                          >
+                            PARTS INSTALLED
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
+                          >
+                            NOMENCLATURE
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
+                          >
+                            ATA CHAPTER
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
+                          >
+                            PART REMARKS
+                          </th>
+
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            NAME
+                          </th>
+                          <th
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            DATE
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TIME (ZULU)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            NAME
+                          </th>
+                          <th
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            DATE
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            TIME (ZULU)
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            WHITE ATL
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                            DFP
+                          </th>
+                        </tr>
+                        <tr>
+                          <AtlStickyHeaderFillCells
+                            count={ATL_CR_HEADER_COLS_BEFORE}
+                            stickySeqFirst
+                          />
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            P/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            S/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            P/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            S/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <AtlStickyHeaderFillCells
+                            count={ATL_CR_HEADER_COLS_AFTER}
+                          />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {paginatedRecords.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={51}
+                              className="px-6 py-12 text-center text-gray-500"
+                            >
+                              {searchQuery
+                                ? `No records found matching "${searchQuery}"`
+                                : "No records available"}
+                            </td>
+                          </tr>
+                        ) : (
+                          paginatedRecords.map((record) => (
+                            <tr
+                              key={record.id}
+                              data-atl-entry-id={record.id}
+                              data-list-entry-id={record.id}
+                              className="hover:bg-gray-50/50 transition-colors"
+                            >
+                              <td className={STICKY_SEQ_CELL_CLASS}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">
+                                    {formatAtlListCell(record.sequenceNo)}
+                                  </span>
+                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedEntry(record);
+                                        setShowViewModal(true);
+                                      }}
+                                      className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                      title="View"
+                                    >
+                                      View
+                                    </button>
+                                    {(canUpdateOperationAtl ||
+                                      operationTechPubCanEditAtl(record)) &&
+                                      canOpenAtlEditForRecord(record) && (
+                                        <>
+                                          <span className="text-gray-400">
+                                            |
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              openEditAtlEntry(record)
+                                            }
+                                            className="hover:text-blue-700 hover:underline transition-colors text-xs"
+                                            title={atlEditButtonTitle(record)}
+                                          >
+                                            Edit
+                                          </button>
+                                        </>
+                                      )}
+                                    {canDeleteOperationAtl && (
+                                      <>
+                                        <span className="text-gray-400">|</span>
+                                        <button
+                                          onClick={() =>
+                                            handleDeleteAtl(record)
+                                          }
+                                          className="text-red-600 hover:underline text-xs"
+                                          title="Delete"
+                                        >
+                                          Delete
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td
+                                {...getFleetWorkStatusCellProps(
+                                  record.workStatus
+                                )}
+                              >
+                                {formatAtlListCell(record.workStatus)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.natureOfFlight)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.nextInspectionDue)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.tachTimeDue)}
+                              </td>
+                              <td
+                                className={`px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
+                                {formatAtlListDate(record.originDate)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatTimeZulu(record.originTime)}
+                              </td>
+                              <td
+                                className={`px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
+                                {formatAtlListDate(record.destinationDate)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatTimeZulu(record.destinationTime)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListFlightHours(record)}
+                              </td>
+
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.numberOfLandings)}
+                              </td>
+
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.hobbsMeterStart)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.hobbsMeterEnd)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.hobbsMeterTotal)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.tachometerStart)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.tachometerEnd)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.airframeRunTime)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListRowMetric2dp(record.airframeAftt)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.engineRunTime)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {displayTSN(record.engineTsn)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.engineTso)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.engineTbo)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.propellerRunTime)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {displayTSN(record.propellerTsn)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.propellerTso)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
+                                {formatAtlListCell(record.propellerTbo)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlFuelLeftRightForDisplay(
+                                  record.fuelQtyLeftUpliftQty,
+                                  record.fuelQtyRightUpliftQty
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlFuelLeftRightForDisplay(
+                                  record.fuelQtyLeftPriorDeparture,
+                                  record.fuelQtyRightPriorDeparture
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlFuelLeftRightForDisplay(
+                                  record.fuelQtyLeftAfterOnBlks,
+                                  record.fuelQtyRightAfterOnBlks
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.oilQtyUpliftQty)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.oilQtyPriorDeparture)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlListCell(record.oilQtyAfterOnBlks)}
+                              </td>
+                              <td
+                                className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
+                                style={{
+                                  width: "360px",
+                                  minWidth: "360px",
+                                  whiteSpace: "normal",
+                                  overflowWrap: "anywhere",
+                                }}
+                              >
+                                {formatAtlListCell(record.remarks)}
+                              </td>
+                              <td
+                                className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
+                                style={{
+                                  width: "220px",
+                                  minWidth: "220px",
+                                  whiteSpace: "normal",
+                                  overflowWrap: "anywhere",
+                                }}
+                              >
+                                {formatAtlPersonCell(record)}
+                              </td>
+                              <td
+                                className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
+                                style={{
+                                  width: "360px",
+                                  minWidth: "360px",
+                                  whiteSpace: "normal",
+                                  overflowWrap: "anywhere",
+                                }}
+                              >
+                                {formatAtlListCell(record.actionsTaken)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlPersonCell(record)}
+                              </td>
+                              <AtlComponentRecordCells record={record} />
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlAssigneeListCell(record.rtsSignedBy)}
+                              </td>
+                              <td
+                                className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
+                                {formatAtlListDate(record.rtsDate)}
+                              </td>
+                              <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                                {formatTimeZulu(record.rtsTime)}
+                              </td>
+                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
+                                {formatAtlAssigneeListCell(
+                                  record.pilotAcceptedBy
+                                )}
+                              </td>
+                              <td
+                                className={`px-3 py-3 text-sm border-r border-gray-200 bg-white whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
+                                {formatAtlListDate(record.pilotAcceptDate)}
+                              </td>
+                              <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                                {formatTimeZulu(record.pilotAcceptTime)}
+                              </td>
+                              <td className="px-3 py-3 text-sm border-r border-gray-200 bg-white">
+                                {(() => {
+                                  const whiteAtlFile =
+                                    getAtlStoredUploadFilePath(record.whiteAtl);
+                                  return whiteAtlFile ? (
+                                    <div className="flex flex-col gap-1">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                        onClick={() =>
+                                          handleDownloadFile(
+                                            "white_atl",
+                                            whiteAtlFile,
+                                            whiteAtlFile.split("/").pop() ||
+                                              "white_atl"
+                                          )
+                                        }
+                                      >
+                                        <Download className="w-4 h-4 flex-shrink-0" />
+                                        <span className="text-xs">
+                                          Download
+                                        </span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                        onClick={() =>
+                                          handleViewFile(
+                                            "white_atl",
+                                            whiteAtlFile
+                                          )
+                                        }
+                                      >
+                                        <Eye className="w-4 h-4 flex-shrink-0" />
+                                        <span className="text-xs">View</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-900">N/A</span>
+                                  );
+                                })()}
+                              </td>
+                              <td className="px-3 py-3 text-sm bg-white">
+                                {(() => {
+                                  const dfpFile = getAtlStoredUploadFilePath(
+                                    record.dfp
+                                  );
+                                  return dfpFile ? (
+                                    <div className="flex flex-col gap-1">
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                        onClick={() =>
+                                          handleDownloadFile(
+                                            "dfp",
+                                            dfpFile,
+                                            dfpFile.split("/").pop() || "dfp"
+                                          )
+                                        }
+                                      >
+                                        <Download className="w-4 h-4 flex-shrink-0" />
+                                        <span className="text-xs">
+                                          Download
+                                        </span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                        onClick={() =>
+                                          handleViewFile("dfp", dfpFile)
+                                        }
+                                      >
+                                        <Eye className="w-4 h-4 flex-shrink-0" />
+                                        <span className="text-xs">View</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-900">N/A</span>
+                                  );
+                                })()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Fuel and Oil Data */}
+                {groupBy === "fuelAndOilData" && (
+                  <div
+                    ref={fleetTableScrollRef}
+                    data-atl-fleet-scroll
+                    className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
+                    style={
+                      {
+                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
+                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
+                      } as CSSProperties
+                    }
+                  >
+                    <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
+                      <thead ref={atlAllColumnsTheadRef}>
+                        <tr className="bg-gray-100">
+                          <th className={`${STICKY_SEQ_CLASS} align-middle`}>
+                            ATL SEQ
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle">
+                            NATURE OF FLIGHT
+                          </th>
+                          <th
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            OFF BLOCKS
+                          </th>
+                          <th
+                            className={`px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            ON BLOCKS
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle">
+                            TOTAL FLIGHT TIME
+                          </th>
+                          <th
+                            colSpan={3}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                          >
+                            FUEL QTY. (GALS)
+                          </th>
+                          <th
+                            colSpan={3}
+                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
+                          >
+                            OIL
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle">
+                            REMARKS
+                          </th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 bg-gray-200 whitespace-nowrap align-middle">
                             NAME AND LICENSE
                           </th>
                         </tr>
                         <tr className="bg-gray-100">
+                          <AtlStickyHeaderFillCells count={5} stickySeqFirst />
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             UPLIFT QTY (L+R)
                           </th>
@@ -3449,6 +3504,7 @@ export function Operation() {
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             AFTER ON-BLKS
                           </th>
+                          <AtlStickyHeaderFillCells count={2} />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -3580,10 +3636,16 @@ export function Operation() {
                   <div
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
-                    className="overflow-x-auto"
+                    className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
+                    style={
+                      {
+                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
+                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
+                      } as CSSProperties
+                    }
                   >
-                    <table className="min-w-full border-collapse">
-                      <thead>
+                    <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
+                      <thead ref={atlAllColumnsTheadRef}>
                         <tr className="bg-gray-100">
                           <th className={`${STICKY_SEQ_CLASS} rounded-tl-lg`}>
                             ATL SEQ
@@ -3735,7 +3797,9 @@ export function Operation() {
                                   {formatAtlListCell(record.airframeRunTime)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListRowMetric2dp(record.airframeAftt)}
+                                  {formatAtlListRowMetric2dp(
+                                    record.airframeAftt
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.engineRunTime)}
@@ -3775,35 +3839,143 @@ export function Operation() {
                   <div
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
-                    className="overflow-x-auto"
+                    className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
+                    style={
+                      {
+                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
+                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
+                      } as CSSProperties
+                    }
                   >
-                    <table className="min-w-full border-collapse">
-                      <thead>
+                    <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
+                      <AtlReliabilityMonitoringColgroup />
+                      <thead ref={atlAllColumnsTheadRef}>
                         <tr className="bg-gray-100">
-                          <th className={STICKY_SEQ_CLASS}>ATL SEQ</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th className={`${STICKY_SEQ_CLASS} align-middle`}>
+                            ATL SEQ
+                          </th>
+                          <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
                             NATURE OF FLIGHT
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME (RUN TIME)
+                          <th
+                            className={`${ATL_TH_BASE_CLASS} align-middle ${ATL_LIST_DATE_COL_CLASS}`}
+                          >
+                            OFF BLOCKS DATE
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
+                            TACH END
+                          </th>
+                          <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
                             AIRFRAME (AFTT)
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TOTAL FLIGHT TIME
+                          <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
+                            RETURN TO SERVICE PERSON
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            NO. OF LANDINGS
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
                             REMARKS
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 align-middle"
+                            style={ATL_ACTION_TAKEN_COL_STYLE}
+                          >
                             ACTION TAKEN
                           </th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
+                          <th
+                            colSpan={ATL_CR_LEAF_COL_COUNT}
+                            className={`atl-th-component-record px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap align-middle ${ATL_CR_GROUP_MIN_WIDTH_CLASS}`}
+                          >
                             COMPONENT RECORD
+                          </th>
+                        </tr>
+                        <tr className="bg-gray-100">
+                          <AtlStickyHeaderFillCells
+                            count={ATL_RM_HEADER_COLS_BEFORE - 1}
+                            stickySeqFirst
+                          />
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={{ width: "360px", minWidth: "360px" }}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            colSpan={2}
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
+                          >
+                            PARTS REMOVED
+                          </th>
+                          <th
+                            colSpan={2}
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
+                          >
+                            PARTS INSTALLED
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
+                          >
+                            NOMENCLATURE
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
+                          >
+                            ATA CHAPTER
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
+                          >
+                            PART REMARKS
+                          </th>
+                        </tr>
+                        <tr className="bg-gray-100">
+                          <AtlStickyHeaderFillCells
+                            count={ATL_RM_HEADER_COLS_BEFORE - 1}
+                            stickySeqFirst
+                          />
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={{ width: "360px", minWidth: "360px" }}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            P/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            S/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            P/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+                          >
+                            S/N
+                          </th>
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
                           </th>
                         </tr>
                       </thead>
@@ -3811,7 +3983,10 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={9}
+                              colSpan={
+                                ATL_RM_HEADER_COLS_BEFORE +
+                                ATL_CR_LEAF_COL_COUNT
+                              }
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
                               No records
@@ -3877,124 +4052,30 @@ export function Operation() {
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.natureOfFlight)}
                               </td>
+                              <td
+                                className={`px-3 py-2 text-sm border-r border-gray-200 whitespace-nowrap ${ATL_LIST_DATE_COL_CLASS}`}
+                              >
+                                {formatAtlListDate(record.originDate)}
+                              </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.airframeRunTime)}
+                                {formatAtlListCell(record.tachometerEnd)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListRowMetric2dp(record.airframeAftt)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListFlightHours(record)}
-                              </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListCell(record.numberOfLandings)}
+                                {formatAtlAssigneeListCell(record.rtsSignedBy)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.remarks)}
                               </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                              <td
+                                className="px-3 py-2 text-sm border-r border-gray-200"
+                                style={ATL_ACTION_TAKEN_COL_STYLE}
+                              >
                                 {formatAtlListCell(record.actionsTaken)}
                               </td>
-                              <td className="px-0 py-0 align-top border-r border-gray-200">
-                                <table className="w-full border-collapse min-w-full">
-                                  <thead>
-                                    <tr className="bg-gray-200">
-                                      <th
-                                        colSpan={2}
-                                        className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
-                                      >
-                                        PARTS REMOVED
-                                      </th>
-                                      <th
-                                        colSpan={2}
-                                        className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300"
-                                      >
-                                        PARTS INSTALLED
-                                      </th>
-                                      <th
-                                        rowSpan={2}
-                                        className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
-                                      >
-                                        NOMENCLATURE
-                                      </th>
-                                      <th
-                                        rowSpan={2}
-                                        className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
-                                      >
-                                        ATA CHAPTER
-                                      </th>
-                                      <th
-                                        rowSpan={2}
-                                        className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300 align-middle"
-                                      >
-                                        PART REMARKS
-                                      </th>
-                                    </tr>
-                                    <tr className="bg-white">
-                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                        P/N
-                                      </th>
-                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                        S/N
-                                      </th>
-                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                        P/N
-                                      </th>
-                                      <th className="px-2 py-1.5 text-center text-xs font-medium text-gray-900 border border-gray-300">
-                                        S/N
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {record.componentParts &&
-                                    record.componentParts.length > 0 ? (
-                                      record.componentParts.map(
-                                        (part: any, idx: number) => (
-                                          <tr
-                                            key={idx}
-                                            className={
-                                              idx % 2 === 0
-                                                ? "bg-white"
-                                                : "bg-gray-50"
-                                            }
-                                          >
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.removedPartNo)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.removedSerialNo)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.installedPartNo)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.installedSerialNo)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.nomenclature)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.ataChapter)}
-                                            </td>
-                                            <td className="px-2 py-1 border border-gray-200 bg-white text-center text-sm">
-                                              {formatAtlListCell(part.partRemark)}
-                                            </td>
-                                          </tr>
-                                        )
-                                      )
-                                    ) : (
-                                      <tr>
-                                        <td
-                                          colSpan={7}
-                                          className="px-2 py-2 text-center text-gray-500 text-sm border border-gray-200"
-                                        >
-                                          -
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              </td>
+                              <AtlComponentRecordCells record={record} />
                             </tr>
                           ))
                         )}
@@ -4086,9 +4167,7 @@ export function Operation() {
           onEntryLoadFailed={(keepId) => {
             setSelectedEntry((prev) => {
               if (!prev || prev.id === keepId) return prev;
-              return (
-                fleetTimeRecords.find((row) => row.id === keepId) ?? prev
-              );
+              return fleetTimeRecords.find((row) => row.id === keepId) ?? prev;
             });
           }}
           onSuccess={async () => {

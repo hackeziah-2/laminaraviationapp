@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendAtlBatchFilterParams,
   displayTSN,
   formatAtlListCell,
   normalizeAtlPagedSortParam,
@@ -8,6 +9,29 @@ import {
   pilotAcceptanceNameFieldsForApi,
 } from "./aircraftTechnicalLogApi";
 import { formatAtlFuelLeftRightForDisplay } from "../utility/utils";
+
+describe("appendAtlBatchFilterParams", () => {
+  it("sends atl_batch=all so assigned and unassigned rows are both included", () => {
+    const params = new URLSearchParams();
+    appendAtlBatchFilterParams(params, "all");
+    expect(params.get("atl_batch")).toBe("all");
+    expect(params.get("atl_batch_fk")).toBe("all");
+  });
+
+  it("sends a specific batch id for both batch params", () => {
+    const params = new URLSearchParams();
+    appendAtlBatchFilterParams(params, 8);
+    expect(params.get("atl_batch")).toBe("8");
+    expect(params.get("atl_batch_fk")).toBe("8");
+  });
+
+  it("omits the batch filter when no batch is provided", () => {
+    const params = new URLSearchParams();
+    appendAtlBatchFilterParams(params, undefined);
+    expect(params.has("atl_batch")).toBe(false);
+    expect(params.has("atl_batch_fk")).toBe(false);
+  });
+});
 
 describe("normalizeAtlPagedSortParam", () => {
   it("passes ascending field unchanged", () => {
