@@ -624,6 +624,26 @@ export function normalizeAtlPagedSortParam(sort: string): string {
   return trimmed;
 }
 
+/**
+ * `atl_batch=all` includes every row for the aircraft (assigned batch and NULL batch).
+ * A positive id restricts the list to that batch.
+ */
+export function appendAtlBatchFilterParams(
+  params: URLSearchParams,
+  atlBatchFk?: number | "all"
+): void {
+  if (atlBatchFk === "all") {
+    params.append("atl_batch", "all");
+    params.append("atl_batch_fk", "all");
+    return;
+  }
+  if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
+    const idStr = String(atlBatchFk);
+    params.append("atl_batch", idStr);
+    params.append("atl_batch_fk", idStr);
+  }
+}
+
 const fetchAircraftTechnicalLogs = async (
   endpoint: string,
   page = 1,
@@ -632,18 +652,14 @@ const fetchAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number
+  atlBatchFk?: number | "all"
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
 
     // Query order: atl_batch* first, then page, page_size, aircraft_id/aircraft_fk, sort, search, work_status
     // e.g. .../paged?...&sort=sequence_no (asc) or sort=-created_at (desc)
-    if (atlBatchFk != null && Number.isFinite(atlBatchFk) && atlBatchFk > 0) {
-      const idStr = String(atlBatchFk);
-      params.append("atl_batch", idStr);
-      params.append("atl_batch_fk", idStr);
-    }
+    appendAtlBatchFilterParams(params, atlBatchFk);
 
     appendPagedQueryParams(params, page, limit);
 
@@ -726,7 +742,7 @@ export const getAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number
+  atlBatchFk?: number | "all"
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/paged",
@@ -740,7 +756,10 @@ export const getAircraftTechnicalLogs = async (
   );
 
 /**
- * Get paginated list of Aircraft Technical Log entries for manage/list views
+ * Get paginated list of Aircraft Technical Log entries for manage/list views.
+ * `GET /api/v1/aircraft-technical-log/manage/paged`
+ * `atl_batch=all` returns assigned and unassigned batches for the aircraft.
+ * A numeric `atl_batch` returns only rows in that batch and aircraft.
  */
 export const getManagedAircraftTechnicalLogs = async (
   page = 1,
@@ -749,7 +768,7 @@ export const getManagedAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number
+  atlBatchFk?: number | "all"
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/manage/paged",
