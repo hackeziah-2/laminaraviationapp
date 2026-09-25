@@ -638,6 +638,11 @@ function formatAtlListMetric2dp(value: unknown): string {
   return Number.isFinite(n) ? n.toFixed(2) : "-";
 }
 
+/** ATL list running-hour and TSN cells: empty or numeric zero displays as "-". */
+function formatValue(value: unknown): string {
+  return formatAtlListCell(value, "-");
+}
+
 /** ATL list row metric: 0 / null / empty → "-"; non-zero keeps 2dp. */
 function formatAtlListRowMetric2dp(value: unknown): string {
   if (value == null || value === "" || isAtlListNumericZero(value)) return "-";
@@ -3224,34 +3229,34 @@ export function Operation() {
                                 {formatAtlListCell(record.tachometerEnd)}
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.airframeRunTime)}
+                                <b>{formatValue(record.airframeRunTime)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListRowMetric2dp(record.airframeAftt)}
+                                <b>{formatValue(record.airframeAftt)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.engineRunTime)}
+                                <b>{formatValue(record.engineRunTime)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {displayTSN(record.engineTsn)}
+                                <b>{formatValue(record.engineTsn)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.engineTso)}
+                                <b>{formatValue(record.engineTso)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.engineTbo)}
+                                <b>{formatValue(record.engineTbo)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.propellerRunTime)}
+                                <b>{formatValue(record.propellerRunTime)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {displayTSN(record.propellerTsn)}
+                                <b>{formatValue(record.propellerTsn)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.propellerTso)}
+                                <b>{formatValue(record.propellerTso)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                {formatAtlListCell(record.propellerTbo)}
+                                <b>{formatValue(record.propellerTbo)}</b>
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                 {formatAtlFuelLeftRightForDisplay(
@@ -3794,36 +3799,34 @@ export function Operation() {
                                   {formatAtlListCell(record.tachometerEnd)}
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.airframeRunTime)}
+                                  <b>{formatValue(record.airframeRunTime)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListRowMetric2dp(
-                                    record.airframeAftt
-                                  )}
+                                  <b>{formatValue(record.airframeAftt)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.engineRunTime)}
+                                  <b>{formatValue(record.engineRunTime)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {displayTSN(record.engineTsn)}
+                                  <b>{formatValue(record.engineTsn)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.engineTso)}
+                                  <b>{formatValue(record.engineTso)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.engineTbo)}
+                                  <b>{formatValue(record.engineTbo)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.propellerRunTime)}
+                                  <b>{formatValue(record.propellerRunTime)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {displayTSN(record.propellerTsn)}
+                                  <b>{formatValue(record.propellerTsn)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  {formatAtlListCell(record.propellerTso)}
+                                  <b>{formatValue(record.propellerTso)}</b>
                                 </td>
                                 <td className="px-3 py-2 text-sm">
-                                  {formatAtlListCell(record.propellerTbo)}
+                                  <b>{formatValue(record.propellerTbo)}</b>
                                 </td>
                               </tr>
                             );
@@ -4061,7 +4064,7 @@ export function Operation() {
                                 {formatAtlListCell(record.tachometerEnd)}
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                {formatAtlListRowMetric2dp(record.airframeAftt)}
+                                <b>{formatValue(record.airframeAftt)}</b>
                               </td>
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlAssigneeListCell(record.rtsSignedBy)}
@@ -4170,11 +4173,17 @@ export function Operation() {
               return fleetTimeRecords.find((row) => row.id === keepId) ?? prev;
             });
           }}
-          onSuccess={async () => {
+          onSuccess={async (saved) => {
             // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).
             captureViewForRestore(selectedEntry?.id, currentPage);
-            // Soft-refresh before unmounting the edit modal.
+            // Soft-refresh before unmounting the edit modal, then keep the
+            // re-fetched row so Engine TSN and Propeller TSN match the API.
             await refreshPage({ preserveView: true });
+            if (saved?.id != null) {
+              setFleetTimeRecords((prev) =>
+                prev.map((row) => (row.id === saved.id ? saved : row))
+              );
+            }
             setShowEditModal(false);
             setSelectedEntry(null);
           }}

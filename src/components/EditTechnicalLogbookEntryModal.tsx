@@ -23,7 +23,7 @@ interface EditTechnicalLogbookEntryModalProps {
   onClose: () => void;
   entryId: number;
   aircraftId?: number;
-  onSuccess?: () => void;
+  onSuccess?: (saved?: AircraftTechnicalLog) => void | Promise<void>;
   permissionModuleCode: string;
   /** Logged-in role name (e.g. from auth); used with work_status to enforce ATL edit RBAC */
   viewerRole?: string;

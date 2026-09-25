@@ -37,13 +37,13 @@ export function AircraftDashboardReport() {
 
   /** YoY years follow the month filter; with no bounds, prefer main-report meta range. */
   const yoyYears = useMemo(() => {
-    const hasMonthFilter =
-      Boolean(appliedFilters.startMonth?.trim()) ||
-      Boolean(appliedFilters.endMonth?.trim());
-    if (hasMonthFilter) {
+    const hasDateFilter =
+      Boolean(appliedFilters.startDate?.trim()) ||
+      Boolean(appliedFilters.endDate?.trim());
+    if (hasDateFilter) {
       return yoyYearsFromMonthRange(
-        appliedFilters.startMonth,
-        appliedFilters.endMonth
+        appliedFilters.startDate.slice(0, 7),
+        appliedFilters.endDate.slice(0, 7)
       );
     }
     const metaStart = data?.meta?.range?.start ?? "";
@@ -53,8 +53,8 @@ export function AircraftDashboardReport() {
     }
     return yoyYearsFromMonthRange("", "");
   }, [
-    appliedFilters.startMonth,
-    appliedFilters.endMonth,
+    appliedFilters.startDate,
+    appliedFilters.endDate,
     data?.meta?.range?.start,
     data?.meta?.range?.end,
   ]);
@@ -64,12 +64,12 @@ export function AircraftDashboardReport() {
       buildFuelReportQueryParams(
         {
           // Full calendar years for YoY — month slice is encoded in `years`.
-          startMonth: "",
-          endMonth: "",
+          startDate: "",
+          endDate: "",
           aircraftIds: appliedFilters.aircraftIds,
           aircraftRegistrations: appliedFilters.aircraftRegistrations,
         },
-        { years: yoyYears }
+        { years: yoyYears, applyDefaultDateRange: false }
       ),
     [appliedFilters.aircraftIds, appliedFilters.aircraftRegistrations, yoyYears]
   );
@@ -93,8 +93,8 @@ export function AircraftDashboardReport() {
 
   const applyFilters = useCallback((next: FuelReportFilterState) => {
     setAppliedFilters({
-      startMonth: next.startMonth,
-      endMonth: next.endMonth,
+      startDate: next.startDate,
+      endDate: next.endDate,
       aircraftIds: [...next.aircraftIds],
       aircraftRegistrations: [...next.aircraftRegistrations],
     });
@@ -130,15 +130,15 @@ export function AircraftDashboardReport() {
     appliedFilters.aircraftRegistrations
   );
   const rangeLabel = useMemo(() => {
-    const start = appliedFilters.startMonth || rangeStart || null;
-    const end = appliedFilters.endMonth || rangeEnd || null;
+    const start = appliedFilters.startDate || rangeStart || null;
+    const end = appliedFilters.endDate || rangeEnd || null;
     if (start && end) return `${start} → ${end}`;
     if (start) return `From ${start}`;
     if (end) return `Until ${end}`;
-    return "All available months";
+    return "This year";
   }, [
-    appliedFilters.startMonth,
-    appliedFilters.endMonth,
+    appliedFilters.startDate,
+    appliedFilters.endDate,
     rangeStart,
     rangeEnd,
   ]);
@@ -226,6 +226,7 @@ export function AircraftDashboardReport() {
             monthly={data?.monthly ?? []}
             loading={showSkeletons}
             fuelUnit={fuelUnit}
+            filterKey={JSON.stringify(queryParams)}
           />
         </>
       )}
