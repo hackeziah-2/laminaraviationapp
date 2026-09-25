@@ -109,8 +109,8 @@ export function DashboardReportFilters({
     value.aircraftIds.length > 0 ? String(value.aircraftIds[0]) : "";
 
   const rangeInvalid =
-    Boolean(value.startMonth && value.endMonth) &&
-    value.startMonth > value.endMonth;
+    Boolean(value.startDate && value.endDate) &&
+    value.startDate > value.endDate;
 
   return (
     <section
@@ -130,42 +130,44 @@ export function DashboardReportFilters({
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         <div className="flex flex-col gap-1.5">
           <label
-            htmlFor="fuel-start-month"
+            htmlFor="fuel-start-date"
             className="text-xs font-medium text-gray-600"
           >
-            Start month
+            Start date
           </label>
           <input
-            id="fuel-start-month"
-            type="month"
-            value={value.startMonth}
-            onChange={(e) => patch({ startMonth: e.target.value })}
+            id="fuel-start-date"
+            type="date"
+            value={value.startDate}
+            onChange={(e) => patch({ startDate: e.target.value })}
             className={INPUT_CLASS}
           />
-          <p className="text-[11px] text-gray-400">Leave blank for earliest</p>
+          <p className="text-[11px] text-gray-400">
+            Defaults to January–December of this year
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <label
-            htmlFor="fuel-end-month"
+            htmlFor="fuel-end-date"
             className="text-xs font-medium text-gray-600"
           >
-            End month
+            End date
           </label>
           <input
-            id="fuel-end-month"
-            type="month"
-            value={value.endMonth}
-            onChange={(e) => patch({ endMonth: e.target.value })}
+            id="fuel-end-date"
+            type="date"
+            value={value.endDate}
+            onChange={(e) => patch({ endDate: e.target.value })}
             className={INPUT_CLASS}
             aria-invalid={rangeInvalid}
           />
           {rangeInvalid ? (
             <p className="text-xs text-red-600">
-              Start month must be on or before end month.
+              Start date must be on or before end date.
             </p>
           ) : (
-            <p className="text-[11px] text-gray-400">Leave blank for latest</p>
+            <p className="text-[11px] text-gray-400">Optional</p>
           )}
         </div>
 

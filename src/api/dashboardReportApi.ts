@@ -15,6 +15,12 @@ export function toFuelReportApiParams(
   params: AircraftFuelReportQueryParams
 ): Record<string, string> {
   const out: Record<string, string> = {};
+  if (params.startDate?.trim()) {
+    out.start_date = params.startDate.trim();
+  }
+  if (params.endDate?.trim()) {
+    out.end_date = params.endDate.trim();
+  }
   if (params.startMonth?.trim()) {
     out.start_month = params.startMonth.trim();
   }
