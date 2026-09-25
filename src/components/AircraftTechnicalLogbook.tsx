@@ -1163,7 +1163,7 @@ export function AircraftTechnicalLogbook() {
   const handleUpdateSuccess = async () => {
     // Keep open-time scroll/page snapshot (do not overwrite while Swal reset viewport).
     captureViewForRestore(selectedEntry?.id, currentPage);
-    // Soft-refresh before unmounting the edit modal.
+    // List reload follows the modal's re-fetch of the saved ATL.
     await fetchEntries({ preserveView: true });
     setIsEditModalOpen(false);
     setSelectedEntry(null);
