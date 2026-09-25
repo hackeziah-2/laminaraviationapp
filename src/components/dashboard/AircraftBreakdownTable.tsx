@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -28,6 +28,8 @@ import {
 
 type AircraftBreakdownTableProps = {
   monthly: MonthlyFuelRow[];
+  /** Changes when the report date range or other query filters change. */
+  filterKey?: string;
   loading?: boolean;
   fuelUnit?: string;
 };
@@ -236,6 +238,7 @@ export function AircraftBreakdownTable({
   monthly,
   loading = false,
   fuelUnit,
+  filterKey = "",
 }: AircraftBreakdownTableProps) {
   const unit = resolveFuelUnit(fuelUnit);
   const columns = useMemo(() => buildColumns(unit), [unit]);
@@ -246,6 +249,10 @@ export function AircraftBreakdownTable({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_API_PAGE_SIZE);
   const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterKey]);
 
   const flatRows = useMemo(() => flattenMonthly(monthly), [monthly]);
 

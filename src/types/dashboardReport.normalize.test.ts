@@ -95,15 +95,65 @@ describe("aircraft fuel report — YoY / month breakdown normalize", () => {
   });
 
   it("maps years and month_year into API query params", () => {
-    const params = buildFuelReportQueryParams(createDefaultFuelReportFilters(), {
-      years: [2025, 2026],
-      monthYear: "2025-04",
-    });
+    const params = buildFuelReportQueryParams(
+      {
+        ...createDefaultFuelReportFilters(new Date(2026, 8, 25)),
+        startDate: "",
+        endDate: "",
+      },
+      {
+        years: [2025, 2026],
+        monthYear: "2025-04",
+        applyDefaultDateRange: false,
+      }
+    );
     expect(params.years).toBe("2025,2026");
     expect(params.monthYear).toBe("2025-04");
     expect(toFuelReportApiParams(params)).toEqual({
       years: "2025,2026",
       month_year: "2025-04",
+    });
+  });
+
+  it("fills January 1 through December 31 of the current year", () => {
+    const today = new Date(2026, 8, 25, 23, 30, 0);
+    const filters = createDefaultFuelReportFilters(today);
+    expect(filters.startDate).toBe("2026-01-01");
+    expect(filters.endDate).toBe("2026-12-31");
+    const params = buildFuelReportQueryParams(filters, { today });
+    expect(toFuelReportApiParams(params)).toMatchObject({
+      start_date: "2026-01-01",
+      end_date: "2026-12-31",
+      start_month: "2026-01",
+      end_month: "2026-12",
+    });
+  });
+
+  it("sends only the dates the user selected", () => {
+    const today = new Date(2026, 8, 25);
+    const startOnly = buildFuelReportQueryParams(
+      {
+        ...createDefaultFuelReportFilters(today),
+        startDate: "2024-01-15",
+        endDate: "",
+      },
+      { today }
+    );
+    expect(startOnly.startDate).toBe("2024-01-15");
+    expect(startOnly.endDate).toBeUndefined();
+    expect(toFuelReportApiParams(startOnly).end_date).toBeUndefined();
+
+    const both = buildFuelReportQueryParams(
+      {
+        ...createDefaultFuelReportFilters(),
+        startDate: "2020-03-01",
+        endDate: "2020-03-31",
+      },
+      { today }
+    );
+    expect(toFuelReportApiParams(both)).toMatchObject({
+      start_date: "2020-03-01",
+      end_date: "2020-03-31",
     });
   });
 

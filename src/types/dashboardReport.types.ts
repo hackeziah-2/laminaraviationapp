@@ -1,9 +1,13 @@
 /** Aircraft Fuel Consumption Report — monthly ATL Logbook contract (camelCase after normalization). */
 
 export type AircraftFuelReportQueryParams = {
-  /** YYYY-MM */
+  /** YYYY-MM-DD. Sent even when the date pickers are blank (default last year). */
+  startDate?: string;
+  /** YYYY-MM-DD. Sent even when the date pickers are blank (default last year). */
+  endDate?: string;
+  /** YYYY-MM. Derived from startDate so the current report API can filter. */
   startMonth?: string;
-  /** YYYY-MM */
+  /** YYYY-MM. Derived from endDate so the current report API can filter. */
   endMonth?: string;
   /** Comma-separated aircraft registrations (tails). */
   aircraft?: string;
@@ -115,10 +119,10 @@ export type AircraftFuelReportResponse = {
 
 /** Draft / applied filter form state (UI). */
 export type FuelReportFilterState = {
-  /** YYYY-MM or "" to let API use earliest available */
-  startMonth: string;
-  /** YYYY-MM or "" to let API use latest available */
-  endMonth: string;
+  /** YYYY-MM-DD. Default is January 1 of the current year. */
+  startDate: string;
+  /** YYYY-MM-DD. Default is December 31 of the current year. */
+  endDate: string;
   /** Selected aircraft PKs (empty = all). */
   aircraftIds: number[];
   /** Parallel registrations for selected ids (same order). Sent as `aircraft`. */
@@ -339,14 +343,49 @@ export function formatBurnLabel(value: number | null | undefined): string {
   });
 }
 
+/** January 1 through December 31 of the local calendar year. */
+export function calendarYearDateRange(today = new Date()): {
+  startDate: string;
+  endDate: string;
+} {
+  const year = today.getFullYear();
+  return {
+    startDate: `${year}-01-01`,
+    endDate: `${year}-12-31`,
+  };
+}
+
 /**
- * Default filters: no month bounds (API uses earliest→latest ATL months)
+ * Blank pickers → January 1–December 31 of the current year.
+ * A chosen start, end, or both is sent as selected and is not replaced by that default.
+ */
+export function resolveFuelReportDateQuery(
+  selectedStart: string,
+  selectedEnd: string,
+  today = new Date()
+): { startDate?: string; endDate?: string } {
+  const startDate = selectedStart.trim();
+  const endDate = selectedEnd.trim();
+  if (!startDate && !endDate) {
+    return calendarYearDateRange(today);
+  }
+  return {
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+  };
+}
+
+/**
+ * Default filters: date pickers filled with January 1–December 31 of this year,
  * and all aircraft.
  */
-export function createDefaultFuelReportFilters(): FuelReportFilterState {
+export function createDefaultFuelReportFilters(
+  today = new Date()
+): FuelReportFilterState {
+  const range = calendarYearDateRange(today);
   return {
-    startMonth: "",
-    endMonth: "",
+    startDate: range.startDate,
+    endDate: range.endDate,
     aircraftIds: [],
     aircraftRegistrations: [],
   };
@@ -358,14 +397,35 @@ export function createDefaultFuelReportFilters(): FuelReportFilterState {
  */
 export function buildFuelReportQueryParams(
   filters: FuelReportFilterState,
-  extras?: { years?: number[]; monthYear?: string }
+  extras?: {
+    years?: number[];
+    monthYear?: string;
+    today?: Date;
+    /** YoY request keeps an open range; the main report applies the last-year default. */
+    applyDefaultDateRange?: boolean;
+  }
 ): AircraftFuelReportQueryParams {
   const params: AircraftFuelReportQueryParams = {};
-  if (filters.startMonth?.trim()) {
-    params.startMonth = filters.startMonth.trim();
+  const applyDefault = extras?.applyDefaultDateRange !== false;
+  const range = applyDefault
+    ? resolveFuelReportDateQuery(
+        filters.startDate,
+        filters.endDate,
+        extras?.today
+      )
+    : {
+        ...(filters.startDate.trim()
+          ? { startDate: filters.startDate.trim() }
+          : {}),
+        ...(filters.endDate.trim() ? { endDate: filters.endDate.trim() } : {}),
+      };
+  if (range.startDate) {
+    params.startDate = range.startDate;
+    params.startMonth = range.startDate.slice(0, 7);
   }
-  if (filters.endMonth?.trim()) {
-    params.endMonth = filters.endMonth.trim();
+  if (range.endDate) {
+    params.endDate = range.endDate;
+    params.endMonth = range.endDate.slice(0, 7);
   }
   const regs = filters.aircraftRegistrations
     .map((r) => r.trim().toUpperCase())
