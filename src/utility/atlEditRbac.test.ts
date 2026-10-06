@@ -216,10 +216,23 @@ describe("ATL RBAC — Admin and other roles", () => {
     expect(canEditAtlFields("Admin", "FOR_REVIEW")).toBe(true);
   });
 
-  it("mechanic cannot edit and cannot open edit modal", () => {
-    expect(canEditAtlFields("Mechanic", "PENDING")).toBe(false);
-    expect(canOpenAtlEditModal("Mechanic")).toBe(false);
-    expect(getAtlWorkStatusDropdownKeysForRole("Mechanic")).toEqual([]);
+  it("mechanic roles can edit only while the ATL is FOR REVIEW", () => {
+    for (const role of ["Mechanic", "Mechanic - Document", "Line Mechanic"]) {
+      expect(canEditAtlFields(role, "FOR_REVIEW")).toBe(true);
+      expect(canEditAtlFields(role, "FOR REVIEW")).toBe(true);
+      expect(canOpenAtlEditModal(role)).toBe(true);
+      expect(getAtlWorkStatusDropdownKeysForRole(role)).toEqual(["FOR_REVIEW"]);
+      for (const status of [
+        "AWAITING_ATTACHMENT",
+        "PENDING",
+        "APPROVED",
+        "REJECTED_MAINTENANCE",
+        "REJECTED_QUALITY",
+        "COMPLETED",
+      ]) {
+        expect(canEditAtlFields(role, status)).toBe(false);
+      }
+    }
   });
 
   it("gated roles can open edit modal", () => {

@@ -13,6 +13,8 @@ import {
  * - Technical Publication → AWAITING_ATTACHMENT, PENDING
  * - Maintenance Manager (and Mechanic - Maintenance Manager) → PENDING, REJECTED_MAINTENANCE, APPROVED
  * - Quality Manager → APPROVED, REJECTED_QUALITY (COMPLETED entries are view-only)
+ * - Mechanic, Mechanic - Document, and any other role whose name contains “Mechanic”
+ *   (except Mechanic - Maintenance Manager) → FOR_REVIEW only
  * - All other roles → view only (no field edits)
  *
  * COMPLETED: only Admin may update fields (all roles else view-only).
@@ -75,11 +77,17 @@ export const QUALITY_MANAGER_ATL_WORK_STATUS_OPTIONS: readonly AtlWorkStatusKey[
 export const TECHNICAL_PUBLICATION_ATL_WORK_STATUS_OPTIONS: readonly AtlWorkStatusKey[] =
   ["AWAITING_ATTACHMENT", "PENDING"];
 
+/** Mechanic roles may edit the ATL record only while it is FOR REVIEW. */
+export const MECHANIC_ATL_WORK_STATUS_OPTIONS: readonly AtlWorkStatusKey[] = [
+  "FOR_REVIEW",
+];
+
 type AtlRbacRole =
   | "maintenance_planner"
   | "maintenance_manager"
   | "technical_publication"
-  | "quality_manager";
+  | "quality_manager"
+  | "mechanic";
 
 const ATL_EDIT_ALLOWED_BY_ROLE: Record<AtlRbacRole, ReadonlySet<AtlWorkStatusKey>> =
   {
@@ -89,6 +97,7 @@ const ATL_EDIT_ALLOWED_BY_ROLE: Record<AtlRbacRole, ReadonlySet<AtlWorkStatusKey
     ),
     maintenance_manager: new Set(MAINTENANCE_MANAGER_ATL_WORK_STATUS_OPTIONS),
     quality_manager: new Set(QUALITY_MANAGER_ATL_WORK_STATUS_OPTIONS),
+    mechanic: new Set(MECHANIC_ATL_WORK_STATUS_OPTIONS),
   };
 
 export function normalizeAtlWorkStatus(
@@ -346,17 +355,16 @@ export function isAtlWhiteAtlDfpOnlyEdit(
   );
 }
 
+/**
+ * Mechanic, Mechanic - Document, and any role whose name starts with or
+ * contains the word “Mechanic”. Mechanic - Maintenance Manager is excluded
+ * because that role uses Maintenance Manager authorization.
+ */
 export function isMechanicRole(userRole: string | undefined): boolean {
   if (isMaintenanceManagerRole(userRole)) return false;
   const n = normalizeRoleNameForMatch(userRole);
   if (!n) return false;
-  return (
-    n === "mechanic" ||
-    n === "aircraft mechanic" ||
-    n === "a&p mechanic" ||
-    n === "ap mechanic" ||
-    n.endsWith(" mechanic")
-  );
+  return /(?:^|\s)mechanic(?:\s|$)/.test(n);
 }
 
 export function canManageAtlBatchFilter(
@@ -382,6 +390,7 @@ export function resolveAtlRbacRole(
   if (isMaintenanceManagerRole(userRole)) return "maintenance_manager";
   if (isTechnicalPublicationRole(userRole)) return "technical_publication";
   if (isQualityManagerRole(userRole)) return "quality_manager";
+  if (isMechanicRole(userRole)) return "mechanic";
 
   return null;
 }
