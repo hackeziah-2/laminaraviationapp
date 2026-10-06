@@ -232,7 +232,10 @@ describe("Mechanic - Maintenance Manager matches Maintenance Manager authorizati
   it("does not change Mechanic, Planner, or Quality Manager authorization", () => {
     expect(isMaintenanceManagerRole("Mechanic")).toBe(false);
     expect(isMechanicRole("Mechanic")).toBe(true);
-    expect(canOpenAtlEditModal("Mechanic")).toBe(false);
+    expect(isMechanicRole("Mechanic - Document")).toBe(true);
+    expect(canOpenAtlEditModal("Mechanic")).toBe(true);
+    expect(canEditAtlFields("Mechanic", "FOR_REVIEW")).toBe(true);
+    expect(canEditAtlFields("Mechanic - Document", "FOR_REVIEW")).toBe(true);
     expect(canEditAtlFields("Mechanic", "PENDING")).toBe(false);
     expect(canEditAtlBatch("Mechanic")).toBe(false);
     expect(getPostLoginPath("Mechanic")).toBe("/profile");
