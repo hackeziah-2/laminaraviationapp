@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { useState } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { AutoResizeTextarea } from "./AutoResizeTextarea";
@@ -45,6 +46,56 @@ describe("AutoResizeTextarea", () => {
       />
     );
     expect(textarea.style.height).toBe("220px");
+  });
+
+  it("keeps the caret when height is recalculated during an edit", () => {
+    const element = document.createElement("textarea");
+    document.body.appendChild(element);
+    element.value = "HELLO WORLD";
+    element.focus();
+    element.setSelectionRange(5, 5);
+    mockScrollHeight(element, 160);
+    autoResizeTextarea(element, 300);
+    expect(element.selectionStart).toBe(5);
+    expect(element.selectionEnd).toBe(5);
+    element.remove();
+  });
+
+  it("inserts a character at the caret in the middle of a sentence", () => {
+    function EchoArea() {
+      const [value, setValue] = useState("HELLO WORLD");
+      return (
+        <AutoResizeTextarea
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      );
+    }
+
+    const { getByRole } = render(<EchoArea />);
+    const textarea = getByRole("textbox") as HTMLTextAreaElement;
+    textarea.focus();
+    fireEvent.change(textarea, {
+      target: {
+        value: "HELLOX WORLD",
+        selectionStart: 6,
+        selectionEnd: 6,
+      },
+    });
+    expect(textarea.value).toBe("HELLOX WORLD");
+    expect(textarea.selectionStart).toBe(6);
+    expect(textarea.selectionEnd).toBe(6);
+
+    fireEvent.change(textarea, {
+      target: {
+        value: "HELLOXY WORLD",
+        selectionStart: 7,
+        selectionEnd: 7,
+      },
+    });
+    expect(textarea.value).toBe("HELLOXY WORLD");
+    expect(textarea.selectionStart).toBe(7);
+    expect(textarea.selectionEnd).toBe(7);
   });
 
   it("resizes on input and does not allow manual resize", () => {

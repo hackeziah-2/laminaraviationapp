@@ -6,8 +6,11 @@ vi.mock("./index", () => ({
 
 vi.mock("./accountApi", () => ({
   createAccount: vi.fn(),
+  getAccount: vi.fn(),
+  getAccountInformationById: vi.fn(),
   getAccountsPaged: vi.fn(),
   getAllAccounts: vi.fn(),
+  updateAccount: vi.fn(),
 }));
 
 vi.mock("./authApi", () => ({
@@ -18,15 +21,23 @@ vi.mock("./rolesApi", () => ({
   getRoles: vi.fn(),
 }));
 
-import { createAccount, getAccountsPaged } from "./accountApi";
+import {
+  createAccount,
+  getAccount,
+  getAccountInformationById,
+  getAccountsPaged,
+  updateAccount,
+} from "./accountApi";
 import { getMe } from "./authApi";
 import { getRoles } from "./rolesApi";
 import {
   createTechnicalPublicationUser,
   getTechnicalPublicationAssignableRoles,
+  getTechnicalPublicationUserForEdit,
   listTechnicalPublicationUsers,
   TechnicalPublicationUserAccessError,
   TechnicalPublicationUserValidationError,
+  updateTechnicalPublicationUser,
 } from "./technicalPublicationUserApi";
 import { EMPTY_TECHNICAL_PUBLICATION_ADD_USER_FORM } from "../utility/technicalPublicationAddUser";
 
@@ -385,5 +396,145 @@ describe("listTechnicalPublicationUsers", () => {
     const result = await listTechnicalPublicationUsers(1, 50, "jane");
     expect(result.items.map((row) => row.id)).toEqual([10]);
     expect(result.page).toBe(1);
+  });
+});
+
+const existingAccount = {
+  id: 9,
+  firstName: "Jane",
+  lastName: "Doe",
+  middleName: "Q",
+  username: "jdoe",
+  fullName: "Jane Q Doe",
+  email: "jane@aviation.com",
+  licenseNo: "LIC-1",
+  designation: "Line Pilot",
+  roleId: 2,
+  roleName: "Pilot",
+  status: true,
+  createdAt: "",
+  lastLogin: "",
+  authStamp: "STAMP-1",
+};
+
+describe("updateTechnicalPublicationUser", () => {
+  beforeEach(() => {
+    vi.mocked(getMe).mockReset();
+    vi.mocked(getRoles).mockReset();
+    vi.mocked(getAccountsPaged).mockReset();
+    vi.mocked(createAccount).mockReset();
+    vi.mocked(updateAccount).mockReset();
+    vi.mocked(getMe).mockResolvedValue({
+      id: 1,
+      name: "TP User",
+      email: "tp@aviation.com",
+      role: "Technical Publication",
+      status: "active",
+      lastLogin: "",
+      createdDate: "",
+    });
+    vi.mocked(getRoles).mockResolvedValue([
+      { id: 2, name: "Pilot", description: "", userCount: 0 },
+      { id: 4, name: "Mechanic", description: "", userCount: 0 },
+    ]);
+    vi.mocked(getAccountsPaged).mockResolvedValue({
+      items: [existingAccount],
+      total: 1,
+      page: 1,
+      pages: 1,
+    });
+    vi.mocked(updateAccount).mockResolvedValue(existingAccount);
+  });
+
+  it("updates the account and keeps the current username", async () => {
+    await updateTechnicalPublicationUser(9, {
+      ...validPayload,
+      password: "",
+      confirmPassword: "",
+      designation: "Captain",
+    });
+    expect(updateAccount).toHaveBeenCalledWith(
+      9,
+      expect.objectContaining({
+        username: "jdoe",
+        designation: "Captain",
+        roleId: 2,
+        status: true,
+        auth_initial_doi: null,
+        auth_stamp: null,
+      })
+    );
+    const updatePayload = vi.mocked(updateAccount).mock.calls[0]?.[1];
+    expect(updatePayload).not.toHaveProperty("password");
+    expect(createAccount).not.toHaveBeenCalled();
+  });
+
+  it("rejects a username that belongs to a different account", async () => {
+    vi.mocked(getAccountsPaged).mockResolvedValue({
+      items: [{ ...existingAccount, id: 3 }],
+      total: 1,
+      page: 1,
+      pages: 1,
+    });
+    await expect(
+      updateTechnicalPublicationUser(9, {
+        ...validPayload,
+        password: "",
+        confirmPassword: "",
+      })
+    ).rejects.toMatchObject({
+      fields: { username: "Username is already taken" },
+    });
+    expect(updateAccount).not.toHaveBeenCalled();
+  });
+
+  it("refuses callers who are not Technical Publication", async () => {
+    vi.mocked(getMe).mockResolvedValue({
+      id: 1,
+      name: "Admin",
+      email: "admin@aviation.com",
+      role: "Admin",
+      status: "active",
+      lastLogin: "",
+      createdDate: "",
+    });
+    await expect(
+      updateTechnicalPublicationUser(9, validPayload)
+    ).rejects.toBeInstanceOf(TechnicalPublicationUserAccessError);
+    expect(updateAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("getTechnicalPublicationUserForEdit", () => {
+  it("maps the account and authorization date into the edit form", async () => {
+    vi.mocked(getMe).mockResolvedValue({
+      id: 1,
+      name: "TP User",
+      email: "tp@aviation.com",
+      role: "Technical Publication",
+      status: "active",
+      lastLogin: "",
+      createdDate: "",
+    });
+    vi.mocked(getAccount).mockResolvedValue(existingAccount);
+    vi.mocked(getAccountInformationById).mockResolvedValue({
+      auth_stamp: "STAMP-9",
+      auth_initial_doi: "2024-05-01T00:00:00Z",
+    });
+
+    await expect(getTechnicalPublicationUserForEdit(9)).resolves.toEqual({
+      id: 9,
+      status: true,
+      form: expect.objectContaining({
+        firstName: "Jane",
+        middleName: "Q",
+        username: "jdoe",
+        authStamp: "STAMP-9",
+        authInitialDoi: "2024-05-01",
+        roleId: 2,
+        password: "",
+        confirmPassword: "",
+      }),
+    });
   });
 });

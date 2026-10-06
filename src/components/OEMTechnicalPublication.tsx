@@ -40,6 +40,7 @@ import {
   getOemApiErrorMessage,
 } from "../api/oemTechnicalPublicationApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { canEditOemTechnicalPublication } from "../utility/oemTechnicalPublicationAccess";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { formatDateForApi, formatDisplayDate } from "../utility/utils";
@@ -73,7 +74,11 @@ function toApiDate(value: string | null | undefined): string {
 }
 
 export function OEMTechnicalPublication() {
-  const { canUpdate, canCreate, canDelete } = useUserPermissions();
+  const { canUpdate, canCreate, canDelete, user } = useUserPermissions();
+  const canEditPublications = canEditOemTechnicalPublication(
+    user?.role,
+    canUpdate("regulatory-compliance")
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -236,6 +241,7 @@ export function OEMTechnicalPublication() {
     if (saving) return;
 
     const isUpdate = Boolean(editingPublication);
+    if (isUpdate && !canEditPublications) return;
     setSaving(true);
     try {
       // Capture before confirm/success Swal so window scroll is not already reset.
@@ -655,7 +661,7 @@ export function OEMTechnicalPublication() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {canUpdate("regulatory-compliance") && (
+                          {canEditPublications && (
                             <button
                               type="button"
                               onClick={() => openViewEditModal(pub)}
@@ -778,7 +784,21 @@ export function OEMTechnicalPublication() {
                 )}
               </div>
             </div>
-            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-2">
+              {canEditPublications && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pub = viewingPublication;
+                    setViewingPublication(null);
+                    openViewEditModal(pub);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium inline-flex items-center gap-1.5"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Edit
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setViewingPublication(null)}
@@ -916,8 +936,7 @@ export function OEMTechnicalPublication() {
               </button>
               {((!editingPublication &&
                 canCreate("regulatory-compliance")) ||
-                (editingPublication &&
-                  canUpdate("regulatory-compliance"))) && (
+                (editingPublication && canEditPublications)) && (
                 <button
                   type="button"
                   onClick={handleSaveDocument}

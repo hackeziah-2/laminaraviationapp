@@ -9,9 +9,11 @@ import {
 import {
   createTechnicalPublicationUser,
   getTechnicalPublicationAssignableRoles,
+  getTechnicalPublicationUserForEdit,
   listTechnicalPublicationUsers,
   TechnicalPublicationUserAccessError,
   TechnicalPublicationUserValidationError,
+  updateTechnicalPublicationUser,
   type TechnicalPublicationUserListRow,
 } from "../api/technicalPublicationUserApi";
 import type { Role } from "../api/rolesApi";
@@ -37,20 +39,25 @@ function fieldClass(hasError: boolean): string {
 
 function TechnicalPublicationAddUserModal({
   isOpen,
+  accountId,
   onClose,
   onSaved,
 }: {
   isOpen: boolean;
+  accountId: number | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const isEdit = accountId != null;
   const [formData, setFormData] = useState<TechnicalPublicationAddUserFormValues>(
     EMPTY_TECHNICAL_PUBLICATION_ADD_USER_FORM
   );
+  const [accountStatus, setAccountStatus] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [roles, setRoles] = useState<Role[]>([]);
   const [rolesError, setRolesError] = useState("");
   const [loadingRoles, setLoadingRoles] = useState(false);
+  const [loadingAccount, setLoadingAccount] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useOverlayEscape({
@@ -65,11 +72,13 @@ function TechnicalPublicationAddUserModal({
   useEffect(() => {
     if (!isOpen) return;
     setFormData(EMPTY_TECHNICAL_PUBLICATION_ADD_USER_FORM);
+    setAccountStatus(true);
     setErrors({});
     setRolesError("");
     let cancelled = false;
     const load = async () => {
       setLoadingRoles(true);
+      setLoadingAccount(accountId != null);
       try {
         const list = await getTechnicalPublicationAssignableRoles();
         if (cancelled) return;
@@ -77,18 +86,33 @@ function TechnicalPublicationAddUserModal({
         if (list.length === 0) {
           setRolesError("Pilot and Mechanic roles were not found.");
         }
+        if (accountId != null) {
+          const record = await getTechnicalPublicationUserForEdit(accountId);
+          if (cancelled) return;
+          setFormData(record.form);
+          setAccountStatus(record.status);
+        }
       } catch (error) {
         if (cancelled) return;
-        setRolesError(formatApiErrorMessage(error, "Failed to load roles."));
+        if (accountId != null) {
+          setErrors({
+            form: formatApiErrorMessage(error, "Failed to load user."),
+          });
+        } else {
+          setRolesError(formatApiErrorMessage(error, "Failed to load roles."));
+        }
       } finally {
-        if (!cancelled) setLoadingRoles(false);
+        if (!cancelled) {
+          setLoadingRoles(false);
+          setLoadingAccount(false);
+        }
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, accountId]);
 
   const setField = <K extends keyof TechnicalPublicationAddUserFormValues>(
     key: K,
@@ -105,13 +129,24 @@ function TechnicalPublicationAddUserModal({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    const nextErrors = validateTechnicalPublicationAddUserForm(formData);
+    const nextErrors = validateTechnicalPublicationAddUserForm(formData, {
+      requirePassword: !isEdit,
+    });
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0 || submitting) return;
+    if (Object.keys(nextErrors).length > 0 || submitting || loadingAccount)
+      return;
 
     setSubmitting(true);
     try {
-      await createTechnicalPublicationUser(formData);
+      if (accountId != null) {
+        await updateTechnicalPublicationUser(
+          accountId,
+          formData,
+          accountStatus
+        );
+      } else {
+        await createTechnicalPublicationUser(formData);
+      }
       onSaved();
     } catch (error) {
       if (error instanceof TechnicalPublicationUserValidationError) {
@@ -133,9 +168,13 @@ function TechnicalPublicationAddUserModal({
       <div className="absolute inset-0 bg-black/50" onClick={() => !submitting && onClose()} />
       <div className="relative bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto shadow-xl">
         <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">Add User</h2>
+          <h2 className="text-xl font-semibold text-gray-900">
+            {isEdit ? "Edit User" : "Add User"}
+          </h2>
           <p className="text-sm text-gray-600 mt-1">
-            Create a Pilot or Mechanic account
+            {isEdit
+              ? "Update a Pilot or Mechanic account"
+              : "Create a Pilot or Mechanic account"}
           </p>
         </div>
         <form
@@ -146,7 +185,12 @@ function TechnicalPublicationAddUserModal({
           {errors.form && (
             <p className="text-sm text-red-600">{errors.form}</p>
           )}
-
+          {loadingAccount ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            </div>
+          ) : (
+          <>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               First Name *
@@ -318,6 +362,8 @@ function TechnicalPublicationAddUserModal({
             )}
           </div>
 
+          {!isEdit && (
+          <>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Password *
@@ -355,6 +401,10 @@ function TechnicalPublicationAddUserModal({
               </p>
             )}
           </div>
+          </>
+          )}
+          </>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button
@@ -367,13 +417,13 @@ function TechnicalPublicationAddUserModal({
             </button>
             <button
               type="submit"
-              disabled={submitting || loadingRoles}
+              disabled={submitting || loadingRoles || loadingAccount}
               className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
                 <Loader2 className="w-4 h-4 animate-spin inline" />
               ) : null}{" "}
-              Save User
+              {isEdit ? "Save Changes" : "Save User"}
             </button>
           </div>
         </form>
@@ -393,7 +443,10 @@ export function TechnicalPublicationAddUser() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(
+    null
+  );
   const [successMessage, setSuccessMessage] = useState("");
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchSeqRef = useRef(0);
@@ -440,9 +493,17 @@ export function TechnicalPublicationAddUser() {
     void fetchUsers();
   }, [fetchUsers]);
 
+  const closeUserModal = () => {
+    setShowUserModal(false);
+    setEditingAccountId(null);
+  };
+
   const handleSaved = () => {
-    setShowAddModal(false);
-    setSuccessMessage("User saved successfully.");
+    const edited = editingAccountId != null;
+    closeUserModal();
+    setSuccessMessage(
+      edited ? "User updated successfully." : "User saved successfully."
+    );
     void fetchUsers();
   };
 
@@ -467,7 +528,8 @@ export function TechnicalPublicationAddUser() {
           type="button"
           onClick={() => {
             setSuccessMessage("");
-            setShowAddModal(true);
+            setEditingAccountId(null);
+            setShowUserModal(true);
           }}
           className="flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700 whitespace-nowrap"
         >
@@ -532,6 +594,9 @@ export function TechnicalPublicationAddUser() {
                   <th className="px-6 py-3 text-left text-gray-700 text-xs font-semibold uppercase tracking-wider">
                     Role
                   </th>
+                  <th className="px-6 py-3 text-right text-gray-700 text-xs font-semibold uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -556,12 +621,25 @@ export function TechnicalPublicationAddUser() {
                       <td className="px-6 py-4 text-sm text-gray-700">
                         {user.roleName || "—"}
                       </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSuccessMessage("");
+                            setEditingAccountId(user.id);
+                            setShowUserModal(true);
+                          }}
+                          className="text-sm font-medium text-blue-600 hover:underline"
+                        >
+                          Edit
+                        </button>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-6 py-10 text-center text-sm text-gray-500"
                     >
                       No users found matching your search criteria
@@ -590,8 +668,9 @@ export function TechnicalPublicationAddUser() {
       </div>
 
       <TechnicalPublicationAddUserModal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        isOpen={showUserModal}
+        accountId={editingAccountId}
+        onClose={closeUserModal}
         onSaved={handleSaved}
       />
     </div>
