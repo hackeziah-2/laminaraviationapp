@@ -58,6 +58,13 @@ import {
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
+  applyAtlRemarksText,
+  assignAtlRemarksText,
+  atlVisibleRemarksText,
+  normalizeMultilineText,
+  readAtlActionsTaken,
+} from "../utility/atlMultilineText";
+import {
   snakeAllKeys,
   computeTotalBlockTimeFromUtc,
   toCamel,
@@ -670,45 +677,32 @@ function applyOffBlocksStationFromBaseLocation<
   return form;
 }
 
-/**
- * View/Create/Edit: remarks stores Pilot Report on line 1 and Maintenance Entry
- * on following lines (matches View modal split).
- */
-function splitAtlRemarks(remarks?: string | null): {
-  pilotReport: string;
-  maintenanceEntry: string;
-} {
-  const raw = String(remarks ?? "");
-  if (!raw) return { pilotReport: "", maintenanceEntry: "" };
-  const lines = raw.split("\n");
-  return {
-    pilotReport: lines[0] ?? "",
-    maintenanceEntry: lines.slice(1).join("\n"),
-  };
-}
-
-function combineAtlRemarks(
-  pilotReport: string,
-  maintenanceEntry: string
-): string | undefined {
-  const pilot = String(pilotReport ?? "");
-  const maint = String(maintenanceEntry ?? "");
-  if (!pilot && !maint) return undefined;
-  if (!maint) return pilot;
-  if (!pilot) return `\n${maint}`;
-  return `${pilot}\n${maint}`;
-}
-
 /** Map NOF description remarks into the currently visible ATL remarks field. */
 function atlRemarksFromNofDescription(
   remarks: string,
   natureOfFlight: string
 ): { pilotReport: string; maintenanceEntry: string } {
-  const section = resolveAtlRemarksSectionVisibility(natureOfFlight);
-  if (section === "maintenanceEntry") {
-    return { pilotReport: "", maintenanceEntry: remarks };
-  }
-  return { pilotReport: remarks, maintenanceEntry: "" };
+  return applyAtlRemarksText(natureOfFlight, remarks);
+}
+
+/** Empty remarks are omitted; any entered text, including line breaks, is sent. */
+function atlRemarksForApi(
+  natureOfFlight: string,
+  pilotReport: string,
+  maintenanceEntry: string
+): string | undefined {
+  const text = atlVisibleRemarksText(
+    natureOfFlight,
+    pilotReport,
+    maintenanceEntry
+  );
+  return text === "" ? undefined : toUppercaseInput(text);
+}
+
+/** Empty actions taken are omitted; multiline text is sent unchanged except case. */
+function atlActionsTakenForApi(actionsTaken: string): string | undefined {
+  const text = normalizeMultilineText(actionsTaken);
+  return text === "" ? undefined : toUppercaseInput(text);
 }
 
 function resolveAtlFormAircraftId(
@@ -2559,6 +2553,13 @@ export function AddTechnicalLogbookEntryModal({
         whiteAtlWebLink: editEntry.whiteAtlWebLink?.toString().trim() || "",
         dfpWebLink: editEntry.dfpWebLink?.toString().trim() || "",
       };
+      const editNatureOfFlight = (() => {
+        const nof = String(editEntry.natureOfFlight ?? "").trim();
+        if (nof === "VOID") return "VOID";
+        if (nof === "TR W/ PIREM" || nof === "TR_WITH_PIREM")
+          return "TR_WITH_PIREM";
+        return nof;
+      })();
       // Populate form data from editEntry (normalize workStatus: API may return "FOR REVIEW" or "FOR_REVIEW")
       setFormData({
         seqNo: (editEntry.sequenceNo ?? "").toString().replace(/\D/g, ""),
@@ -2577,13 +2578,7 @@ export function AddTechnicalLogbookEntryModal({
           return "";
         })(),
         // null/empty from API -> "" (-); VOID from API -> "VOID"; normalize TR W/ PIREM -> TR_WITH_PIREM
-        natureOfFlight: (() => {
-          const nof = String(editEntry.natureOfFlight ?? "").trim();
-          if (nof === "VOID") return "VOID";
-          if (nof === "TR W/ PIREM" || nof === "TR_WITH_PIREM")
-            return "TR_WITH_PIREM";
-          return nof;
-        })(),
+        natureOfFlight: editNatureOfFlight,
         offBlocksDate: editEntry.originDate || "",
         offBlocksTime: zuluTimeToTimeInputValue(editEntry.originTime),
         offBlocksStation: editEntry.originStation || "",
@@ -2641,17 +2636,20 @@ export function AddTechnicalLogbookEntryModal({
         nextInspectionDue: editEntry.nextInspectionDue || "",
         tachTimeDue: editEntry.tachTimeDue?.toString() || "",
         ...(() => {
-          const split = splitAtlRemarks(editEntry.remarks);
+          const fields = applyAtlRemarksText(
+            editNatureOfFlight,
+            editEntry.remarks
+          );
           return {
-            pilotReport: split.pilotReport,
-            maintenanceEntry: split.maintenanceEntry,
+            pilotReport: toUppercaseInput(fields.pilotReport),
+            maintenanceEntry: toUppercaseInput(fields.maintenanceEntry),
           };
         })(),
         remarksPerson: atlAssigneeIdToFormValue(
           editEntry.remarkPerson ?? editEntry.maintenanceFk
         ),
         remarksPersonName: "",
-        actionsTaken: editEntry.actionsTaken || "",
+        actionsTaken: toUppercaseInput(readAtlActionsTaken(editEntry)),
         actionsTakenPerson: atlAssigneeIdToFormValue(
           editEntry.actiontakenPerson ??
             editEntry.actionTakenPerson ??
@@ -3102,10 +3100,12 @@ export function AddTechnicalLogbookEntryModal({
         setFormData((prev) => ({
           ...prev,
           ...atlRemarksFromNofDescription(
-            description.remarks,
+            toUppercaseInput(description.remarks),
             prev.natureOfFlight
           ),
-          actionsTaken: description.actionTaken,
+          actionsTaken: toUppercaseInput(
+            normalizeMultilineText(description.actionTaken)
+          ),
         }));
         setNofDefaultsMessage(null);
       } catch (err) {
@@ -4855,6 +4855,32 @@ export function AddTechnicalLogbookEntryModal({
     return { isValid: Object.keys(errors).length === 0, errors };
   };
 
+  const commitAtlMultilineText = () => {
+    setFormData((prev) => {
+      const remarks = applyAtlRemarksText(
+        prev.natureOfFlight,
+        toUppercaseInput(
+          atlVisibleRemarksText(
+            prev.natureOfFlight,
+            prev.pilotReport,
+            prev.maintenanceEntry
+          )
+        )
+      );
+      const actionsTaken = toUppercaseInput(
+        normalizeMultilineText(prev.actionsTaken)
+      );
+      if (
+        remarks.pilotReport === prev.pilotReport &&
+        remarks.maintenanceEntry === prev.maintenanceEntry &&
+        actionsTaken === prev.actionsTaken
+      ) {
+        return prev;
+      }
+      return { ...prev, ...remarks, actionsTaken };
+    });
+  };
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
 
@@ -5151,16 +5177,12 @@ export function AddTechnicalLogbookEntryModal({
           oilQtyAfterOnBlks: formData.oilQtyAfterOnBlks
             ? parseFloat(formData.oilQtyAfterOnBlks)
             : undefined,
-          remarks: (() => {
-            const combined = combineAtlRemarks(
-              formData.pilotReport,
-              formData.maintenanceEntry
-            );
-            return combined == null ? undefined : toUppercaseInput(combined);
-          })(),
-          actionsTaken: formData.actionsTaken
-            ? toUppercaseInput(formData.actionsTaken)
-            : undefined,
+          remarks: atlRemarksForApi(
+            formData.natureOfFlight,
+            formData.pilotReport,
+            formData.maintenanceEntry
+          ),
+          actionsTaken: atlActionsTakenForApi(formData.actionsTaken),
           // Pilot Acceptance Name: form selection only (null when None/cleared)
           ...pilotAcceptanceNameFieldsForApi(formData.pilotFk),
           // Remarks / Actions Taken Name: null when unassigned (same as pilotAcceptedBy)
@@ -6705,12 +6727,14 @@ export function AddTechnicalLogbookEntryModal({
                       </label>
                       <AutoResizeTextarea
                         value={formData.pilotReport}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            pilotReport: e.target.value,
-                          })
-                        }
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            ...assignAtlRemarksText(prev.natureOfFlight, value),
+                          }));
+                        }}
+                        onBlur={commitAtlMultilineText}
                         disabled={loadingNofDefaults}
                         className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                       />
@@ -6725,12 +6749,14 @@ export function AddTechnicalLogbookEntryModal({
                       </label>
                       <AutoResizeTextarea
                         value={formData.maintenanceEntry}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            maintenanceEntry: e.target.value,
-                          })
-                        }
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            ...assignAtlRemarksText(prev.natureOfFlight, value),
+                          }));
+                        }}
+                        onBlur={commitAtlMultilineText}
                         disabled={loadingNofDefaults}
                         className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                       />
@@ -6744,20 +6770,19 @@ export function AddTechnicalLogbookEntryModal({
                         Remarks
                       </label>
                       <AutoResizeTextarea
-                        value={
-                          combineAtlRemarks(
-                            formData.pilotReport,
-                            formData.maintenanceEntry
-                          ) ?? ""
-                        }
+                        value={atlVisibleRemarksText(
+                          formData.natureOfFlight,
+                          formData.pilotReport,
+                          formData.maintenanceEntry
+                        )}
                         onChange={(e) => {
-                          const split = splitAtlRemarks(e.target.value);
-                          setFormData({
-                            ...formData,
-                            pilotReport: split.pilotReport,
-                            maintenanceEntry: split.maintenanceEntry,
-                          });
+                          const value = e.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            ...assignAtlRemarksText(prev.natureOfFlight, value),
+                          }));
                         }}
+                        onBlur={commitAtlMultilineText}
                         disabled={loadingNofDefaults}
                         className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                       />
@@ -6930,12 +6955,11 @@ export function AddTechnicalLogbookEntryModal({
                     </label>
                     <AutoResizeTextarea
                       value={formData.actionsTaken}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          actionsTaken: e.target.value,
-                        })
-                      }
+                      onChange={(e) => {
+                        const actionsTaken = e.target.value;
+                        setFormData((prev) => ({ ...prev, actionsTaken }));
+                      }}
+                      onBlur={commitAtlMultilineText}
                       disabled={loadingNofDefaults}
                       className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:bg-gray-50 disabled:text-gray-500"
                     />

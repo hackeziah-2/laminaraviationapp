@@ -1,4 +1,11 @@
-import { createAccount, getAccountsPaged, getAllAccounts } from "./accountApi";
+import {
+  createAccount,
+  getAccount,
+  getAccountInformationById,
+  getAccountsPaged,
+  getAllAccounts,
+  updateAccount,
+} from "./accountApi";
 import { getMe } from "./authApi";
 import { getRoles, type Role } from "./rolesApi";
 import {
@@ -13,6 +20,7 @@ import {
   isAssignableTechnicalPublicationUserRole,
   pickAssignableTechnicalPublicationRoles,
   resolveTechnicalPublicationAccountRoleName,
+  technicalPublicationDateInputValue,
   validateTechnicalPublicationAddUserForm,
   type TechnicalPublicationAddUserFormValues,
 } from "../utility/technicalPublicationAddUser";
@@ -38,6 +46,12 @@ export class TechnicalPublicationUserValidationError extends Error {
 
 export type TechnicalPublicationCreateUserPayload =
   TechnicalPublicationAddUserFormValues;
+
+export type TechnicalPublicationUserEditRecord = {
+  id: number;
+  status: boolean;
+  form: TechnicalPublicationAddUserFormValues;
+};
 
 export type TechnicalPublicationUserListRow = {
   id: number;
@@ -248,6 +262,109 @@ export async function createTechnicalPublicationUser(
       auth_stamp: payload.authStamp.trim() || undefined,
     });
   } catch (error) {
+    const fields = readApiFieldErrors(error);
+    if (Object.keys(fields).length > 0) {
+      throw new TechnicalPublicationUserValidationError(fields);
+    }
+    throw error;
+  }
+}
+
+async function assertAssignableRole(roleId: number) {
+  const roles = await getRoles();
+  const assignable = pickAssignableTechnicalPublicationRoles(roles);
+  const selected = assignable.find((role) => role.id === roleId);
+  if (!selected || !isAssignableTechnicalPublicationUserRole(selected.name)) {
+    throw new TechnicalPublicationUserValidationError({
+      roleId: "Role must be Pilot or a Mechanic role",
+    });
+  }
+  return selected;
+}
+
+export async function getTechnicalPublicationUserForEdit(
+  accountId: number
+): Promise<TechnicalPublicationUserEditRecord> {
+  await assertTechnicalPublicationCanManageUsers();
+  const [account, info] = await Promise.all([
+    getAccount(accountId),
+    getAccountInformationById(accountId),
+  ]);
+  return {
+    id: account.id || accountId,
+    status: account.status,
+    form: {
+      firstName: account.firstName ?? "",
+      lastName: account.lastName ?? "",
+      middleName: account.middleName ?? "",
+      username: account.username ?? "",
+      email: account.email ?? "",
+      designation: account.designation ?? "",
+      licenseNo: account.licenseNo ?? "",
+      authStamp: info.auth_stamp ?? account.authStamp ?? "",
+      authInitialDoi: technicalPublicationDateInputValue(
+        info.auth_initial_doi
+      ),
+      roleId: account.roleId ?? 0,
+      password: "",
+      confirmPassword: "",
+    },
+  };
+}
+
+export async function updateTechnicalPublicationUser(
+  accountId: number,
+  payload: TechnicalPublicationCreateUserPayload,
+  status = true
+): Promise<void> {
+  await assertTechnicalPublicationCanManageUsers();
+
+  const formErrors = validateTechnicalPublicationAddUserForm(payload, {
+    requirePassword: false,
+  });
+  if (Object.keys(formErrors).length > 0) {
+    throw new TechnicalPublicationUserValidationError(formErrors);
+  }
+
+  const username = payload.username.trim();
+  const email = payload.email.trim();
+  const [userHits, emailHits, selected] = await Promise.all([
+    loadAccountsForUniqueness(username),
+    email.toLowerCase() === username.toLowerCase()
+      ? Promise.resolve([])
+      : loadAccountsForUniqueness(email),
+    assertAssignableRole(payload.roleId),
+  ]);
+
+  const conflicts = accountConflictsWithUsernameOrEmail(
+    [...userHits, ...emailHits],
+    username,
+    email,
+    accountId
+  );
+  if (conflicts.username || conflicts.email) {
+    throw new TechnicalPublicationUserValidationError({
+      ...(conflicts.username ? { username: conflicts.username } : {}),
+      ...(conflicts.email ? { email: conflicts.email } : {}),
+    });
+  }
+
+  try {
+    await updateAccount(accountId, {
+      firstName: payload.firstName.trim(),
+      lastName: payload.lastName.trim(),
+      middleName: payload.middleName.trim(),
+      username,
+      email,
+      designation: payload.designation.trim(),
+      licenseNo: payload.licenseNo.trim(),
+      roleId: selected.id,
+      status,
+      auth_initial_doi: payload.authInitialDoi.trim() || null,
+      auth_stamp: payload.authStamp.trim() || null,
+    });
+  } catch (error) {
+    if (error instanceof TechnicalPublicationUserValidationError) throw error;
     const fields = readApiFieldErrors(error);
     if (Object.keys(fields).length > 0) {
       throw new TechnicalPublicationUserValidationError(fields);
