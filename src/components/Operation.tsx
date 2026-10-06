@@ -181,12 +181,31 @@ const ATL_CR_HEADER_COLS_AFTER = 8;
 const ATL_CR_LEAF_COL_COUNT = 7;
 /** Leaf columns before Component Record in Reliability Monitoring. */
 const ATL_RM_HEADER_COLS_BEFORE = 8;
-/** Shared ACTION TAKEN width (All Columns + Reliability Monitoring). */
-const ATL_ACTION_TAKEN_COL_STYLE: CSSProperties = {
-  width: "360px",
-  minWidth: "360px",
-  whiteSpace: "normal",
+/** Shared multiline text columns (All Columns + Reliability Monitoring). */
+const ATL_MULTILINE_CELL_STYLE: CSSProperties = {
+  whiteSpace: "pre-wrap",
   overflowWrap: "anywhere",
+};
+/** Remarks is narrower; Action Taken is slightly wider. Combined width stays 720px. */
+const ATL_REMARKS_COL_WIDTH = "300px";
+const ATL_ACTION_TAKEN_COL_WIDTH = "420px";
+const ATL_REMARKS_COL_SIZE: CSSProperties = {
+  width: ATL_REMARKS_COL_WIDTH,
+  minWidth: ATL_REMARKS_COL_WIDTH,
+  maxWidth: ATL_REMARKS_COL_WIDTH,
+};
+const ATL_ACTION_TAKEN_COL_SIZE: CSSProperties = {
+  width: ATL_ACTION_TAKEN_COL_WIDTH,
+  minWidth: ATL_ACTION_TAKEN_COL_WIDTH,
+  maxWidth: ATL_ACTION_TAKEN_COL_WIDTH,
+};
+const ATL_REMARKS_COL_STYLE: CSSProperties = {
+  ...ATL_REMARKS_COL_SIZE,
+  ...ATL_MULTILINE_CELL_STYLE,
+};
+const ATL_ACTION_TAKEN_COL_STYLE: CSSProperties = {
+  ...ATL_ACTION_TAKEN_COL_SIZE,
+  ...ATL_MULTILINE_CELL_STYLE,
 };
 
 function AtlStickyHeaderFillCells({
@@ -246,10 +265,11 @@ function AtlAllColumnsColgroup() {
 function AtlReliabilityMonitoringColgroup() {
   return (
     <colgroup>
-      {Array.from({ length: ATL_RM_HEADER_COLS_BEFORE - 1 }, (_, i) => (
+      {Array.from({ length: ATL_RM_HEADER_COLS_BEFORE - 2 }, (_, i) => (
         <col key={`rm-before-${i}`} />
       ))}
-      <col className="min-w-[360px] w-[360px]" />
+      <col style={ATL_REMARKS_COL_SIZE} />
+      <col style={ATL_ACTION_TAKEN_COL_SIZE} />
       <AtlCrLeafColgroupCols />
     </colgroup>
   );
@@ -2776,8 +2796,7 @@ export function Operation() {
                           <th
                             className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
                             style={{
-                              width: "360px",
-                              minWidth: "360px",
+                              ...ATL_REMARKS_COL_SIZE,
                               whiteSpace: "normal",
                               overflowWrap: "anywhere",
                             }}
@@ -2798,8 +2817,7 @@ export function Operation() {
                           <th
                             className="px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200"
                             style={{
-                              width: "360px",
-                              minWidth: "360px",
+                              ...ATL_ACTION_TAKEN_COL_SIZE,
                               whiteSpace: "normal",
                               overflowWrap: "anywhere",
                             }}
@@ -2971,7 +2989,7 @@ export function Operation() {
                           {/* Sticky fillers under top-only headers (rowspan breaks sticky) */}
                           <th
                             className={ATL_TH_STICKY_FILL_CLASS}
-                            style={{ width: "360px", minWidth: "360px" }}
+                            style={ATL_REMARKS_COL_SIZE}
                             aria-hidden="true"
                           >
                             {"\u00a0"}
@@ -2985,7 +3003,7 @@ export function Operation() {
                           </th>
                           <th
                             className={ATL_TH_STICKY_FILL_CLASS}
-                            style={{ width: "360px", minWidth: "360px" }}
+                            style={ATL_ACTION_TAKEN_COL_SIZE}
                             aria-hidden="true"
                           >
                             {"\u00a0"}
@@ -3287,12 +3305,7 @@ export function Operation() {
                               </td>
                               <td
                                 className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
-                                style={{
-                                  width: "360px",
-                                  minWidth: "360px",
-                                  whiteSpace: "normal",
-                                  overflowWrap: "anywhere",
-                                }}
+                                style={ATL_REMARKS_COL_STYLE}
                               >
                                 {formatAtlListCell(record.remarks)}
                               </td>
@@ -3309,12 +3322,7 @@ export function Operation() {
                               </td>
                               <td
                                 className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white"
-                                style={{
-                                  width: "360px",
-                                  minWidth: "360px",
-                                  whiteSpace: "normal",
-                                  overflowWrap: "anywhere",
-                                }}
+                                style={ATL_ACTION_TAKEN_COL_STYLE}
                               >
                                 {formatAtlListCell(record.actionsTaken)}
                               </td>
@@ -3622,7 +3630,10 @@ export function Operation() {
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlListCell(record.oilQtyAfterOnBlks)}
                               </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                              <td
+                                className="px-3 py-2 text-sm border-r border-gray-200"
+                                style={ATL_MULTILINE_CELL_STYLE}
+                              >
                                 {formatAtlListCell(record.remarks)}
                               </td>
                               <td className="px-3 py-2 text-sm">
@@ -3874,7 +3885,10 @@ export function Operation() {
                           <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
                             RETURN TO SERVICE PERSON
                           </th>
-                          <th className={`${ATL_TH_BASE_CLASS} align-middle`}>
+                          <th
+                            className={`${ATL_TH_BASE_CLASS} align-middle`}
+                            style={ATL_REMARKS_COL_SIZE}
+                          >
                             REMARKS
                           </th>
                           <th
@@ -3892,12 +3906,19 @@ export function Operation() {
                         </tr>
                         <tr className="bg-gray-100">
                           <AtlStickyHeaderFillCells
-                            count={ATL_RM_HEADER_COLS_BEFORE - 1}
+                            count={ATL_RM_HEADER_COLS_BEFORE - 2}
                             stickySeqFirst
                           />
                           <th
                             className={ATL_TH_STICKY_FILL_CLASS}
-                            style={{ width: "360px", minWidth: "360px" }}
+                            style={ATL_REMARKS_COL_SIZE}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={ATL_ACTION_TAKEN_COL_SIZE}
                             aria-hidden="true"
                           >
                             {"\u00a0"}
@@ -3932,12 +3953,19 @@ export function Operation() {
                         </tr>
                         <tr className="bg-gray-100">
                           <AtlStickyHeaderFillCells
-                            count={ATL_RM_HEADER_COLS_BEFORE - 1}
+                            count={ATL_RM_HEADER_COLS_BEFORE - 2}
                             stickySeqFirst
                           />
                           <th
                             className={ATL_TH_STICKY_FILL_CLASS}
-                            style={{ width: "360px", minWidth: "360px" }}
+                            style={ATL_REMARKS_COL_SIZE}
+                            aria-hidden="true"
+                          >
+                            {"\u00a0"}
+                          </th>
+                          <th
+                            className={ATL_TH_STICKY_FILL_CLASS}
+                            style={ATL_ACTION_TAKEN_COL_SIZE}
                             aria-hidden="true"
                           >
                             {"\u00a0"}
@@ -4069,7 +4097,10 @@ export function Operation() {
                               <td className="px-3 py-2 text-sm border-r border-gray-200">
                                 {formatAtlAssigneeListCell(record.rtsSignedBy)}
                               </td>
-                              <td className="px-3 py-2 text-sm border-r border-gray-200">
+                              <td
+                                className="px-3 py-2 text-sm border-r border-gray-200"
+                                style={ATL_REMARKS_COL_STYLE}
+                              >
                                 {formatAtlListCell(record.remarks)}
                               </td>
                               <td

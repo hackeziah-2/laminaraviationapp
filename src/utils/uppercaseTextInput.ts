@@ -88,6 +88,11 @@ export const ATL_FORM_UPPERCASE_SKIP_KEYS: ReadonlySet<string> = new Set([
   "rtsTime",
   "remarksPerson",
   "actionsTakenPerson",
+  // Multiline text: live uppercasing rewrites the value and throws the caret
+  // when the user inserts or deletes in the middle. Uppercase on blur and save.
+  "pilotReport",
+  "maintenanceEntry",
+  "actionsTaken",
   "whiteAtlWebLink",
   "dfpWebLink",
   "totalFlightTime",

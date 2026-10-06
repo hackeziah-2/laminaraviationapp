@@ -24,6 +24,10 @@ describe("toUppercaseInput", () => {
     expect(toUppercaseInput("")).toBe("");
     expect(toUppercaseInput("P/N-123")).toBe("P/N-123");
   });
+
+  it("keeps line breaks in multiline logbook text", () => {
+    expect(toUppercaseInput("line one\nline two\n")).toBe("LINE ONE\nLINE TWO\n");
+  });
 });
 
 describe("uppercaseRecordStringFields", () => {
@@ -60,7 +64,9 @@ describe("uppercase skip sets", () => {
     expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("seqNo")).toBe(true);
     expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("fuelQtyLeftUpliftQty")).toBe(true);
     expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("offBlocksStation")).toBe(false);
-    expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("pilotReport")).toBe(false);
+    expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("pilotReport")).toBe(true);
+    expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("maintenanceEntry")).toBe(true);
+    expect(ATL_FORM_UPPERCASE_SKIP_KEYS.has("actionsTaken")).toBe(true);
   });
 
   it("skips maintenance logbook ids, dates, numbers, and web links", () => {
@@ -110,6 +116,30 @@ describe("wrapUppercaseFormSetter", () => {
     setFormData((prev) => ({ ...prev, description: "oil leak" }));
     expect(state.description).toBe("OIL LEAK");
     expect(state.webLink).toBe("https://Keep/Case");
+  });
+
+  it("leaves Pilot Report and Actions Taken unchanged while typing in the middle", () => {
+    let state = {
+      pilotReport: "HELLO WORLD",
+      actionsTaken: "SECURED PANEL",
+      offBlocksStation: "mnl",
+    };
+    const setState = (
+      update: typeof state | ((prev: typeof state) => typeof state)
+    ) => {
+      state = typeof update === "function" ? update(state) : update;
+    };
+    const setFormData = wrapUppercaseFormSetter(
+      setState,
+      ATL_FORM_UPPERCASE_SKIP_KEYS
+    );
+
+    setFormData((prev) => ({ ...prev, pilotReport: "HELLXO WORLD" }));
+    expect(state.pilotReport).toBe("HELLXO WORLD");
+
+    setFormData((prev) => ({ ...prev, actionsTaken: "SECUcRED PANEL" }));
+    expect(state.actionsTaken).toBe("SECUcRED PANEL");
+    expect(state.offBlocksStation).toBe("MNL");
   });
 });
 

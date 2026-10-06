@@ -85,29 +85,36 @@ export function pickAssignableTechnicalPublicationRoles<
 }
 
 export function accountConflictsWithUsernameOrEmail(
-  accounts: Array<{ username?: string; email?: string }>,
+  accounts: Array<{ id?: number; username?: string; email?: string }>,
   username: string,
-  email: string
+  email: string,
+  excludeAccountId?: number
 ): Partial<Record<"username" | "email", string>> {
   const wantUser = username.trim().toLowerCase();
   const wantEmail = email.trim().toLowerCase();
+  const isOtherAccount = (account: { id?: number }) =>
+    excludeAccountId == null || Number(account.id) !== excludeAccountId;
   const fields: Partial<Record<"username" | "email", string>> = {};
   if (
     wantUser &&
     accounts.some(
-      (a) => String(a.username ?? "").trim().toLowerCase() === wantUser
+      (a) =>
+        isOtherAccount(a) &&
+        String(a.username ?? "").trim().toLowerCase() === wantUser
     )
   ) {
     fields.username = "Username is already taken";
   }
-  // if (
-  //   wantEmail &&
-  //   accounts.some(
-  //     (a) => String(a.email ?? "").trim().toLowerCase() === wantEmail
-  //   )
-  // ) {
-  //   fields.email = "Email address is already taken";
-  // }
+  if (
+    wantEmail &&
+    accounts.some(
+      (a) =>
+        isOtherAccount(a) &&
+        String(a.email ?? "").trim().toLowerCase() === wantEmail
+    )
+  ) {
+    fields.email = "Email address is already taken";
+  }
   return fields;
 }
 
@@ -133,9 +140,11 @@ export function accountMatchesTechnicalPublicationSearch(
 }
 
 export function validateTechnicalPublicationAddUserForm(
-  values: TechnicalPublicationAddUserFormValues
+  values: TechnicalPublicationAddUserFormValues,
+  options?: { requirePassword?: boolean }
 ): Record<string, string> {
   const errors: Record<string, string> = {};
+  const requirePassword = options?.requirePassword !== false;
 
   if (!values.firstName.trim()) errors.firstName = "First name is required";
   if (!values.lastName.trim()) errors.lastName = "Last name is required";
@@ -147,11 +156,20 @@ export function validateTechnicalPublicationAddUserForm(
     errors.designation = "Designation is required";
   if (!values.licenseNo.trim()) errors.licenseNo = "License No. is required";
   if (!values.roleId) errors.roleId = "Role is required";
-  if (!values.password) errors.password = "Password is required";
-  if (!values.confirmPassword)
-    errors.confirmPassword = "Confirm password is required";
-  else if (values.password !== values.confirmPassword)
-    errors.confirmPassword = "Passwords do not match";
+  if (requirePassword || values.password || values.confirmPassword) {
+    if (!values.password) errors.password = "Password is required";
+    if (!values.confirmPassword)
+      errors.confirmPassword = "Confirm password is required";
+    else if (values.password !== values.confirmPassword)
+      errors.confirmPassword = "Passwords do not match";
+  }
 
   return errors;
+}
+
+/** DateInput stores YYYY-MM-DD. API values may include a time portion. */
+export function technicalPublicationDateInputValue(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  return match?.[1] ?? "";
 }

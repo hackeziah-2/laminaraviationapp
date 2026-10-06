@@ -88,6 +88,25 @@ describe("accountConflictsWithUsernameOrEmail", () => {
       accountConflictsWithUsernameOrEmail(accounts, "newuser", "new@a.com")
     ).toEqual({});
   });
+
+  it("ignores the account being edited", () => {
+    expect(
+      accountConflictsWithUsernameOrEmail(
+        [{ id: 9, username: "jdoe", email: "jane@aviation.com" }],
+        "jdoe",
+        "jane@aviation.com",
+        9
+      )
+    ).toEqual({});
+    expect(
+      accountConflictsWithUsernameOrEmail(
+        [{ id: 3, username: "jdoe", email: "other@aviation.com" }],
+        "jdoe",
+        "new@aviation.com",
+        9
+      )
+    ).toEqual({ username: "Username is already taken" });
+  });
 });
 
 describe("accountMatchesTechnicalPublicationSearch", () => {
@@ -140,5 +159,22 @@ describe("validateTechnicalPublicationAddUserForm", () => {
     });
     expect(errors.email).toBe("Enter a valid email address");
     expect(errors.confirmPassword).toBe("Passwords do not match");
+  });
+
+  it("does not require a password when editing an existing user", () => {
+    const errors = validateTechnicalPublicationAddUserForm(
+      {
+        ...EMPTY_TECHNICAL_PUBLICATION_ADD_USER_FORM,
+        firstName: "Jane",
+        lastName: "Doe",
+        username: "jdoe",
+        email: "jane@aviation.com",
+        designation: "Line Pilot",
+        licenseNo: "LIC-1",
+        roleId: 2,
+      },
+      { requirePassword: false }
+    );
+    expect(errors).toEqual({});
   });
 });
