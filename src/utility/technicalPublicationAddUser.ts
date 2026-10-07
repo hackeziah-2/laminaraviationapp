@@ -85,16 +85,14 @@ export function pickAssignableTechnicalPublicationRoles<
 }
 
 export function accountConflictsWithUsernameOrEmail(
-  accounts: Array<{ id?: number; username?: string; email?: string }>,
+  accounts: Array<{ id?: number; username?: string }>,
   username: string,
-  email: string,
   excludeAccountId?: number
-): Partial<Record<"username" | "email", string>> {
+): Partial<Record<"username", string>> {
   const wantUser = username.trim().toLowerCase();
-  const wantEmail = email.trim().toLowerCase();
   const isOtherAccount = (account: { id?: number }) =>
     excludeAccountId == null || Number(account.id) !== excludeAccountId;
-  const fields: Partial<Record<"username" | "email", string>> = {};
+  const fields: Partial<Record<"username", string>> = {};
   if (
     wantUser &&
     accounts.some(
@@ -105,16 +103,7 @@ export function accountConflictsWithUsernameOrEmail(
   ) {
     fields.username = "Username is already taken";
   }
-  if (
-    wantEmail &&
-    accounts.some(
-      (a) =>
-        isOtherAccount(a) &&
-        String(a.email ?? "").trim().toLowerCase() === wantEmail
-    )
-  ) {
-    fields.email = "Email address is already taken";
-  }
+
   return fields;
 }
 
