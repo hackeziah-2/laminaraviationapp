@@ -215,23 +215,15 @@ export async function createTechnicalPublicationUser(
 
   const username = payload.username.trim();
   const email = payload.email.trim();
-  const [userHits, emailHits, roles] = await Promise.all([
+  const [userHits, roles] = await Promise.all([
     loadAccountsForUniqueness(username),
-    email.toLowerCase() === username.toLowerCase()
-      ? Promise.resolve([])
-      : loadAccountsForUniqueness(email),
     getRoles(),
   ]);
 
-  const conflicts = accountConflictsWithUsernameOrEmail(
-    [...userHits, ...emailHits],
-    username,
-    email
-  );
-  if (conflicts.username || conflicts.email) {
+  const conflicts = accountConflictsWithUsernameOrEmail(userHits, username);
+  if (conflicts.username) {
     throw new TechnicalPublicationUserValidationError({
-      ...(conflicts.username ? { username: conflicts.username } : {}),
-      ...(conflicts.email ? { email: conflicts.email } : {}),
+      username: conflicts.username,
     });
   }
 
@@ -328,24 +320,19 @@ export async function updateTechnicalPublicationUser(
 
   const username = payload.username.trim();
   const email = payload.email.trim();
-  const [userHits, emailHits, selected] = await Promise.all([
+  const [userHits, selected] = await Promise.all([
     loadAccountsForUniqueness(username),
-    email.toLowerCase() === username.toLowerCase()
-      ? Promise.resolve([])
-      : loadAccountsForUniqueness(email),
     assertAssignableRole(payload.roleId),
   ]);
 
   const conflicts = accountConflictsWithUsernameOrEmail(
-    [...userHits, ...emailHits],
+    userHits,
     username,
-    email,
     accountId
   );
-  if (conflicts.username || conflicts.email) {
+  if (conflicts.username) {
     throw new TechnicalPublicationUserValidationError({
-      ...(conflicts.username ? { username: conflicts.username } : {}),
-      ...(conflicts.email ? { email: conflicts.email } : {}),
+      username: conflicts.username,
     });
   }
 
