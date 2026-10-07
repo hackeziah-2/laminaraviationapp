@@ -9,6 +9,8 @@ export interface AuthUser {
   username?: string;
   email: string;
   role: string;
+  /** Job title from account information, separate from the permission role. */
+  designation?: string;
   /** Role ID for loading permissions; may come from backend or resolved by role name */
   roleId?: number;
   status: "active" | "inactive";
@@ -99,12 +101,21 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     .replace(/\s+/g, " ")
     .trim();
   const username = getStr("username") || undefined;
+  const nestedAccount = raw.account_information ?? raw.accountInformation;
+  const nestedDesignation =
+    nestedAccount && typeof nestedAccount === "object"
+      ? String(
+          (nestedAccount as Record<string, unknown>).designation ?? ""
+        ).trim()
+      : "";
+  const designation = getStr("designation").trim() || nestedDesignation;
   return {
     id: isNaN(id) ? 0 : id,
     name: getStr("name") || getStr("full_name") || composedName || username || "",
     username,
     email: getStr("email"),
     role: pickRoleString(raw),
+    designation: designation || undefined,
     roleId: isNaN(roleId) ? undefined : roleId,
     status: (getStr("status", "active").toLowerCase() === "inactive" ? "inactive" : "active") as "active" | "inactive",
     lastLogin: getStr("last_login") || getStr("lastLogin", "Never"),

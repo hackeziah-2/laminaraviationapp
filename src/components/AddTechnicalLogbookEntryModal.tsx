@@ -6083,12 +6083,11 @@ export function AddTechnicalLogbookEntryModal({
                       <div className="atl-blocks-date min-w-0">
                         <label className="block text-gray-700 text-sm mb-1">
                           Date (UTC)
-                          {requirePrfDetails ? (
-                            <span className="text-red-600"> *</span>
-                          ) : null}
+                          <span className="text-red-600"> *</span>
                         </label>
                         <DateInput
                           value={formData.offBlocksDate}
+                          required
                           onChange={(offBlocksDate) => {
                             handleCalculationFieldChange(
                               "offBlocksDate",
@@ -8555,7 +8554,11 @@ export function AddTechnicalLogbookEntryModal({
                   void requestClose();
                 }}
                 disabled={isSubmitting}
-                className="form-btn-primary px-4 py-2 text-white rounded-lg transition-colors transition-colors disabled:opacity-50"
+                className={`px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+                  atlFormReadOnly
+                    ? "form-btn-primary text-white"
+                    : "logbook-cancel-btn"
+                }`}
               >
                 {atlFormReadOnly ? "Close" : "Cancel"}
               </button>

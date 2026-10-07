@@ -20,6 +20,8 @@ import {
   UserPlus,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { getAccount } from "../api/accountApi";
+import { getAccountIdFromAccessToken } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import { isTechnicalPublicationRole } from "../utility/atlEditRbac";
 import type { LucideIcon } from "lucide-react";
@@ -147,7 +149,12 @@ export function Sidebar({
 
   const headerDisplayName =
     meUser?.name?.trim() || meUser?.email?.trim() || (meLoading ? "…" : "User");
-  const headerRole = meUser?.role?.trim() || (meLoading ? "…" : "—");
+  const [assignedDesignation, setAssignedDesignation] = useState("");
+  const [designationLoading, setDesignationLoading] = useState(false);
+  const headerRole =
+    assignedDesignation ||
+    meUser?.designation?.trim() ||
+    (meLoading || designationLoading ? "…" : "—");
   const [regulatoryExpanded, setRegulatoryExpanded] = useState(false);
   const regulatoryCloseTimeoutRef = useRef<ReturnType<
     typeof setTimeout
@@ -159,6 +166,43 @@ export function Sidebar({
         clearTimeout(regulatoryCloseTimeoutRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (meLoading || !meUser) return;
+
+    const fromMe = meUser.designation?.trim() ?? "";
+    if (fromMe) {
+      setAssignedDesignation(fromMe);
+      return;
+    }
+
+    const fromUser = meUser.accountInformationId ?? meUser.id;
+    const accountId =
+      fromUser > 0 ? fromUser : getAccountIdFromAccessToken();
+    if (!accountId) {
+      setAssignedDesignation("");
+      return;
+    }
+
+    let cancelled = false;
+    setDesignationLoading(true);
+    getAccount(accountId)
+      .then((account) => {
+        if (!cancelled) {
+          setAssignedDesignation(account.designation?.trim() ?? "");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAssignedDesignation("");
+      })
+      .finally(() => {
+        if (!cancelled) setDesignationLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [meLoading, meUser]);
 
   const menuItems = MENU_ITEMS.filter((item) => {
     if (item.requireTechnicalPublicationRole) {
@@ -225,11 +269,16 @@ export function Sidebar({
                 type="button"
                 onClick={goToMyProfile}
                 className="mt-0.5 w-full truncate text-left text-xs font-medium text-blue-600 underline underline-offset-2 decoration-blue-600/80 transition-colors hover:text-blue-800 hover:decoration-blue-800 focus:outline-none focus:text-blue-800 focus:decoration-blue-800"
-                title={`My Profile - ${headerRole}`}
+                title={`My Profile`}
               >
                 My Profile
               </button>
-              {headerRole}
+              <p
+                className="mt-0.5 truncate text-xs text-gray-500"
+                title={headerRole}
+              >
+                {headerRole}
+              </p>
             </div>
           )}
           {/* Mobile Close Button */}
