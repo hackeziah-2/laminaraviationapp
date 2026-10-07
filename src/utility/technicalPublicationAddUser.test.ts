@@ -70,22 +70,15 @@ describe("accountConflictsWithUsernameOrEmail", () => {
     { username: "pilot1", email: "pilot@aviation.com" },
   ];
 
-  it("flags exact username and email matches case-insensitively", () => {
-    expect(
-      accountConflictsWithUsernameOrEmail(accounts, "JDOE", "other@a.com")
-    ).toEqual({ username: "Username is already taken" });
-    expect(
-      accountConflictsWithUsernameOrEmail(
-        accounts,
-        "newuser",
-        "PILOT@aviation.com"
-      )
-    ).toEqual({ email: "Email address is already taken" });
+  it("flags exact username matches case-insensitively", () => {
+    expect(accountConflictsWithUsernameOrEmail(accounts, "JDOE")).toEqual({
+      username: "Username is already taken",
+    });
   });
 
-  it("returns empty when both are unused", () => {
+  it("returns empty when the username is unused", () => {
     expect(
-      accountConflictsWithUsernameOrEmail(accounts, "newuser", "new@a.com")
+      accountConflictsWithUsernameOrEmail(accounts, "newuser")
     ).toEqual({});
   });
 
@@ -94,7 +87,6 @@ describe("accountConflictsWithUsernameOrEmail", () => {
       accountConflictsWithUsernameOrEmail(
         [{ id: 9, username: "jdoe", email: "jane@aviation.com" }],
         "jdoe",
-        "jane@aviation.com",
         9
       )
     ).toEqual({});
@@ -102,7 +94,6 @@ describe("accountConflictsWithUsernameOrEmail", () => {
       accountConflictsWithUsernameOrEmail(
         [{ id: 3, username: "jdoe", email: "other@aviation.com" }],
         "jdoe",
-        "new@aviation.com",
         9
       )
     ).toEqual({ username: "Username is already taken" });
