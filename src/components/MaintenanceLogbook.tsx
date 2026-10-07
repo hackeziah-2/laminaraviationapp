@@ -1296,10 +1296,16 @@ export function MaintenanceLogbook() {
 
       const mapped = mapAtlToMaintenanceLogbookFields(atl);
       const category = activeCategory;
+      const populatedDate = atlBlank(atl.originDate);
+      if (populatedDate) {
+        setValidationErrors((prev) =>
+          prev.date ? { ...prev, date: "" } : prev
+        );
+      }
       setFormData((prev) => {
         if (prev.sequenceNo !== seq) return prev;
         const next = { ...prev, sequenceNo: seq, ...mapped };
-        next.date = atlBlank(atl.originDate);
+        next.date = populatedDate;
         next.tachTime = atlBlank(atl.tachEnd);
 
         if (
@@ -1718,6 +1724,10 @@ export function MaintenanceLogbook() {
       errors.sequenceNo = "Sequence Number is required";
     } else if (sequenceNo && !/^\d+$/.test(sequenceNo)) {
       errors.sequenceNo = "Sequence Number must be a valid number";
+    }
+
+    if (!editingEntry && !(formData.date?.trim() ?? "")) {
+      errors.date = "Date is required.";
     }
 
     const webLinkTrimmed = formData.webLink.trim();
@@ -3394,16 +3404,44 @@ export function MaintenanceLogbook() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-gray-700 text-sm mb-1.5">
-                        Date:
+                      <label
+                        className="block text-gray-700 text-sm mb-1.5"
+                        htmlFor="logbook-entry-date"
+                      >
+                        Date
+                        {!editingEntry ? (
+                          <span className="text-red-600"> *</span>
+                        ) : null}
                       </label>
                       <DateInput
+                        id="logbook-entry-date"
                         value={formData.date}
-                        onChange={(date) =>
-                          setFormData({ ...formData, date })
+                        required={!editingEntry}
+                        aria-invalid={!!validationErrors.date}
+                        aria-describedby={
+                          validationErrors.date
+                            ? "logbook-entry-date-error"
+                            : undefined
                         }
+                        onChange={(date) => {
+                          setFormData({ ...formData, date });
+                          if (validationErrors.date) {
+                            setValidationErrors((prev) => ({
+                              ...prev,
+                              date: "",
+                            }));
+                          }
+                        }}
                         inputClassName="border-gray-300 rounded-lg text-sm bg-white text-gray-900"
                       />
+                      {validationErrors.date ? (
+                        <p
+                          id="logbook-entry-date-error"
+                          className="text-red-500 text-xs mt-1"
+                        >
+                          {validationErrors.date}
+                        </p>
+                      ) : null}
                     </div>
                     <div>
                       <label className="block text-gray-700 text-sm mb-1.5">
@@ -4405,7 +4443,7 @@ export function MaintenanceLogbook() {
               <button
                 onClick={requestCloseMaintenanceForm}
                 disabled={isSaving}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="logbook-cancel-btn px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>

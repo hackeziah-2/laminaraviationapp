@@ -3712,6 +3712,21 @@ input[data-slot="date-input"] {
   border-top: 1px solid rgba(255, 255, 255, 0.25);
 }
 
+.add-form .modal-navy-footer .logbook-cancel-btn:not(:disabled),
+.edit-form .modal-navy-footer .logbook-cancel-btn:not(:disabled),
+.modal-navy-footer .logbook-cancel-btn:not(:disabled) {
+  background-color: #dc2626;
+  color: #ffffff;
+  border: 1px solid #b91c1c;
+}
+
+.add-form .modal-navy-footer .logbook-cancel-btn:hover:not(:disabled),
+.edit-form .modal-navy-footer .logbook-cancel-btn:hover:not(:disabled),
+.modal-navy-footer .logbook-cancel-btn:hover:not(:disabled) {
+  background-color: #b91c1c;
+  color: #ffffff;
+}
+
 .modal-header-close {
   display: inline-flex;
   align-items: center;

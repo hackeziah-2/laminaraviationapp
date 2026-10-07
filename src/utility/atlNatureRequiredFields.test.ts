@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ATL_DATE_REQUIRED_MESSAGE,
   ATL_REQUIRED_FIELD_MESSAGE,
   assertAtlNatureRequiredFields,
   collectAtlNatureRequiredFieldErrors,
@@ -15,6 +16,7 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
           natureOfFlight: nature,
           tachometerEnd: "",
           hobbsMeterEnd: null,
+          originDate: "2026-09-22",
         })
       ).toEqual({
         tachometerEnd: ATL_REQUIRED_FIELD_MESSAGE,
@@ -29,6 +31,7 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
         nature_of_flight: "EGR",
         tachometer_end: undefined,
         hobbs_meter_end: "  ",
+        origin_date: "2026-09-22",
       })
     ).toEqual({
       tachometerEnd: ATL_REQUIRED_FIELD_MESSAGE,
@@ -42,6 +45,7 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
         natureOfFlight: "TR",
         tachometerEnd: 0,
         hobbsMeterEnd: "0",
+        originDate: "2026-09-22",
       })
     ).toEqual({});
   });
@@ -60,7 +64,7 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
         pilotAcceptTime: null,
       })
     ).toEqual({
-      offBlocksDate: ATL_REQUIRED_FIELD_MESSAGE,
+      offBlocksDate: ATL_DATE_REQUIRED_MESSAGE,
       offBlocksTime: ATL_REQUIRED_FIELD_MESSAGE,
       rtsSignedBy: ATL_REQUIRED_FIELD_MESSAGE,
       rtsDate: ATL_REQUIRED_FIELD_MESSAGE,
@@ -92,9 +96,38 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
       collectAtlNatureRequiredFieldErrors({
         natureOfFlight: "PSF",
         tachometerEnd: "",
-        originDate: "",
+        originDate: "2026-09-22",
       })
     ).toEqual({});
+  });
+
+  it("requires the entry date for every nature of flight", () => {
+    for (const nature of ["TR", "TR W/ PIREM", "EGR", "PRF", "PSF", "VOID"]) {
+      expect(
+        collectAtlNatureRequiredFieldErrors({
+          natureOfFlight: nature,
+          originDate: "",
+          tachometerEnd: "1",
+          hobbsMeterEnd: "1",
+          originTime: "10:00",
+          rtsSignedBy: 4,
+          rtsDate: "2026-09-22",
+          rtsTime: "10:30",
+          pilotFk: 8,
+          pilotAcceptDate: "2026-09-22",
+          pilotAcceptTime: "11:00",
+        }).offBlocksDate
+      ).toBe(ATL_DATE_REQUIRED_MESSAGE);
+    }
+  });
+
+  it("requires a blank entry date on update for every nature", () => {
+    expect(
+      collectAtlNatureRequiredFieldErrors(
+        { natureOfFlight: "PSF", originDate: "  " },
+        "update"
+      )
+    ).toEqual({ offBlocksDate: ATL_DATE_REQUIRED_MESSAGE });
   });
 
   it("treats omitted nature as TR on create", () => {
@@ -120,7 +153,11 @@ describe("assertAtlNatureRequiredFields", () => {
   it("throws a 422-style error that blocks save", () => {
     expect(() =>
       assertAtlNatureRequiredFields(
-        { nature_of_flight: "TR", tachometer_end: null },
+        {
+          nature_of_flight: "TR",
+          tachometer_end: null,
+          origin_date: "2026-09-22",
+        },
         "create"
       )
     ).toThrow(/required/i);

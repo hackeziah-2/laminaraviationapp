@@ -1,6 +1,7 @@
 import { toNatureOfFlightType } from "../api/natureOfFlightDescriptionsApi";
 
 export const ATL_REQUIRED_FIELD_MESSAGE = "This field is required.";
+export const ATL_DATE_REQUIRED_MESSAGE = "Date is required.";
 
 export type AtlNatureRequiredFieldKey =
   | "tachometerEnd"
@@ -82,6 +83,15 @@ function pickField(
   return undefined;
 }
 
+function payloadHasAlias(
+  payload: Record<string, unknown>,
+  key: AtlNatureRequiredFieldKey
+): boolean {
+  return FIELD_ALIASES[key].some((alias) =>
+    Object.prototype.hasOwnProperty.call(payload, alias)
+  );
+}
+
 function hasNatureKey(payload: Record<string, unknown>): boolean {
   return (
     Object.prototype.hasOwnProperty.call(payload, "natureOfFlight") ||
@@ -146,7 +156,6 @@ export function collectAtlNatureRequiredFieldErrors(
   }
 
   if (PRF_NATURES.has(nature)) {
-    requireField(errors, payload, "offBlocksDate", isAtlRequiredFieldBlank);
     requireField(errors, payload, "offBlocksTime", isAtlRequiredFieldBlank);
     requireField(errors, payload, "rtsSignedBy", isMissingAssignee);
     requireField(errors, payload, "rtsDate", isAtlRequiredFieldBlank);
@@ -154,6 +163,16 @@ export function collectAtlNatureRequiredFieldErrors(
     requireField(errors, payload, "pilotFk", isMissingAssignee);
     requireField(errors, payload, "pilotAcceptDate", isAtlRequiredFieldBlank);
     requireField(errors, payload, "pilotAcceptTime", isAtlRequiredFieldBlank);
+  }
+
+  // Entry date (Off-Blocks / origin) is required for every nature of flight.
+  if (
+    mode === "create" ||
+    payloadHasAlias(payload, "offBlocksDate")
+  ) {
+    if (isAtlRequiredFieldBlank(pickField(payload, "offBlocksDate"))) {
+      errors.offBlocksDate = ATL_DATE_REQUIRED_MESSAGE;
+    }
   }
 
   return errors;
