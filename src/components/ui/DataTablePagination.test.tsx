@@ -111,6 +111,22 @@ describe("DataTablePagination", () => {
     expect(onPageChange).toHaveBeenCalledWith(1);
   });
 
+  it("uses an exact page size when the rows-per-page control is hidden", () => {
+    render(
+      <DataTablePagination
+        currentPage={2}
+        totalPages={3}
+        totalItems={45}
+        itemsPerPage={20}
+        totalLabel="aircraft"
+        onPageChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText("21–40")).toBeTruthy();
+    expect(screen.getByText("aircraft")).toBeTruthy();
+    expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
   it("labels the control Rows per page", () => {
     render(
       <DataTablePagination

@@ -652,14 +652,30 @@ export function formatAtlTachHobbsDisplay1dp(
   return n.toFixed(1);
 }
 
-/** Engine/propeller TBO display in ATL create & edit forms (1 decimal place). */
-export function formatAtlTboDisplay1dp(
+/**
+ * Engine and propeller ATL hours (run, flight, TSN, TSO, TBO, totals).
+ * Keeps two decimal places. A difference of 0.01 is preserved; values are not
+ * rounded to one decimal place.
+ */
+export function formatAtlEnginePropHours2dp(
   value: unknown,
   fallback = ""
 ): string {
   if (value == null || value === "") return fallback;
   const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : fallback;
+  return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
+/** Tach End − Tach Start for engine/propeller run time, quantized to 2 decimals. */
+export function atlEnginePropRunHoursFromTach(
+  tachometerStart: unknown,
+  tachometerEnd: unknown
+): string {
+  const start = Number(tachometerStart);
+  const end = Number(tachometerEnd);
+  const raw =
+    (Number.isFinite(end) ? end : 0) - (Number.isFinite(start) ? start : 0);
+  return formatAtlEnginePropHours2dp(raw, "0.00");
 }
 
 /**

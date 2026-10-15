@@ -3083,6 +3083,98 @@ input[data-slot="date-input"] {
   box-sizing: border-box;
 }
 
+/* Aircraft Master Timesheet — one pale color per column (overrides the gray sticky header). */
+.atl-all-columns-table > thead > tr > th.atl-th-airframe {
+  background-color: #e8b923 !important;
+  color: #3f2e00;
+}
+.atl-all-columns-table > thead > tr > th.atl-th-engine {
+  background-color: #3d7ec4 !important;
+  color: #ffffff;
+}
+.atl-all-columns-table > thead > tr > th.atl-th-propeller {
+  background-color: #1aafb8 !important;
+  color: #ffffff;
+}
+.atl-all-columns-table > thead > tr > th.atl-th-group-end,
+.atl-all-columns-table > tbody > tr > td.atl-td-group-end {
+  border-right-width: 2px;
+  border-right-color: #9ca3af;
+}
+/* Run Time — no color (white through header, spacer, and cells). */
+.atl-all-columns-table > thead > tr > th.atl-ts-af-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-af-run,
+.atl-all-columns-table > thead > tr > th.atl-ts-en-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-run,
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-run {
+  background-color: #ffffff !important;
+  color: #1f2937;
+}
+/* Airframe AFTT — pale gold */
+.atl-all-columns-table > thead > tr > th.atl-ts-af-aftt,
+.atl-all-columns-table > tbody > tr > td.atl-ts-af-aftt {
+  background-color: #f3e0a0 !important;
+  color: #1f2937;
+}
+/* Engine TSN — pale lavender */
+.atl-all-columns-table > thead > tr > th.atl-ts-en-tsn,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tsn {
+  background-color: #e4dcf5 !important;
+  color: #1f2937;
+}
+/* Engine TSO — pale cyan */
+.atl-all-columns-table > thead > tr > th.atl-ts-en-tso,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tso {
+  background-color: #cff3f6 !important;
+  color: #1f2937;
+}
+/* Engine and Propeller TBO — same pale rose */
+.atl-all-columns-table > thead > tr > th.atl-ts-en-tbo,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tbo,
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-tbo,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tbo {
+  background-color: #f8d5e0 !important;
+  color: #1f2937;
+}
+/* Propeller TSN — pale teal */
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-tsn,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tsn {
+  background-color: #c5ebe6 !important;
+  color: #1f2937;
+}
+/* Propeller TSO — aqua */
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-tso,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tso {
+  background-color: #a8e8e0 !important;
+  color: #1f2937;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-af-aftt {
+  background-color: #ecd48a !important;
+  border-bottom-color: #ecd48a;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-en-tsn {
+  background-color: #d6cbed !important;
+  border-bottom-color: #d6cbed;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-en-tso {
+  background-color: #b7eaf0 !important;
+  border-bottom-color: #b7eaf0;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-en-tbo,
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-pr-tbo {
+  background-color: #f3c2d1 !important;
+  border-bottom-color: #f3c2d1;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-pr-tsn {
+  background-color: #b0e0d9 !important;
+  border-bottom-color: #b0e0d9;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-pr-tso {
+  background-color: #8fddd3 !important;
+  border-bottom-color: #8fddd3;
+}
+
 /* Row 1 — stick to top of scroll container */
 .atl-all-columns-table > thead > tr:first-child > th {
   top: 0;
@@ -3151,6 +3243,51 @@ input[data-slot="date-input"] {
   user-select: none;
 }
 
+/* Timesheet columns stay one solid color through the spacer row (no gray seam). */
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-af-run,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-en-run,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-pr-run,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-af-aftt,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-en-tsn,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-en-tso,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-en-tbo,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-pr-tsn,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-pr-tso,
+.atl-all-columns-table > thead > tr:last-child > th.atl-ts-pr-tbo {
+  box-shadow: none;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-af-run,
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-en-run,
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-pr-run {
+  border-top-color: #ffffff;
+  border-bottom-color: #ffffff;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-af-aftt {
+  border-top-color: #f3e0a0;
+  border-bottom-color: #f3e0a0;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-en-tsn {
+  border-top-color: #e4dcf5;
+  border-bottom-color: #e4dcf5;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-en-tso {
+  border-top-color: #cff3f6;
+  border-bottom-color: #cff3f6;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-en-tbo,
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-pr-tbo {
+  border-top-color: #f8d5e0;
+  border-bottom-color: #f8d5e0;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-pr-tsn {
+  border-top-color: #c5ebe6;
+  border-bottom-color: #c5ebe6;
+}
+.atl-all-columns-table > thead > tr:nth-child(3) > th.atl-th-sticky-fill.atl-ts-pr-tso {
+  border-top-color: #a8e8e0;
+  border-bottom-color: #a8e8e0;
+}
+
 /* Nested Component Record body tables — never sticky */
 .atl-all-columns-table > tbody table thead th,
 .atl-all-columns-table > tbody table td {
@@ -3177,6 +3314,32 @@ input[data-slot="date-input"] {
   box-sizing: border-box;
 }
 
+/* Timesheet column color runs through row borders — no gray line inside the column. */
+.atl-all-columns-table > tbody > tr > td.atl-ts-af-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-run {
+  border-bottom-color: #ffffff;
+}
+.atl-all-columns-table > tbody > tr > td.atl-ts-af-aftt {
+  border-bottom-color: #f3e0a0;
+}
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tsn {
+  border-bottom-color: #e4dcf5;
+}
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tso {
+  border-bottom-color: #cff3f6;
+}
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tbo,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tbo {
+  border-bottom-color: #f8d5e0;
+}
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tsn {
+  border-bottom-color: #c5ebe6;
+}
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tso {
+  border-bottom-color: #a8e8e0;
+}
+
 /* Body first column — sticky horizontally only */
 .atl-all-columns-table > tbody > tr > td.atl-td-sticky-seq,
 .atl-all-columns-table > tbody > tr > td.sticky {
@@ -3186,6 +3349,13 @@ input[data-slot="date-input"] {
   background-color: #f3f4f6 !important;
   background-clip: padding-box;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* Selected ATL row — covers white, gray sequence, status, and timesheet fills. */
+.atl-all-columns-table > tbody > tr.atl-row-selected > td,
+.atl-all-columns-table > tbody > tr.atl-row-selected:hover > td {
+  background-color: #dbeafe !important;
+  border-bottom-color: #d1d5db !important;
 }
 
 /* ATL White ATL / DFP file dropzone (Add + Edit forms) */

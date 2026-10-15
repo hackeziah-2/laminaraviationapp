@@ -732,8 +732,9 @@ const fetchAircraftTechnicalLogs = async (
 
 /**
  * Get paginated list of Aircraft Technical Log entries for operation views.
- * `GET /api/v1/aircraft-technical-log/manage/paged` — e.g.
- * `?atl_batch={id}&atl_batch_fk={id}&page=1&limit={n}&aircraft_id={id}&sort=-created_at&search={sequence_no}`
+ * `GET /api/v1/aircraft-technical-log/paged`
+ * Omit `atlBatchFk` so every batch for the aircraft is included.
+ * Example: `?page=1&page_size=50&limit=50&aircraft_id={id}&aircraft_fk={id}&sort=-sequence_no`
  */
 export const getAircraftTechnicalLogs = async (
   page = 1,
@@ -758,8 +759,9 @@ export const getAircraftTechnicalLogs = async (
 /**
  * Get paginated list of Aircraft Technical Log entries for manage/list views.
  * `GET /api/v1/aircraft-technical-log/manage/paged`
- * `atl_batch=all` returns assigned and unassigned batches for the aircraft.
- * A numeric `atl_batch` returns only rows in that batch and aircraft.
+ * Omit `aircraftFk` to include every aircraft.
+ * `atl_batch=all` returns assigned and unassigned batches.
+ * A numeric `atl_batch` returns only rows in that batch.
  */
 export const getManagedAircraftTechnicalLogs = async (
   page = 1,

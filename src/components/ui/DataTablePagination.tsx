@@ -142,9 +142,14 @@ export function DataTablePagination({
   const pageSizeId = React.useId();
   const hasItemsPerPage =
     itemsPerPageProp != null && onItemsPerPageChange != null;
-  const itemsPerPage = resolveApiPageSize(
-    itemsPerPageProp ?? DEFAULT_API_PAGE_SIZE
+  const exactPageSize = Math.max(
+    1,
+    Math.trunc(Number(itemsPerPageProp)) || DEFAULT_API_PAGE_SIZE
   );
+  /** Selectable sizes stay on 50 / 100 / 500. A fixed page size is used as given. */
+  const itemsPerPage = hasItemsPerPage
+    ? resolveApiPageSize(itemsPerPageProp ?? DEFAULT_API_PAGE_SIZE)
+    : exactPageSize;
 
   React.useEffect(() => {
     if (!hasItemsPerPage || itemsPerPageProp == null) return;

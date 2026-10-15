@@ -128,7 +128,11 @@ type AtlComponentPartRow = ComponentPartsRecord & {
 const STICKY_SEQ_CLASS =
   "atl-th-sticky-seq sticky top-0 left-0 z-[6] px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
-  "atl-td-sticky-seq sticky left-0 z-[1] px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 font-medium min-w-[140px] w-[140px]";
+  "atl-td-sticky-seq sticky left-0 z-[1] px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 font-medium min-w-[140px] w-[140px] cursor-pointer";
+
+function atlListRowClassName(baseClass: string, selected: boolean): string {
+  return selected ? `${baseClass} atl-row-selected` : baseClass;
+}
 
 const ATL_TABLE_SCROLL_CLASS = "atl-all-columns-scroll";
 const ATL_ALL_COLUMNS_TABLE_CLASS = "atl-all-columns-table";
@@ -177,6 +181,9 @@ const ATL_TD_CR_LEFT_CLASS = `${ATL_TD_CR_BASE_CLASS} text-left`;
 
 /** Leaf columns before / after Component Record in the all-columns thead. */
 const ATL_CR_HEADER_COLS_BEFORE = 36;
+/** All Columns leaves before the Airframe / Engine / Propeller timesheet. */
+const ATL_COLS_BEFORE_TIMESHEET = 16;
+const ATL_TIMESHEET_LEAF_COUNT = 10;
 const ATL_CR_HEADER_COLS_AFTER = 8;
 const ATL_CR_LEAF_COL_COUNT = 7;
 /** Leaf columns before Component Record in Reliability Monitoring. */
@@ -663,6 +670,130 @@ function formatValue(value: unknown): string {
   return formatAtlListCell(value, "-");
 }
 
+/** Aircraft Master Timesheet group titles (Airframe / Engine / Propeller). */
+const ATL_TIMESHEET_GROUP_CLASS =
+  "atl-th-timesheet px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide border-r border-gray-300 whitespace-nowrap";
+/** Column labels under each timesheet group. */
+const ATL_TIMESHEET_SUB_CLASS =
+  "atl-th-timesheet px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide border-r border-gray-300 whitespace-nowrap min-w-[5.75rem]";
+const ATL_TIMESHEET_TD_CLASS =
+  "atl-td-timesheet px-3 py-3 text-center text-sm font-semibold tabular-nums whitespace-nowrap";
+
+function AtlTimesheetGroupHeaders() {
+  return (
+    <>
+      <th
+        colSpan={2}
+        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-airframe`}
+      >
+        Airframe
+      </th>
+      <th
+        colSpan={4}
+        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-engine`}
+      >
+        Engine
+      </th>
+      <th
+        colSpan={4}
+        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-propeller atl-th-group-end`}
+      >
+        Propeller
+      </th>
+    </>
+  );
+}
+
+/** Row-3 spacers under the timesheet, same color as the column so the fill does not break. */
+const ATL_TIMESHEET_FILL_CLASSES = [
+  "atl-ts-af-run",
+  "atl-ts-af-aftt atl-th-group-end",
+  "atl-ts-en-run",
+  "atl-ts-en-tsn",
+  "atl-ts-en-tso",
+  "atl-ts-en-tbo atl-th-group-end",
+  "atl-ts-pr-run",
+  "atl-ts-pr-tsn",
+  "atl-ts-pr-tso",
+  "atl-ts-pr-tbo atl-th-group-end",
+] as const;
+
+function AtlTimesheetHeaderFillCells() {
+  return (
+    <>
+      {ATL_TIMESHEET_FILL_CLASSES.map((columnClass) => (
+        <th
+          key={columnClass}
+          className={`${ATL_TH_STICKY_FILL_CLASS} ${columnClass}`}
+          aria-hidden="true"
+        >
+          {"\u00a0"}
+        </th>
+      ))}
+    </>
+  );
+}
+
+function AtlTimesheetSubHeaders() {
+  return (
+    <>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-run`}>Run Time</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-aftt atl-th-group-end`}>
+        AFTT
+      </th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-run`}>Run Time</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tsn`}>TSN</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tso`}>TSO</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tbo atl-th-group-end`}>
+        TBO
+      </th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-run`}>Run Time</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tsn`}>TSN</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tso`}>TSO</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tbo atl-th-group-end`}>
+        TBO
+      </th>
+    </>
+  );
+}
+
+function AtlTimesheetCells({ record }: { record: AircraftTechnicalLog }) {
+  return (
+    <>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-run`}>
+        <b>{formatValue(record.airframeRunTime)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-aftt atl-td-group-end`}>
+        <b>{formatValue(record.airframeAftt)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-run`}>
+        <b>{formatValue(record.engineRunTime)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tsn`}>
+        <b>{formatValue(record.engineTsn)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tso`}>
+        <b>{formatValue(record.engineTso)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tbo atl-td-group-end`}>
+        <b>{formatValue(record.engineTbo)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-run`}>
+        <b>{formatValue(record.propellerRunTime)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tsn`}>
+        <b>{formatValue(record.propellerTsn)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tso`}>
+        <b>{formatValue(record.propellerTso)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tbo atl-td-group-end`}>
+        <b>{formatValue(record.propellerTbo)}</b>
+      </td>
+    </>
+  );
+}
+
 /** ATL list row metric: 0 / null / empty → "-"; non-zero keeps 2dp. */
 function formatAtlListRowMetric2dp(value: unknown): string {
   if (value == null || value === "" || isAtlListNumericZero(value)) return "-";
@@ -956,6 +1087,9 @@ export function Operation() {
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
+  const [highlightedAtlRowId, setHighlightedAtlRowId] = useState<number | null>(
+    null
+  );
   const [importLoading, setImportLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -975,8 +1109,6 @@ export function Operation() {
   const atlAllColumnsTheadRef = useRef<HTMLTableSectionElement>(null);
   const [atlHeaderRow1Height, setAtlHeaderRow1Height] = useState(40);
   const [atlHeaderRow2Height, setAtlHeaderRow2Height] = useState(32);
-  /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
-  const atlBatchFilterTouchedRef = useRef(false);
   /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
   const skipNextPagedFetchRef = useRef(false);
   const prevListQueryKeyRef = useRef("");
@@ -1034,6 +1166,8 @@ export function Operation() {
     if (Number.isFinite(aircraftId) && aircraftId > 0) {
       setSelectedAircraftId(aircraftId);
     }
+    // Each aircraft profile opens on every batch for that aircraft.
+    setSelectedAtlBatchId("");
   }, [aircraftId]);
 
   useEffect(() => {
@@ -1110,13 +1244,6 @@ export function Operation() {
         setAtlBatchFilterOptions(
           batches.map((b) => ({ id: b.id, name: b.name }))
         );
-        setSelectedAtlBatchId((prev) => {
-          if (batches.length === 0) return prev;
-          if (prev !== "") return prev;
-          if (atlBatchFilterTouchedRef.current) return prev;
-          const latest = pickLatestAtlBatchId(batches);
-          return latest != null ? String(latest) : prev;
-        });
       })
       .catch(() => {
         if (!cancelled) setAtlBatchFilterOptions([]);
@@ -1129,7 +1256,6 @@ export function Operation() {
   useEffect(() => {
     if (!showAtlBatchFilter) {
       setSelectedAtlBatchId("");
-      atlBatchFilterTouchedRef.current = false;
       setAtlBatchModalOpen(false);
       setAtlBatchModalEditId(null);
     }
@@ -1139,7 +1265,8 @@ export function Operation() {
     selectedAtlBatchFk ?? ""
   }|${sequenceSort}`;
 
-  // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
+  // Fleet Time list: GET /api/v1/aircraft-technical-log/paged
+  // Opens with every batch for this aircraft, sorted by sequence_no descending.
   useEffect(() => {
     if (skipNextPagedFetchRef.current) {
       skipNextPagedFetchRef.current = false;
@@ -2516,7 +2643,6 @@ export function Operation() {
                       value={selectedAtlBatchId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        atlBatchFilterTouchedRef.current = true;
                         setSelectedAtlBatchId(v);
                         if (v.trim() !== "") setAtlBatchFilterError("");
                       }}
@@ -2763,24 +2889,7 @@ export function Operation() {
                           <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
                             TACHOMETER
                           </th>
-                          <th
-                            colSpan={2}
-                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                          >
-                            AIRFRAME
-                          </th>
-                          <th
-                            colSpan={4}
-                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                          >
-                            ENGINE
-                          </th>
-                          <th
-                            colSpan={4}
-                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                          >
-                            PROPELLER
-                          </th>
+                          <AtlTimesheetGroupHeaders />
                           <th
                             colSpan={3}
                             className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
@@ -2919,42 +3028,7 @@ export function Operation() {
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             TACH END
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            HRS
-                            <br />
-                            RUN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AFTT
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            HRS
-                            <br />
-                            RUN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSO
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TBO
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            HRS
-                            <br />
-                            RUN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSO
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TBO
-                          </th>
+                          <AtlTimesheetSubHeaders />
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             UPLIFT QTY
                             <br />
@@ -3073,8 +3147,16 @@ export function Operation() {
                         </tr>
                         <tr>
                           <AtlStickyHeaderFillCells
-                            count={ATL_CR_HEADER_COLS_BEFORE}
+                            count={ATL_COLS_BEFORE_TIMESHEET}
                             stickySeqFirst
+                          />
+                          <AtlTimesheetHeaderFillCells />
+                          <AtlStickyHeaderFillCells
+                            count={
+                              ATL_CR_HEADER_COLS_BEFORE -
+                              ATL_COLS_BEFORE_TIMESHEET -
+                              ATL_TIMESHEET_LEAF_COUNT
+                            }
                           />
                           <th
                             className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
@@ -3137,14 +3219,26 @@ export function Operation() {
                               key={record.id}
                               data-atl-entry-id={record.id}
                               data-list-entry-id={record.id}
-                              className="hover:bg-gray-50/50 transition-colors"
+                              aria-selected={highlightedAtlRowId === record.id}
+                              className={atlListRowClassName(
+                                "hover:bg-gray-50/50 transition-colors",
+                                highlightedAtlRowId === record.id
+                              )}
                             >
-                              <td className={STICKY_SEQ_CELL_CLASS}>
+                              <td
+                                className={STICKY_SEQ_CELL_CLASS}
+                                onClick={() =>
+                                  setHighlightedAtlRowId(record.id)
+                                }
+                              >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
                                   </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <div
+                                    className="flex items-center gap-1 text-blue-600 mt-1"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <button
                                       onClick={() => {
                                         setSelectedEntry(record);
@@ -3246,36 +3340,7 @@ export function Operation() {
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                 {formatAtlListCell(record.tachometerEnd)}
                               </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.airframeRunTime)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.airframeAftt)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineRunTime)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineTsn)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineTso)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineTbo)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerRunTime)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerTsn)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerTso)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerTbo)}</b>
-                              </td>
+                              <AtlTimesheetCells record={record} />
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                 {formatAtlFuelLeftRightForDisplay(
                                   record.fuelQtyLeftUpliftQty,
@@ -3535,14 +3600,26 @@ export function Operation() {
                             <tr
                               key={record.id}
                               data-list-entry-id={record.id}
-                              className="hover:bg-gray-50"
+                              aria-selected={highlightedAtlRowId === record.id}
+                              className={atlListRowClassName(
+                                "hover:bg-gray-50",
+                                highlightedAtlRowId === record.id
+                              )}
                             >
-                              <td className={STICKY_SEQ_CELL_CLASS}>
+                              <td
+                                className={STICKY_SEQ_CELL_CLASS}
+                                onClick={() =>
+                                  setHighlightedAtlRowId(record.id)
+                                }
+                              >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
                                   </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <div
+                                    className="flex items-center gap-1 text-blue-600 mt-1"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <button
                                       onClick={() => {
                                         setSelectedEntry(record);
@@ -3686,36 +3763,11 @@ export function Operation() {
                           <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             TACH END
                           </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME RUN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME AFTT
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE RUN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE TSN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE TSO
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE TBO
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER RUN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER TSN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER TSO
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap rounded-tr-lg">
-                            PROPELLER TBO
-                          </th>
+                          <AtlTimesheetGroupHeaders />
+                        </tr>
+                        <tr>
+                          <AtlStickyHeaderFillCells count={6} stickySeqFirst />
+                          <AtlTimesheetSubHeaders />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -3734,14 +3786,28 @@ export function Operation() {
                               <tr
                                 key={record.id}
                                 data-list-entry-id={record.id}
-                                className="hover:bg-gray-50"
+                                aria-selected={highlightedAtlRowId === record.id}
+                                className={atlListRowClassName(
+                                  "hover:bg-gray-50",
+                                  highlightedAtlRowId === record.id
+                                )}
                               >
-                                <td className={STICKY_SEQ_CELL_CLASS}>
+                                <td
+                                  className={STICKY_SEQ_CELL_CLASS}
+                                  onClick={() =>
+                                    setHighlightedAtlRowId(record.id)
+                                  }
+                                >
                                   <div className="flex flex-col">
                                     <span className="font-medium">
                                       {formatAtlListCell(record.sequenceNo)}
                                     </span>
-                                    <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                    <div
+                                      className="flex items-center gap-1 text-blue-600 mt-1"
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                    >
                                       <button
                                         onClick={() => {
                                           setSelectedEntry(record);
@@ -3809,36 +3875,7 @@ export function Operation() {
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.tachometerEnd)}
                                 </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.airframeRunTime)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.airframeAftt)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineRunTime)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineTsn)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineTso)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineTbo)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.propellerRunTime)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.propellerTsn)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.propellerTso)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm">
-                                  <b>{formatValue(record.propellerTbo)}</b>
-                                </td>
+                                <AtlTimesheetCells record={record} />
                               </tr>
                             );
                           })
@@ -4028,14 +4065,26 @@ export function Operation() {
                             <tr
                               key={record.id}
                               data-list-entry-id={record.id}
-                              className="hover:bg-gray-50"
+                              aria-selected={highlightedAtlRowId === record.id}
+                              className={atlListRowClassName(
+                                "hover:bg-gray-50",
+                                highlightedAtlRowId === record.id
+                              )}
                             >
-                              <td className={STICKY_SEQ_CELL_CLASS}>
+                              <td
+                                className={STICKY_SEQ_CELL_CLASS}
+                                onClick={() =>
+                                  setHighlightedAtlRowId(record.id)
+                                }
+                              >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
                                   </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <div
+                                    className="flex items-center gap-1 text-blue-600 mt-1"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <button
                                       onClick={() => {
                                         setSelectedEntry(record);
@@ -4149,7 +4198,6 @@ export function Operation() {
           setAtlBatchModalEditId(null);
         }}
         onSaved={(batch: AtlBatch) => {
-          atlBatchFilterTouchedRef.current = true;
           setAtlBatchFilterOptions((prev) => {
             const without = prev.filter((b) => b.id !== batch.id);
             return [...without, { id: batch.id, name: batch.name }].sort(

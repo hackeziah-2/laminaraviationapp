@@ -226,6 +226,12 @@ export function Sidebar({
     if (path === "/regulatory-compliance") {
       return location.pathname.startsWith("/regulatory-compliance");
     }
+    if (path === "/dashboard") {
+      return (
+        location.pathname === "/dashboard" ||
+        location.pathname.startsWith("/dashboard/")
+      );
+    }
     return location.pathname === path;
   };
 

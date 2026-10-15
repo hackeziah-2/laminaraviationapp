@@ -30,6 +30,7 @@ export function getModuleCode(label: string): string | undefined {
  * First match wins; use more specific paths first.
  */
 const PATH_TO_MODULE: { pattern: RegExp | string; moduleCode: string }[] = [
+  { pattern: "/dashboard/aircraft-fleet-dashboard", moduleCode: "dashboard" },
   { pattern: "/dashboard/aircraft-fuel-report", moduleCode: "dashboard" },
   { pattern: "/dashboard", moduleCode: "dashboard" },
   { pattern: "/settings", moduleCode: "settings" },
