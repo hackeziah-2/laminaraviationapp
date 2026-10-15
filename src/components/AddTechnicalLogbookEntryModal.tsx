@@ -88,6 +88,7 @@ import {
   natureRequiresPrfDetails,
   natureRequiresTachHobbsEnd,
 } from "../utility/atlNatureRequiredFields";
+import { AtlStoredFilePreview } from "./ui/AtlStoredFilePreview";
 import { DateInput } from "./ui/DateInput";
 import { FileDropzone } from "./ui/FileDropzone";
 import {
@@ -103,6 +104,10 @@ import {
   formatShortDisplayFileName,
   getAtlStoredUploadFilePath,
 } from "../api/fileUploadApi";
+import {
+  preparePreviewBlob,
+  resolveModuleDownloadPath,
+} from "../utils/moduleFilePreview";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   formatAtlWorkStatusLabel,
@@ -396,6 +401,11 @@ function atlAssigneeClosedDisplay(
 ): string {
   if (isAtlEmptyAssigneeValue(displayName)) return ATL_ASSIGNEE_NONE_LABEL;
   return String(displayName).trim();
+}
+
+/** RTS and Pilot's Acceptance show the person only after a selection. */
+function atlAssigneeNameOnly(fullName?: string | null): string {
+  return String(fullName ?? "").trim();
 }
 
 function shouldShowAtlAssigneeNoneOption(searchTerm: string): boolean {
@@ -2788,10 +2798,26 @@ export function AddTechnicalLogbookEntryModal({
       void (async () => {
         const resolveLabel = async (
           accountId?: number | string | null,
-          nested?: AircraftTechnicalLog["maintenance"]
+          nested?: AircraftTechnicalLog["maintenance"],
+          nameOnly = false
         ): Promise<{ label: string; account: Account | null }> => {
+          const labelFromAccount = (
+            fullName?: string | null,
+            licenseNo?: string | null
+          ) =>
+            nameOnly
+              ? atlAssigneeNameOnly(fullName)
+              : formatAccountNameLicense(fullName, licenseNo);
           if (nested) {
-            const fromNested = resolveAccountNameLicenseDisplay(nested, "");
+            const fromNested = nameOnly
+              ? atlAssigneeNameOnly(
+                  nested.fullName ||
+                    [nested.firstName, nested.middleName, nested.lastName]
+                      .map((part) => String(part ?? "").trim())
+                      .filter(Boolean)
+                      .join(" ")
+                )
+              : resolveAccountNameLicenseDisplay(nested, "");
             if (fromNested) {
               return {
                 label: fromNested,
@@ -2820,10 +2846,7 @@ export function AddTechnicalLogbookEntryModal({
           try {
             const account = await getAccount(normalizedId);
             return {
-              label: formatAccountNameLicense(
-                account.fullName,
-                account.licenseNo
-              ),
+              label: labelFromAccount(account.fullName, account.licenseNo),
               account,
             };
           } catch (err) {
@@ -2855,9 +2878,15 @@ export function AddTechnicalLogbookEntryModal({
         const pilotResolved = await resolveLabel(
           editEntry.pilotAcceptedBy !== undefined
             ? editEntry.pilotAcceptedBy
-            : editEntry.pilotFk ?? null
+            : editEntry.pilotFk ?? null,
+          undefined,
+          true
         );
-        const rtsResolved = await resolveLabel(editEntry.rtsSignedBy ?? null);
+        const rtsResolved = await resolveLabel(
+          editEntry.rtsSignedBy ?? null,
+          undefined,
+          true
+        );
 
         if (remarksResolved.account) {
           setRemarksAccounts((prev) => {
@@ -4158,9 +4187,7 @@ export function AddTechnicalLogbookEntryModal({
         (acc) => acc.id.toString() === formData.pilotFk
       );
       if (account)
-        return atlAssigneeClosedDisplay(
-          formatAccountNameLicense(account.fullName, account.licenseNo)
-        );
+        return atlAssigneeClosedDisplay(atlAssigneeNameOnly(account.fullName));
     }
     return ATL_ASSIGNEE_NONE_LABEL;
   };
@@ -4206,9 +4233,7 @@ export function AddTechnicalLogbookEntryModal({
         (acc) => acc.id.toString() === formData.rtsSignedBy
       );
       if (account)
-        return atlAssigneeClosedDisplay(
-          formatAccountNameLicense(account.fullName, account.licenseNo)
-        );
+        return atlAssigneeClosedDisplay(atlAssigneeNameOnly(account.fullName));
     }
     return ATL_ASSIGNEE_NONE_LABEL;
   };
@@ -4316,10 +4341,7 @@ export function AddTechnicalLogbookEntryModal({
         (item) => item.id.toString() === id
       );
       if (!account) return;
-      handlePilotSelect(
-        id,
-        formatAccountNameLicense(account.fullName, account.licenseNo)
-      );
+      handlePilotSelect(id, atlAssigneeNameOnly(account.fullName));
     },
   });
 
@@ -4348,10 +4370,7 @@ export function AddTechnicalLogbookEntryModal({
         (item) => item.id.toString() === id
       );
       if (!account) return;
-      handleRtsSelect(
-        id,
-        formatAccountNameLicense(account.fullName, account.licenseNo)
-      );
+      handleRtsSelect(id, atlAssigneeNameOnly(account.fullName));
     },
   });
 
@@ -5696,36 +5715,33 @@ export function AddTechnicalLogbookEntryModal({
     return null;
   };
 
-  /** True if file path is an image (show View button); otherwise only Download. */
-  const isImageFilePath = (path: string): boolean => {
+  /** Image or PDF can open in the preview window. */
+  const canPreviewAtlStoredFile = (path: string): boolean => {
     const mime = getMimeFromFilename(path);
-    return !!(mime && mime.startsWith("image/"));
+    return !!mime && (mime.startsWith("image/") || mime === "application/pdf");
   };
 
-  /** View file in modal (image popup; other types get download/open link) */
+  /** View file in the preview window. Does not start a download. */
   const handleViewAtlFile = async (
     folder: "white_atl" | "dfp",
     filePath: string
   ) => {
-    if (!filePath?.trim()) return;
+    const downloadPath = resolveModuleDownloadPath(folder, filePath);
+    if (!downloadPath) return;
     setFileViewLoading(true);
     setFileViewError(null);
-    setFileViewBlobUrl(null);
+    setFileViewBlobUrl((current) => {
+      if (current) window.URL.revokeObjectURL(current);
+      return null;
+    });
     setFileViewMimeType(null);
     setShowFileViewModal(true);
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
-      const blob = await downloadModuleFile(folder, filePath);
-      const url = window.URL.createObjectURL(blob);
-      const serverType =
-        blob.type || (blob as Blob & { type?: string }).type || null;
-      const isOctetStream =
-        !serverType || serverType === "application/octet-stream";
-      const mimeType = isOctetStream
-        ? getMimeFromFilename(filePath)
-        : serverType;
-      setFileViewBlobUrl(url);
-      setFileViewMimeType(mimeType ?? null);
+      const blob = await downloadModuleFile(folder, downloadPath);
+      const preview = await preparePreviewBlob(blob, downloadPath);
+      setFileViewBlobUrl(window.URL.createObjectURL(preview.blob));
+      setFileViewMimeType(preview.mimeType);
       setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
@@ -8068,9 +8084,8 @@ export function AddTechnicalLogbookEntryModal({
                                             onSelect={() =>
                                               handleRtsSelect(
                                                 account.id.toString(),
-                                                formatAccountNameLicense(
-                                                  account.fullName,
-                                                  account.licenseNo
+                                                atlAssigneeNameOnly(
+                                                  account.fullName
                                                 )
                                               )
                                             }
@@ -8083,10 +8098,7 @@ export function AddTechnicalLogbookEntryModal({
                                               optionIndex
                                             )}
                                           >
-                                            {formatAccountNameLicense(
-                                              account.fullName,
-                                              account.licenseNo
-                                            )}
+                                            {atlAssigneeNameOnly(account.fullName)}
                                           </AtlNameDropdownOption>
                                         );
                                       }
@@ -8342,9 +8354,8 @@ export function AddTechnicalLogbookEntryModal({
                                             onSelect={() =>
                                               handlePilotSelect(
                                                 account.id.toString(),
-                                                formatAccountNameLicense(
-                                                  account.fullName,
-                                                  account.licenseNo
+                                                atlAssigneeNameOnly(
+                                                  account.fullName
                                                 )
                                               )
                                             }
@@ -8357,10 +8368,7 @@ export function AddTechnicalLogbookEntryModal({
                                               optionIndex
                                             )}
                                           >
-                                            {formatAccountNameLicense(
-                                              account.fullName,
-                                              account.licenseNo
-                                            )}
+                                            {atlAssigneeNameOnly(account.fullName)}
                                           </AtlNameDropdownOption>
                                         );
                                       }
@@ -8508,7 +8516,7 @@ export function AddTechnicalLogbookEntryModal({
                             )}
                             {existingWhiteAtlFilePath !== "" && (
                               <div className="flex flex-col gap-1 mt-2">
-                                {isImageFilePath(existingWhiteAtlFilePath) && (
+                                {canPreviewAtlStoredFile(existingWhiteAtlFilePath) && (
                                   <button
                                     type="button"
                                     className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
@@ -8583,7 +8591,7 @@ export function AddTechnicalLogbookEntryModal({
                             )}
                             {existingDfpFilePath !== "" && (
                               <div className="flex flex-col gap-1 mt-2">
-                                {isImageFilePath(existingDfpFilePath) && (
+                                {canPreviewAtlStoredFile(existingDfpFilePath) && (
                                   <button
                                     type="button"
                                     className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
@@ -8719,18 +8727,14 @@ export function AddTechnicalLogbookEntryModal({
         </form>
       </div>
 
-      {/* File View Modal – View button for White ATL / DFP (image popup or download for other types) */}
+      {/* File View Modal – White ATL / DFP preview only; no download from View */}
       {showFileViewModal && (
         <div
-          className="modal-responsive-overlay fixed inset-0 z-[60] flex items-center justify-center"
+          className="atl-file-view-overlay fixed inset-0 z-[60] flex items-center justify-center"
           data-nested-overlay="true"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(4px)",
-          }}
         >
           <div
-            className="modal-navy-shell modal-responsive-dialog rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            className="atl-file-view-dialog modal-navy-shell rounded-xl shadow-xl"
             style={{ backgroundColor: "#022C75" }}
           >
             <ModalChromeHeader
@@ -8738,59 +8742,28 @@ export function AddTechnicalLogbookEntryModal({
               onClose={closeFileViewModal}
               className="rounded-t-xl"
             />
-            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
+            <div
+              className="atl-file-view-body"
+              onContextMenu={(event) => event.preventDefault()}
+            >
               {fileViewLoading && (
-                <div className="flex flex-col items-center gap-2 text-gray-500">
+                <div className="atl-file-view-status flex-col gap-2 text-gray-500">
                   <Loader2 className="w-8 h-8 animate-spin" />
                   <span className="text-sm">Loading file…</span>
                 </div>
               )}
               {fileViewError && !fileViewLoading && (
-                <div className="text-center text-red-600 text-sm">
+                <div className="atl-file-view-status text-red-600 text-sm">
                   {fileViewError}
                 </div>
               )}
               {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
-                <>
-                  {(fileViewMimeType?.startsWith("image/") ||
-                    fileViewMimeType === "image/jpeg" ||
-                    fileViewMimeType === "image/jpg") && (
-                    <img
-                      src={fileViewBlobUrl}
-                      alt="File preview"
-                      className="max-w-full max-h-[70vh] object-contain"
-                    />
-                  )}
-                  {(fileViewMimeType === "application/pdf" ||
-                    fileViewMimeType?.includes("pdf")) && (
-                    <iframe
-                      src={fileViewBlobUrl}
-                      title="File preview"
-                      className="w-full h-[70vh] border-0 rounded"
-                    />
-                  )}
-                  {fileViewBlobUrl &&
-                    !fileViewMimeType?.startsWith("image/") &&
-                    fileViewMimeType !== "image/jpeg" &&
-                    fileViewMimeType !== "image/jpg" &&
-                    fileViewMimeType !== "application/pdf" &&
-                    !fileViewMimeType?.includes("pdf") && (
-                      <div className="text-center text-gray-600 text-sm">
-                        <p className="mb-2">
-                          Preview not available for this file type.
-                        </p>
-                        <a
-                          href={fileViewBlobUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          Open in new tab / Download
-                        </a>
-                      </div>
-                    )}
-                </>
+                <AtlStoredFilePreview
+                  key={fileViewBlobUrl}
+                  blobUrl={fileViewBlobUrl}
+                  mimeType={fileViewMimeType}
+                  title="File preview"
+                />
               )}
             </div>
           </div>

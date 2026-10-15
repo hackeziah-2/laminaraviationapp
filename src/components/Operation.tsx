@@ -58,7 +58,12 @@ import {
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
+import {
+  preparePreviewBlob,
+  resolveModuleDownloadPath,
+} from "../utils/moduleFilePreview";
 import Swal from "../utils/swalDefaults";
+import { AtlStoredFilePreview } from "./ui/AtlStoredFilePreview";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
@@ -977,65 +982,70 @@ export function Operation() {
     }
   };
 
-  /** Infer MIME from filename when server returns octet-stream (so JPG/PDF are viewable) */
-  const getMimeFromFilename = (path: string): string | null => {
-    const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
-    if (ext === "pdf") return "application/pdf";
-    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-    if (ext === "png") return "image/png";
-    if (ext === "gif") return "image/gif";
-    if (ext === "webp") return "image/webp";
-    return null;
-  };
-
   /** View file in popup modal */
   const [showFileViewModal, setShowFileViewModal] = useState(false);
   const [fileViewBlobUrl, setFileViewBlobUrl] = useState<string | null>(null);
   const [fileViewMimeType, setFileViewMimeType] = useState<string | null>(null);
+  const [fileViewTitle, setFileViewTitle] = useState("View file");
   const [fileViewLoading, setFileViewLoading] = useState(false);
   const [fileViewError, setFileViewError] = useState<string | null>(null);
+  const fileViewRequestRef = useRef(0);
 
-  const handleViewFile = async (folder: string, filename: string) => {
-    if (!filename || !filename.trim()) return;
+  const replaceFileViewUrl = (nextUrl: string | null) => {
+    setFileViewBlobUrl((current) => {
+      if (current && current !== nextUrl) {
+        window.URL.revokeObjectURL(current);
+      }
+      return nextUrl;
+    });
+  };
+
+  const handleViewFile = async (
+    folder: "white_atl" | "dfp",
+    filename: string,
+    label: string
+  ) => {
+    const downloadPath = resolveModuleDownloadPath(folder, filename);
+    if (!downloadPath) return;
+    const requestId = ++fileViewRequestRef.current;
+    const displayName = downloadPath.split("/").pop() || label;
+    setFileViewTitle(`${label} — ${displayName}`);
     setFileViewLoading(true);
     setFileViewError(null);
-    setFileViewBlobUrl(null);
+    replaceFileViewUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
-      const blob = await downloadModuleFile(folder, filename);
-      const url = window.URL.createObjectURL(blob);
-      const serverType =
-        blob.type || (blob as Blob & { type?: string }).type || null;
-      const isOctetStream =
-        !serverType || serverType === "application/octet-stream";
-      const mimeType = isOctetStream
-        ? getMimeFromFilename(filename)
-        : serverType;
-      setFileViewBlobUrl(url);
-      setFileViewMimeType(mimeType ?? null);
+      const blob = await downloadModuleFile(folder, downloadPath);
+      if (requestId !== fileViewRequestRef.current) return;
+      const preview = await preparePreviewBlob(blob, downloadPath);
+      if (requestId !== fileViewRequestRef.current) return;
+      replaceFileViewUrl(window.URL.createObjectURL(preview.blob));
+      setFileViewMimeType(preview.mimeType);
       setFileViewError(null);
     } catch (err: any) {
+      if (requestId !== fileViewRequestRef.current) return;
       console.error("View file error:", err);
       setFileViewError(
         err?.response?.data?.detail || err?.message || "Failed to open file."
       );
-      setFileViewBlobUrl(null);
+      replaceFileViewUrl(null);
       setFileViewMimeType(null);
     } finally {
-      setFileViewLoading(false);
+      if (requestId === fileViewRequestRef.current) {
+        setFileViewLoading(false);
+      }
     }
   };
 
   const closeFileViewModal = () => {
-    if (fileViewBlobUrl) {
-      window.URL.revokeObjectURL(fileViewBlobUrl);
-    }
+    fileViewRequestRef.current += 1;
+    replaceFileViewUrl(null);
     setShowFileViewModal(false);
-    setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setFileViewError(null);
+    setFileViewTitle("View file");
   };
 
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
@@ -1087,9 +1097,17 @@ export function Operation() {
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
-  const [highlightedAtlRowId, setHighlightedAtlRowId] = useState<number | null>(
-    null
+  const [selectedAtlRowIds, setSelectedAtlRowIds] = useState<Set<number>>(
+    () => new Set()
   );
+  const toggleAtlRowSelection = (recordId: number) => {
+    setSelectedAtlRowIds((current) => {
+      const next = new Set(current);
+      if (next.has(recordId)) next.delete(recordId);
+      else next.add(recordId);
+      return next;
+    });
+  };
   const [importLoading, setImportLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -3219,17 +3237,15 @@ export function Operation() {
                               key={record.id}
                               data-atl-entry-id={record.id}
                               data-list-entry-id={record.id}
-                              aria-selected={highlightedAtlRowId === record.id}
+                              aria-selected={selectedAtlRowIds.has(record.id)}
                               className={atlListRowClassName(
                                 "hover:bg-gray-50/50 transition-colors",
-                                highlightedAtlRowId === record.id
+                                selectedAtlRowIds.has(record.id)
                               )}
                             >
                               <td
                                 className={STICKY_SEQ_CELL_CLASS}
-                                onClick={() =>
-                                  setHighlightedAtlRowId(record.id)
-                                }
+                                onClick={() => toggleAtlRowSelection(record.id)}
                               >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -3448,7 +3464,8 @@ export function Operation() {
                                         onClick={() =>
                                           handleViewFile(
                                             "white_atl",
-                                            whiteAtlFile
+                                            whiteAtlFile,
+                                            "White ATL"
                                           )
                                         }
                                       >
@@ -3488,7 +3505,7 @@ export function Operation() {
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
                                         onClick={() =>
-                                          handleViewFile("dfp", dfpFile)
+                                          handleViewFile("dfp", dfpFile, "DFP")
                                         }
                                       >
                                         <Eye className="w-4 h-4 flex-shrink-0" />
@@ -3600,17 +3617,15 @@ export function Operation() {
                             <tr
                               key={record.id}
                               data-list-entry-id={record.id}
-                              aria-selected={highlightedAtlRowId === record.id}
+                              aria-selected={selectedAtlRowIds.has(record.id)}
                               className={atlListRowClassName(
                                 "hover:bg-gray-50",
-                                highlightedAtlRowId === record.id
+                                selectedAtlRowIds.has(record.id)
                               )}
                             >
                               <td
                                 className={STICKY_SEQ_CELL_CLASS}
-                                onClick={() =>
-                                  setHighlightedAtlRowId(record.id)
-                                }
+                                onClick={() => toggleAtlRowSelection(record.id)}
                               >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -3786,17 +3801,15 @@ export function Operation() {
                               <tr
                                 key={record.id}
                                 data-list-entry-id={record.id}
-                                aria-selected={highlightedAtlRowId === record.id}
+                                aria-selected={selectedAtlRowIds.has(record.id)}
                                 className={atlListRowClassName(
                                   "hover:bg-gray-50",
-                                  highlightedAtlRowId === record.id
+                                  selectedAtlRowIds.has(record.id)
                                 )}
                               >
                                 <td
                                   className={STICKY_SEQ_CELL_CLASS}
-                                  onClick={() =>
-                                    setHighlightedAtlRowId(record.id)
-                                  }
+                                  onClick={() => toggleAtlRowSelection(record.id)}
                                 >
                                   <div className="flex flex-col">
                                     <span className="font-medium">
@@ -4065,17 +4078,15 @@ export function Operation() {
                             <tr
                               key={record.id}
                               data-list-entry-id={record.id}
-                              aria-selected={highlightedAtlRowId === record.id}
+                              aria-selected={selectedAtlRowIds.has(record.id)}
                               className={atlListRowClassName(
                                 "hover:bg-gray-50",
-                                highlightedAtlRowId === record.id
+                                selectedAtlRowIds.has(record.id)
                               )}
                             >
                               <td
                                 className={STICKY_SEQ_CELL_CLASS}
-                                onClick={() =>
-                                  setHighlightedAtlRowId(record.id)
-                                }
+                                onClick={() => toggleAtlRowSelection(record.id)}
                               >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
@@ -5013,88 +5024,54 @@ export function Operation() {
         })()}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}
-      {showFileViewModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">
-                View file
-              </span>
-              <button
-                type="button"
-                onClick={closeFileViewModal}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label="Close"
+      {showFileViewModal &&
+        createPortal(
+          <div className="atl-file-view-overlay fixed inset-0 z-[80] flex items-center justify-center">
+            <div className="atl-file-view-dialog bg-white rounded-xl shadow-xl">
+              <div className="atl-file-view-header flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200">
+                <span
+                  className="text-sm font-medium text-gray-900 truncate"
+                  title={fileViewTitle}
+                >
+                  {fileViewTitle}
+                </span>
+                <button
+                  type="button"
+                  onClick={closeFileViewModal}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors shrink-0"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div
+                className="atl-file-view-body"
+                onContextMenu={(event) => event.preventDefault()}
               >
-                <X className="w-5 h-5" />
-              </button>
+                {fileViewLoading && (
+                  <div className="atl-file-view-status flex-col gap-2 text-gray-500">
+                    <Spinner />
+                    <span className="text-sm">Loading file…</span>
+                  </div>
+                )}
+                {fileViewError && !fileViewLoading && (
+                  <div className="atl-file-view-status text-red-600 text-sm">
+                    {fileViewError}
+                  </div>
+                )}
+                {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
+                  <AtlStoredFilePreview
+                    key={fileViewBlobUrl}
+                    blobUrl={fileViewBlobUrl}
+                    mimeType={fileViewMimeType}
+                    title={fileViewTitle}
+                  />
+                )}
+              </div>
             </div>
-            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
-              {fileViewLoading && (
-                <div className="flex flex-col items-center gap-2 text-gray-500">
-                  <Spinner />
-                  <span className="text-sm">Loading file…</span>
-                </div>
-              )}
-              {fileViewError && !fileViewLoading && (
-                <div className="text-center text-red-600 text-sm">
-                  {fileViewError}
-                </div>
-              )}
-              {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
-                <>
-                  {/* JPG, JPEG, PNG, GIF, WebP – image preview */}
-                  {(fileViewMimeType?.startsWith("image/") ||
-                    fileViewMimeType === "image/jpeg" ||
-                    fileViewMimeType === "image/jpg") && (
-                    <img
-                      src={fileViewBlobUrl}
-                      alt="File preview"
-                      className="max-w-full max-h-[70vh] object-contain"
-                    />
-                  )}
-                  {/* PDF – iframe preview */}
-                  {(fileViewMimeType === "application/pdf" ||
-                    fileViewMimeType?.includes("pdf")) && (
-                    <iframe
-                      src={fileViewBlobUrl}
-                      title="File preview"
-                      className="w-full h-[70vh] border-0 rounded"
-                    />
-                  )}
-                  {fileViewBlobUrl &&
-                    !fileViewMimeType?.startsWith("image/") &&
-                    fileViewMimeType !== "image/jpeg" &&
-                    fileViewMimeType !== "image/jpg" &&
-                    fileViewMimeType !== "application/pdf" &&
-                    !fileViewMimeType?.includes("pdf") && (
-                      <div className="text-center text-gray-600 text-sm">
-                        <p className="mb-2">
-                          Preview not available for this file type.
-                        </p>
-                        <a
-                          href={fileViewBlobUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          Open in new tab / Download
-                        </a>
-                      </div>
-                    )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
