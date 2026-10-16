@@ -373,6 +373,16 @@ export function canManageAtlBatchFilter(
   return true;
 }
 
+/**
+ * White ATL and DFP files may be downloaded by every role except Mechanic.
+ * Mechanic - Maintenance Manager is not a Mechanic role and may download.
+ */
+export function canDownloadWhiteAtlAndDfp(
+  userRole: string | undefined
+): boolean {
+  return !isMechanicRole(userRole);
+}
+
 export function canCreateAtlBatch(userRole: string | undefined): boolean {
   return isAdminRole(userRole) || isMaintenancePlannerRole(userRole);
 }

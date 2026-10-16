@@ -1,29 +1,14 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Filter, RefreshCw, Search } from "lucide-react";
-import { getAircrafts } from "../api/aircraftApi";
-import { getAllFleetDailyUpdatesOrdered } from "../api/fleetDailyUpdateApi";
 import {
-  getAircraftTccMonitoring,
-  type TCCMonitoring,
-} from "../api/tccMonitoringApi";
-import { MAX_API_PAGE_SIZE } from "../constants/pagination";
+  AIRCRAFT_FLEET_DASHBOARD_PAGE_SIZE,
+  getAircraftFleetDashboard,
+  type AircraftFleetDashboardResponse,
+} from "../api/aircraftFleetDashboardApi";
 import { formatDisplayDate } from "../utility/utils";
 import { formatApiErrorMessage } from "../utils/formatApiErrorMessage";
-import { isConfiguredComponentLimit } from "../utils/componentLimit";
-import {
-  FLEET_DASHBOARD_PAGE_SIZE,
-  buildMagnetoRows,
-  formatTachHours,
-  joinFleetDashboardAircraft,
-  paginateFleetAircraft,
-  remainingBeforeReplacement,
-  remainingHoursClass,
-  type FleetDashboardAircraft,
-  type FleetDashboardAircraftInput,
-  type FleetMagnetoRow,
-  type MagnetoComponentInput,
-} from "../utils/fleetMagnetoRows";
+import { remainingHoursClass } from "../utils/fleetMagnetoRows";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import { Spinner } from "./ui/spinner";
 
@@ -45,100 +30,13 @@ const STATUS_OPTIONS = [
   { value: "AOG", label: "AOG" },
 ];
 
-function parseTach(value: string | number | null | undefined): number | null {
-  if (value == null || value === "") return null;
-  const parsed =
-    typeof value === "number"
-      ? value
-      : parseFloat(String(value).replace(/,/g, "").trim());
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toAircraftInput(raw: unknown): FleetDashboardAircraftInput | null {
-  if (!raw || typeof raw !== "object") return null;
-  const record = raw as Record<string, unknown>;
-  const id = Number(record.id);
-  if (!Number.isFinite(id) || id <= 0) return null;
-  const displayOrderRaw = record.display_order ?? record.displayOrder;
-  const displayOrder = Number(displayOrderRaw);
-  return {
-    id,
-    registration: String(record.registration ?? ""),
-    displayOrder: Number.isFinite(displayOrder) ? displayOrder : undefined,
-  };
-}
-
-async function fetchAllAircraft(
-  search: string
-): Promise<FleetDashboardAircraftInput[]> {
-  const limit = MAX_API_PAGE_SIZE;
-  const collected: FleetDashboardAircraftInput[] = [];
-  const seen = new Set<number>();
-  let page = 1;
-  let pages = 1;
-
-  while (page <= pages && page <= 50) {
-    const response = await getAircrafts(page, limit, search, "all", "");
-    const data = response?.data ?? {};
-    const rawItems = Array.isArray(data)
-      ? data
-      : data.items ?? data.results ?? data.data ?? [];
-    const list = Array.isArray(rawItems) ? rawItems : [];
-    let added = 0;
-    for (const item of list) {
-      const aircraft = toAircraftInput(item);
-      if (!aircraft || seen.has(aircraft.id)) continue;
-      seen.add(aircraft.id);
-      collected.push(aircraft);
-      added += 1;
-    }
-    const total = Number(data.total ?? data.count ?? collected.length) || 0;
-    pages = Math.max(
-      1,
-      Number(data.pages ?? data.total_pages) ||
-        Math.ceil(total / limit) ||
-        1
-    );
-    if (list.length === 0 || added === 0) break;
-    page += 1;
-  }
-
-  return collected;
-}
-
-function toMagnetoInput(item: TCCMonitoring): MagnetoComponentInput {
-  const limitHours = parseTach(item.limitHours);
-  const lastDone = parseTach(item.lastDoneTach ?? item.lastDoneYear);
-  const apiNextDue = parseTach(item.nextDueYear);
-  const nextDueTach =
-    apiNextDue ??
-    (lastDone != null && isConfiguredComponentLimit(limitHours)
-      ? lastDone + limitHours
-      : null);
-  return {
-    description: item.description ?? "",
-    methodOfCompliance: item.methodOfCompliance ?? "",
-    partNo: item.partNo ?? "",
-    serialNo: item.serialNo ?? "",
-    nextDueTach,
-    remainingTach: item.remainingTach ?? null,
-    limitHours: isConfiguredComponentLimit(limitHours) ? limitHours : null,
-  };
-}
-
-async function fetchAircraftMagnetos(
-  aircraftId: number
-): Promise<FleetMagnetoRow[]> {
-  const limit = MAX_API_PAGE_SIZE;
-  const first = await getAircraftTccMonitoring(aircraftId, 1, limit, "");
-  let items = first.items;
-  const pages = Math.max(1, first.pages || 1);
-  for (let page = 2; page <= pages; page += 1) {
-    const next = await getAircraftTccMonitoring(aircraftId, page, limit, "");
-    items = items.concat(next.items);
-  }
-  return buildMagnetoRows(items.map(toMagnetoInput));
-}
+const EMPTY_RESULT: AircraftFleetDashboardResponse = {
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: AIRCRAFT_FLEET_DASHBOARD_PAGE_SIZE,
+  pages: 0,
+};
 
 function statusCellClass(status: string): string {
   const value = status.trim().toUpperCase();
@@ -148,9 +46,23 @@ function statusCellClass(status: string): string {
   return "bg-gray-100 text-gray-600";
 }
 
-function identCellClass(aircraftId: number): string {
-  const index = Math.abs(aircraftId) % IDENT_COLORS.length;
-  return IDENT_COLORS[index];
+function identCellClass(ident: string): string {
+  let hash = 0;
+  for (const char of ident) {
+    hash = (hash + char.charCodeAt(0)) % IDENT_COLORS.length;
+  }
+  return IDENT_COLORS[hash];
+}
+
+function displayValue(value: string | null | undefined): string {
+  const text = value?.trim() ?? "";
+  return text || "—";
+}
+
+function parseHours(value: string | null | undefined): number | null {
+  if (value == null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 const headerCell =
@@ -164,125 +76,52 @@ export function AircraftFleetDashboard() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [listLoading, setListLoading] = useState(true);
-  const [magnetoLoading, setMagnetoLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [aircraft, setAircraft] = useState<FleetDashboardAircraft[]>([]);
-  const [magnetosByAircraft, setMagnetosByAircraft] = useState<
-    Record<number, FleetMagnetoRow[]>
-  >({});
-  const [magnetoErrors, setMagnetoErrors] = useState<Record<number, boolean>>(
-    {}
-  );
+  const [result, setResult] = useState<AircraftFleetDashboardResponse>(EMPTY_RESULT);
+  const searchDebouncedRef = useRef(searchDebounced);
+  searchDebouncedRef.current = searchDebounced;
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearchDebounced(searchTerm.trim());
-      setPage(1);
+      const next = searchTerm.trim();
+      if (searchDebouncedRef.current !== next) setPage(1);
+      setSearchDebounced(next);
     }, 300);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   useEffect(() => {
     let cancelled = false;
-    setListLoading(true);
+    setLoading(true);
     setError(null);
-    setMagnetosByAircraft({});
-    setMagnetoErrors({});
 
-    Promise.all([
-      fetchAllAircraft(searchDebounced),
-      getAllFleetDailyUpdatesOrdered(),
-    ])
-      .then(([aircraftRows, dailyRows]) => {
+    getAircraftFleetDashboard({
+      page,
+      pageSize: AIRCRAFT_FLEET_DASHBOARD_PAGE_SIZE,
+      search: searchDebounced,
+      status: filterStatus,
+    })
+      .then((response) => {
         if (cancelled) return;
-        setAircraft(
-          joinFleetDashboardAircraft(
-            aircraftRows,
-            dailyRows.map((row) => ({
-              aircraftId: row.aircraftId ?? row.aircraft?.id,
-              registration: row.registration ?? row.aircraft?.registration,
-              ident: row.ident,
-              status: row.status ?? row.workStatus,
-              tachEod: row.tachEod ?? null,
-            })),
-            filterStatus
-          )
-        );
+        setResult(response);
       })
       .catch((err) => {
         if (cancelled) return;
-        setAircraft([]);
+        setResult(EMPTY_RESULT);
         setError(
           formatApiErrorMessage(err, "Failed to load the fleet dashboard")
         );
       })
       .finally(() => {
-        if (!cancelled) setListLoading(false);
+        if (!cancelled) setLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [searchDebounced, filterStatus, refreshKey]);
+  }, [searchDebounced, filterStatus, page, refreshKey]);
 
-  const pageResult = useMemo(
-    () => paginateFleetAircraft(aircraft, page, FLEET_DASHBOARD_PAGE_SIZE),
-    [aircraft, page]
-  );
-
-  useEffect(() => {
-    if (pageResult.page !== page) setPage(pageResult.page);
-  }, [page, pageResult.page]);
-
-  const pageAircraftKey = pageResult.pageItems.map((item) => item.id).join(",");
-
-  useEffect(() => {
-    if (listLoading) return;
-    const visible = pageResult.pageItems;
-    if (visible.length === 0) {
-      setMagnetosByAircraft({});
-      setMagnetoErrors({});
-      setMagnetoLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setMagnetoLoading(true);
-    Promise.all(
-      visible.map(async (item) => {
-        try {
-          const rows = await fetchAircraftMagnetos(item.id);
-          return { id: item.id, rows, failed: false };
-        } catch {
-          return { id: item.id, rows: [] as FleetMagnetoRow[], failed: true };
-        }
-      })
-    )
-      .then((results) => {
-        if (cancelled) return;
-        const nextRows: Record<number, FleetMagnetoRow[]> = {};
-        const nextErrors: Record<number, boolean> = {};
-        for (const result of results) {
-          nextRows[result.id] = result.rows;
-          if (result.failed) nextErrors[result.id] = true;
-        }
-        setMagnetosByAircraft(nextRows);
-        setMagnetoErrors(nextErrors);
-      })
-      .finally(() => {
-        if (!cancelled) setMagnetoLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [listLoading, pageAircraftKey, pageResult.pageItems]);
-
-  const magnetosPending = pageResult.pageItems.some(
-    (item) => magnetosByAircraft[item.id] === undefined && !magnetoErrors[item.id]
-  );
-  const loading = listLoading || magnetoLoading || magnetosPending;
   const today = formatDisplayDate(new Date().toISOString());
 
   return (
@@ -339,7 +178,7 @@ export function AircraftFleetDashboard() {
               <input
                 id="fleet-dashboard-search"
                 type="text"
-                placeholder="Search by registration, MSN, or model"
+                placeholder="Search by registration"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
                 className="w-full rounded border border-gray-300 py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -390,7 +229,7 @@ export function AircraftFleetDashboard() {
                 <th rowSpan={2} className={headerCell}>
                   Magneto
                 </th>
-                <th colSpan={3} className={headerCell}>
+                <th colSpan={2} className={headerCell}>
                   Tach Time
                 </th>
                 <th rowSpan={2} className={headerCell}>
@@ -408,100 +247,82 @@ export function AircraftFleetDashboard() {
                 </th>
               </tr>
               <tr>
-                <th className={headerCell}>Due for OH</th>
                 <th className={headerCell}>Due for Replacement</th>
                 <th className={headerCell}>EOD</th>
               </tr>
             </thead>
             <tbody>
-              {!loading && error ? null : !loading && pageResult.total === 0 ? (
+              {!loading && error ? null : !loading && result.total === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={8}
                     className="border border-gray-300 px-4 py-12 text-center text-gray-500"
                   >
                     No aircraft found matching your search criteria
                   </td>
                 </tr>
               ) : (
-                pageResult.pageItems.map((item) => {
-                  const magnetos = magnetosByAircraft[item.id] ?? [];
-                  const magnetoFailed = Boolean(magnetoErrors[item.id]);
-                  const rows = magnetos.length > 0 ? magnetos : [null];
+                result.items.map((item, itemIndex) => {
+                  const rows =
+                    item.components.length > 0 ? item.components : [null];
+                  const ident = item.aircraftIdent.trim();
                   return (
-                    <Fragment key={item.id}>
-                      {rows.map((magneto, index) => {
-                    const remaining = magneto
-                      ? remainingBeforeReplacement(
-                          magneto.dueForReplacement,
-                          item.tachEod,
-                          magneto.remainingTach
-                        )
-                      : null;
-                    const remainingClass = remainingHoursClass(
-                      remaining,
-                      magneto?.limitHours ?? null
-                    );
-                    const dueOh = formatTachHours(magneto?.dueForOh ?? null);
-                    const dueReplacement = formatTachHours(
-                      magneto?.dueForReplacement ?? null
-                    );
-                    const emptyOverhaul = Boolean(magneto) && !dueOh;
-                    return (
-                      <tr key={`${item.id}-${magneto?.key ?? "empty"}`}>
-                        {index === 0 ? (
-                          <>
-                            <td
-                              rowSpan={rows.length}
-                              className={`${bodyCell} font-semibold text-gray-900 ${identCellClass(item.id)}`}
-                            >
-                              {item.registration.trim() ? (
-                                <Link
-                                  to={`/profile?aircraft=${encodeURIComponent(item.registration.trim())}`}
-                                  className="text-gray-900 underline decoration-gray-700/40 underline-offset-2 hover:text-blue-800"
+                    <Fragment key={`${ident || "aircraft"}-${itemIndex}`}>
+                      {rows.map((component, index) => {
+                        const remaining = parseHours(component?.remainingHours);
+                        const remainingClass = remainingHoursClass(
+                          remaining,
+                          null
+                        );
+                        return (
+                          <tr
+                            key={`${ident}-${component?.magneto ?? "empty"}-${component?.serialNumber ?? index}`}
+                          >
+                            {index === 0 ? (
+                              <>
+                                <td
+                                  rowSpan={rows.length}
+                                  className={`${bodyCell} font-semibold text-gray-900 ${identCellClass(ident)}`}
                                 >
-                                  {item.registration}
-                                </Link>
-                              ) : (
-                                "—"
-                              )}
+                                  {ident ? (
+                                    <Link
+                                      to={`/profile?aircraft=${encodeURIComponent(ident)}`}
+                                      className="text-gray-900 underline decoration-gray-700/40 underline-offset-2 hover:text-blue-800"
+                                    >
+                                      {ident}
+                                    </Link>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td
+                                  rowSpan={rows.length}
+                                  className={`${bodyCell} font-semibold ${statusCellClass(item.status ?? "")}`}
+                                >
+                                  {displayValue(item.status)}
+                                </td>
+                              </>
+                            ) : null}
+                            <td className={`${bodyCell} font-medium`}>
+                              {displayValue(component?.magneto)}
                             </td>
-                            <td
-                              rowSpan={rows.length}
-                              className={`${bodyCell} font-semibold ${statusCellClass(item.status)}`}
-                            >
-                              {item.status || "—"}
+                            <td className={bodyCell}>
+                              {displayValue(component?.dueForReplacementTach)}
                             </td>
-                          </>
-                        ) : null}
-                        <td className={`${bodyCell} font-medium`}>
-                          {magnetoFailed
-                            ? "Unable to load magneto details"
-                            : magneto?.label || "—"}
-                        </td>
-                        <td
-                          className={`${bodyCell} ${emptyOverhaul ? "bg-gray-400" : ""}`}
-                          title={emptyOverhaul ? "No overhaul due" : undefined}
-                        >
-                          {dueOh || (magneto ? "" : "—")}
-                        </td>
-                        <td className={bodyCell}>
-                          {dueReplacement || "—"}
-                        </td>
-                        <td className={bodyCell}>
-                          {formatTachHours(item.tachEod) || "—"}
-                        </td>
-                        <td className={`${bodyCell} font-medium ${remainingClass}`}>
-                          {formatTachHours(remaining) || "—"}
-                        </td>
-                        <td className={bodyCell}>
-                          {magneto?.partNumber || "—"}
-                        </td>
-                        <td className={bodyCell}>
-                          {magneto?.serialNumber || "—"}
-                        </td>
-                      </tr>
-                    );
+                            <td className={bodyCell}>
+                              {displayValue(item.eodTach)}
+                            </td>
+                            <td className={`${bodyCell} font-medium ${remainingClass}`}>
+                              {displayValue(component?.remainingHours)}
+                            </td>
+                            <td className={bodyCell}>
+                              {displayValue(component?.partNumber)}
+                            </td>
+                            <td className={bodyCell}>
+                              {displayValue(component?.serialNumber)}
+                            </td>
+                          </tr>
+                        );
                       })}
                     </Fragment>
                   );
@@ -512,12 +333,12 @@ export function AircraftFleetDashboard() {
         </div>
 
         <DataTablePagination
-          currentPage={pageResult.page}
-          totalPages={pageResult.totalPages}
+          currentPage={page}
+          totalPages={result.pages}
           onPageChange={setPage}
-          totalItems={pageResult.total}
+          totalItems={result.total}
           totalLabel="aircraft"
-          itemsPerPage={FLEET_DASHBOARD_PAGE_SIZE}
+          itemsPerPage={AIRCRAFT_FLEET_DASHBOARD_PAGE_SIZE}
           disabled={loading}
           className="px-6"
         />

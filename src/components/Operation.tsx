@@ -84,6 +84,7 @@ import {
   isAtlExcelImportFailureStatus,
   formatAtlTotalFlightHoursForDisplay,
   formatAtlFuelLeftRightForDisplay,
+  resolveAtlActionTakenPersonDisplay,
   resolveAtlMaintenancePersonDisplay,
 } from "../utility/utils";
 import { getAllAccounts, type Account } from "../api/accountApi";
@@ -98,6 +99,7 @@ import {
 import {
   ATL_WORK_STATUS_KEYS,
   canCreateAtlBatch,
+  canDownloadWhiteAtlAndDfp,
   canEditAtlBatch,
   canManageAtlBatchFilter,
   canEditAtlFields,
@@ -117,6 +119,7 @@ import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
 import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
+import { atlAttachmentFilename } from "../utils/atlAttachmentFilename";
 
 type GroupByOption =
   | "allColumns"
@@ -913,6 +916,7 @@ export function Operation() {
     [operationAtlRole]
   );
   const canExportOperationAtl = !isMechanicViewer;
+  const canDownloadAtlStoredFiles = canDownloadWhiteAtlAndDfp(operationAtlRole);
   /** Create ATL batch is restricted to Admin and Maintenance Planner. */
   const allowAtlBatchCreate = canCreateAtlBatch(operationAtlRole);
   /** Edit ATL batch is restricted to Admin and Maintenance Manager. */
@@ -957,6 +961,12 @@ export function Operation() {
     displayName?: string
   ) => {
     if (!filename || !filename.trim()) return;
+    if (
+      (folder === "white_atl" || folder === "dfp") &&
+      !canDownloadWhiteAtlAndDfp(operationAtlRole)
+    ) {
+      return;
+    }
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
       const blob = await downloadModuleFile(folder, filename);
@@ -1017,7 +1027,9 @@ export function Operation() {
     setShowFileViewModal(true);
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
-      const blob = await downloadModuleFile(folder, downloadPath);
+      const blob = await downloadModuleFile(folder, downloadPath, {
+        preview: true,
+      });
       if (requestId !== fileViewRequestRef.current) return;
       const preview = await preparePreviewBlob(blob, downloadPath);
       if (requestId !== fileViewRequestRef.current) return;
@@ -1663,7 +1675,7 @@ export function Operation() {
         label: "Action Taken Person",
         getValue: (record) =>
           formatAtlAssigneeListCell(
-            resolveAtlMaintenancePersonDisplay(record, accountsMap, "")
+            resolveAtlActionTakenPersonDisplay(record, accountsMap, "")
           ),
       },
       {
@@ -3408,7 +3420,13 @@ export function Operation() {
                                 {formatAtlListCell(record.actionsTaken)}
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                {formatAtlPersonCell(record)}
+                                {formatAtlAssigneeListCell(
+                                  resolveAtlActionTakenPersonDisplay(
+                                    record,
+                                    accountsMap,
+                                    ""
+                                  )
+                                )}
                               </td>
                               <AtlComponentRecordCells record={record} />
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -3441,23 +3459,31 @@ export function Operation() {
                                     getAtlStoredUploadFilePath(record.whiteAtl);
                                   return whiteAtlFile ? (
                                     <div className="flex flex-col gap-1">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleDownloadFile(
-                                            "white_atl",
-                                            whiteAtlFile,
-                                            whiteAtlFile.split("/").pop() ||
-                                              "white_atl"
-                                          )
-                                        }
-                                      >
-                                        <Download className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">
-                                          Download
-                                        </span>
-                                      </button>
+                                      {canDownloadAtlStoredFiles && (
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleDownloadFile(
+                                              "white_atl",
+                                              whiteAtlFile,
+                                              atlAttachmentFilename({
+                                                documentType: "ATL",
+                                                sequenceNo: record.sequenceNo,
+                                                aircraftName:
+                                                  record.aircraft?.registration ||
+                                                  aircraft?.registration,
+                                                sourceFilename: whiteAtlFile,
+                                              })
+                                            )
+                                          }
+                                        >
+                                          <Download className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">
+                                            Download
+                                          </span>
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
@@ -3485,22 +3511,31 @@ export function Operation() {
                                   );
                                   return dfpFile ? (
                                     <div className="flex flex-col gap-1">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleDownloadFile(
-                                            "dfp",
-                                            dfpFile,
-                                            dfpFile.split("/").pop() || "dfp"
-                                          )
-                                        }
-                                      >
-                                        <Download className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">
-                                          Download
-                                        </span>
-                                      </button>
+                                      {canDownloadAtlStoredFiles && (
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleDownloadFile(
+                                              "dfp",
+                                              dfpFile,
+                                              atlAttachmentFilename({
+                                                documentType: "DFP",
+                                                sequenceNo: record.sequenceNo,
+                                                aircraftName:
+                                                  record.aircraft?.registration ||
+                                                  aircraft?.registration,
+                                                sourceFilename: dfpFile,
+                                              })
+                                            )
+                                          }
+                                        >
+                                          <Download className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">
+                                            Download
+                                          </span>
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"

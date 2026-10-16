@@ -1120,6 +1120,46 @@ export function resolveAtlMaintenancePersonDisplay(
   return emptyLabel;
 }
 
+/**
+ * Actions Taken Name only. Does not fall back to the remarks / maintenance person.
+ */
+export function resolveAtlActionTakenPersonDisplay(
+  record: {
+    actiontakenPerson?: number | string | null;
+    actionTakenPerson?: number | string | null;
+  } | null | undefined,
+  accountsMap?: Map<
+    number,
+    {
+      fullName?: string | null;
+      firstName?: string | null;
+      middleName?: string | null;
+      lastName?: string | null;
+      licenseNo?: string | null;
+    }
+  > | null,
+  emptyLabel = ""
+): string {
+  if (!record) return emptyLabel;
+  const raw = record.actiontakenPerson ?? record.actionTakenPerson;
+  if (raw == null) return emptyLabel;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (
+      !trimmed ||
+      /^(none|null|undefined|no selected name)$/i.test(trimmed)
+    ) {
+      return emptyLabel;
+    }
+    if (!/^\d+$/.test(trimmed)) return trimmed;
+  }
+  const id = Number(raw);
+  if (!Number.isFinite(id) || id <= 0) return emptyLabel;
+  const account = accountsMap?.get(id);
+  if (!account) return emptyLabel;
+  return resolveAccountNameLicenseDisplay(account, emptyLabel);
+}
+
 /** Which remarks UI section to show for a Nature of Flight value (UI only). */
 export type AtlRemarksSectionVisibility =
   | "pilotReport"

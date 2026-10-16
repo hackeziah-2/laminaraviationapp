@@ -4,60 +4,94 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { AircraftFleetDashboard } from "./AircraftFleetDashboard";
 import { Dashboard } from "./Dashboard";
-import { getAircrafts } from "../api/aircraftApi";
-import { getAllFleetDailyUpdatesOrdered } from "../api/fleetDailyUpdateApi";
-import { getAircraftTccMonitoring } from "../api/tccMonitoringApi";
+import {
+  AIRCRAFT_FLEET_DASHBOARD_PAGE_SIZE,
+  getAircraftFleetDashboard,
+  type AircraftFleetDashboardItem,
+  type AircraftFleetDashboardQuery,
+} from "../api/aircraftFleetDashboardApi";
 import { getDashboard } from "../api/dashboardApi";
 
-vi.mock("../api/aircraftApi", () => ({
-  getAircrafts: vi.fn(),
-}));
-
-vi.mock("../api/fleetDailyUpdateApi", () => ({
-  getAllFleetDailyUpdatesOrdered: vi.fn(),
-}));
-
-vi.mock("../api/tccMonitoringApi", () => ({
-  getAircraftTccMonitoring: vi.fn(),
-}));
+vi.mock("../api/aircraftFleetDashboardApi", async () => {
+  const actual = await vi.importActual<
+    typeof import("../api/aircraftFleetDashboardApi")
+  >("../api/aircraftFleetDashboardApi");
+  return {
+    ...actual,
+    getAircraftFleetDashboard: vi.fn(),
+  };
+});
 
 vi.mock("../api/dashboardApi", () => ({
   getDashboard: vi.fn(),
 }));
 
-const aircraftRows = Array.from({ length: 21 }, (_, index) => {
-  const id = index + 1;
+const fleetItems: AircraftFleetDashboardItem[] = Array.from(
+  { length: 21 },
+  (_, index) => {
+    const id = index + 1;
+    const aircraftIdent = `RP-C${String(id).padStart(2, "0")}`;
+    if (id === 1) {
+      return {
+        aircraftIdent,
+        status: "Operational",
+        eodTach: "8878.7",
+        components: [
+          {
+            magneto: "LH MAGNETO",
+            dueForReplacementTach: "9328.9",
+            remainingHours: "450.2",
+            partNumber: "4371",
+            serialNumber: "K-K06099",
+          },
+          {
+            magneto: "RH MAGNETO",
+            dueForReplacementTach: "9328.9",
+            remainingHours: "450.2",
+            partNumber: "4370",
+            serialNumber: "9110276",
+          },
+        ],
+      };
+    }
+    if (id === 2) {
+      return {
+        aircraftIdent,
+        status: "AOG",
+        eodTach: "490.2",
+        components: [
+          {
+            magneto: "RH MAGNETO",
+            dueForReplacementTach: "500.0",
+            remainingHours: "9.8",
+            partNumber: "4371",
+            serialNumber: "6031787",
+          },
+        ],
+      };
+    }
+    return {
+      aircraftIdent,
+      status: "Operational",
+      eodTach: "8878.7",
+      components: [],
+    };
+  }
+);
+
+function pageOf(
+  items: AircraftFleetDashboardItem[],
+  query: AircraftFleetDashboardQuery = {}
+) {
+  const page = query.page ?? 1;
+  const pageSize = query.pageSize ?? AIRCRAFT_FLEET_DASHBOARD_PAGE_SIZE;
+  const start = (page - 1) * pageSize;
   return {
-    id,
-    registration: `RP-C${String(id).padStart(2, "0")}`,
-    display_order: id,
-  };
-});
-
-const dailyRows = aircraftRows.map((aircraft) => ({
-  aircraftId: aircraft.id,
-  registration: aircraft.registration,
-  status: aircraft.id === 2 ? "AOG" : "Operational",
-  tachEod: aircraft.id === 2 ? 490.2 : 8878.7,
-}));
-
-function tccPage(items: Record<string, unknown>[]) {
-  return { items, total: items.length, page: 1, pages: 1 };
-}
-
-function magnetoItem(overrides: Record<string, unknown>) {
-  return {
-    id: 1,
-    description: "",
-    methodOfCompliance: "",
-    partNo: "",
-    serialNo: "",
-    nextDueYear: "",
-    limitHours: "",
-    lastDoneTach: "",
-    lastDoneYear: "",
-    remainingTach: null,
-    ...overrides,
+    items: items.slice(start, start + pageSize),
+    total: items.length,
+    page,
+    pageSize,
+    pages: items.length === 0 ? 0 : Math.ceil(items.length / pageSize),
   };
 }
 
@@ -70,70 +104,19 @@ function renderFleet() {
 }
 
 beforeEach(() => {
-  vi.mocked(getAircrafts).mockImplementation(async (_page, _limit, search = "") => {
-    const query = search.trim().toLowerCase();
-    const items = query
-      ? aircraftRows.filter((row) =>
-          row.registration.toLowerCase().includes(query)
-        )
-      : aircraftRows;
-    return {
-      data: { items, total: items.length, page: 1, pages: 1 },
-    } as never;
-  });
-  vi.mocked(getAllFleetDailyUpdatesOrdered).mockResolvedValue(dailyRows as never);
-  vi.mocked(getAircraftTccMonitoring).mockImplementation(async (aircraftId: number) => {
-    if (aircraftId === 1) {
-      return tccPage([
-        magnetoItem({
-          id: 11,
-          description: "LH MAGNETO",
-          methodOfCompliance: "Replacement",
-          partNo: "4371",
-          serialNo: "K-K06099",
-          nextDueYear: "9328.9",
-          limitHours: "2000",
-        }),
-        magnetoItem({
-          id: 12,
-          description: "RH MAGNETO",
-          methodOfCompliance: "Overhaul",
-          partNo: "4370",
-          serialNo: "9110276",
-          nextDueYear: "2000",
-        }),
-        magnetoItem({
-          id: 13,
-          description: "RH MAGNETO",
-          methodOfCompliance: "Replacement",
-          partNo: "4370",
-          serialNo: "9110276",
-          nextDueYear: "9328.9",
-          limitHours: "2000",
-        }),
-      ]) as never;
-    }
-    if (aircraftId === 2) {
-      return tccPage([
-        magnetoItem({
-          id: 21,
-          description: "RH MAGNETO OVERHAUL",
-          methodOfCompliance: "Overhaul",
-          nextDueYear: "2000",
-        }),
-        magnetoItem({
-          id: 22,
-          description: "RH Magneto",
-          methodOfCompliance: "Replacement",
-          partNo: "4371",
-          serialNo: "6031787",
-          nextDueYear: "500",
-          limitHours: "500",
-          remainingTach: 9.8,
-        }),
-      ]) as never;
-    }
-    return tccPage([]) as never;
+  vi.mocked(getAircraftFleetDashboard).mockImplementation(async (query = {}) => {
+    const search = query.search?.trim().toLowerCase() ?? "";
+    const status = query.status?.trim() ?? "";
+    const filtered = fleetItems.filter((item) => {
+      if (search && !item.aircraftIdent.toLowerCase().includes(search)) {
+        return false;
+      }
+      if (status && status.toLowerCase() !== "all" && item.status !== status) {
+        return false;
+      }
+      return true;
+    });
+    return pageOf(filtered, query);
   });
   vi.mocked(getDashboard).mockResolvedValue({} as never);
 });
@@ -144,25 +127,32 @@ afterEach(() => {
 });
 
 describe("AircraftFleetDashboard", () => {
-  it("shows LH and RH magnetos as separate rows with tach and remaining hours", async () => {
+  it("loads magneto rows from the fleet dashboard report", async () => {
     renderFleet();
 
     expect(await screen.findByRole("link", { name: "RP-C01" })).toBeTruthy();
     expect(await screen.findByText("LH MAGNETO")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: /A\/C Ident/i })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: /Due for OH/i })).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: /Due for OH/i })).toBeNull();
     expect(
       screen.getByRole("columnheader", { name: /Due for Replacement/i })
     ).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "EOD" })).toBeTruthy();
     expect(screen.getAllByText("RH MAGNETO").length).toBeGreaterThan(0);
     expect(screen.getAllByText("450.2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("9328.9").length).toBeGreaterThan(0);
     expect(screen.getByText("K-K06099")).toBeTruthy();
-    expect(screen.getByTitle("No overhaul due")).toBeTruthy();
+    expect(screen.queryByTitle("No overhaul due")).toBeNull();
     expect(screen.getByText("Showing")).toBeTruthy();
     expect(screen.getByText("1–20")).toBeTruthy();
     expect(screen.getByText("21")).toBeTruthy();
     expect(screen.queryByText("RP-C21")).toBeNull();
+    expect(getAircraftFleetDashboard).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 20,
+      search: "",
+      status: "all",
+    });
   });
 
   it("pages 20 aircraft at a time", async () => {
@@ -174,6 +164,9 @@ describe("AircraftFleetDashboard", () => {
     expect(await screen.findByRole("link", { name: "RP-C21" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "RP-C01" })).toBeNull();
     expect(screen.getByText("21–21")).toBeTruthy();
+    expect(getAircraftFleetDashboard).toHaveBeenCalledWith(
+      expect.objectContaining({ page: 2, pageSize: 20 })
+    );
   });
 
   it("filters by operational status", async () => {
@@ -190,6 +183,9 @@ describe("AircraftFleetDashboard", () => {
     expect(screen.getByText("9.8").className).toContain("bg-orange-400");
     expect(screen.getByText("6031787")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "RP-C01" })).toBeNull();
+    expect(getAircraftFleetDashboard).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "AOG", page: 1 })
+    );
   });
 
   it("searches the aircraft list", async () => {
@@ -204,12 +200,19 @@ describe("AircraftFleetDashboard", () => {
     await waitFor(() => {
       expect(screen.queryByRole("link", { name: "RP-C01" })).toBeNull();
     });
+    expect(getAircraftFleetDashboard).toHaveBeenCalledWith(
+      expect.objectContaining({ search: "RP-C21", page: 1 })
+    );
   });
 
   it("shows an empty state when no aircraft match", async () => {
-    vi.mocked(getAircrafts).mockResolvedValue({
-      data: { items: [], total: 0, page: 1, pages: 1 },
-    } as never);
+    vi.mocked(getAircraftFleetDashboard).mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+      pages: 0,
+    });
 
     renderFleet();
 
@@ -219,7 +222,9 @@ describe("AircraftFleetDashboard", () => {
   });
 
   it("shows an error state and retries", async () => {
-    vi.mocked(getAircrafts).mockRejectedValueOnce(new Error("Network down"));
+    vi.mocked(getAircraftFleetDashboard).mockRejectedValueOnce(
+      new Error("Network down")
+    );
 
     renderFleet();
 

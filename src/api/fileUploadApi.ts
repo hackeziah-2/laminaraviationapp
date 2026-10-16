@@ -116,7 +116,8 @@ export async function uploadModuleFile(
  */
 export async function downloadModuleFile(
   moduleFolder: FileUploadModuleFolder | string,
-  filePathOrFilename: string
+  filePathOrFilename: string,
+  options?: { preview?: boolean }
 ): Promise<Blob> {
   const normalized = normalizeStoredFilePath(filePathOrFilename);
   if (!normalized) throw new Error("File path is not available.");
@@ -126,6 +127,7 @@ export async function downloadModuleFile(
     .map((segment) => encodeURIComponent(segment))
     .join("/");
 
+  const action = options?.preview ? "preview" : "download";
   const fetchBlob = async (endpoint: string, config?: { params?: { name: string } }) => {
     const response = await apiClient.get(endpoint, {
       ...config,
@@ -147,12 +149,12 @@ export async function downloadModuleFile(
   };
 
   try {
-    return await fetchBlob(`${moduleFolder}/download/${encoded}`);
+    return await fetchBlob(`${moduleFolder}/${action}/${encoded}`);
   } catch (err: unknown) {
     const status = (err as { response?: { status?: number } })?.response?.status;
     if (status !== 404) throw err;
     const basename = normalized.split("/").pop() ?? normalized;
-    return await fetchBlob(`${moduleFolder}/download`, { params: { name: basename } });
+    return await fetchBlob(`${moduleFolder}/${action}`, { params: { name: basename } });
   }
 }
 

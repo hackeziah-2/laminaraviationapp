@@ -39,6 +39,7 @@ import {
   Account,
 } from "../api/accountApi";
 import { getMe } from "../api/authApi";
+import { fileWithAtlAttachmentName, atlAttachmentFilename } from "../utils/atlAttachmentFilename";
 import {
   resolvePreviousAtlForNewEntry,
   getLatestAircraftTechnicalLog,
@@ -113,6 +114,7 @@ import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   isMaintenancePlannerAtlWorkStatusLockedOnEdit,
+  canDownloadWhiteAtlAndDfp,
   canManageAtlBatchFilter,
   canUpdateAtlWhiteAtlDfpFields,
   canShowAtlWhiteAtlDfpSection,
@@ -1997,6 +1999,9 @@ export function AddTechnicalLogbookEntryModal({
   );
 
   const showAtlBatchFilter = canManageAtlBatchFilter(atlRoleForWorkStatus);
+  const canDownloadAtlStoredFiles = canDownloadWhiteAtlAndDfp(
+    atlRoleForWorkStatus
+  );
 
   const showAtlBatchFormField = Boolean(editEntry || showAtlBatchFilter);
 
@@ -2720,9 +2725,7 @@ export function AddTechnicalLogbookEntryModal({
         remarksPersonName: "",
         actionsTaken: toUppercaseInput(readAtlActionsTaken(editEntry)),
         actionsTakenPerson: atlAssigneeIdToFormValue(
-          editEntry.actiontakenPerson ??
-            editEntry.actionTakenPerson ??
-            editEntry.maintenanceFk
+          editEntry.actiontakenPerson ?? editEntry.actionTakenPerson
         ),
         actionsTakenPersonName: "",
         pilotName: "",
@@ -2858,10 +2861,7 @@ export function AddTechnicalLogbookEntryModal({
         const remarksPersonId =
           editEntry.remarkPerson ?? editEntry.maintenanceFk ?? null;
         const actionsTakenPersonId =
-          editEntry.actiontakenPerson ??
-          editEntry.actionTakenPerson ??
-          editEntry.maintenanceFk ??
-          null;
+          editEntry.actiontakenPerson ?? editEntry.actionTakenPerson ?? null;
         const remarksResolved = await resolveLabel(
           remarksPersonId,
           editEntry.maintenance
@@ -5030,10 +5030,7 @@ export function AddTechnicalLogbookEntryModal({
       });
     };
 
-    if (
-      !attachmentsOnlyLocked &&
-      parseAtlBatchFkForLatest(formData.atlBatchFk) == null
-    ) {
+    if (parseAtlBatchFkForLatest(formData.atlBatchFk) == null) {
       setValidationErrors((prev) => ({
         ...prev,
         atlBatchFk: ATL_BATCH_REQUIRED_MESSAGE,
@@ -5332,10 +5329,8 @@ export function AddTechnicalLogbookEntryModal({
           actiontakenPerson: parseAtlAssigneeIdForApi(
             formData.actionsTakenPerson
           ),
-          // Legacy shared FK for list display; null when both Names are unassigned
-          maintenanceFk: parseAtlAssigneeIdForApi(
-            formData.remarksPerson || formData.actionsTakenPerson
-          ),
+          // Remarks person only. Actions Taken Name is not copied from it.
+          maintenanceFk: parseAtlAssigneeIdForApi(formData.remarksPerson),
           pilotAcceptDate: formData.pilotAcceptDate || undefined,
           pilotAcceptTime: formData.pilotAcceptTime
             ? convertTimeToAPIFormat(formData.pilotAcceptTime)
@@ -5427,13 +5422,8 @@ export function AddTechnicalLogbookEntryModal({
           // Fleet Time Monitoring: on update send work_status from form (connected to update API); on create overwritten to FOR_REVIEW below
           workStatus: formData.workStatus || undefined,
           ...(() => {
-            const raw = formData.atlBatchFk?.trim() ?? "";
-            if (raw === "") {
-              return editEntry ? { atlBatchFk: null } : {};
-            }
-            const n = parseInt(raw, 10);
-            if (Number.isFinite(n) && n > 0) return { atlBatchFk: n };
-            return editEntry ? { atlBatchFk: null } : {};
+            const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
+            return batchId != null ? { atlBatchFk: batchId } : {};
           })(),
         };
 
@@ -5475,19 +5465,45 @@ export function AddTechnicalLogbookEntryModal({
         apiDataSnake.engine_run_time = tachLeg.engineRunTime;
         apiDataSnake.propeller_run_time = tachLeg.propellerRunTime;
 
+        const atlFileSequence = formData.seqNo.trim();
+        const atlFileAircraft =
+          formData.acReg.trim() ||
+          editEntry?.aircraft?.registration?.trim() ||
+          "";
         const files =
           canUploadAtlInCurrentMode &&
           (formData.whiteAtl instanceof File || formData.dfp instanceof File)
             ? {
                 whiteAtl:
-                  formData.whiteAtl instanceof File ? formData.whiteAtl : null,
-                dfp: formData.dfp instanceof File ? formData.dfp : null,
+                  formData.whiteAtl instanceof File
+                    ? fileWithAtlAttachmentName(
+                        formData.whiteAtl,
+                        "ATL",
+                        atlFileSequence,
+                        atlFileAircraft
+                      )
+                    : null,
+                dfp:
+                  formData.dfp instanceof File
+                    ? fileWithAtlAttachmentName(
+                        formData.dfp,
+                        "DFP",
+                        atlFileSequence,
+                        atlFileAircraft
+                      )
+                    : null,
               }
             : undefined;
 
         let savedId: number | undefined = editEntry?.id;
         if (editEntry && attachmentsOnlyLocked) {
           const slim: Record<string, unknown> = {};
+          const attachmentBatchId = parseAtlBatchFkForLatest(
+            formData.atlBatchFk
+          );
+          if (attachmentBatchId != null) {
+            slim.atl_batch_fk = attachmentBatchId;
+          }
           if (apiDataSnake.work_status != null) {
             slim.work_status = apiDataSnake.work_status;
           }
@@ -5680,6 +5696,7 @@ export function AddTechnicalLogbookEntryModal({
     displayName?: string
   ) => {
     if (!filePath?.trim()) return;
+    if (!canDownloadWhiteAtlAndDfp(atlRoleForWorkStatus)) return;
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
       const blob = await downloadModuleFile(folder, filePath);
@@ -5738,7 +5755,9 @@ export function AddTechnicalLogbookEntryModal({
     setShowFileViewModal(true);
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
-      const blob = await downloadModuleFile(folder, downloadPath);
+      const blob = await downloadModuleFile(folder, downloadPath, {
+        preview: true,
+      });
       const preview = await preparePreviewBlob(blob, downloadPath);
       setFileViewBlobUrl(window.URL.createObjectURL(preview.blob));
       setFileViewMimeType(preview.mimeType);
@@ -5918,7 +5937,9 @@ export function AddTechnicalLogbookEntryModal({
                     ? "pointer-events-none select-none opacity-[0.92]"
                     : ""
                 }`}
-                {...(mainFormLocked ? ({ inert: true } as object) : {})}
+                {...(atlFormReadOnly || isInitializing
+                  ? ({ inert: true } as object)
+                  : {})}
               >
                 {/* Row 1 — General Information */}
                 <div className="space-y-4">
@@ -6032,7 +6053,13 @@ export function AddTechnicalLogbookEntryModal({
                       )}
                     </div>
                     {showAtlBatchFormField && (
-                      <div>
+                      <div
+                        className={
+                          attachmentsOnlyLocked
+                            ? "pointer-events-auto relative z-10 opacity-100"
+                            : undefined
+                        }
+                      >
                         <label className="block text-gray-700 text-sm mb-1.5">
                           ATL batch *
                         </label>
@@ -8531,22 +8558,30 @@ export function AddTechnicalLogbookEntryModal({
                                     View
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                  onClick={() =>
-                                    handleDownloadAtlFile(
-                                      "white_atl",
-                                      existingWhiteAtlFilePath,
-                                      existingWhiteAtlFilePath
-                                        .split("/")
-                                        .pop() || "white_atl"
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 flex-shrink-0" />
-                                  Download
-                                </button>
+                                {canDownloadAtlStoredFiles && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                    onClick={() =>
+                                      handleDownloadAtlFile(
+                                        "white_atl",
+                                        existingWhiteAtlFilePath,
+                                        atlAttachmentFilename({
+                                          documentType: "ATL",
+                                          sequenceNo: formData.seqNo,
+                                          aircraftName:
+                                            formData.acReg ||
+                                            editEntry?.aircraft?.registration,
+                                          sourceFilename:
+                                            existingWhiteAtlFilePath,
+                                        })
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 flex-shrink-0" />
+                                    Download
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -8606,21 +8641,29 @@ export function AddTechnicalLogbookEntryModal({
                                     View
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                  onClick={() =>
-                                    handleDownloadAtlFile(
-                                      "dfp",
-                                      existingDfpFilePath,
-                                      existingDfpFilePath.split("/").pop() ||
-                                        "dfp"
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 flex-shrink-0" />
-                                  Download
-                                </button>
+                                {canDownloadAtlStoredFiles && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                    onClick={() =>
+                                      handleDownloadAtlFile(
+                                        "dfp",
+                                        existingDfpFilePath,
+                                        atlAttachmentFilename({
+                                          documentType: "DFP",
+                                          sequenceNo: formData.seqNo,
+                                          aircraftName:
+                                            formData.acReg ||
+                                            editEntry?.aircraft?.registration,
+                                          sourceFilename: existingDfpFilePath,
+                                        })
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 flex-shrink-0" />
+                                    Download
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
