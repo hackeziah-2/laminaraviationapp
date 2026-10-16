@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   atlBatchQueryParam,
   resetAtlManageListOnAircraftChange,
+  resolveAtlBatchFilterAfterOptionsLoad,
 } from "./atlManageListQuery";
 
 describe("atlBatchQueryParam", () => {
@@ -35,5 +36,24 @@ describe("resetAtlManageListOnAircraftChange", () => {
         nextAircraftId: "7",
       })
     ).toBeNull();
+  });
+});
+
+describe("resolveAtlBatchFilterAfterOptionsLoad", () => {
+  const batches = [{ id: 3 }, { id: 9 }];
+
+  it("keeps all batches selected when nothing specific is chosen", () => {
+    expect(resolveAtlBatchFilterAfterOptionsLoad("", batches)).toBe("");
+    expect(resolveAtlBatchFilterAfterOptionsLoad("all", batches)).toBe("");
+    expect(resolveAtlBatchFilterAfterOptionsLoad("ALL", batches)).toBe("");
+  });
+
+  it("keeps a batch id that is still in the loaded list", () => {
+    expect(resolveAtlBatchFilterAfterOptionsLoad("9", batches)).toBe("9");
+  });
+
+  it("clears a batch id that is not in the loaded list", () => {
+    expect(resolveAtlBatchFilterAfterOptionsLoad("4", batches)).toBe("");
+    expect(resolveAtlBatchFilterAfterOptionsLoad("4", [])).toBe("");
   });
 });

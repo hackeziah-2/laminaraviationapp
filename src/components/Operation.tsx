@@ -58,7 +58,12 @@ import {
 import { getAircraftById } from "../api/aircraftApi";
 import apiClient from "../api/index";
 import { getAtlStoredUploadFilePath } from "../api/fileUploadApi";
+import {
+  preparePreviewBlob,
+  resolveModuleDownloadPath,
+} from "../utils/moduleFilePreview";
 import Swal from "../utils/swalDefaults";
+import { AtlStoredFilePreview } from "./ui/AtlStoredFilePreview";
 import { Spinner, SpinnerIcon } from "./ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
@@ -79,6 +84,7 @@ import {
   isAtlExcelImportFailureStatus,
   formatAtlTotalFlightHoursForDisplay,
   formatAtlFuelLeftRightForDisplay,
+  resolveAtlActionTakenPersonDisplay,
   resolveAtlMaintenancePersonDisplay,
 } from "../utility/utils";
 import { getAllAccounts, type Account } from "../api/accountApi";
@@ -93,6 +99,7 @@ import {
 import {
   ATL_WORK_STATUS_KEYS,
   canCreateAtlBatch,
+  canDownloadWhiteAtlAndDfp,
   canEditAtlBatch,
   canManageAtlBatchFilter,
   canEditAtlFields,
@@ -112,6 +119,7 @@ import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
 import { useOverlayEscape } from "../hooks/useOverlayEscape";
 import { rememberWindowScroll } from "../utils/windowScrollMemory";
 import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
+import { atlAttachmentFilename } from "../utils/atlAttachmentFilename";
 
 type GroupByOption =
   | "allColumns"
@@ -128,7 +136,11 @@ type AtlComponentPartRow = ComponentPartsRecord & {
 const STICKY_SEQ_CLASS =
   "atl-th-sticky-seq sticky top-0 left-0 z-[6] px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
-  "atl-td-sticky-seq sticky left-0 z-[1] px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 font-medium min-w-[140px] w-[140px]";
+  "atl-td-sticky-seq sticky left-0 z-[1] px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 font-medium min-w-[140px] w-[140px] cursor-pointer";
+
+function atlListRowClassName(baseClass: string, selected: boolean): string {
+  return selected ? `${baseClass} atl-row-selected` : baseClass;
+}
 
 const ATL_TABLE_SCROLL_CLASS = "atl-all-columns-scroll";
 const ATL_ALL_COLUMNS_TABLE_CLASS = "atl-all-columns-table";
@@ -177,6 +189,9 @@ const ATL_TD_CR_LEFT_CLASS = `${ATL_TD_CR_BASE_CLASS} text-left`;
 
 /** Leaf columns before / after Component Record in the all-columns thead. */
 const ATL_CR_HEADER_COLS_BEFORE = 36;
+/** All Columns leaves before the Airframe / Engine / Propeller timesheet. */
+const ATL_COLS_BEFORE_TIMESHEET = 16;
+const ATL_TIMESHEET_LEAF_COUNT = 10;
 const ATL_CR_HEADER_COLS_AFTER = 8;
 const ATL_CR_LEAF_COL_COUNT = 7;
 /** Leaf columns before Component Record in Reliability Monitoring. */
@@ -663,6 +678,130 @@ function formatValue(value: unknown): string {
   return formatAtlListCell(value, "-");
 }
 
+/** Aircraft Master Timesheet group titles (Airframe / Engine / Propeller). */
+const ATL_TIMESHEET_GROUP_CLASS =
+  "atl-th-timesheet px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide border-r border-gray-300 whitespace-nowrap";
+/** Column labels under each timesheet group. */
+const ATL_TIMESHEET_SUB_CLASS =
+  "atl-th-timesheet px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide border-r border-gray-300 whitespace-nowrap min-w-[5.75rem]";
+const ATL_TIMESHEET_TD_CLASS =
+  "atl-td-timesheet px-3 py-3 text-center text-sm font-semibold tabular-nums whitespace-nowrap";
+
+function AtlTimesheetGroupHeaders() {
+  return (
+    <>
+      <th
+        colSpan={2}
+        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-airframe`}
+      >
+        Airframe
+      </th>
+      <th
+        colSpan={4}
+        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-engine`}
+      >
+        Engine
+      </th>
+      <th
+        colSpan={4}
+        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-propeller atl-th-group-end`}
+      >
+        Propeller
+      </th>
+    </>
+  );
+}
+
+/** Row-3 spacers under the timesheet, same color as the column so the fill does not break. */
+const ATL_TIMESHEET_FILL_CLASSES = [
+  "atl-ts-af-run",
+  "atl-ts-af-aftt atl-th-group-end",
+  "atl-ts-en-run",
+  "atl-ts-en-tsn",
+  "atl-ts-en-tso",
+  "atl-ts-en-tbo atl-th-group-end",
+  "atl-ts-pr-run",
+  "atl-ts-pr-tsn",
+  "atl-ts-pr-tso",
+  "atl-ts-pr-tbo atl-th-group-end",
+] as const;
+
+function AtlTimesheetHeaderFillCells() {
+  return (
+    <>
+      {ATL_TIMESHEET_FILL_CLASSES.map((columnClass) => (
+        <th
+          key={columnClass}
+          className={`${ATL_TH_STICKY_FILL_CLASS} ${columnClass}`}
+          aria-hidden="true"
+        >
+          {"\u00a0"}
+        </th>
+      ))}
+    </>
+  );
+}
+
+function AtlTimesheetSubHeaders() {
+  return (
+    <>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-run`}>Run Time</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-aftt atl-th-group-end`}>
+        AFTT
+      </th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-run`}>Run Time</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tsn`}>TSN</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tso`}>TSO</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tbo atl-th-group-end`}>
+        TBO
+      </th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-run`}>Run Time</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tsn`}>TSN</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tso`}>TSO</th>
+      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tbo atl-th-group-end`}>
+        TBO
+      </th>
+    </>
+  );
+}
+
+function AtlTimesheetCells({ record }: { record: AircraftTechnicalLog }) {
+  return (
+    <>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-run`}>
+        <b>{formatValue(record.airframeRunTime)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-aftt atl-td-group-end`}>
+        <b>{formatValue(record.airframeAftt)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-run`}>
+        <b>{formatValue(record.engineRunTime)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tsn`}>
+        <b>{formatValue(record.engineTsn)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tso`}>
+        <b>{formatValue(record.engineTso)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tbo atl-td-group-end`}>
+        <b>{formatValue(record.engineTbo)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-run`}>
+        <b>{formatValue(record.propellerRunTime)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tsn`}>
+        <b>{formatValue(record.propellerTsn)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tso`}>
+        <b>{formatValue(record.propellerTso)}</b>
+      </td>
+      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tbo atl-td-group-end`}>
+        <b>{formatValue(record.propellerTbo)}</b>
+      </td>
+    </>
+  );
+}
+
 /** ATL list row metric: 0 / null / empty → "-"; non-zero keeps 2dp. */
 function formatAtlListRowMetric2dp(value: unknown): string {
   if (value == null || value === "" || isAtlListNumericZero(value)) return "-";
@@ -777,6 +916,7 @@ export function Operation() {
     [operationAtlRole]
   );
   const canExportOperationAtl = !isMechanicViewer;
+  const canDownloadAtlStoredFiles = canDownloadWhiteAtlAndDfp(operationAtlRole);
   /** Create ATL batch is restricted to Admin and Maintenance Planner. */
   const allowAtlBatchCreate = canCreateAtlBatch(operationAtlRole);
   /** Edit ATL batch is restricted to Admin and Maintenance Manager. */
@@ -821,6 +961,12 @@ export function Operation() {
     displayName?: string
   ) => {
     if (!filename || !filename.trim()) return;
+    if (
+      (folder === "white_atl" || folder === "dfp") &&
+      !canDownloadWhiteAtlAndDfp(operationAtlRole)
+    ) {
+      return;
+    }
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
       const blob = await downloadModuleFile(folder, filename);
@@ -846,65 +992,72 @@ export function Operation() {
     }
   };
 
-  /** Infer MIME from filename when server returns octet-stream (so JPG/PDF are viewable) */
-  const getMimeFromFilename = (path: string): string | null => {
-    const ext = (path.split("/").pop() || path).split(".").pop()?.toLowerCase();
-    if (ext === "pdf") return "application/pdf";
-    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-    if (ext === "png") return "image/png";
-    if (ext === "gif") return "image/gif";
-    if (ext === "webp") return "image/webp";
-    return null;
-  };
-
   /** View file in popup modal */
   const [showFileViewModal, setShowFileViewModal] = useState(false);
   const [fileViewBlobUrl, setFileViewBlobUrl] = useState<string | null>(null);
   const [fileViewMimeType, setFileViewMimeType] = useState<string | null>(null);
+  const [fileViewTitle, setFileViewTitle] = useState("View file");
   const [fileViewLoading, setFileViewLoading] = useState(false);
   const [fileViewError, setFileViewError] = useState<string | null>(null);
+  const fileViewRequestRef = useRef(0);
 
-  const handleViewFile = async (folder: string, filename: string) => {
-    if (!filename || !filename.trim()) return;
+  const replaceFileViewUrl = (nextUrl: string | null) => {
+    setFileViewBlobUrl((current) => {
+      if (current && current !== nextUrl) {
+        window.URL.revokeObjectURL(current);
+      }
+      return nextUrl;
+    });
+  };
+
+  const handleViewFile = async (
+    folder: "white_atl" | "dfp",
+    filename: string,
+    label: string
+  ) => {
+    const downloadPath = resolveModuleDownloadPath(folder, filename);
+    if (!downloadPath) return;
+    const requestId = ++fileViewRequestRef.current;
+    const displayName = downloadPath.split("/").pop() || label;
+    setFileViewTitle(`${label} — ${displayName}`);
     setFileViewLoading(true);
     setFileViewError(null);
-    setFileViewBlobUrl(null);
+    replaceFileViewUrl(null);
     setFileViewMimeType(null);
     setShowFileViewModal(true);
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
-      const blob = await downloadModuleFile(folder, filename);
-      const url = window.URL.createObjectURL(blob);
-      const serverType =
-        blob.type || (blob as Blob & { type?: string }).type || null;
-      const isOctetStream =
-        !serverType || serverType === "application/octet-stream";
-      const mimeType = isOctetStream
-        ? getMimeFromFilename(filename)
-        : serverType;
-      setFileViewBlobUrl(url);
-      setFileViewMimeType(mimeType ?? null);
+      const blob = await downloadModuleFile(folder, downloadPath, {
+        preview: true,
+      });
+      if (requestId !== fileViewRequestRef.current) return;
+      const preview = await preparePreviewBlob(blob, downloadPath);
+      if (requestId !== fileViewRequestRef.current) return;
+      replaceFileViewUrl(window.URL.createObjectURL(preview.blob));
+      setFileViewMimeType(preview.mimeType);
       setFileViewError(null);
     } catch (err: any) {
+      if (requestId !== fileViewRequestRef.current) return;
       console.error("View file error:", err);
       setFileViewError(
         err?.response?.data?.detail || err?.message || "Failed to open file."
       );
-      setFileViewBlobUrl(null);
+      replaceFileViewUrl(null);
       setFileViewMimeType(null);
     } finally {
-      setFileViewLoading(false);
+      if (requestId === fileViewRequestRef.current) {
+        setFileViewLoading(false);
+      }
     }
   };
 
   const closeFileViewModal = () => {
-    if (fileViewBlobUrl) {
-      window.URL.revokeObjectURL(fileViewBlobUrl);
-    }
+    fileViewRequestRef.current += 1;
+    replaceFileViewUrl(null);
     setShowFileViewModal(false);
-    setFileViewBlobUrl(null);
     setFileViewMimeType(null);
     setFileViewError(null);
+    setFileViewTitle("View file");
   };
 
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
@@ -956,6 +1109,17 @@ export function Operation() {
   );
   const [groupBy, setGroupBy] = useState<GroupByOption>("allColumns");
   const [sequenceSort, setSequenceSort] = useState<"asc" | "desc">("desc");
+  const [selectedAtlRowIds, setSelectedAtlRowIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const toggleAtlRowSelection = (recordId: number) => {
+    setSelectedAtlRowIds((current) => {
+      const next = new Set(current);
+      if (next.has(recordId)) next.delete(recordId);
+      else next.add(recordId);
+      return next;
+    });
+  };
   const [importLoading, setImportLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -975,8 +1139,6 @@ export function Operation() {
   const atlAllColumnsTheadRef = useRef<HTMLTableSectionElement>(null);
   const [atlHeaderRow1Height, setAtlHeaderRow1Height] = useState(40);
   const [atlHeaderRow2Height, setAtlHeaderRow2Height] = useState(32);
-  /** User changed batch filter (incl. "All"); blocks auto-default to latest batch on reload. */
-  const atlBatchFilterTouchedRef = useRef(false);
   /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
   const skipNextPagedFetchRef = useRef(false);
   const prevListQueryKeyRef = useRef("");
@@ -1034,6 +1196,8 @@ export function Operation() {
     if (Number.isFinite(aircraftId) && aircraftId > 0) {
       setSelectedAircraftId(aircraftId);
     }
+    // Each aircraft profile opens on every batch for that aircraft.
+    setSelectedAtlBatchId("");
   }, [aircraftId]);
 
   useEffect(() => {
@@ -1110,13 +1274,6 @@ export function Operation() {
         setAtlBatchFilterOptions(
           batches.map((b) => ({ id: b.id, name: b.name }))
         );
-        setSelectedAtlBatchId((prev) => {
-          if (batches.length === 0) return prev;
-          if (prev !== "") return prev;
-          if (atlBatchFilterTouchedRef.current) return prev;
-          const latest = pickLatestAtlBatchId(batches);
-          return latest != null ? String(latest) : prev;
-        });
       })
       .catch(() => {
         if (!cancelled) setAtlBatchFilterOptions([]);
@@ -1129,7 +1286,6 @@ export function Operation() {
   useEffect(() => {
     if (!showAtlBatchFilter) {
       setSelectedAtlBatchId("");
-      atlBatchFilterTouchedRef.current = false;
       setAtlBatchModalOpen(false);
       setAtlBatchModalEditId(null);
     }
@@ -1139,7 +1295,8 @@ export function Operation() {
     selectedAtlBatchFk ?? ""
   }|${sequenceSort}`;
 
-  // Fleet Time list: GET /api/v1/aircraft-technical-log/paged (see getAircraftTechnicalLogs)
+  // Fleet Time list: GET /api/v1/aircraft-technical-log/paged
+  // Opens with every batch for this aircraft, sorted by sequence_no descending.
   useEffect(() => {
     if (skipNextPagedFetchRef.current) {
       skipNextPagedFetchRef.current = false;
@@ -1518,7 +1675,7 @@ export function Operation() {
         label: "Action Taken Person",
         getValue: (record) =>
           formatAtlAssigneeListCell(
-            resolveAtlMaintenancePersonDisplay(record, accountsMap, "")
+            resolveAtlActionTakenPersonDisplay(record, accountsMap, "")
           ),
       },
       {
@@ -2516,7 +2673,6 @@ export function Operation() {
                       value={selectedAtlBatchId}
                       onChange={(e) => {
                         const v = e.target.value;
-                        atlBatchFilterTouchedRef.current = true;
                         setSelectedAtlBatchId(v);
                         if (v.trim() !== "") setAtlBatchFilterError("");
                       }}
@@ -2763,24 +2919,7 @@ export function Operation() {
                           <th colSpan={2} className={ATL_TH_GROUP_CLASS}>
                             TACHOMETER
                           </th>
-                          <th
-                            colSpan={2}
-                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                          >
-                            AIRFRAME
-                          </th>
-                          <th
-                            colSpan={4}
-                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                          >
-                            ENGINE
-                          </th>
-                          <th
-                            colSpan={4}
-                            className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
-                          >
-                            PROPELLER
-                          </th>
+                          <AtlTimesheetGroupHeaders />
                           <th
                             colSpan={3}
                             className="px-3 py-2 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap"
@@ -2919,42 +3058,7 @@ export function Operation() {
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             TACH END
                           </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            HRS
-                            <br />
-                            RUN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AFTT
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            HRS
-                            <br />
-                            RUN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSO
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TBO
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            HRS
-                            <br />
-                            RUN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSN
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TSO
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            TBO
-                          </th>
+                          <AtlTimesheetSubHeaders />
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             UPLIFT QTY
                             <br />
@@ -3073,8 +3177,16 @@ export function Operation() {
                         </tr>
                         <tr>
                           <AtlStickyHeaderFillCells
-                            count={ATL_CR_HEADER_COLS_BEFORE}
+                            count={ATL_COLS_BEFORE_TIMESHEET}
                             stickySeqFirst
+                          />
+                          <AtlTimesheetHeaderFillCells />
+                          <AtlStickyHeaderFillCells
+                            count={
+                              ATL_CR_HEADER_COLS_BEFORE -
+                              ATL_COLS_BEFORE_TIMESHEET -
+                              ATL_TIMESHEET_LEAF_COUNT
+                            }
                           />
                           <th
                             className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
@@ -3137,14 +3249,24 @@ export function Operation() {
                               key={record.id}
                               data-atl-entry-id={record.id}
                               data-list-entry-id={record.id}
-                              className="hover:bg-gray-50/50 transition-colors"
+                              aria-selected={selectedAtlRowIds.has(record.id)}
+                              className={atlListRowClassName(
+                                "hover:bg-gray-50/50 transition-colors",
+                                selectedAtlRowIds.has(record.id)
+                              )}
                             >
-                              <td className={STICKY_SEQ_CELL_CLASS}>
+                              <td
+                                className={STICKY_SEQ_CELL_CLASS}
+                                onClick={() => toggleAtlRowSelection(record.id)}
+                              >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
                                   </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <div
+                                    className="flex items-center gap-1 text-blue-600 mt-1"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <button
                                       onClick={() => {
                                         setSelectedEntry(record);
@@ -3246,36 +3368,7 @@ export function Operation() {
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                 {formatAtlListCell(record.tachometerEnd)}
                               </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.airframeRunTime)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.airframeAftt)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineRunTime)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineTsn)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineTso)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.engineTbo)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerRunTime)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerTsn)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerTso)}</b>
-                              </td>
-                              <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white whitespace-nowrap">
-                                <b>{formatValue(record.propellerTbo)}</b>
-                              </td>
+                              <AtlTimesheetCells record={record} />
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
                                 {formatAtlFuelLeftRightForDisplay(
                                   record.fuelQtyLeftUpliftQty,
@@ -3327,7 +3420,13 @@ export function Operation() {
                                 {formatAtlListCell(record.actionsTaken)}
                               </td>
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
-                                {formatAtlPersonCell(record)}
+                                {formatAtlAssigneeListCell(
+                                  resolveAtlActionTakenPersonDisplay(
+                                    record,
+                                    accountsMap,
+                                    ""
+                                  )
+                                )}
                               </td>
                               <AtlComponentRecordCells record={record} />
                               <td className="px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-white">
@@ -3360,30 +3459,39 @@ export function Operation() {
                                     getAtlStoredUploadFilePath(record.whiteAtl);
                                   return whiteAtlFile ? (
                                     <div className="flex flex-col gap-1">
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleDownloadFile(
-                                            "white_atl",
-                                            whiteAtlFile,
-                                            whiteAtlFile.split("/").pop() ||
-                                              "white_atl"
-                                          )
-                                        }
-                                      >
-                                        <Download className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">
-                                          Download
-                                        </span>
-                                      </button>
+                                      {canDownloadAtlStoredFiles && (
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleDownloadFile(
+                                              "white_atl",
+                                              whiteAtlFile,
+                                              atlAttachmentFilename({
+                                                documentType: "ATL",
+                                                sequenceNo: record.sequenceNo,
+                                                aircraftName:
+                                                  record.aircraft?.registration ||
+                                                  aircraft?.registration,
+                                                sourceFilename: whiteAtlFile,
+                                              })
+                                            )
+                                          }
+                                        >
+                                          <Download className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">
+                                            Download
+                                          </span>
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
                                         onClick={() =>
                                           handleViewFile(
                                             "white_atl",
-                                            whiteAtlFile
+                                            whiteAtlFile,
+                                            "White ATL"
                                           )
                                         }
                                       >
@@ -3403,27 +3511,36 @@ export function Operation() {
                                   );
                                   return dfpFile ? (
                                     <div className="flex flex-col gap-1">
+                                      {canDownloadAtlStoredFiles && (
+                                        <button
+                                          type="button"
+                                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
+                                          onClick={() =>
+                                            handleDownloadFile(
+                                              "dfp",
+                                              dfpFile,
+                                              atlAttachmentFilename({
+                                                documentType: "DFP",
+                                                sequenceNo: record.sequenceNo,
+                                                aircraftName:
+                                                  record.aircraft?.registration ||
+                                                  aircraft?.registration,
+                                                sourceFilename: dfpFile,
+                                              })
+                                            )
+                                          }
+                                        >
+                                          <Download className="w-4 h-4 flex-shrink-0" />
+                                          <span className="text-xs">
+                                            Download
+                                          </span>
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
                                         onClick={() =>
-                                          handleDownloadFile(
-                                            "dfp",
-                                            dfpFile,
-                                            dfpFile.split("/").pop() || "dfp"
-                                          )
-                                        }
-                                      >
-                                        <Download className="w-4 h-4 flex-shrink-0" />
-                                        <span className="text-xs">
-                                          Download
-                                        </span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 transition-colors underline text-left"
-                                        onClick={() =>
-                                          handleViewFile("dfp", dfpFile)
+                                          handleViewFile("dfp", dfpFile, "DFP")
                                         }
                                       >
                                         <Eye className="w-4 h-4 flex-shrink-0" />
@@ -3535,14 +3652,24 @@ export function Operation() {
                             <tr
                               key={record.id}
                               data-list-entry-id={record.id}
-                              className="hover:bg-gray-50"
+                              aria-selected={selectedAtlRowIds.has(record.id)}
+                              className={atlListRowClassName(
+                                "hover:bg-gray-50",
+                                selectedAtlRowIds.has(record.id)
+                              )}
                             >
-                              <td className={STICKY_SEQ_CELL_CLASS}>
+                              <td
+                                className={STICKY_SEQ_CELL_CLASS}
+                                onClick={() => toggleAtlRowSelection(record.id)}
+                              >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
                                   </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <div
+                                    className="flex items-center gap-1 text-blue-600 mt-1"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <button
                                       onClick={() => {
                                         setSelectedEntry(record);
@@ -3686,36 +3813,11 @@ export function Operation() {
                           <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
                             TACH END
                           </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME RUN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            AIRFRAME AFTT
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE RUN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE TSN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE TSO
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            ENGINE TBO
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER RUN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER TSN
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap">
-                            PROPELLER TSO
-                          </th>
-                          <th className="px-3 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap rounded-tr-lg">
-                            PROPELLER TBO
-                          </th>
+                          <AtlTimesheetGroupHeaders />
+                        </tr>
+                        <tr>
+                          <AtlStickyHeaderFillCells count={6} stickySeqFirst />
+                          <AtlTimesheetSubHeaders />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -3734,14 +3836,26 @@ export function Operation() {
                               <tr
                                 key={record.id}
                                 data-list-entry-id={record.id}
-                                className="hover:bg-gray-50"
+                                aria-selected={selectedAtlRowIds.has(record.id)}
+                                className={atlListRowClassName(
+                                  "hover:bg-gray-50",
+                                  selectedAtlRowIds.has(record.id)
+                                )}
                               >
-                                <td className={STICKY_SEQ_CELL_CLASS}>
+                                <td
+                                  className={STICKY_SEQ_CELL_CLASS}
+                                  onClick={() => toggleAtlRowSelection(record.id)}
+                                >
                                   <div className="flex flex-col">
                                     <span className="font-medium">
                                       {formatAtlListCell(record.sequenceNo)}
                                     </span>
-                                    <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                    <div
+                                      className="flex items-center gap-1 text-blue-600 mt-1"
+                                      onClick={(event) =>
+                                        event.stopPropagation()
+                                      }
+                                    >
                                       <button
                                         onClick={() => {
                                           setSelectedEntry(record);
@@ -3809,36 +3923,7 @@ export function Operation() {
                                 <td className="px-3 py-2 text-sm border-r border-gray-200">
                                   {formatAtlListCell(record.tachometerEnd)}
                                 </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.airframeRunTime)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.airframeAftt)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineRunTime)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineTsn)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineTso)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.engineTbo)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.propellerRunTime)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.propellerTsn)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm border-r border-gray-200">
-                                  <b>{formatValue(record.propellerTso)}</b>
-                                </td>
-                                <td className="px-3 py-2 text-sm">
-                                  <b>{formatValue(record.propellerTbo)}</b>
-                                </td>
+                                <AtlTimesheetCells record={record} />
                               </tr>
                             );
                           })
@@ -4028,14 +4113,24 @@ export function Operation() {
                             <tr
                               key={record.id}
                               data-list-entry-id={record.id}
-                              className="hover:bg-gray-50"
+                              aria-selected={selectedAtlRowIds.has(record.id)}
+                              className={atlListRowClassName(
+                                "hover:bg-gray-50",
+                                selectedAtlRowIds.has(record.id)
+                              )}
                             >
-                              <td className={STICKY_SEQ_CELL_CLASS}>
+                              <td
+                                className={STICKY_SEQ_CELL_CLASS}
+                                onClick={() => toggleAtlRowSelection(record.id)}
+                              >
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
                                   </span>
-                                  <div className="flex items-center gap-1 text-blue-600 mt-1">
+                                  <div
+                                    className="flex items-center gap-1 text-blue-600 mt-1"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
                                     <button
                                       onClick={() => {
                                         setSelectedEntry(record);
@@ -4149,7 +4244,6 @@ export function Operation() {
           setAtlBatchModalEditId(null);
         }}
         onSaved={(batch: AtlBatch) => {
-          atlBatchFilterTouchedRef.current = true;
           setAtlBatchFilterOptions((prev) => {
             const without = prev.filter((b) => b.id !== batch.id);
             return [...without, { id: batch.id, name: batch.name }].sort(
@@ -4965,88 +5059,54 @@ export function Operation() {
         })()}
 
       {/* File View Modal – view uploaded file (WHITE ATL / DFP) */}
-      {showFileViewModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(4px)",
-          }}
-        >
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <span className="text-sm font-medium text-gray-900">
-                View file
-              </span>
-              <button
-                type="button"
-                onClick={closeFileViewModal}
-                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label="Close"
+      {showFileViewModal &&
+        createPortal(
+          <div className="atl-file-view-overlay fixed inset-0 z-[80] flex items-center justify-center">
+            <div className="atl-file-view-dialog bg-white rounded-xl shadow-xl">
+              <div className="atl-file-view-header flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200">
+                <span
+                  className="text-sm font-medium text-gray-900 truncate"
+                  title={fileViewTitle}
+                >
+                  {fileViewTitle}
+                </span>
+                <button
+                  type="button"
+                  onClick={closeFileViewModal}
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors shrink-0"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div
+                className="atl-file-view-body"
+                onContextMenu={(event) => event.preventDefault()}
               >
-                <X className="w-5 h-5" />
-              </button>
+                {fileViewLoading && (
+                  <div className="atl-file-view-status flex-col gap-2 text-gray-500">
+                    <Spinner />
+                    <span className="text-sm">Loading file…</span>
+                  </div>
+                )}
+                {fileViewError && !fileViewLoading && (
+                  <div className="atl-file-view-status text-red-600 text-sm">
+                    {fileViewError}
+                  </div>
+                )}
+                {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
+                  <AtlStoredFilePreview
+                    key={fileViewBlobUrl}
+                    blobUrl={fileViewBlobUrl}
+                    mimeType={fileViewMimeType}
+                    title={fileViewTitle}
+                  />
+                )}
+              </div>
             </div>
-            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
-              {fileViewLoading && (
-                <div className="flex flex-col items-center gap-2 text-gray-500">
-                  <Spinner />
-                  <span className="text-sm">Loading file…</span>
-                </div>
-              )}
-              {fileViewError && !fileViewLoading && (
-                <div className="text-center text-red-600 text-sm">
-                  {fileViewError}
-                </div>
-              )}
-              {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
-                <>
-                  {/* JPG, JPEG, PNG, GIF, WebP – image preview */}
-                  {(fileViewMimeType?.startsWith("image/") ||
-                    fileViewMimeType === "image/jpeg" ||
-                    fileViewMimeType === "image/jpg") && (
-                    <img
-                      src={fileViewBlobUrl}
-                      alt="File preview"
-                      className="max-w-full max-h-[70vh] object-contain"
-                    />
-                  )}
-                  {/* PDF – iframe preview */}
-                  {(fileViewMimeType === "application/pdf" ||
-                    fileViewMimeType?.includes("pdf")) && (
-                    <iframe
-                      src={fileViewBlobUrl}
-                      title="File preview"
-                      className="w-full h-[70vh] border-0 rounded"
-                    />
-                  )}
-                  {fileViewBlobUrl &&
-                    !fileViewMimeType?.startsWith("image/") &&
-                    fileViewMimeType !== "image/jpeg" &&
-                    fileViewMimeType !== "image/jpg" &&
-                    fileViewMimeType !== "application/pdf" &&
-                    !fileViewMimeType?.includes("pdf") && (
-                      <div className="text-center text-gray-600 text-sm">
-                        <p className="mb-2">
-                          Preview not available for this file type.
-                        </p>
-                        <a
-                          href={fileViewBlobUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          Open in new tab / Download
-                        </a>
-                      </div>
-                    )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

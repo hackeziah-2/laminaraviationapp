@@ -7,6 +7,7 @@ import {
   canOpenAtlEditModal,
   canShowAtlWhiteAtlDfpSection,
   canUpdateAtlWhiteAtlDfpFields,
+  canDownloadWhiteAtlAndDfp,
   canUploadWhiteAtlAndDfpFiles,
   getAtlWorkStatusDropdownKeysForRole,
   hasAtlWhiteAtlDfpContent,
@@ -321,6 +322,25 @@ describe("ATL RBAC — White ATL / DFP fields", () => {
     expect(canUpdateAtlWhiteAtlDfpFields("Quality Manager", "COMPLETED")).toBe(
       false
     );
+  });
+});
+
+describe("White ATL and DFP download", () => {
+  it("allows every role except Mechanic", () => {
+    for (const role of [
+      "Admin",
+      "Maintenance Planner",
+      "Maintenance Manager",
+      "Mechanic - Maintenance Manager",
+      "Technical Publication",
+      "Quality Manager",
+      "Pilot",
+    ]) {
+      expect(canDownloadWhiteAtlAndDfp(role)).toBe(true);
+    }
+    for (const role of ["Mechanic", "Mechanic - Document", "Line Mechanic"]) {
+      expect(canDownloadWhiteAtlAndDfp(role)).toBe(false);
+    }
   });
 });
 

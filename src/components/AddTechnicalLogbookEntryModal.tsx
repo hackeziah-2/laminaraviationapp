@@ -39,6 +39,7 @@ import {
   Account,
 } from "../api/accountApi";
 import { getMe } from "../api/authApi";
+import { fileWithAtlAttachmentName, atlAttachmentFilename } from "../utils/atlAttachmentFilename";
 import {
   resolvePreviousAtlForNewEntry,
   getLatestAircraftTechnicalLog,
@@ -70,7 +71,8 @@ import {
   toCamel,
   formatOptionalNumber2dp,
   formatAtlTachHobbsDisplay1dp,
-  formatAtlTboDisplay1dp,
+  formatAtlEnginePropHours2dp,
+  atlEnginePropRunHoursFromTach,
   formatTotalFlightTimeForDisplay,
   formatZuluTimeKeyboardInput,
   normalizeOptionalZuluTimeInput,
@@ -87,6 +89,7 @@ import {
   natureRequiresPrfDetails,
   natureRequiresTachHobbsEnd,
 } from "../utility/atlNatureRequiredFields";
+import { AtlStoredFilePreview } from "./ui/AtlStoredFilePreview";
 import { DateInput } from "./ui/DateInput";
 import { FileDropzone } from "./ui/FileDropzone";
 import {
@@ -102,11 +105,16 @@ import {
   formatShortDisplayFileName,
   getAtlStoredUploadFilePath,
 } from "../api/fileUploadApi";
+import {
+  preparePreviewBlob,
+  resolveModuleDownloadPath,
+} from "../utils/moduleFilePreview";
 import { useUserPermissions } from "../hooks/useUserPermissions";
 import {
   formatAtlWorkStatusLabel,
   getAtlWorkStatusDropdownKeysForRole,
   isMaintenancePlannerAtlWorkStatusLockedOnEdit,
+  canDownloadWhiteAtlAndDfp,
   canManageAtlBatchFilter,
   canUpdateAtlWhiteAtlDfpFields,
   canShowAtlWhiteAtlDfpSection,
@@ -144,6 +152,9 @@ type AtlTachHobbsEditableField =
   | "hobbsMeterStart"
   | "hobbsMeterEnd";
 
+const ATL_BATCH_REQUIRED_MESSAGE =
+  "Please select an ATL Batch before saving.";
+
 function parseAtlBatchFkForLatest(
   raw: string | null | undefined
 ): number | undefined {
@@ -160,7 +171,10 @@ function formatAtlPrevTimeFromLatest(value: number | null | undefined): string {
   return Number(value).toFixed(2);
 }
 
-/** Tachometer leg: total and both runtimes are the same value, shown to 1 decimal. */
+/**
+ * Tachometer total stays 1 decimal for the tach/airframe display.
+ * Engine and propeller run time keep the same delta at 2 decimals.
+ */
 function computeAtlTachometerLeg(
   tachometerStart: unknown,
   tachometerEnd: unknown
@@ -171,20 +185,22 @@ function computeAtlTachometerLeg(
   engineRunTime: number;
   propellerRunTime: number;
   display: string;
+  enginePropDisplay: string;
 } {
   const start = Number(tachometerStart);
   const end = Number(tachometerEnd);
-  const tachometerTotal =
+  const rawTotal =
     (Number.isFinite(end) ? end : 0) - (Number.isFinite(start) ? start : 0);
-  const display = tachometerTotal.toFixed(1);
-  const numeric = Number(display);
+  const display = rawTotal.toFixed(1);
+  const enginePropDisplay = atlEnginePropRunHoursFromTach(start, end);
   return {
     tachometerStart: Number.isFinite(start) ? start : 0,
     tachometerEnd: Number.isFinite(end) ? end : 0,
-    tachometerTotal: numeric,
-    engineRunTime: numeric,
-    propellerRunTime: numeric,
+    tachometerTotal: Number(display),
+    engineRunTime: Number(enginePropDisplay),
+    propellerRunTime: Number(enginePropDisplay),
     display,
+    enginePropDisplay,
   };
 }
 
@@ -387,6 +403,11 @@ function atlAssigneeClosedDisplay(
 ): string {
   if (isAtlEmptyAssigneeValue(displayName)) return ATL_ASSIGNEE_NONE_LABEL;
   return String(displayName).trim();
+}
+
+/** RTS and Pilot's Acceptance show the person only after a selection. */
+function atlAssigneeNameOnly(fullName?: string | null): string {
+  return String(fullName ?? "").trim();
 }
 
 function shouldShowAtlAssigneeNoneOption(searchTerm: string): boolean {
@@ -718,40 +739,48 @@ function resolveAtlFormAircraftId(
 }
 
 /**
- * Map persisted ATL component metrics for the edit form (matches Operation list view).
+ * Map persisted ATL component metrics for the edit form.
  * Reads only stored API fields — never auto_* computed values or list fallbacks.
- * AFTT shown to 2 decimal places; other runtimes/TSN/TSO to 1dp; TBO to 1dp.
+ * Airframe run time stays 1 decimal. AFTT and every engine/propeller hour stay
+ * at 2 decimals so a stored difference of 0.01 is not dropped.
  */
 function resolveAtlEditComponentSources(entry: AircraftTechnicalLog) {
-  const formatPersisted = (
+  const formatAirframeRun = (
     metric: Parameters<typeof resolveAtlPersistedComponentMetric>[1]
   ) =>
     formatAtlComputedDisplay1dp(
       resolveAtlPersistedComponentMetric(entry, metric),
       ""
     );
+  const formatEngineProp = (
+    metric: Parameters<typeof resolveAtlPersistedComponentMetric>[1]
+  ) =>
+    formatAtlEnginePropHours2dp(
+      resolveAtlPersistedComponentMetric(entry, metric),
+      ""
+    );
 
   return {
-    airframeRunTime: formatPersisted("airframeRunTime"),
+    airframeRunTime: formatAirframeRun("airframeRunTime"),
     airframeAftt: formatAtlComputedDisplay2dp(
       resolveAtlPersistedComponentMetric(entry, "airframeAftt"),
       ""
     ),
-    engineRunTime: formatPersisted("engineRunTime"),
-    engineTsn: formatPersisted("engineTsn"),
-    engineTso: formatPersisted("engineTso"),
-    engineTbo: formatAtlTboDisplay1dp(
-      resolveAtlPersistedComponentMetric(entry, "engineTbo"),
-      ""
-    ),
-    propellerRunTime: formatPersisted("propellerRunTime"),
-    propellerTsn: formatPersisted("propellerTsn"),
-    propellerTso: formatPersisted("propellerTso"),
-    propellerTbo: formatAtlTboDisplay1dp(
-      resolveAtlPersistedComponentMetric(entry, "propellerTbo"),
-      ""
-    ),
+    engineRunTime: formatEngineProp("engineRunTime"),
+    engineTsn: formatEngineProp("engineTsn"),
+    engineTso: formatEngineProp("engineTso"),
+    engineTbo: formatEngineProp("engineTbo"),
+    propellerRunTime: formatEngineProp("propellerRunTime"),
+    propellerTsn: formatEngineProp("propellerTsn"),
+    propellerTso: formatEngineProp("propellerTso"),
+    propellerTbo: formatEngineProp("propellerTbo"),
   };
+}
+
+/** Blank stays blank; any entered engine/propeller hour is shown at 2 decimals. */
+function formatAtlEnginePropField(value: unknown): string {
+  if (value == null || String(value).trim() === "") return "";
+  return formatAtlEnginePropHours2dp(value, "");
 }
 
 function parseFiniteFloatField(
@@ -839,17 +868,18 @@ function hasAtlTachometerTotalValue(
   return parseFiniteFloatField(tachometerTotal) != null;
 }
 
-function assignAtlRuntimesFromTachometerTotal(
-  tachometerTotal: string
-): Pick<
-  Record<string, string>,
-  "airframeRunTime" | "engineRunTime" | "propellerRunTime"
-> {
-  return {
-    airframeRunTime: tachometerTotal,
-    engineRunTime: tachometerTotal,
-    propellerRunTime: tachometerTotal,
-  };
+/** Snap an engine/propeller hour onto a 2-decimal grid without dropping 0.01. */
+function quantizeAtlEnginePropHours(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Number(n.toFixed(2));
+}
+
+function quantizeAtlEnginePropHoursOrNull(
+  value: number | null | undefined
+): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Number(value.toFixed(2));
 }
 
 type AtlComponentMetricsContext = {
@@ -920,7 +950,7 @@ function formatAtlTboFromLifeLimitAndTso(
   lifeLimit: string | number | undefined | null,
   tso: string | number | undefined | null
 ): string {
-  return formatAtlTboDisplay1dp(
+  return formatAtlEnginePropHours2dp(
     computeAtlTboFromLifeLimitAndTso(lifeLimit, tso),
     ""
   );
@@ -943,7 +973,7 @@ function recomputeAtlTboOnTsoChange(
   if (tsoNum == null) return currentTbo;
   const tbo = life - tsoNum;
   if (!Number.isFinite(tbo)) return currentTbo;
-  return formatAtlTboDisplay1dp(tbo);
+  return formatAtlEnginePropHours2dp(tbo, "");
 }
 
 function resolveAtlLifeLimitForCompute(
@@ -1014,19 +1044,19 @@ function computeAtlComponentMetricsPatch(
   const patch: Partial<typeof form> = {
     airframeRunTime: airframeRunTime.toFixed(1),
     airframeAftt: airframeAfttVal.toFixed(2),
-    engineRunTime: engineRunTime.toFixed(1),
-    engineTso: engineTso.toFixed(1),
-    propellerRunTime: propellerRunTime.toFixed(1),
-    propellerTso: propellerTso.toFixed(1),
+    engineRunTime: engineRunTime.toFixed(2),
+    engineTso: engineTso.toFixed(2),
+    propellerRunTime: propellerRunTime.toFixed(2),
+    propellerTso: propellerTso.toFixed(2),
   };
   if (ctx.engineTsnEnabled && ctx.previousEngineTsn != null) {
-    patch.engineTsn = (ctx.previousEngineTsn + engineRunTime).toFixed(1);
+    patch.engineTsn = (ctx.previousEngineTsn + engineRunTime).toFixed(2);
   } else if (!ctx.engineTsnEnabled) {
     patch.engineTsn = "";
   }
   if (ctx.propellerTsnEnabled && ctx.previousPropellerTsn != null) {
     patch.propellerTsn = (ctx.previousPropellerTsn + propellerRunTime).toFixed(
-      1
+      2
     );
   } else if (!ctx.propellerTsnEnabled) {
     patch.propellerTsn = "";
@@ -1035,12 +1065,12 @@ function computeAtlComponentMetricsPatch(
   if (options?.recomputeTbo !== false) {
     patch.engineTbo = recomputeAtlTboOnTsoChange(
       form.lifeTimeLimitEngine,
-      engineTso.toFixed(1),
+      engineTso.toFixed(2),
       form.engineTbo
     );
     patch.propellerTbo = recomputeAtlTboOnTsoChange(
       form.lifeTimeLimitPropeller,
-      propellerTso.toFixed(1),
+      propellerTso.toFixed(2),
       form.propellerTbo
     );
   }
@@ -1056,7 +1086,7 @@ function resolveAtlPersistedOrComputedTbo(
 ): string {
   const persisted = resolveAtlPersistedComponentMetric(entry, metric);
   if (persisted != null && String(persisted).trim() !== "") {
-    return formatAtlTboDisplay1dp(persisted, "");
+    return formatAtlEnginePropHours2dp(persisted, "");
   }
   return formatAtlTboFromLifeLimitAndTso(lifeLimit, tso);
 }
@@ -1103,12 +1133,35 @@ function applyAtlTachometerTotalUserChange(
   ctx: AtlComponentMetricsContext,
   aircraftLifeLimits?: { engine: string; propeller: string }
 ): Partial<typeof form> {
-  const flightSync = syncAtlComponentFlightTimesFromTachTotal(
-    form,
-    tachometerTotal
-  );
+  const rawTach = parseFiniteFloatField(tachometerTotal);
+  const airframeTotal =
+    rawTach == null ? "0.0" : formatAtlComputedDisplay1dp(rawTach, "0.0");
+  const enginePropTotal =
+    rawTach == null ? "0.00" : formatAtlEnginePropHours2dp(rawTach, "0.00");
+  const sumComponentTotal = (prevTime: string, flightTime: string): string => {
+    const prevHours = parseFiniteFloatField(prevTime);
+    const flightHours = parseFiniteFloatField(flightTime);
+    if (prevHours == null || flightHours == null) return "";
+    const sum = prevHours + flightHours;
+    return Number.isFinite(sum) ? sum.toFixed(2) : "";
+  };
 
-  const runtimeSync = assignAtlRuntimesFromTachometerTotal(tachometerTotal);
+  const flightSync = {
+    ...syncAtlComponentFlightTimesFromTachTotal(form, airframeTotal),
+    engineFlightTime: enginePropTotal,
+    propellerFlightTime: enginePropTotal,
+    engineTotalTime: sumComponentTotal(form.enginePrevTime, enginePropTotal),
+    propellerTotalTime: sumComponentTotal(
+      form.propellerPrevTime,
+      enginePropTotal
+    ),
+  };
+
+  const runtimeSync = {
+    airframeRunTime: airframeTotal,
+    engineRunTime: enginePropTotal,
+    propellerRunTime: enginePropTotal,
+  };
   const formAfterRuntimeSync = {
     ...form,
     ...flightSync,
@@ -1287,7 +1340,7 @@ function recomputeAtlComponentTableFields<T extends AtlTableMetricsFormSlice>(
   if (!ctx.engineTsnEnabled) {
     next.engineTsn = "";
   } else if (field !== "engineTsn") {
-    next.engineTsn = formatAtlCalcTime(
+    next.engineTsn = formatAtlCalcTime2dp(
       parseAtlCalcTime(ctx.previousEngineTsn) + engineRunTime
     );
   }
@@ -1295,7 +1348,7 @@ function recomputeAtlComponentTableFields<T extends AtlTableMetricsFormSlice>(
   if (!ctx.propellerTsnEnabled) {
     next.propellerTsn = "";
   } else if (field !== "propellerTsn") {
-    next.propellerTsn = formatAtlCalcTime(
+    next.propellerTsn = formatAtlCalcTime2dp(
       parseAtlCalcTime(ctx.previousPropellerTsn) + propellerRunTime
     );
   }
@@ -1304,29 +1357,31 @@ function recomputeAtlComponentTableFields<T extends AtlTableMetricsFormSlice>(
   // - Prev Time change → follow component Total Time
   // - Otherwise previous TSO + run (unless user is typing TSO)
   if (isPrevTimeChange) {
-    next.engineTso = formatAtlCalcTime(parseAtlCalcTime(next.engineTotalTime));
-    next.propellerTso = formatAtlCalcTime(
+    next.engineTso = formatAtlCalcTime2dp(
+      parseAtlCalcTime(next.engineTotalTime)
+    );
+    next.propellerTso = formatAtlCalcTime2dp(
       parseAtlCalcTime(next.propellerTotalTime)
     );
   } else {
     if (field !== "engineTso") {
-      next.engineTso = formatAtlCalcTime(
+      next.engineTso = formatAtlCalcTime2dp(
         parseAtlCalcTime(ctx.previousEngineTso) + engineRunTime
       );
     }
     if (field !== "propellerTso") {
-      next.propellerTso = formatAtlCalcTime(
+      next.propellerTso = formatAtlCalcTime2dp(
         parseAtlCalcTime(ctx.previousPropellerTso) + propellerRunTime
       );
     }
   }
 
-  // TBO = life limit − TSO (always refresh after TSO)
-  next.engineTbo = formatAtlCalcTime(
+  // TBO = life limit − TSO (always refresh after TSO), kept at 2 decimals.
+  next.engineTbo = formatAtlCalcTime2dp(
     parseAtlCalcTime(next.lifeTimeLimitEngine) -
       parseAtlCalcTime(next.engineTso)
   );
-  next.propellerTbo = formatAtlCalcTime(
+  next.propellerTbo = formatAtlCalcTime2dp(
     parseAtlCalcTime(next.lifeTimeLimitPropeller) -
       parseAtlCalcTime(next.propellerTso)
   );
@@ -1410,7 +1465,7 @@ function recomputeEngineChainFromRunTime(
   runTime: number,
   lifeLimit: string
 ): Partial<AtlReactiveFormSlice> {
-  const runStr = formatAtlRunTimeValue(runTime);
+  const runStr = formatAtlCalcTime2dp(runTime);
   const patch: Partial<AtlReactiveFormSlice> = {
     engineRunTime: runStr,
   };
@@ -1431,7 +1486,7 @@ function recomputeEngineChainFromRunTime(
     const tsn = safeSumDisplay(
       ctx.previousEngineTsn,
       runTime,
-      formatAtlRunTimeValue
+      formatAtlCalcTime2dp
     );
     if (tsn != null) patch.engineTsn = tsn;
   }
@@ -1440,7 +1495,7 @@ function recomputeEngineChainFromRunTime(
   const tso = safeSumDisplay(
     ctx.previousEngineTso,
     runTime,
-    formatAtlRunTimeValue
+    formatAtlCalcTime2dp
   );
   if (tso != null) {
     patch.engineTso = tso;
@@ -1460,7 +1515,7 @@ function recomputePropellerChainFromRunTime(
   runTime: number,
   lifeLimit: string
 ): Partial<AtlReactiveFormSlice> {
-  const runStr = formatAtlRunTimeValue(runTime);
+  const runStr = formatAtlCalcTime2dp(runTime);
   const patch: Partial<AtlReactiveFormSlice> = {
     propellerRunTime: runStr,
   };
@@ -1481,7 +1536,7 @@ function recomputePropellerChainFromRunTime(
     const tsn = safeSumDisplay(
       ctx.previousPropellerTsn,
       runTime,
-      formatAtlRunTimeValue
+      formatAtlCalcTime2dp
     );
     if (tsn != null) patch.propellerTsn = tsn;
   }
@@ -1490,7 +1545,7 @@ function recomputePropellerChainFromRunTime(
   const tso = safeSumDisplay(
     ctx.previousPropellerTso,
     runTime,
-    formatAtlRunTimeValue
+    formatAtlCalcTime2dp
   );
   if (tso != null) {
     patch.propellerTso = tso;
@@ -1575,8 +1630,8 @@ function recomputeAllAffectedFields(
     const end = parseFiniteFloatField(next.tachometerEnd);
     const total =
       start != null && end != null && Number.isFinite(end - start)
-        ? computeAtlTachometerLeg(start, end).display
-        : "0.0";
+        ? String(end - start)
+        : "0";
     next = {
       ...next,
       ...applyAtlTachometerTotalUserChange(
@@ -1593,7 +1648,7 @@ function recomputeAllAffectedFields(
       ...next,
       ...applyAtlTachometerTotalUserChange(
         next,
-        tachTotal != null ? tachTotal.toFixed(1) : "0.0",
+        tachTotal != null ? String(tachTotal) : "0",
         ctx,
         aircraftLifeLimits
       ),
@@ -1668,7 +1723,7 @@ function recomputeAllAffectedFields(
           const tsn = safeSumDisplay(
             ctx.previousEngineTsn,
             parseFiniteFloatField(next.engineRunTime),
-            formatAtlRunTimeValue
+            formatAtlCalcTime2dp
           );
           if (tsn != null) next.engineTsn = tsn;
         }
@@ -1677,7 +1732,7 @@ function recomputeAllAffectedFields(
         const tso = safeSumDisplay(
           ctx.previousEngineTso,
           parseFiniteFloatField(next.engineRunTime),
-          formatAtlRunTimeValue
+          formatAtlCalcTime2dp
         );
         if (tso != null) {
           next.engineTso = tso;
@@ -1724,7 +1779,7 @@ function recomputeAllAffectedFields(
           const tsn = safeSumDisplay(
             ctx.previousPropellerTsn,
             parseFiniteFloatField(next.propellerRunTime),
-            formatAtlRunTimeValue
+            formatAtlCalcTime2dp
           );
           if (tsn != null) next.propellerTsn = tsn;
         }
@@ -1733,7 +1788,7 @@ function recomputeAllAffectedFields(
         const tso = safeSumDisplay(
           ctx.previousPropellerTso,
           parseFiniteFloatField(next.propellerRunTime),
-          formatAtlRunTimeValue
+          formatAtlCalcTime2dp
         );
         if (tso != null) {
           next.propellerTso = tso;
@@ -1944,6 +1999,9 @@ export function AddTechnicalLogbookEntryModal({
   );
 
   const showAtlBatchFilter = canManageAtlBatchFilter(atlRoleForWorkStatus);
+  const canDownloadAtlStoredFiles = canDownloadWhiteAtlAndDfp(
+    atlRoleForWorkStatus
+  );
 
   const showAtlBatchFormField = Boolean(editEntry || showAtlBatchFilter);
 
@@ -2534,17 +2592,33 @@ export function AddTechnicalLogbookEntryModal({
       const tachStart = Number(editEntry.tachometerStart) || 0;
       const tachEnd = Number(editEntry.tachometerEnd) || 0;
       const run = tachEnd - tachStart;
+      const engineRunBaseline =
+        parseFiniteFloatField(comp.engineRunTime) ??
+        Number(atlEnginePropRunHoursFromTach(tachStart, tachEnd));
+      const propellerRunBaseline =
+        parseFiniteFloatField(comp.propellerRunTime) ??
+        Number(atlEnginePropRunHoursFromTach(tachStart, tachEnd));
       const engineTsnNum = parseFiniteFloatField(comp.engineTsn);
       const propellerTsnNum = parseFiniteFloatField(comp.propellerTsn);
+      const quantizeEnginePropBaseline = (value: number) =>
+        Math.max(0, Number(value.toFixed(2)));
       setPreviousEngineTsn(
-        engineTsnNum != null ? Math.max(0, engineTsnNum - run) : null
+        engineTsnNum != null
+          ? quantizeEnginePropBaseline(engineTsnNum - engineRunBaseline)
+          : null
       );
-      setPreviousEngineTso(Math.max(0, (Number(comp.engineTso) || 0) - run));
+      setPreviousEngineTso(
+        quantizeEnginePropBaseline((Number(comp.engineTso) || 0) - engineRunBaseline)
+      );
       setPreviousPropellerTsn(
-        propellerTsnNum != null ? Math.max(0, propellerTsnNum - run) : null
+        propellerTsnNum != null
+          ? quantizeEnginePropBaseline(propellerTsnNum - propellerRunBaseline)
+          : null
       );
       setPreviousPropellerTso(
-        Math.max(0, (Number(comp.propellerTso) || 0) - run)
+        quantizeEnginePropBaseline(
+          (Number(comp.propellerTso) || 0) - propellerRunBaseline
+        )
       );
       setPreviousAirframeAftt(
         Math.max(0, (parseFloat(comp.airframeAftt) || 0) - run)
@@ -2651,9 +2725,7 @@ export function AddTechnicalLogbookEntryModal({
         remarksPersonName: "",
         actionsTaken: toUppercaseInput(readAtlActionsTaken(editEntry)),
         actionsTakenPerson: atlAssigneeIdToFormValue(
-          editEntry.actiontakenPerson ??
-            editEntry.actionTakenPerson ??
-            editEntry.maintenanceFk
+          editEntry.actiontakenPerson ?? editEntry.actionTakenPerson
         ),
         actionsTakenPersonName: "",
         pilotName: "",
@@ -2683,26 +2755,41 @@ export function AddTechnicalLogbookEntryModal({
           (editEntry as any).airframeTotalTime?.toString() || "",
         airframeRunTime: comp.airframeRunTime,
         airframeAftt: comp.airframeAftt,
-        enginePrevTime: (editEntry as any).enginePrevTime?.toString() || "",
-        engineFlightTime: (editEntry as any).engineFlightTime?.toString() || "",
-        engineTotalTime: (editEntry as any).engineTotalTime?.toString() || "",
-        engineRunTime: computeAtlTachometerLeg(
-          editEntry.tachometerStart,
-          editEntry.tachometerEnd
-        ).display,
+        enginePrevTime: formatAtlEnginePropField(
+          (editEntry as any).enginePrevTime
+        ),
+        engineFlightTime: formatAtlEnginePropField(
+          (editEntry as any).engineFlightTime
+        ),
+        engineTotalTime: formatAtlEnginePropField(
+          (editEntry as any).engineTotalTime
+        ),
+        engineRunTime:
+          comp.engineRunTime !== ""
+            ? comp.engineRunTime
+            : atlEnginePropRunHoursFromTach(
+                editEntry.tachometerStart,
+                editEntry.tachometerEnd
+              ),
         engineTsn: comp.engineTsn,
         engineTso: comp.engineTso,
         engineTbo: comp.engineTbo,
-        propellerPrevTime:
-          (editEntry as any).propellerPrevTime?.toString() || "",
-        propellerFlightTime:
-          (editEntry as any).propellerFlightTime?.toString() || "",
-        propellerTotalTime:
-          (editEntry as any).propellerTotalTime?.toString() || "",
-        propellerRunTime: computeAtlTachometerLeg(
-          editEntry.tachometerStart,
-          editEntry.tachometerEnd
-        ).display,
+        propellerPrevTime: formatAtlEnginePropField(
+          (editEntry as any).propellerPrevTime
+        ),
+        propellerFlightTime: formatAtlEnginePropField(
+          (editEntry as any).propellerFlightTime
+        ),
+        propellerTotalTime: formatAtlEnginePropField(
+          (editEntry as any).propellerTotalTime
+        ),
+        propellerRunTime:
+          comp.propellerRunTime !== ""
+            ? comp.propellerRunTime
+            : atlEnginePropRunHoursFromTach(
+                editEntry.tachometerStart,
+                editEntry.tachometerEnd
+              ),
         propellerTsn: comp.propellerTsn,
         propellerTso: comp.propellerTso,
         propellerTbo: comp.propellerTbo,
@@ -2714,10 +2801,26 @@ export function AddTechnicalLogbookEntryModal({
       void (async () => {
         const resolveLabel = async (
           accountId?: number | string | null,
-          nested?: AircraftTechnicalLog["maintenance"]
+          nested?: AircraftTechnicalLog["maintenance"],
+          nameOnly = false
         ): Promise<{ label: string; account: Account | null }> => {
+          const labelFromAccount = (
+            fullName?: string | null,
+            licenseNo?: string | null
+          ) =>
+            nameOnly
+              ? atlAssigneeNameOnly(fullName)
+              : formatAccountNameLicense(fullName, licenseNo);
           if (nested) {
-            const fromNested = resolveAccountNameLicenseDisplay(nested, "");
+            const fromNested = nameOnly
+              ? atlAssigneeNameOnly(
+                  nested.fullName ||
+                    [nested.firstName, nested.middleName, nested.lastName]
+                      .map((part) => String(part ?? "").trim())
+                      .filter(Boolean)
+                      .join(" ")
+                )
+              : resolveAccountNameLicenseDisplay(nested, "");
             if (fromNested) {
               return {
                 label: fromNested,
@@ -2746,10 +2849,7 @@ export function AddTechnicalLogbookEntryModal({
           try {
             const account = await getAccount(normalizedId);
             return {
-              label: formatAccountNameLicense(
-                account.fullName,
-                account.licenseNo
-              ),
+              label: labelFromAccount(account.fullName, account.licenseNo),
               account,
             };
           } catch (err) {
@@ -2761,10 +2861,7 @@ export function AddTechnicalLogbookEntryModal({
         const remarksPersonId =
           editEntry.remarkPerson ?? editEntry.maintenanceFk ?? null;
         const actionsTakenPersonId =
-          editEntry.actiontakenPerson ??
-          editEntry.actionTakenPerson ??
-          editEntry.maintenanceFk ??
-          null;
+          editEntry.actiontakenPerson ?? editEntry.actionTakenPerson ?? null;
         const remarksResolved = await resolveLabel(
           remarksPersonId,
           editEntry.maintenance
@@ -2781,9 +2878,15 @@ export function AddTechnicalLogbookEntryModal({
         const pilotResolved = await resolveLabel(
           editEntry.pilotAcceptedBy !== undefined
             ? editEntry.pilotAcceptedBy
-            : editEntry.pilotFk ?? null
+            : editEntry.pilotFk ?? null,
+          undefined,
+          true
         );
-        const rtsResolved = await resolveLabel(editEntry.rtsSignedBy ?? null);
+        const rtsResolved = await resolveLabel(
+          editEntry.rtsSignedBy ?? null,
+          undefined,
+          true
+        );
 
         if (remarksResolved.account) {
           setRemarksAccounts((prev) => {
@@ -3249,18 +3352,26 @@ export function AddTechnicalLogbookEntryModal({
 
         setIsFirstAtlCreate(false);
         const comp = resolveAtlEditComponentSources(latestEntry);
-        const previousEngineTsnValue = resolvePreviousTsnForAtl(
-          tsnGate.engineTsnEnabled,
-          latestEntry.engineTsn,
-          tsnGate.engineTsnBaseline
+        const previousEngineTsnValue = quantizeAtlEnginePropHoursOrNull(
+          resolvePreviousTsnForAtl(
+            tsnGate.engineTsnEnabled,
+            latestEntry.engineTsn,
+            tsnGate.engineTsnBaseline
+          )
         );
-        const previousEngineTsoValue = Number(latestEntry.engineTso) || 0;
-        const previousPropellerTsnValue = resolvePreviousTsnForAtl(
-          tsnGate.propellerTsnEnabled,
-          latestEntry.propellerTsn,
-          tsnGate.propellerTsnBaseline
+        const previousEngineTsoValue = quantizeAtlEnginePropHours(
+          latestEntry.engineTso
         );
-        const previousPropellerTsoValue = Number(latestEntry.propellerTso) || 0;
+        const previousPropellerTsnValue = quantizeAtlEnginePropHoursOrNull(
+          resolvePreviousTsnForAtl(
+            tsnGate.propellerTsnEnabled,
+            latestEntry.propellerTsn,
+            tsnGate.propellerTsnBaseline
+          )
+        );
+        const previousPropellerTsoValue = quantizeAtlEnginePropHours(
+          latestEntry.propellerTso
+        );
         const previousAirframeAfttValue =
           parseFloat(String(comp.airframeAftt)) || 0;
 
@@ -3362,8 +3473,8 @@ export function AddTechnicalLogbookEntryModal({
             tachStart != null &&
             tachEnd != null &&
             Number.isFinite(tachEnd - tachStart)
-              ? computeAtlTachometerLeg(tachStart, tachEnd).display
-              : "0.0";
+              ? String(tachEnd - tachStart)
+              : "0";
           return {
             ...withBase,
             ...applyAtlTachometerTotalUserChange(
@@ -3422,15 +3533,23 @@ export function AddTechnicalLogbookEntryModal({
       setIsFirstAtlCreate(true);
       setPreviousAirframeAftt(aircraftFallback.previousAirframeAftt);
       setPreviousEngineTsn(
-        tsnGate.engineTsnEnabled ? aircraftFallback.previousEngineTsn : null
-      );
-      setPreviousEngineTso(aircraftFallback.previousEngineTso);
-      setPreviousPropellerTsn(
-        tsnGate.propellerTsnEnabled
-          ? aircraftFallback.previousPropellerTsn
+        tsnGate.engineTsnEnabled
+          ? quantizeAtlEnginePropHoursOrNull(aircraftFallback.previousEngineTsn)
           : null
       );
-      setPreviousPropellerTso(aircraftFallback.previousPropellerTso);
+      setPreviousEngineTso(
+        quantizeAtlEnginePropHours(aircraftFallback.previousEngineTso)
+      );
+      setPreviousPropellerTsn(
+        tsnGate.propellerTsnEnabled
+          ? quantizeAtlEnginePropHoursOrNull(
+              aircraftFallback.previousPropellerTsn
+            )
+          : null
+      );
+      setPreviousPropellerTso(
+        quantizeAtlEnginePropHours(aircraftFallback.previousPropellerTso)
+      );
 
       setFormData((prev) => {
         if (editEntry) {
@@ -3510,8 +3629,8 @@ export function AddTechnicalLogbookEntryModal({
           tachStart != null &&
           tachEnd != null &&
           Number.isFinite(tachEnd - tachStart)
-            ? computeAtlTachometerLeg(tachStart, tachEnd).display
-            : "0.0";
+            ? String(tachEnd - tachStart)
+            : "0";
         return {
           ...withBase,
           ...applyAtlTachometerTotalUserChange(
@@ -3869,6 +3988,9 @@ export function AddTechnicalLogbookEntryModal({
 
   const handleAtlBatchFkChange = (value: string) => {
     setFormData((prev) => ({ ...prev, atlBatchFk: value }));
+    if (validationErrors.atlBatchFk) {
+      setValidationErrors((prev) => ({ ...prev, atlBatchFk: "" }));
+    }
     if (!selectedAircraftId || editAtlInitialHydrationRef.current) return;
     const batchId = parseAtlBatchFkForLatest(value);
     void fetchLatestTechnicalLog(selectedAircraftId, batchId);
@@ -4065,9 +4187,7 @@ export function AddTechnicalLogbookEntryModal({
         (acc) => acc.id.toString() === formData.pilotFk
       );
       if (account)
-        return atlAssigneeClosedDisplay(
-          formatAccountNameLicense(account.fullName, account.licenseNo)
-        );
+        return atlAssigneeClosedDisplay(atlAssigneeNameOnly(account.fullName));
     }
     return ATL_ASSIGNEE_NONE_LABEL;
   };
@@ -4113,9 +4233,7 @@ export function AddTechnicalLogbookEntryModal({
         (acc) => acc.id.toString() === formData.rtsSignedBy
       );
       if (account)
-        return atlAssigneeClosedDisplay(
-          formatAccountNameLicense(account.fullName, account.licenseNo)
-        );
+        return atlAssigneeClosedDisplay(atlAssigneeNameOnly(account.fullName));
     }
     return ATL_ASSIGNEE_NONE_LABEL;
   };
@@ -4223,10 +4341,7 @@ export function AddTechnicalLogbookEntryModal({
         (item) => item.id.toString() === id
       );
       if (!account) return;
-      handlePilotSelect(
-        id,
-        formatAccountNameLicense(account.fullName, account.licenseNo)
-      );
+      handlePilotSelect(id, atlAssigneeNameOnly(account.fullName));
     },
   });
 
@@ -4255,10 +4370,7 @@ export function AddTechnicalLogbookEntryModal({
         (item) => item.id.toString() === id
       );
       if (!account) return;
-      handleRtsSelect(
-        id,
-        formatAccountNameLicense(account.fullName, account.licenseNo)
-      );
+      handleRtsSelect(id, atlAssigneeNameOnly(account.fullName));
     },
   });
 
@@ -4449,11 +4561,11 @@ export function AddTechnicalLogbookEntryModal({
           ...next,
           tachometerTotal: leg.display,
           airframeRunTime: leg.display,
-          engineRunTime: leg.display,
-          propellerRunTime: leg.display,
+          engineRunTime: leg.enginePropDisplay,
+          propellerRunTime: leg.enginePropDisplay,
           airframeFlightTime: leg.display,
-          engineFlightTime: leg.display,
-          propellerFlightTime: leg.display,
+          engineFlightTime: leg.enginePropDisplay,
+          propellerFlightTime: leg.enginePropDisplay,
         };
         return recomputeAtlComponentTableFields(
           next,
@@ -4560,11 +4672,11 @@ export function AddTechnicalLogbookEntryModal({
         ...next,
         tachometerTotal: leg.display,
         airframeRunTime: leg.display,
-        engineRunTime: leg.display,
-        propellerRunTime: leg.display,
+        engineRunTime: leg.enginePropDisplay,
+        propellerRunTime: leg.enginePropDisplay,
         airframeFlightTime: leg.display,
-        engineFlightTime: leg.display,
-        propellerFlightTime: leg.display,
+        engineFlightTime: leg.enginePropDisplay,
+        propellerFlightTime: leg.enginePropDisplay,
       };
 
       const withTable = recomputeAtlComponentTableFields(
@@ -4725,6 +4837,10 @@ export function AddTechnicalLogbookEntryModal({
       //   const latestDisplay = (latestSequenceNo || "").trim();
       //   errors.seqNo = `Sequence No. gap must not exceed 15 from the latest entry. Latest: ${latestDisplay}, max allowed: ${maxSeq}.`;
       // }
+    }
+
+    if (parseAtlBatchFkForLatest(formData.atlBatchFk) == null) {
+      errors.atlBatchFk = ATL_BATCH_REQUIRED_MESSAGE;
     }
 
     // Only validate A/C Registration if aircraftId prop is not provided
@@ -4914,6 +5030,20 @@ export function AddTechnicalLogbookEntryModal({
       });
     };
 
+    if (parseAtlBatchFkForLatest(formData.atlBatchFk) == null) {
+      setValidationErrors((prev) => ({
+        ...prev,
+        atlBatchFk: ATL_BATCH_REQUIRED_MESSAGE,
+      }));
+      window.requestAnimationFrame(() => {
+        formScrollRef.current
+          ?.querySelector(".form-error")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+      await showError(ATL_BATCH_REQUIRED_MESSAGE);
+      return;
+    }
+
     if (!attachmentsOnlyLocked) {
       const tachometerStart = Number(formData.tachometerStart);
       const tachometerEnd = Number(formData.tachometerEnd);
@@ -5078,8 +5208,12 @@ export function AddTechnicalLogbookEntryModal({
               tachometerStart: leg.tachometerStart,
               tachometerEnd: leg.tachometerEnd,
               tachometerTotal: leg.tachometerTotal,
-              engineRunTime: leg.engineRunTime,
-              propellerRunTime: leg.propellerRunTime,
+              engineRunTime:
+                parseFiniteFloatField(formData.engineRunTime) ??
+                leg.engineRunTime,
+              propellerRunTime:
+                parseFiniteFloatField(formData.propellerRunTime) ??
+                leg.propellerRunTime,
             };
           })(),
           airframePrevTime: formData.airframePrevTime
@@ -5118,10 +5252,12 @@ export function AddTechnicalLogbookEntryModal({
           airframeAftt: editEntry
             ? parseFiniteFloatField(formData.airframeAftt) ?? 0
             : parseFiniteFloatField(formData.airframeAftt) ?? undefined,
-          engineRunTime: computeAtlTachometerLeg(
-            formData.tachometerStart,
-            formData.tachometerEnd
-          ).engineRunTime,
+          engineRunTime:
+            parseFiniteFloatField(formData.engineRunTime) ??
+            computeAtlTachometerLeg(
+              formData.tachometerStart,
+              formData.tachometerEnd
+            ).engineRunTime,
           engineTsn: engineTsnEnabled
             ? resolveTsnForApi(formData.engineTsn)
             : null,
@@ -5131,10 +5267,12 @@ export function AddTechnicalLogbookEntryModal({
           engineTbo: editEntry
             ? parseFiniteFloatField(formData.engineTbo) ?? 0
             : parseFiniteFloatField(formData.engineTbo) ?? undefined,
-          propellerRunTime: computeAtlTachometerLeg(
-            formData.tachometerStart,
-            formData.tachometerEnd
-          ).propellerRunTime,
+          propellerRunTime:
+            parseFiniteFloatField(formData.propellerRunTime) ??
+            computeAtlTachometerLeg(
+              formData.tachometerStart,
+              formData.tachometerEnd
+            ).propellerRunTime,
           propellerTsn: propellerTsnEnabled
             ? resolveTsnForApi(formData.propellerTsn)
             : null,
@@ -5191,10 +5329,8 @@ export function AddTechnicalLogbookEntryModal({
           actiontakenPerson: parseAtlAssigneeIdForApi(
             formData.actionsTakenPerson
           ),
-          // Legacy shared FK for list display; null when both Names are unassigned
-          maintenanceFk: parseAtlAssigneeIdForApi(
-            formData.remarksPerson || formData.actionsTakenPerson
-          ),
+          // Remarks person only. Actions Taken Name is not copied from it.
+          maintenanceFk: parseAtlAssigneeIdForApi(formData.remarksPerson),
           pilotAcceptDate: formData.pilotAcceptDate || undefined,
           pilotAcceptTime: formData.pilotAcceptTime
             ? convertTimeToAPIFormat(formData.pilotAcceptTime)
@@ -5286,13 +5422,8 @@ export function AddTechnicalLogbookEntryModal({
           // Fleet Time Monitoring: on update send work_status from form (connected to update API); on create overwritten to FOR_REVIEW below
           workStatus: formData.workStatus || undefined,
           ...(() => {
-            const raw = formData.atlBatchFk?.trim() ?? "";
-            if (raw === "") {
-              return editEntry ? { atlBatchFk: null } : {};
-            }
-            const n = parseInt(raw, 10);
-            if (Number.isFinite(n) && n > 0) return { atlBatchFk: n };
-            return editEntry ? { atlBatchFk: null } : {};
+            const batchId = parseAtlBatchFkForLatest(formData.atlBatchFk);
+            return batchId != null ? { atlBatchFk: batchId } : {};
           })(),
         };
 
@@ -5334,19 +5465,45 @@ export function AddTechnicalLogbookEntryModal({
         apiDataSnake.engine_run_time = tachLeg.engineRunTime;
         apiDataSnake.propeller_run_time = tachLeg.propellerRunTime;
 
+        const atlFileSequence = formData.seqNo.trim();
+        const atlFileAircraft =
+          formData.acReg.trim() ||
+          editEntry?.aircraft?.registration?.trim() ||
+          "";
         const files =
           canUploadAtlInCurrentMode &&
           (formData.whiteAtl instanceof File || formData.dfp instanceof File)
             ? {
                 whiteAtl:
-                  formData.whiteAtl instanceof File ? formData.whiteAtl : null,
-                dfp: formData.dfp instanceof File ? formData.dfp : null,
+                  formData.whiteAtl instanceof File
+                    ? fileWithAtlAttachmentName(
+                        formData.whiteAtl,
+                        "ATL",
+                        atlFileSequence,
+                        atlFileAircraft
+                      )
+                    : null,
+                dfp:
+                  formData.dfp instanceof File
+                    ? fileWithAtlAttachmentName(
+                        formData.dfp,
+                        "DFP",
+                        atlFileSequence,
+                        atlFileAircraft
+                      )
+                    : null,
               }
             : undefined;
 
         let savedId: number | undefined = editEntry?.id;
         if (editEntry && attachmentsOnlyLocked) {
           const slim: Record<string, unknown> = {};
+          const attachmentBatchId = parseAtlBatchFkForLatest(
+            formData.atlBatchFk
+          );
+          if (attachmentBatchId != null) {
+            slim.atl_batch_fk = attachmentBatchId;
+          }
           if (apiDataSnake.work_status != null) {
             slim.work_status = apiDataSnake.work_status;
           }
@@ -5539,6 +5696,7 @@ export function AddTechnicalLogbookEntryModal({
     displayName?: string
   ) => {
     if (!filePath?.trim()) return;
+    if (!canDownloadWhiteAtlAndDfp(atlRoleForWorkStatus)) return;
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
       const blob = await downloadModuleFile(folder, filePath);
@@ -5574,36 +5732,35 @@ export function AddTechnicalLogbookEntryModal({
     return null;
   };
 
-  /** True if file path is an image (show View button); otherwise only Download. */
-  const isImageFilePath = (path: string): boolean => {
+  /** Image or PDF can open in the preview window. */
+  const canPreviewAtlStoredFile = (path: string): boolean => {
     const mime = getMimeFromFilename(path);
-    return !!(mime && mime.startsWith("image/"));
+    return !!mime && (mime.startsWith("image/") || mime === "application/pdf");
   };
 
-  /** View file in modal (image popup; other types get download/open link) */
+  /** View file in the preview window. Does not start a download. */
   const handleViewAtlFile = async (
     folder: "white_atl" | "dfp",
     filePath: string
   ) => {
-    if (!filePath?.trim()) return;
+    const downloadPath = resolveModuleDownloadPath(folder, filePath);
+    if (!downloadPath) return;
     setFileViewLoading(true);
     setFileViewError(null);
-    setFileViewBlobUrl(null);
+    setFileViewBlobUrl((current) => {
+      if (current) window.URL.revokeObjectURL(current);
+      return null;
+    });
     setFileViewMimeType(null);
     setShowFileViewModal(true);
     try {
       const { downloadModuleFile } = await import("../api/fileUploadApi");
-      const blob = await downloadModuleFile(folder, filePath);
-      const url = window.URL.createObjectURL(blob);
-      const serverType =
-        blob.type || (blob as Blob & { type?: string }).type || null;
-      const isOctetStream =
-        !serverType || serverType === "application/octet-stream";
-      const mimeType = isOctetStream
-        ? getMimeFromFilename(filePath)
-        : serverType;
-      setFileViewBlobUrl(url);
-      setFileViewMimeType(mimeType ?? null);
+      const blob = await downloadModuleFile(folder, downloadPath, {
+        preview: true,
+      });
+      const preview = await preparePreviewBlob(blob, downloadPath);
+      setFileViewBlobUrl(window.URL.createObjectURL(preview.blob));
+      setFileViewMimeType(preview.mimeType);
       setFileViewError(null);
     } catch (err: any) {
       console.error("View file error:", err);
@@ -5780,7 +5937,9 @@ export function AddTechnicalLogbookEntryModal({
                     ? "pointer-events-none select-none opacity-[0.92]"
                     : ""
                 }`}
-                {...(mainFormLocked ? ({ inert: true } as object) : {})}
+                {...(atlFormReadOnly || isInitializing
+                  ? ({ inert: true } as object)
+                  : {})}
               >
                 {/* Row 1 — General Information */}
                 <div className="space-y-4">
@@ -5894,24 +6053,42 @@ export function AddTechnicalLogbookEntryModal({
                       )}
                     </div>
                     {showAtlBatchFormField && (
-                      <div>
+                      <div
+                        className={
+                          attachmentsOnlyLocked
+                            ? "pointer-events-auto relative z-10 opacity-100"
+                            : undefined
+                        }
+                      >
                         <label className="block text-gray-700 text-sm mb-1.5">
-                          ATL batch
+                          ATL batch *
                         </label>
                         <select
                           value={formData.atlBatchFk}
                           onChange={(e) =>
                             handleAtlBatchFkChange(e.target.value)
                           }
-                          className="atl-dropdown-field w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                          className={`atl-dropdown-field w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 bg-white ${
+                            validationErrors.atlBatchFk
+                              ? "border-red-500 ring-1 ring-red-400 focus:ring-red-400"
+                              : "border-gray-300 focus:ring-blue-500"
+                          }`}
                           aria-label="ATL batch"
+                          aria-invalid={Boolean(validationErrors.atlBatchFk)}
+                          required
                         >
+                          <option value="">Select ATL Batch</option>
                           {atlBatchOptions.map((b) => (
                             <option key={b.id} value={String(b.id)}>
                               {b.name}
                             </option>
                           ))}
                         </select>
+                        {validationErrors.atlBatchFk && (
+                          <p className="form-error mt-1 text-xs text-red-600">
+                            {validationErrors.atlBatchFk}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -7398,9 +7575,9 @@ export function AddTechnicalLogbookEntryModal({
                           <td className="border border-gray-300 p-1.5 align-top">
                             <input
                               type="text"
-                              value={formatAtlComputedDisplay1dp(
+                              value={formatAtlEnginePropHours2dp(
                                 formData.engineRunTime,
-                                "0.0"
+                                "0.00"
                               )}
                               disabled
                               readOnly
@@ -7475,9 +7652,9 @@ export function AddTechnicalLogbookEntryModal({
                           <td className="border border-gray-300 p-1.5 align-top">
                             <input
                               type="text"
-                              value={formatAtlComputedDisplay1dp(
+                              value={formatAtlEnginePropHours2dp(
                                 formData.propellerRunTime,
-                                "0.0"
+                                "0.00"
                               )}
                               disabled
                               readOnly
@@ -7934,9 +8111,8 @@ export function AddTechnicalLogbookEntryModal({
                                             onSelect={() =>
                                               handleRtsSelect(
                                                 account.id.toString(),
-                                                formatAccountNameLicense(
-                                                  account.fullName,
-                                                  account.licenseNo
+                                                atlAssigneeNameOnly(
+                                                  account.fullName
                                                 )
                                               )
                                             }
@@ -7949,10 +8125,7 @@ export function AddTechnicalLogbookEntryModal({
                                               optionIndex
                                             )}
                                           >
-                                            {formatAccountNameLicense(
-                                              account.fullName,
-                                              account.licenseNo
-                                            )}
+                                            {atlAssigneeNameOnly(account.fullName)}
                                           </AtlNameDropdownOption>
                                         );
                                       }
@@ -8208,9 +8381,8 @@ export function AddTechnicalLogbookEntryModal({
                                             onSelect={() =>
                                               handlePilotSelect(
                                                 account.id.toString(),
-                                                formatAccountNameLicense(
-                                                  account.fullName,
-                                                  account.licenseNo
+                                                atlAssigneeNameOnly(
+                                                  account.fullName
                                                 )
                                               )
                                             }
@@ -8223,10 +8395,7 @@ export function AddTechnicalLogbookEntryModal({
                                               optionIndex
                                             )}
                                           >
-                                            {formatAccountNameLicense(
-                                              account.fullName,
-                                              account.licenseNo
-                                            )}
+                                            {atlAssigneeNameOnly(account.fullName)}
                                           </AtlNameDropdownOption>
                                         );
                                       }
@@ -8374,7 +8543,7 @@ export function AddTechnicalLogbookEntryModal({
                             )}
                             {existingWhiteAtlFilePath !== "" && (
                               <div className="flex flex-col gap-1 mt-2">
-                                {isImageFilePath(existingWhiteAtlFilePath) && (
+                                {canPreviewAtlStoredFile(existingWhiteAtlFilePath) && (
                                   <button
                                     type="button"
                                     className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
@@ -8389,22 +8558,30 @@ export function AddTechnicalLogbookEntryModal({
                                     View
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                  onClick={() =>
-                                    handleDownloadAtlFile(
-                                      "white_atl",
-                                      existingWhiteAtlFilePath,
-                                      existingWhiteAtlFilePath
-                                        .split("/")
-                                        .pop() || "white_atl"
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 flex-shrink-0" />
-                                  Download
-                                </button>
+                                {canDownloadAtlStoredFiles && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                    onClick={() =>
+                                      handleDownloadAtlFile(
+                                        "white_atl",
+                                        existingWhiteAtlFilePath,
+                                        atlAttachmentFilename({
+                                          documentType: "ATL",
+                                          sequenceNo: formData.seqNo,
+                                          aircraftName:
+                                            formData.acReg ||
+                                            editEntry?.aircraft?.registration,
+                                          sourceFilename:
+                                            existingWhiteAtlFilePath,
+                                        })
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 flex-shrink-0" />
+                                    Download
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -8449,7 +8626,7 @@ export function AddTechnicalLogbookEntryModal({
                             )}
                             {existingDfpFilePath !== "" && (
                               <div className="flex flex-col gap-1 mt-2">
-                                {isImageFilePath(existingDfpFilePath) && (
+                                {canPreviewAtlStoredFile(existingDfpFilePath) && (
                                   <button
                                     type="button"
                                     className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
@@ -8464,21 +8641,29 @@ export function AddTechnicalLogbookEntryModal({
                                     View
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
-                                  onClick={() =>
-                                    handleDownloadAtlFile(
-                                      "dfp",
-                                      existingDfpFilePath,
-                                      existingDfpFilePath.split("/").pop() ||
-                                        "dfp"
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 flex-shrink-0" />
-                                  Download
-                                </button>
+                                {canDownloadAtlStoredFiles && (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-blue-600 hover:text-blue-700 transition-colors text-left text-sm"
+                                    onClick={() =>
+                                      handleDownloadAtlFile(
+                                        "dfp",
+                                        existingDfpFilePath,
+                                        atlAttachmentFilename({
+                                          documentType: "DFP",
+                                          sequenceNo: formData.seqNo,
+                                          aircraftName:
+                                            formData.acReg ||
+                                            editEntry?.aircraft?.registration,
+                                          sourceFilename: existingDfpFilePath,
+                                        })
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 flex-shrink-0" />
+                                    Download
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -8585,18 +8770,14 @@ export function AddTechnicalLogbookEntryModal({
         </form>
       </div>
 
-      {/* File View Modal – View button for White ATL / DFP (image popup or download for other types) */}
+      {/* File View Modal – White ATL / DFP preview only; no download from View */}
       {showFileViewModal && (
         <div
-          className="modal-responsive-overlay fixed inset-0 z-[60] flex items-center justify-center"
+          className="atl-file-view-overlay fixed inset-0 z-[60] flex items-center justify-center"
           data-nested-overlay="true"
-          style={{
-            backgroundColor: "rgba(0,0,0,0.5)",
-            backdropFilter: "blur(4px)",
-          }}
         >
           <div
-            className="modal-navy-shell modal-responsive-dialog rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            className="atl-file-view-dialog modal-navy-shell rounded-xl shadow-xl"
             style={{ backgroundColor: "#022C75" }}
           >
             <ModalChromeHeader
@@ -8604,59 +8785,28 @@ export function AddTechnicalLogbookEntryModal({
               onClose={closeFileViewModal}
               className="rounded-t-xl"
             />
-            <div className="flex-1 overflow-auto p-4 min-h-[320px] flex items-center justify-center bg-gray-50">
+            <div
+              className="atl-file-view-body"
+              onContextMenu={(event) => event.preventDefault()}
+            >
               {fileViewLoading && (
-                <div className="flex flex-col items-center gap-2 text-gray-500">
+                <div className="atl-file-view-status flex-col gap-2 text-gray-500">
                   <Loader2 className="w-8 h-8 animate-spin" />
                   <span className="text-sm">Loading file…</span>
                 </div>
               )}
               {fileViewError && !fileViewLoading && (
-                <div className="text-center text-red-600 text-sm">
+                <div className="atl-file-view-status text-red-600 text-sm">
                   {fileViewError}
                 </div>
               )}
               {fileViewBlobUrl && !fileViewLoading && !fileViewError && (
-                <>
-                  {(fileViewMimeType?.startsWith("image/") ||
-                    fileViewMimeType === "image/jpeg" ||
-                    fileViewMimeType === "image/jpg") && (
-                    <img
-                      src={fileViewBlobUrl}
-                      alt="File preview"
-                      className="max-w-full max-h-[70vh] object-contain"
-                    />
-                  )}
-                  {(fileViewMimeType === "application/pdf" ||
-                    fileViewMimeType?.includes("pdf")) && (
-                    <iframe
-                      src={fileViewBlobUrl}
-                      title="File preview"
-                      className="w-full h-[70vh] border-0 rounded"
-                    />
-                  )}
-                  {fileViewBlobUrl &&
-                    !fileViewMimeType?.startsWith("image/") &&
-                    fileViewMimeType !== "image/jpeg" &&
-                    fileViewMimeType !== "image/jpg" &&
-                    fileViewMimeType !== "application/pdf" &&
-                    !fileViewMimeType?.includes("pdf") && (
-                      <div className="text-center text-gray-600 text-sm">
-                        <p className="mb-2">
-                          Preview not available for this file type.
-                        </p>
-                        <a
-                          href={fileViewBlobUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
-                        >
-                          Open in new tab / Download
-                        </a>
-                      </div>
-                    )}
-                </>
+                <AtlStoredFilePreview
+                  key={fileViewBlobUrl}
+                  blobUrl={fileViewBlobUrl}
+                  mimeType={fileViewMimeType}
+                  title="File preview"
+                />
               )}
             </div>
           </div>
