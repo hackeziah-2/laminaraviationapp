@@ -42,7 +42,9 @@ function statusCellClass(status: string): string {
   const value = status.trim().toUpperCase();
   if (value === "AOG") return "bg-red-500 text-white";
   if (value === "ONGOING MAINTENANCE") return "bg-yellow-400 text-gray-900";
-  if (value === "OPERATIONAL") return "bg-green-400 text-gray-900";
+  if (value === "OPERATIONAL" || value === "RUNNING") {
+    return "bg-green-500 text-white";
+  }
   return "bg-gray-100 text-gray-600";
 }
 

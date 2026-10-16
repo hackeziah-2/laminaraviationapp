@@ -131,6 +131,9 @@ describe("AircraftFleetDashboard", () => {
     renderFleet();
 
     expect(await screen.findByRole("link", { name: "RP-C01" })).toBeTruthy();
+    expect(
+      screen.getAllByRole("cell", { name: "Operational" })[0].className
+    ).toContain("bg-green-500");
     expect(await screen.findByText("LH MAGNETO")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: /A\/C Ident/i })).toBeTruthy();
     expect(screen.queryByRole("columnheader", { name: /Due for OH/i })).toBeNull();
