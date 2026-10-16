@@ -3083,6 +3083,92 @@ input[data-slot="date-input"] {
   box-sizing: border-box;
 }
 
+/* Aircraft Master Timesheet — one pale color per column (overrides the gray sticky header). */
+.atl-all-columns-table > thead > tr > th.atl-th-airframe {
+  background-color: #e8b923 !important;
+  color: #3f2e00;
+}
+.atl-all-columns-table > thead > tr > th.atl-th-engine {
+  background-color: #3d7ec4 !important;
+  color: #ffffff;
+}
+.atl-all-columns-table > thead > tr > th.atl-th-propeller {
+  background-color: #1aafb8 !important;
+  color: #ffffff;
+}
+.atl-all-columns-table > thead > tr > th.atl-th-group-end,
+.atl-all-columns-table > tbody > tr > td.atl-td-group-end {
+  border-right-width: 2px;
+  border-right-color: #9ca3af;
+}
+/* Run Time — no color (white through header, spacer, and cells). */
+.atl-all-columns-table > thead > tr > th.atl-ts-af-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-af-run,
+.atl-all-columns-table > thead > tr > th.atl-ts-en-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-run,
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-run,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-run {
+  background-color: #ffffff !important;
+  color: #1f2937;
+}
+/* Airframe AFTT — pale gold */
+.atl-all-columns-table > thead > tr > th.atl-ts-af-aftt,
+.atl-all-columns-table > tbody > tr > td.atl-ts-af-aftt {
+  background-color: #f3e0a0 !important;
+  color: #1f2937;
+}
+/* Engine TSN — pale lavender */
+.atl-all-columns-table > thead > tr > th.atl-ts-en-tsn,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tsn {
+  background-color: #e4dcf5 !important;
+  color: #1f2937;
+}
+/* Engine TSO — pale cyan */
+.atl-all-columns-table > thead > tr > th.atl-ts-en-tso,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tso {
+  background-color: #cff3f6 !important;
+  color: #1f2937;
+}
+/* Engine and Propeller TBO — same pale rose */
+.atl-all-columns-table > thead > tr > th.atl-ts-en-tbo,
+.atl-all-columns-table > tbody > tr > td.atl-ts-en-tbo,
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-tbo,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tbo {
+  background-color: #f8d5e0 !important;
+  color: #1f2937;
+}
+/* Propeller TSN — pale teal */
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-tsn,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tsn {
+  background-color: #c5ebe6 !important;
+  color: #1f2937;
+}
+/* Propeller TSO — aqua */
+.atl-all-columns-table > thead > tr > th.atl-ts-pr-tso,
+.atl-all-columns-table > tbody > tr > td.atl-ts-pr-tso {
+  background-color: #a8e8e0 !important;
+  color: #1f2937;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-af-aftt {
+  background-color: #ecd48a !important;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-en-tsn {
+  background-color: #d6cbed !important;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-en-tso {
+  background-color: #b7eaf0 !important;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-en-tbo,
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-pr-tbo {
+  background-color: #f3c2d1 !important;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-pr-tsn {
+  background-color: #b0e0d9 !important;
+}
+.atl-all-columns-table > tbody > tr:hover > td.atl-ts-pr-tso {
+  background-color: #8fddd3 !important;
+}
+
 /* Row 1 — stick to top of scroll container */
 .atl-all-columns-table > thead > tr:first-child > th {
   top: 0;
@@ -3147,9 +3233,10 @@ input[data-slot="date-input"] {
   line-height: 0;
   font-size: 0;
   color: transparent;
-  border-top-color: #e5e7eb;
+  border-top-color: #d1d5db;
   user-select: none;
 }
+
 
 /* Nested Component Record body tables — never sticky */
 .atl-all-columns-table > tbody table thead th,
@@ -3170,8 +3257,10 @@ input[data-slot="date-input"] {
   box-sizing: border-box;
 }
 
-/* Visible grid lines on body cells (tr divide-y does not paint in separate-collapse tables). */
-.atl-all-columns-table > tbody > tr > td {
+/* Row and column grid. separate borders do not collapse, so each cell draws its own lines. */
+.atl-all-columns-table > thead > tr > th,
+.atl-all-columns-table > tbody > tr > td,
+.atl-all-columns-table > tbody > tr:hover > td {
   border-right: 1px solid #d1d5db;
   border-bottom: 1px solid #d1d5db;
   box-sizing: border-box;
@@ -3186,6 +3275,12 @@ input[data-slot="date-input"] {
   background-color: #f3f4f6 !important;
   background-clip: padding-box;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* Selected ATL row — covers white, gray sequence, status, and timesheet fills. */
+.atl-all-columns-table > tbody > tr.atl-row-selected > td,
+.atl-all-columns-table > tbody > tr.atl-row-selected:hover > td {
+  background-color: #dbeafe !important;
 }
 
 /* ATL White ATL / DFP file dropzone (Add + Edit forms) */
@@ -4020,5 +4115,103 @@ input[data-slot="date-input"] {
 
 .swal2-container {
   z-index: 20000 !important;
+}
+
+/* White ATL / DFP file preview: one size for every file, scroll inside the frame. */
+.atl-file-view-overlay {
+  box-sizing: border-box;
+  padding: 0.75rem;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.atl-file-view-dialog {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(64rem, calc(100vw - 1.5rem));
+  height: min(44rem, calc(100dvh - 1.5rem));
+  max-width: calc(100vw - 1.5rem);
+  max-height: calc(100dvh - 1.5rem);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.atl-file-view-dialog > .modal-chrome-header,
+.atl-file-view-dialog > .atl-file-view-header {
+  flex-shrink: 0;
+}
+
+.atl-file-view-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: #f9fafb;
+  padding: 1rem;
+}
+
+.atl-file-view-body img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.atl-file-view-pdf {
+  position: absolute;
+  inset: 0;
+}
+
+.atl-file-view-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.atl-file-view-pdf-shield {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 2.75rem;
+}
+
+.atl-file-view-status {
+  box-sizing: border-box;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1rem;
+}
+
+@media (max-width: 639px) {
+  .atl-file-view-overlay {
+    padding: 0.5rem;
+  }
+
+  .atl-file-view-dialog {
+    width: calc(100vw - 1rem);
+    height: calc(100dvh - 1rem);
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .atl-file-view-body {
+    padding: 0.75rem;
+  }
 }
 

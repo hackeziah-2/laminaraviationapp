@@ -15,10 +15,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "react-router-dom";
-import {
-  hasTechnicalLogbookAtlFilters,
-  parseTechnicalLogbookAtlFilters,
-} from "../utility/technicalLogbookRoute";
+import { parseTechnicalLogbookAtlFilters } from "../utility/technicalLogbookRoute";
 import Swal from "../utils/swalDefaults";
 import { Spinner } from "../components/ui/spinner";
 import { DataTablePagination } from "./ui/DataTablePagination";
@@ -31,7 +28,6 @@ import { EditTechnicalLogbookEntryModal } from "./EditTechnicalLogbookEntryModal
 import { ViewTechnicalLogbookEntryModal } from "./ViewTechnicalLogbookEntryModal";
 import { BulkStatusModal } from "./BulkStatusModal";
 import {
-  getAircraftTechnicalLogs,
   getManagedAircraftTechnicalLogs,
   getAircraftTechnicalLogById,
   createAircraftTechnicalLog,
@@ -39,7 +35,6 @@ import {
   updateAircraftTechnicalLog,
   AircraftTechnicalLog,
   getAtlBatchesForSelect,
-  pickLatestAtlBatchId,
 } from "../api/aircraftTechnicalLogApi";
 import { getAircraftList } from "../api/aircraftApi";
 import { getMe } from "../api/authApi";
@@ -79,7 +74,11 @@ import {
   formatAtlTotalFlightHoursForDisplay,
   formatApiErrorForSwal,
 } from "../utility/utils";
-import { atlBatchQueryParam, resetAtlManageListOnAircraftChange } from "../utility/atlManageListQuery";
+import {
+  atlBatchQueryParam,
+  resetAtlManageListOnAircraftChange,
+  resolveAtlBatchFilterAfterOptionsLoad,
+} from "../utility/atlManageListQuery";
 import { collectAllPagedItems } from "../utils/pagedQuery";
 import { downloadCsvFile, downloadXlsxFromAoa } from "../utils/downloadFile";
 import {
@@ -167,7 +166,6 @@ export function AircraftTechnicalLogbook() {
   >([]);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const exportInFlightRef = useRef(false);
-  const atlBatchFilterTouchedRef = useRef(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -219,11 +217,6 @@ export function AircraftTechnicalLogbook() {
   const atlRouteFilters = useMemo(
     () => parseTechnicalLogbookAtlFilters(location.pathname, location.search),
     [location.pathname, location.search]
-  );
-
-  const isAtlDeepLinkRoute = useMemo(
-    () => hasTechnicalLogbookAtlFilters(atlRouteFilters),
-    [atlRouteFilters]
   );
 
   /** Role from GET /auth/me — aligns ATL edit RBAC with login session (same as Operation). */
@@ -300,25 +293,15 @@ export function AircraftTechnicalLogbook() {
   };
 
   const fetchLogbookPage = (page: number, pageSize: number) =>
-    !isMaintenancePlanner || isAtlDeepLinkRoute
-      ? getManagedAircraftTechnicalLogs(
-          page,
-          pageSize,
-          debouncedSearchTerm,
-          selectedAircraftFk,
-          sortBy,
-          selectedWorkStatusFilter,
-          selectedAtlBatchQuery
-        )
-      : getAircraftTechnicalLogs(
-          page,
-          pageSize,
-          debouncedSearchTerm,
-          selectedAircraftFk,
-          sortBy,
-          selectedWorkStatusFilter,
-          selectedAtlBatchQuery
-        );
+    getManagedAircraftTechnicalLogs(
+      page,
+      pageSize,
+      debouncedSearchTerm,
+      selectedAircraftFk,
+      sortBy,
+      selectedWorkStatusFilter,
+      selectedAtlBatchQuery
+    );
 
   const closeExportProgress = () => {
     try {
@@ -516,8 +499,6 @@ export function AircraftTechnicalLogbook() {
     selectedAtlBatchFk,
     selectedWorkStatusFilter,
     sortBy,
-    isMaintenancePlanner,
-    isAtlDeepLinkRoute,
     listQueryKey,
   ]);
 
@@ -535,7 +516,6 @@ export function AircraftTechnicalLogbook() {
   useEffect(() => {
     if (!showAtlBatchFilter) {
       setAtlBatchFilterOptions([]);
-      atlBatchFilterTouchedRef.current = false;
       return;
     }
     let cancelled = false;
@@ -546,23 +526,9 @@ export function AircraftTechnicalLogbook() {
         setAtlBatchFilterOptions(
           batches.map((b) => ({ id: b.id, name: b.name }))
         );
-        setSelectedAtlBatchId((prev) => {
-          const prevId = prev.trim();
-          const prevIsSpecific =
-            prevId !== "" &&
-            prevId.toLowerCase() !== "all" &&
-            Number(prevId) > 0;
-          if (batches.length === 0) {
-            return prevIsSpecific ? "" : prevId;
-          }
-          const belongsToAircraft =
-            prevIsSpecific && batches.some((b) => String(b.id) === prevId);
-          if (belongsToAircraft) return prevId;
-          // Drop a batch id from the previous aircraft. "All" stays all.
-          if (prevIsSpecific || atlBatchFilterTouchedRef.current) return "";
-          const latest = pickLatestAtlBatchId(batches);
-          return latest != null ? String(latest) : "";
-        });
+        setSelectedAtlBatchId((prev) =>
+          resolveAtlBatchFilterAfterOptionsLoad(prev, batches)
+        );
       })
       .catch(() => {
         if (!cancelled) setAtlBatchFilterOptions([]);
@@ -634,8 +600,6 @@ export function AircraftTechnicalLogbook() {
         return;
       }
     }
-
-    atlBatchFilterTouchedRef.current = true;
 
     if (aircraftIdParam) {
       setSelectedAircraftId(aircraftIdParam);
@@ -1326,7 +1290,6 @@ export function AircraftTechnicalLogbook() {
                 });
                 if (!reset) return;
                 // Drop the previous aircraft's batch filter and rows before the next fetch.
-                atlBatchFilterTouchedRef.current = true;
                 listFetchSeqRef.current += 1;
                 setSelectedAtlBatchId(reset.batchId);
                 setEntries([]);
@@ -1361,7 +1324,6 @@ export function AircraftTechnicalLogbook() {
                 id="logbook-atl-batch-filter"
                 value={selectedAtlBatchId}
                 onChange={(e) => {
-                  atlBatchFilterTouchedRef.current = true;
                   setSelectedAtlBatchId(e.target.value);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900"

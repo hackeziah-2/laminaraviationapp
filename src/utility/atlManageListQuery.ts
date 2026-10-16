@@ -30,3 +30,24 @@ export function resetAtlManageListOnAircraftChange(args: {
   if (args.nextAircraftId === args.currentAircraftId) return null;
   return { batchId: "", page: 1 };
 }
+
+/**
+ * Refreshing batch options must leave "all batches" selected.
+ * A specific id is kept only when that batch is still in the loaded list.
+ */
+export function resolveAtlBatchFilterAfterOptionsLoad(
+  selectedAtlBatchId: string,
+  batches: Array<{ id: number }>
+): string {
+  const trimmed = selectedAtlBatchId.trim();
+  if (
+    trimmed === "" ||
+    trimmed.toLowerCase() === ATL_BATCH_FILTER_ALL
+  ) {
+    return "";
+  }
+  const batchId = Number(trimmed);
+  if (!Number.isFinite(batchId) || batchId <= 0) return "";
+  const stillPresent = batches.some((batch) => batch.id === batchId);
+  return stillPresent ? String(batchId) : "";
+}

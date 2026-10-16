@@ -30,6 +30,14 @@ import {
   type FleetDailyUpdateItem,
   type FleetDailyUpdateBulkUpdateItem,
 } from "../api/fleetDailyUpdateApi";
+import { getLatestAircraftTechnicalLog } from "../api/aircraftTechnicalLogApi";
+import {
+  formatTachReadingForEod,
+  readAppliedOperationAtlId,
+  resolveFleetDailyTachEod,
+  writeAppliedOperationAtlId,
+  type OperationAtlEodSource,
+} from "../utils/fleetDailyEod";
 import {
   reorderAircraft,
 } from "../api/aircraftApi";
@@ -118,12 +126,79 @@ function normalizeStatusForEdit(item: FleetDailyUpdateItem): string {
     : STATUS_OPTIONS[0]?.value ?? "Operational";
 }
 
-function draftFromItem(item: FleetDailyUpdateItem): BulkEditDraft {
+function draftFromItem(
+  item: FleetDailyUpdateItem,
+  tachEod: string
+): BulkEditDraft {
   return {
     status: normalizeStatusForEdit(item),
-    tachEod: item.tachEod != null ? String(item.tachEod) : "",
+    tachEod,
     remarks: item.remarks ?? "",
   };
+}
+
+function fleetDailyAircraftId(item: FleetDailyUpdateItem): number | null {
+  const id = Number(item.aircraftId ?? item.aircraft?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/** Latest Operation ATL for each aircraft on the current page. */
+async function loadLatestOperationEntries(
+  items: FleetDailyUpdateItem[]
+): Promise<Record<number, OperationAtlEodSource>> {
+  const ids = [
+    ...new Set(
+      items
+        .map(fleetDailyAircraftId)
+        .filter((id): id is number => id != null)
+    ),
+  ];
+  const latest: Record<number, OperationAtlEodSource> = {};
+  const queue = [...ids];
+  const workers = Array.from(
+    { length: Math.min(6, queue.length) },
+    async () => {
+      while (queue.length > 0) {
+        const aircraftId = queue.shift();
+        if (aircraftId == null) return;
+        try {
+          const log = await getLatestAircraftTechnicalLog(aircraftId);
+          const id = Number(log?.id);
+          if (!log || !Number.isFinite(id) || id <= 0) continue;
+          latest[aircraftId] = { id, tachEnd: log.tachometerEnd };
+        } catch {
+          // No Operation entry leaves the current EOD in place.
+        }
+      }
+    }
+  );
+  await Promise.all(workers);
+  return latest;
+}
+
+function resolvePageEodValues(
+  items: FleetDailyUpdateItem[],
+  latestByAircraft: Record<number, OperationAtlEodSource>
+): Record<number, string> {
+  const resolved: Record<number, string> = {};
+  for (const item of items) {
+    const aircraftId = fleetDailyAircraftId(item);
+    if (aircraftId == null) continue;
+    const appliedAtlId = readAppliedOperationAtlId(aircraftId);
+    const decision = resolveFleetDailyTachEod({
+      storedTachEod: item.tachEod,
+      latestEntry: latestByAircraft[aircraftId] ?? null,
+      appliedAtlId,
+    });
+    if (
+      decision.appliedAtlId != null &&
+      decision.appliedAtlId !== appliedAtlId
+    ) {
+      writeAppliedOperationAtlId(aircraftId, decision.appliedAtlId);
+    }
+    resolved[aircraftId] = decision.value;
+  }
+  return resolved;
 }
 
 function parseTachEod(value: string): number | null {
@@ -224,6 +299,12 @@ export function AircraftFleetDailyUpdate() {
     FleetDailyUpdateBulkUpdateItem[]
   >([]);
   const [savingBulk, setSavingBulk] = useState(false);
+  const [resolvedEodByAircraftId, setResolvedEodByAircraftId] = useState<
+    Record<number, string>
+  >({});
+  const latestOperationRef = useRef<Record<number, OperationAtlEodSource>>(
+    {}
+  );
 
   // Map filterStatus to API status param (backend may expect these values)
   const apiStatus = filterStatus === "all" ? "" : filterStatus;
@@ -257,6 +338,11 @@ export function AircraftFleetDailyUpdate() {
           apiStatus,
           sortParam
         );
+        const latestEntries = await loadLatestOperationEntries(res.items);
+        latestOperationRef.current = latestEntries;
+        setResolvedEodByAircraftId(
+          resolvePageEodValues(res.items, latestEntries)
+        );
         setItems(res.items);
         setTotal(res.total);
         setTotalPages(res.pages);
@@ -268,6 +354,8 @@ export function AircraftFleetDailyUpdate() {
         setItems([]);
         setTotal(0);
         setTotalPages(0);
+        latestOperationRef.current = {};
+        setResolvedEodByAircraftId({});
       } finally {
         if (!preserveView) {
           setTimeout(() => setLoading(false), 360);
@@ -401,15 +489,20 @@ export function AircraftFleetDailyUpdate() {
     const originals: Record<string, BulkEditDraft> = {};
     for (const item of items) {
       const key = getRowKey(item);
-      const draft = draftFromItem(item);
-      drafts[key] = draft;
-      originals[key] = { ...draft };
+      const aircraftId = fleetDailyAircraftId(item);
+      const serverEod = formatTachReadingForEod(item.tachEod);
+      const shownEod =
+        aircraftId != null && resolvedEodByAircraftId[aircraftId] != null
+          ? resolvedEodByAircraftId[aircraftId]
+          : serverEod;
+      drafts[key] = draftFromItem(item, shownEod);
+      originals[key] = draftFromItem(item, serverEod);
     }
     setBulkDrafts(drafts);
     setBulkOriginals(originals);
     setBulkUpdates([]);
     setBulkEditMode(true);
-  }, [items]);
+  }, [items, resolvedEodByAircraftId]);
 
   const cancelBulkEdit = useCallback(() => {
     exitBulkEditMode();
@@ -449,6 +542,17 @@ export function AircraftFleetDailyUpdate() {
 
       const saved = await confirmSaveEntry(true, async () => {
         await bulkUpdateFleetDailyUpdates({ updates: bulkUpdates });
+        for (const update of bulkUpdates) {
+          const item = items.find((row) => row.id === update.id);
+          const aircraftId = item ? fleetDailyAircraftId(item) : null;
+          const latest =
+            aircraftId != null
+              ? latestOperationRef.current[aircraftId]
+              : undefined;
+          if (aircraftId != null && latest) {
+            writeAppliedOperationAtlId(aircraftId, latest.id);
+          }
+        }
         exitBulkEditMode();
         await fetchData({ preserveView: true });
       });
@@ -461,6 +565,7 @@ export function AircraftFleetDailyUpdate() {
     }
   }, [
     bulkUpdates,
+    items,
     exitBulkEditMode,
     fetchData,
     captureViewForRestore,
@@ -975,30 +1080,45 @@ export function AircraftFleetDailyUpdate() {
                                   "-"}
                               </td>
                               <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
-                                {bulkEditMode ? (
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={
-                                      bulkDrafts[getRowKey(aircraft)]?.tachEod ??
-                                      (aircraft.tachEod != null
-                                        ? String(aircraft.tachEod)
-                                        : "")
-                                    }
-                                    onChange={(e) =>
-                                      updateBulkDraft(
-                                        getRowKey(aircraft),
-                                        "tachEod",
-                                        e.target.value
-                                      )
-                                    }
-                                    disabled={savingBulk}
-                                    className="w-full min-w-[80px] px-2 py-1.5 border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-                                    placeholder="-"
-                                  />
-                                ) : (
-                                  aircraft.tachEod ?? "-"
-                                )}
+                                {(() => {
+                                  const aircraftId = fleetDailyAircraftId(aircraft);
+                                  const serverEod = formatTachReadingForEod(
+                                    aircraft.tachEod
+                                  );
+                                  const eodValue =
+                                    aircraftId != null &&
+                                    resolvedEodByAircraftId[aircraftId] != null
+                                      ? resolvedEodByAircraftId[aircraftId]
+                                      : serverEod;
+                                  if (!bulkEditMode) {
+                                    return eodValue !== "" ? eodValue : "-";
+                                  }
+                                  return (
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={
+                                        bulkDrafts[getRowKey(aircraft)]?.tachEod ??
+                                        eodValue
+                                      }
+                                      onChange={(e) =>
+                                        updateBulkDraft(
+                                          getRowKey(aircraft),
+                                          "tachEod",
+                                          e.target.value
+                                        )
+                                      }
+                                      disabled={savingBulk}
+                                      className="w-full min-w-[80px] px-2 py-1.5 border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                      placeholder="-"
+                                      aria-label={`EOD tach for ${
+                                        aircraft.ident ??
+                                        aircraft.registration ??
+                                        "aircraft"
+                                      }`}
+                                    />
+                                  );
+                                })()}
                               </td>
                               <td
                                 className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${

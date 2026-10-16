@@ -652,14 +652,30 @@ export function formatAtlTachHobbsDisplay1dp(
   return n.toFixed(1);
 }
 
-/** Engine/propeller TBO display in ATL create & edit forms (1 decimal place). */
-export function formatAtlTboDisplay1dp(
+/**
+ * Engine and propeller ATL hours (run, flight, TSN, TSO, TBO, totals).
+ * Keeps two decimal places. A difference of 0.01 is preserved; values are not
+ * rounded to one decimal place.
+ */
+export function formatAtlEnginePropHours2dp(
   value: unknown,
   fallback = ""
 ): string {
   if (value == null || value === "") return fallback;
   const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : fallback;
+  return Number.isFinite(n) ? n.toFixed(2) : fallback;
+}
+
+/** Tach End − Tach Start for engine/propeller run time, quantized to 2 decimals. */
+export function atlEnginePropRunHoursFromTach(
+  tachometerStart: unknown,
+  tachometerEnd: unknown
+): string {
+  const start = Number(tachometerStart);
+  const end = Number(tachometerEnd);
+  const raw =
+    (Number.isFinite(end) ? end : 0) - (Number.isFinite(start) ? start : 0);
+  return formatAtlEnginePropHours2dp(raw, "0.00");
 }
 
 /**
@@ -1102,6 +1118,46 @@ export function resolveAtlMaintenancePersonDisplay(
     );
   }
   return emptyLabel;
+}
+
+/**
+ * Actions Taken Name only. Does not fall back to the remarks / maintenance person.
+ */
+export function resolveAtlActionTakenPersonDisplay(
+  record: {
+    actiontakenPerson?: number | string | null;
+    actionTakenPerson?: number | string | null;
+  } | null | undefined,
+  accountsMap?: Map<
+    number,
+    {
+      fullName?: string | null;
+      firstName?: string | null;
+      middleName?: string | null;
+      lastName?: string | null;
+      licenseNo?: string | null;
+    }
+  > | null,
+  emptyLabel = ""
+): string {
+  if (!record) return emptyLabel;
+  const raw = record.actiontakenPerson ?? record.actionTakenPerson;
+  if (raw == null) return emptyLabel;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (
+      !trimmed ||
+      /^(none|null|undefined|no selected name)$/i.test(trimmed)
+    ) {
+      return emptyLabel;
+    }
+    if (!/^\d+$/.test(trimmed)) return trimmed;
+  }
+  const id = Number(raw);
+  if (!Number.isFinite(id) || id <= 0) return emptyLabel;
+  const account = accountsMap?.get(id);
+  if (!account) return emptyLabel;
+  return resolveAccountNameLicenseDisplay(account, emptyLabel);
 }
 
 /** Which remarks UI section to show for a Nature of Flight value (UI only). */

@@ -8,6 +8,7 @@ import {
   TrendingUp,
   AlertTriangle,
   Fuel,
+  Gauge,
 } from "lucide-react";
 import { getDashboard } from "../api/dashboardApi";
 import type {
@@ -242,14 +243,24 @@ export function Dashboard() {
               );
             })}
 
-            <button
-              type="button"
-              onClick={() => navigate("/dashboard/aircraft-fuel-report")}
-              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-            >
-              <Fuel className="h-4 w-4" />
-              Fuel Consumption Report
-            </button>
+            <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard/aircraft-fuel-report")}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+              >
+                <Fuel className="h-4 w-4" />
+                Fuel Consumption Report
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/dashboard/aircraft-fleet-dashboard")}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+              >
+                <Gauge className="h-4 w-4" />
+                Fleet Dashboard
+              </button>
+            </div>
           </div>
 
           {/* Content grid — gap matches stats row so center gutter lines up on lg */}

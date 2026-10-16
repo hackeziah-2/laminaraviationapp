@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./index", () => ({
+  default: { get: vi.fn() },
+}));
+
+import apiClient from "./index";
 import {
   appendAtlBatchFilterParams,
   displayTSN,
   formatAtlListCell,
+  getAircraftTechnicalLogs,
+  getManagedAircraftTechnicalLogs,
   normalizeAtlPagedSortParam,
   normalizeAtlPilotAcceptanceNameForApi,
   parseAtlAssigneeIdForApi,
@@ -30,6 +38,78 @@ describe("appendAtlBatchFilterParams", () => {
     appendAtlBatchFilterParams(params, undefined);
     expect(params.has("atl_batch")).toBe(false);
     expect(params.has("atl_batch_fk")).toBe(false);
+  });
+});
+
+describe("getAircraftTechnicalLogs", () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.get).mockReset();
+  });
+
+  it("loads every batch for the aircraft, highest sequence first, 50 per page", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { items: [], total: 0, page: 1, pages: 1 },
+    });
+
+    await getAircraftTechnicalLogs(
+      1,
+      50,
+      "",
+      12,
+      "-sequence_no"
+    );
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "aircraft-technical-log/paged?page=1&page_size=50&limit=50&aircraft_id=12&aircraft_fk=12&sort=-sequence_no"
+    );
+  });
+
+  it("keeps the aircraft and sequence sort when requesting another page", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { items: [], total: 80, page: 2, pages: 2 },
+    });
+
+    await getAircraftTechnicalLogs(
+      2,
+      50,
+      "",
+      12,
+      "-sequence_no"
+    );
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "aircraft-technical-log/paged?page=2&page_size=50&limit=50&aircraft_id=12&aircraft_fk=12&sort=-sequence_no"
+    );
+  });
+});
+
+describe("getManagedAircraftTechnicalLogs", () => {
+  beforeEach(() => {
+    vi.mocked(apiClient.get).mockReset();
+  });
+
+  it("loads every aircraft and batch, newest first, 50 per page", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { items: [], total: 0, page: 1, pages: 1 },
+    });
+
+    await getManagedAircraftTechnicalLogs(1, 50, "", undefined, "-created_at", undefined, "all");
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "aircraft-technical-log/manage/paged?atl_batch=all&atl_batch_fk=all&page=1&page_size=50&limit=50&sort=-created_at"
+    );
+  });
+
+  it("keeps the same filters when requesting another page", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { items: [], total: 80, page: 2, pages: 2 },
+    });
+
+    await getManagedAircraftTechnicalLogs(2, 50, "", undefined, "-created_at", undefined, "all");
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "aircraft-technical-log/manage/paged?atl_batch=all&atl_batch_fk=all&page=2&page_size=50&limit=50&sort=-created_at"
+    );
   });
 });
 
