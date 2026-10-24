@@ -3036,17 +3036,33 @@ input[data-slot="date-input"] {
   inherits: false
 }
 
-/* ATL Operation — sticky multi-row table header (vertical + horizontal)
+/* ATL Operation — grouped multi-row header, horizontal scroll only.
    Used by All Columns and Group By views (Fuel/Oil, Maintenance Planning,
-   Reliability Monitoring). Scroll lives ONLY on .atl-all-columns-scroll.
-   Ancestor overflow:hidden breaks sticky — keep parents overflow:visible.
-   border-collapse:separate is required for position:sticky on th/td.
+   Reliability Monitoring). Horizontal scroll lives on .atl-all-columns-scroll.
+   The list is as tall as the header plus the rows rendered for this page
+   (up to the selected page size). No fixed height, max-height, or vertical
+   scrollport — those clipped the body to about one row when header cells
+   were position:sticky with a top offset.
+   The sequence column stays sticky on the left while the page scrolls sideways.
+   border-collapse:separate is required for that horizontal sticky column.
    Three header rows: group titles, sub labels, Component Record P/N S/N.
    Component Record leaf columns share widths via <colgroup> + matching th/td classes. */
+.atl-list-shell {
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
 .atl-all-columns-scroll {
-  overflow: auto;
-  max-height: calc(100vh - 250px);
-  overscroll-behavior: contain;
+  overflow-x: auto;
+  overflow-y: visible;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: auto;
+  max-height: none;
   background-color: #fff;
   position: relative;
   isolation: isolate;
@@ -3054,10 +3070,12 @@ input[data-slot="date-input"] {
 }
 
 .atl-all-columns-table {
-  border-collapse: separate;
+  border-collapse: separate !important;
   border-spacing: 0;
   width: max-content;
   min-width: 100%;
+  height: auto;
+  max-height: none;
 }
 
 .atl-all-columns-table col.atl-col-cr-pn-sn {
@@ -3077,7 +3095,9 @@ input[data-slot="date-input"] {
 }
 
 .atl-all-columns-table > thead > tr > th {
-  position: sticky;
+  position: static;
+  top: auto;
+  height: auto;
   background-color: #e5e7eb !important;
   background-clip: padding-box;
   box-sizing: border-box;
@@ -3169,23 +3189,14 @@ input[data-slot="date-input"] {
   background-color: #8fddd3 !important;
 }
 
-/* Row 1 — stick to top of scroll container */
-.atl-all-columns-table > thead > tr:first-child > th {
-  top: 0;
-  z-index: 4;
-}
-
-/* Row 2 — stick just under row 1 */
-.atl-all-columns-table > thead > tr:nth-child(2) > th {
-  top: var(--atl-th-row1-h, 40px);
-  z-index: 3;
-}
-
-/* Row 3 — Component Record P/N S/N; stick under row 2 */
+/* Header rows stay in normal flow. A vertical sticky offset inside the
+   horizontal scroller stretches the header over the body and hides every
+   record after the first. */
+.atl-all-columns-table > thead > tr:first-child > th,
+.atl-all-columns-table > thead > tr:nth-child(2) > th,
 .atl-all-columns-table > thead > tr:nth-child(3) > th {
-  top: calc(var(--atl-th-row1-h, 40px) + var(--atl-th-row2-h, 32px));
-  z-index: 2;
-  box-shadow: 0 1px 0 0 #d1d5db;
+  top: auto;
+  height: auto;
 }
 
 /* Bottom edge of the frozen header (1-, 2-, or 3-row) stays above body rows. */
@@ -3203,9 +3214,13 @@ input[data-slot="date-input"] {
   background-color: #e5e7eb !important;
 }
 
-/* Sequence corner: sticky top + left (both axes) */
-.atl-all-columns-table > thead > tr:first-child > th.atl-th-sticky-seq {
+/* Sequence corner: sticky on the left only, so horizontal scroll keeps it visible. */
+.atl-all-columns-table > thead > tr:first-child > th.atl-th-sticky-seq,
+.atl-all-columns-table > thead > tr > th.atl-th-sticky-seq {
+  position: sticky;
   left: 0;
+  top: auto;
+  height: auto;
   z-index: 8;
   box-shadow: 2px 0 5px -2px rgba(0, 0, 0, 0.12), 0 1px 0 0 #d1d5db;
 }
@@ -3266,11 +3281,19 @@ input[data-slot="date-input"] {
   box-sizing: border-box;
 }
 
+/* Paint every body cell. Sticky header cells otherwise leave later rows blank. */
+.atl-all-columns-table > tbody > tr > td {
+  background-color: #fff;
+  background-clip: padding-box;
+}
+
 /* Body first column — sticky horizontally only */
 .atl-all-columns-table > tbody > tr > td.atl-td-sticky-seq,
 .atl-all-columns-table > tbody > tr > td.sticky {
   position: sticky;
   left: 0;
+  top: auto;
+  height: auto;
   z-index: 1;
   background-color: #f3f4f6 !important;
   background-clip: padding-box;
@@ -3963,7 +3986,8 @@ input[data-slot="date-input"] {
 .maintenance-table-scroll {
   overflow: auto;
   max-width: 100%;
-  max-height: min(65vh, calc(100dvh - 260px));
+  height: auto;
+  max-height: 65vh;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   position: relative;
@@ -4015,12 +4039,6 @@ input[data-slot="date-input"] {
 .maintenance-table-scroll--cpcp thead th {
   background-color: #2563eb;
   color: #ffffff;
-}
-
-@media (max-width: 639px) {
-  .maintenance-table-scroll {
-    max-height: min(55vh, calc(100dvh - 200px));
-  }
 }
 
 @media (min-width: 640px) {

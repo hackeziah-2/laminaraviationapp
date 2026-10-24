@@ -10,7 +10,14 @@ import {
   ChevronDown,
   Save,
 } from "lucide-react";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  type KeyboardEvent,
+} from "react";
 import { Link } from "react-router-dom";
 import Swal from "../utils/swalDefaults";
 import {
@@ -42,6 +49,15 @@ import {
   reorderAircraft,
 } from "../api/aircraftApi";
 import { SpinnerIcon } from "./ui/spinner";
+import { AutoResizeTextarea } from "./ui/AutoResizeTextarea";
+import {
+  fleetDailyRemarksDisplay,
+  fleetDailyRemarksValue,
+} from "../utils/fleetDailyRemarks";
+import {
+  normalizeAircraftIdent,
+  resolveAircraftIdentStyles,
+} from "../utils/aircraftIdentColors";
 import { DataTablePagination } from "./ui/DataTablePagination";
 import {
   API_PAGE_SIZE_OPTIONS,
@@ -108,6 +124,29 @@ interface BulkEditDraft {
   remarks: string;
 }
 
+/** Enter adds a line in the remarks field and does not activate Save. */
+function remarksEnterInsertsLine(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+  event.stopPropagation();
+}
+
+/** Saved remarks, including blank lines and repeated spaces. */
+function FleetDailyRemarksView({ text }: { text: string }) {
+  return (
+    <div
+      className="text-left text-sm text-gray-700"
+      style={{
+        whiteSpace: "pre-wrap",
+        overflowWrap: "break-word",
+        minWidth: "180px",
+        maxWidth: "360px",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
 function getRowKey(item: FleetDailyUpdateItem): string {
   if (item.id != null) return `id:${item.id}`;
   const aircraftId = item.aircraftId ?? item.aircraft?.id;
@@ -133,7 +172,7 @@ function draftFromItem(
   return {
     status: normalizeStatusForEdit(item),
     tachEod,
-    remarks: item.remarks ?? "",
+    remarks: fleetDailyRemarksValue(item.remarks ?? ""),
   };
 }
 
@@ -240,8 +279,10 @@ function buildBulkUpdates(
       payload.tach_time_eod = parseTachEod(draft.tachEod);
       hasChanges = true;
     }
-    if (draft.remarks !== original.remarks) {
-      payload.remarks = draft.remarks;
+    const nextRemarks = fleetDailyRemarksValue(draft.remarks);
+    const previousRemarks = fleetDailyRemarksValue(original.remarks);
+    if (nextRemarks !== previousRemarks) {
+      payload.remarks = nextRemarks;
       hasChanges = true;
     }
 
@@ -304,6 +345,13 @@ export function AircraftFleetDailyUpdate() {
   >({});
   const latestOperationRef = useRef<Record<number, OperationAtlEodSource>>(
     {}
+  );
+  const identStyles = useMemo(
+    () =>
+      resolveAircraftIdentStyles(
+        items.map((aircraft) => aircraft.ident ?? aircraft.registration ?? "")
+      ),
+    [items]
   );
 
   // Map filterStatus to API status param (backend may expect these values)
@@ -609,7 +657,7 @@ export function AircraftFleetDailyUpdate() {
 
   const openRemarkModal = useCallback((item: FleetDailyUpdateItem) => {
     setEditingItem(item);
-    setRemarkDraft(item.remarks ?? "");
+    setRemarkDraft(fleetDailyRemarksValue(item.remarks ?? ""));
     const currentStatus = item.status ?? item.workStatus ?? "";
     const legacy =
       currentStatus.trim().toLowerCase() === "running"
@@ -643,7 +691,7 @@ export function AircraftFleetDailyUpdate() {
 
       const saved = await confirmSaveEntry(true, async () => {
         await updateFleetDailyUpdateRemark(editingItem, {
-          remarks: remarkDraft,
+          remarks: fleetDailyRemarksValue(remarkDraft),
           status: statusDraft,
         });
         setShowRemarkModal(false);
@@ -669,29 +717,6 @@ export function AircraftFleetDailyUpdate() {
     clearPendingViewRestore,
     currentPage,
   ]);
-
-  const getRowColorClass = (
-    rowColor?: string,
-    statusColor?: string,
-    statusText?: string
-  ) => {
-    if (rowColor?.startsWith("bg-")) return rowColor;
-    const map: Record<string, string> = {
-      green: "bg-green-100",
-      yellow: "bg-yellow-100",
-      red: "bg-red-100",
-      orange: "bg-orange-100",
-      blue: "bg-blue-100",
-      purple: "bg-purple-100",
-      pink: "bg-pink-100",
-      teal: "bg-teal-100",
-      lime: "bg-lime-100",
-      indigo: "bg-indigo-100",
-    };
-    const c =
-      statusColor || rowColor || (statusText ? statusToColor(statusText) : "");
-    return map[c] || map[statusToColor(statusText)] || "";
-  };
 
   const getStatusBadge = (status: string, color?: string) => {
     const colorClasses: Record<string, string> = {
@@ -868,14 +893,14 @@ export function AircraftFleetDailyUpdate() {
           <table className="w-full">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-300">
-                <th className="px-2 py-3 text-left text-gray-900 text-xs border-r border-gray-300 w-10">
+                <th className="px-2 py-3 text-center text-gray-900 text-xs border-r border-gray-300 w-10">
                   Arrange
                 </th>
-                <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
+                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
                   <button
                     type="button"
                     onClick={toggleRegistrationSort}
-                    className="inline-flex items-center gap-1 text-left font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+                    className="inline-flex items-center justify-center gap-1 font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
                     title="Sort by registration"
                   >
                     A/C IDENT
@@ -889,10 +914,10 @@ export function AircraftFleetDailyUpdate() {
                     ) : null}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
+                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
                   STATUS
                 </th>
-                <th className="px-4 py-3 text-left text-gray-900 text-xs border-r border-gray-300">
+                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
                   NEXT INSP. DUE
                 </th>
                 <th
@@ -926,7 +951,7 @@ export function AircraftFleetDailyUpdate() {
                   <br />
                   OVERHAUL (HRS)
                 </th>
-                <th className="px-4 py-3 text-left text-gray-900 text-xs">
+                <th className="px-4 py-3 text-center text-gray-900 text-xs">
                   REMARKS
                 </th>
               </tr>
@@ -962,10 +987,20 @@ export function AircraftFleetDailyUpdate() {
                   ) : (
                     items.map((aircraft) => {
                       const sortId = getAircraftSortId(aircraft);
-                      const identLabel =
-                        aircraft.ident ??
-                        aircraft.registration ??
-                        String(sortId);
+                      const identTrimmed = String(
+                        aircraft.ident ?? aircraft.registration ?? ""
+                      ).trim();
+                      const showIdent =
+                        identTrimmed !== "" && identTrimmed !== "-";
+                      const identStyle = showIdent
+                        ? identStyles[normalizeAircraftIdent(identTrimmed)]
+                        : undefined;
+                      const identLabel = showIdent
+                        ? identTrimmed
+                        : String(sortId);
+                      const remarksText = fleetDailyRemarksDisplay(
+                        aircraft.remarks
+                      );
                       return (
                         <SortableTableRow
                           key={
@@ -979,47 +1014,50 @@ export function AircraftFleetDailyUpdate() {
                           disabled={dailyDndDisabled || sortId <= 0}
                           dragLabel={`Move aircraft ${identLabel}`}
                           disabledReason={dragDisabledReason}
-                          className={`border-b border-gray-200 ${getRowColorClass(
-                            aircraft.rowColor,
-                            bulkEditMode
-                              ? statusToColor(
-                                  bulkDrafts[getRowKey(aircraft)]?.status ??
-                                    aircraft.status ??
-                                    aircraft.workStatus
-                                )
-                              : aircraft.statusColor,
-                            bulkEditMode
-                              ? bulkDrafts[getRowKey(aircraft)]?.status ??
-                                  aircraft.status ??
-                                  aircraft.workStatus
-                              : aircraft.status ?? aircraft.workStatus
-                          )}`}
+                          className="border-b border-gray-200"
                         >
                           {({ dragHandle }) => (
                             <>
                               <td className="px-2 py-3 text-sm border-r border-gray-300 align-middle">
                                 {dragHandle}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-900 border-r border-gray-300">
-                                {(() => {
-                                  const ident =
-                                    aircraft.ident ??
-                                    aircraft.registration ??
-                                    "-";
-                                  const trimmed =
-                                    ident !== "-" ? String(ident).trim() : "";
-                                  if (!trimmed) return "-";
-                                  return (
-                                    <Link
-                                      to={`/profile?aircraft=${encodeURIComponent(
-                                        trimmed
-                                      )}`}
-                                      className="text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
-                                    >
-                                      {trimmed}
-                                    </Link>
-                                  );
-                                })()}
+                              <td
+                                className={`px-4 py-3 text-sm border-r border-gray-300${
+                                  identStyle ? " font-bold" : " text-gray-900"
+                                }`}
+                                style={
+                                  identStyle
+                                    ? {
+                                        backgroundColor:
+                                          identStyle.backgroundColor,
+                                        color: identStyle.color,
+                                        printColorAdjust: "exact",
+                                        WebkitPrintColorAdjust: "exact",
+                                      }
+                                    : undefined
+                                }
+                              >
+                                {showIdent ? (
+                                  <Link
+                                    to={`/profile?aircraft=${encodeURIComponent(
+                                      identTrimmed
+                                    )}`}
+                                    className={
+                                      identStyle
+                                        ? "underline underline-offset-2 cursor-pointer font-bold hover:opacity-80"
+                                        : "text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
+                                    }
+                                    style={
+                                      identStyle
+                                        ? { color: identStyle.color }
+                                        : undefined
+                                    }
+                                  >
+                                    {identTrimmed}
+                                  </Link>
+                                ) : (
+                                  "-"
+                                )}
                               </td>
                               <td className="px-4 py-3 text-sm border-r border-gray-300">
                                 {bulkEditMode ? (
@@ -1135,14 +1173,15 @@ export function AircraftFleetDailyUpdate() {
                               <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
                                 {aircraft.remainingPropeller ?? "-"}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
+                              <td className="px-4 py-3 text-sm text-gray-700" style={{ verticalAlign: "top" }}>
                                 {bulkEditMode ? (
-                                  <textarea
+                                  <AutoResizeTextarea
                                     value={
                                       bulkDrafts[getRowKey(aircraft)]
                                         ?.remarks ??
-                                      aircraft.remarks ??
-                                      ""
+                                      fleetDailyRemarksValue(
+                                        aircraft.remarks ?? ""
+                                      )
                                     }
                                     onChange={(e) =>
                                       updateBulkDraft(
@@ -1151,13 +1190,23 @@ export function AircraftFleetDailyUpdate() {
                                         e.target.value
                                       )
                                     }
+                                    onKeyDown={remarksEnterInsertsLine}
                                     disabled={savingBulk}
                                     rows={2}
-                                    className="w-full min-w-[160px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 resize-y"
+                                    minHeightPx={56}
+                                    maxHeightPx={480}
+                                    className="w-full min-w-[200px] max-w-[360px] px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
                                     placeholder="Enter remarks..."
+                                    aria-label={`Remarks for ${
+                                      aircraft.ident ??
+                                      aircraft.registration ??
+                                      "aircraft"
+                                    }`}
                                   />
+                                ) : remarksText == null ? (
+                                  "-"
                                 ) : (
-                                  aircraft.remarks ?? "-"
+                                  <FleetDailyRemarksView text={remarksText} />
                                 )}
                               </td>
                             </>
@@ -1245,10 +1294,13 @@ export function AircraftFleetDailyUpdate() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Remarks
                 </label>
-                <textarea
+                <AutoResizeTextarea
                   value={remarkDraft}
                   onChange={(e) => setRemarkDraft(e.target.value)}
+                  onKeyDown={remarksEnterInsertsLine}
                   rows={4}
+                  minHeightPx={96}
+                  maxHeightPx={480}
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter remarks..."
                 />
