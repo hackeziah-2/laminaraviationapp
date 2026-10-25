@@ -79,10 +79,27 @@ const CERTIFICATE_TYPE_FILTER = {
   IBRD_CORPAS: "IBRD_CORPAS",
 } as const;
 
+const CERTIFICATE_TYPE_LABELS: Record<string, string> = {
+  BINARY_CODE_24BIT: "24 BIT BINARY CODE",
+  IBRD_CORPAS: "IBRD",
+};
+
+/** These types may be saved without a date of expiration. */
+const EXPIRATION_OPTIONAL_TYPES = new Set([
+  "BINARY_CODE_24BIT",
+  "IBRD_CORPAS",
+]);
+
+function isExpirationOptional(certificateType: string | undefined): boolean {
+  return EXPIRATION_OPTIONAL_TYPES.has((certificateType ?? "").trim());
+}
+
 const CERTIFICATE_TYPE_OPTIONS = Object.entries(CERTIFICATE_TYPE_FILTER).map(
   ([key, value]) => ({
     value,
-    label: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    label:
+      CERTIFICATE_TYPE_LABELS[value] ??
+      key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
   })
 );
 
@@ -725,7 +742,10 @@ export function AircraftStatutoryCertificates() {
       newErrors.webLink =
         "Web link must be a valid URL (e.g. https://example.com)";
     const expiryValue = formatDateForApi(formData.expiryDate);
-    if (!expiryValue || !expiryValue.trim())
+    if (
+      !isExpirationOptional(certType) &&
+      (!expiryValue || !expiryValue.trim())
+    )
       newErrors.expiryDate = "Date of expiration is required";
 
     if (Object.keys(newErrors).length > 0) {
@@ -1441,15 +1461,18 @@ export function AircraftStatutoryCertificates() {
                 <select
                   value={formData.certificateType}
                   onChange={(e) => {
+                    const certificateType = e.target.value;
                     setFormData({
                       ...formData,
-                      certificateType: e.target.value,
+                      certificateType,
                     });
-                    if (saveFormErrors.certificateType)
-                      setSaveFormErrors((prev) => ({
-                        ...prev,
-                        certificateType: "",
-                      }));
+                    setSaveFormErrors((prev) => ({
+                      ...prev,
+                      certificateType: "",
+                      ...(isExpirationOptional(certificateType)
+                        ? { expiryDate: "" }
+                        : {}),
+                    }));
                   }}
                   className={`w-full px-3 py-2 border rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     saveFormErrors.certificateType
@@ -1472,7 +1495,12 @@ export function AircraftStatutoryCertificates() {
               </div>
               <div>
                 <label className="block text-gray-700 text-sm mb-1.5">
-                  Date of Expiration <span className="text-red-500">*</span>
+                  Date of Expiration{" "}
+                  {isExpirationOptional(formData.certificateType) ? (
+                    <span className="text-gray-500 font-normal">(optional)</span>
+                  ) : (
+                    <span className="text-red-500">*</span>
+                  )}
                 </label>
                 <DateInput
                   value={formData.expiryDate}

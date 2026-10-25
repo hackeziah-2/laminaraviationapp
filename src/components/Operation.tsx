@@ -1,10 +1,10 @@
 import {
   useState,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   type CSSProperties,
+  type MouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -134,12 +134,20 @@ type AtlComponentPartRow = ComponentPartsRecord & {
 };
 
 const STICKY_SEQ_CLASS =
-  "atl-th-sticky-seq sticky top-0 left-0 z-[6] px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
+  "atl-th-sticky-seq left-0 z-[6] px-3 py-3 text-left text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] w-[140px]";
 const STICKY_SEQ_CELL_CLASS =
   "atl-td-sticky-seq sticky left-0 z-[1] px-3 py-3 text-gray-900 text-sm border-r border-gray-200 bg-gray-100 font-medium min-w-[140px] w-[140px] cursor-pointer";
 
 function atlListRowClassName(baseClass: string, selected: boolean): string {
   return selected ? `${baseClass} atl-row-selected` : baseClass;
+}
+
+/** Row clicks toggle selection. Buttons and links keep their own actions. */
+function atlRowClickShouldToggleSelection(target: EventTarget | null): boolean {
+  return !(
+    target instanceof Element &&
+    target.closest("button, a, input, select, textarea, label")
+  );
 }
 
 const ATL_TABLE_SCROLL_CLASS = "atl-all-columns-scroll";
@@ -1120,6 +1128,13 @@ export function Operation() {
       return next;
     });
   };
+  const handleAtlRowClick = (
+    recordId: number,
+    event: MouseEvent<HTMLTableRowElement>
+  ) => {
+    if (!atlRowClickShouldToggleSelection(event.target)) return;
+    toggleAtlRowSelection(recordId);
+  };
   const [importLoading, setImportLoading] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -1136,9 +1151,6 @@ export function Operation() {
     Record<string, boolean>
   >({});
   const importFileInputRef = useRef<HTMLInputElement>(null);
-  const atlAllColumnsTheadRef = useRef<HTMLTableSectionElement>(null);
-  const [atlHeaderRow1Height, setAtlHeaderRow1Height] = useState(40);
-  const [atlHeaderRow2Height, setAtlHeaderRow2Height] = useState(32);
   /** Skip the next paged useEffect fetch after a soft preserveView refresh that syncs currentPage. */
   const skipNextPagedFetchRef = useRef(false);
   const prevListQueryKeyRef = useRef("");
@@ -1157,29 +1169,6 @@ export function Operation() {
   /** "All" batch filter (or no batch param) → Sequence column shows `Batch name - seq`. */
   const showSeqNoWithBatchName = selectedAtlBatchFk == null;
 
-  useLayoutEffect(() => {
-    const thead = atlAllColumnsTheadRef.current;
-    const firstRow = thead?.rows[0];
-    const secondRow = thead?.rows[1];
-    if (!firstRow) return;
-
-    const updateHeight = () => {
-      const next1 = Math.ceil(firstRow.getBoundingClientRect().height);
-      setAtlHeaderRow1Height((prev) => (prev === next1 ? prev : next1));
-      if (secondRow) {
-        const next2 = Math.ceil(secondRow.getBoundingClientRect().height);
-        setAtlHeaderRow2Height((prev) => (prev === next2 ? prev : next2));
-      }
-    };
-    updateHeight();
-
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(firstRow);
-    if (secondRow) observer.observe(secondRow);
-    if (thead) observer.observe(thead);
-    return () => observer.disconnect();
-  }, [groupBy, fleetTimeRecords, sequenceSort, loading]);
-
   const {
     listScrollRef: fleetTableScrollRef,
     captureViewForRestore,
@@ -1188,7 +1177,7 @@ export function Operation() {
   } = usePreserveListView({
     isEditOpen: showEditModal,
     loading,
-    listDeps: [fleetTimeRecords, atlHeaderRow1Height, atlHeaderRow2Height],
+    listDeps: [fleetTimeRecords],
     scrollSelector: "[data-atl-fleet-scroll]",
   });
 
@@ -2389,7 +2378,7 @@ export function Operation() {
   });
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="flex min-w-0 items-center gap-2 sm:gap-4">
@@ -2408,8 +2397,8 @@ export function Operation() {
       </div>
 
       {/* Fleet Time Monitoring */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6">
-        <div className="space-y-4 sm:space-y-6">
+      <div className="min-w-0 max-w-full rounded-lg border border-gray-200 bg-white p-4 sm:p-6">
+        <div className="min-w-0 space-y-4 sm:space-y-6">
           {/* Fleet Time Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
             <div>
@@ -2784,7 +2773,7 @@ export function Operation() {
           </div>
 
           {/* Fleet Time Table — do not use overflow-hidden here; it breaks position:sticky */}
-          <div className="bg-white rounded-lg border border-gray-200">
+          <div className="atl-list-shell min-w-0 max-w-full rounded-lg border border-gray-200 bg-white">
             {loading ? (
               <div className="flex items-center justify-center p-12">
                 <Spinner />
@@ -2843,16 +2832,10 @@ export function Operation() {
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
                     className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
-                    style={
-                      {
-                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
-                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
-                      } as CSSProperties
-                    }
                   >
                     <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
                       <AtlAllColumnsColgroup />
-                      <thead ref={atlAllColumnsTheadRef}>
+                      <thead>
                         <tr>
                           <th
                             className={`${STICKY_SEQ_CLASS} cursor-pointer select-none transition-colors`}
@@ -3244,21 +3227,21 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, index) => (
                             <tr
-                              key={record.id}
+                              key={`${record.id ?? "atl"}-${index}`}
                               data-atl-entry-id={record.id}
                               data-list-entry-id={record.id}
                               aria-selected={selectedAtlRowIds.has(record.id)}
                               className={atlListRowClassName(
-                                "hover:bg-gray-50/50 transition-colors",
+                                "cursor-pointer hover:bg-gray-50/50 transition-colors",
                                 selectedAtlRowIds.has(record.id)
                               )}
+                              onClick={(event) =>
+                                handleAtlRowClick(record.id, event)
+                              }
                             >
-                              <td
-                                className={STICKY_SEQ_CELL_CLASS}
-                                onClick={() => toggleAtlRowSelection(record.id)}
-                              >
+                              <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
@@ -3566,15 +3549,9 @@ export function Operation() {
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
                     className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
-                    style={
-                      {
-                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
-                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
-                      } as CSSProperties
-                    }
                   >
                     <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
-                      <thead ref={atlAllColumnsTheadRef}>
+                      <thead>
                         <tr className="bg-gray-100">
                           <th className={`${STICKY_SEQ_CLASS} align-middle`}>
                             ATL SEQ
@@ -3648,20 +3625,20 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, index) => (
                             <tr
-                              key={record.id}
+                              key={`${record.id ?? "atl"}-${index}`}
                               data-list-entry-id={record.id}
                               aria-selected={selectedAtlRowIds.has(record.id)}
                               className={atlListRowClassName(
-                                "hover:bg-gray-50",
+                                "cursor-pointer hover:bg-gray-50",
                                 selectedAtlRowIds.has(record.id)
                               )}
+                              onClick={(event) =>
+                                handleAtlRowClick(record.id, event)
+                              }
                             >
-                              <td
-                                className={STICKY_SEQ_CELL_CLASS}
-                                onClick={() => toggleAtlRowSelection(record.id)}
-                              >
+                              <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
@@ -3780,15 +3757,9 @@ export function Operation() {
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
                     className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
-                    style={
-                      {
-                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
-                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
-                      } as CSSProperties
-                    }
                   >
                     <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
-                      <thead ref={atlAllColumnsTheadRef}>
+                      <thead>
                         <tr className="bg-gray-100">
                           <th className={`${STICKY_SEQ_CLASS} rounded-tl-lg`}>
                             ATL SEQ
@@ -3831,21 +3802,21 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => {
+                          paginatedRecords.map((record, index) => {
                             return (
                               <tr
-                                key={record.id}
+                                key={`${record.id ?? "atl"}-${index}`}
                                 data-list-entry-id={record.id}
                                 aria-selected={selectedAtlRowIds.has(record.id)}
                                 className={atlListRowClassName(
-                                  "hover:bg-gray-50",
+                                  "cursor-pointer hover:bg-gray-50",
                                   selectedAtlRowIds.has(record.id)
                                 )}
+                                onClick={(event) =>
+                                  handleAtlRowClick(record.id, event)
+                                }
                               >
-                                <td
-                                  className={STICKY_SEQ_CELL_CLASS}
-                                  onClick={() => toggleAtlRowSelection(record.id)}
-                                >
+                                <td className={STICKY_SEQ_CELL_CLASS}>
                                   <div className="flex flex-col">
                                     <span className="font-medium">
                                       {formatAtlListCell(record.sequenceNo)}
@@ -3939,16 +3910,10 @@ export function Operation() {
                     ref={fleetTableScrollRef}
                     data-atl-fleet-scroll
                     className={`${ATL_TABLE_SCROLL_CLASS} rounded-lg`}
-                    style={
-                      {
-                        "--atl-th-row1-h": `${atlHeaderRow1Height}px`,
-                        "--atl-th-row2-h": `${atlHeaderRow2Height}px`,
-                      } as CSSProperties
-                    }
                   >
                     <table className={ATL_ALL_COLUMNS_TABLE_CLASS}>
                       <AtlReliabilityMonitoringColgroup />
-                      <thead ref={atlAllColumnsTheadRef}>
+                      <thead>
                         <tr className="bg-gray-100">
                           <th className={`${STICKY_SEQ_CLASS} align-middle`}>
                             ATL SEQ
@@ -4109,20 +4074,20 @@ export function Operation() {
                             </td>
                           </tr>
                         ) : (
-                          paginatedRecords.map((record) => (
+                          paginatedRecords.map((record, index) => (
                             <tr
-                              key={record.id}
+                              key={`${record.id ?? "atl"}-${index}`}
                               data-list-entry-id={record.id}
                               aria-selected={selectedAtlRowIds.has(record.id)}
                               className={atlListRowClassName(
-                                "hover:bg-gray-50",
+                                "cursor-pointer hover:bg-gray-50",
                                 selectedAtlRowIds.has(record.id)
                               )}
+                              onClick={(event) =>
+                                handleAtlRowClick(record.id, event)
+                              }
                             >
-                              <td
-                                className={STICKY_SEQ_CELL_CLASS}
-                                onClick={() => toggleAtlRowSelection(record.id)}
-                              >
+                              <td className={STICKY_SEQ_CELL_CLASS}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">
                                     {formatAtlListCell(record.sequenceNo)}
@@ -4221,6 +4186,7 @@ export function Operation() {
               onPageChange={setCurrentPage}
               totalItems={totalRecords}
               totalLabel="records"
+              pageItemCount={paginatedRecords.length}
               itemsPerPage={itemsPerPage}
               onItemsPerPageChange={setItemsPerPage}
               pageSizeOptions={[...API_PAGE_SIZE_OPTIONS]}

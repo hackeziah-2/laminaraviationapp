@@ -113,6 +113,11 @@ export type DataTablePaginationProps = {
   pageSizeOptions?: number[];
   /** Shown as “{label}:” before the page-size select (no trailing colon in prop). */
   rowsPerPageLabel?: string;
+  /**
+   * Rows actually rendered for this page. The range ends at this count
+   * instead of assuming the page is full.
+   */
+  pageItemCount?: number;
   disabled?: boolean;
   showRangeText?: boolean;
   siblingDelta?: number;
@@ -138,6 +143,7 @@ export function DataTablePagination({
   showRangeText = true,
   siblingDelta = 1,
   className,
+  pageItemCount,
 }: DataTablePaginationProps) {
   const pageSizeId = React.useId();
   const hasItemsPerPage =
@@ -158,9 +164,19 @@ export function DataTablePagination({
     }
   }, [hasItemsPerPage, itemsPerPage, itemsPerPageProp, onItemsPerPageChange]);
 
+  const pageCount = Number.isFinite(pageItemCount)
+    ? Math.max(0, Math.trunc(pageItemCount as number))
+    : null;
   const startItem =
-    totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+    totalItems === 0 || pageCount === 0
+      ? 0
+      : (currentPage - 1) * itemsPerPage + 1;
+  const endItem =
+    pageCount == null
+      ? Math.min(currentPage * itemsPerPage, totalItems)
+      : pageCount === 0
+        ? 0
+        : Math.min(startItem + pageCount - 1, totalItems);
 
   const pageItems = React.useMemo(
     () => getPaginationItems(currentPage, totalPages, siblingDelta),
