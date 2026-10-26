@@ -127,6 +127,54 @@ describe("DataTablePagination", () => {
     expect(screen.queryByRole("combobox")).toBeNull();
   });
 
+  it("ends the range at the rows actually rendered for the page", () => {
+    const { rerender } = render(
+      <DataTablePagination
+        currentPage={1}
+        totalPages={2}
+        totalItems={91}
+        itemsPerPage={50}
+        pageItemCount={50}
+        totalLabel="records"
+        onPageChange={vi.fn()}
+        onItemsPerPageChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText("1–50")).toBeTruthy();
+    expect(screen.getByText("91")).toBeTruthy();
+
+    rerender(
+      <DataTablePagination
+        currentPage={2}
+        totalPages={2}
+        totalItems={91}
+        itemsPerPage={50}
+        pageItemCount={41}
+        totalLabel="records"
+        onPageChange={vi.fn()}
+        onItemsPerPageChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText("51–91")).toBeTruthy();
+  });
+
+  it("does not claim a full page when fewer rows were returned", () => {
+    render(
+      <DataTablePagination
+        currentPage={1}
+        totalPages={2}
+        totalItems={91}
+        itemsPerPage={50}
+        pageItemCount={1}
+        totalLabel="records"
+        onPageChange={vi.fn()}
+        onItemsPerPageChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText("1–1")).toBeTruthy();
+    expect(screen.queryByText("1–50")).toBeNull();
+  });
+
   it("labels the control Rows per page", () => {
     render(
       <DataTablePagination
