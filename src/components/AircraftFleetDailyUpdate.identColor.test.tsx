@@ -69,6 +69,15 @@ function identCell(name: string): HTMLElement {
   return cell;
 }
 
+function bodyCellByText(text: string): HTMLElement {
+  const match = screen
+    .getAllByText(text)
+    .find((element) => element.closest("td"));
+  const cell = match?.closest("td");
+  if (!cell) throw new Error(`No body cell for ${text}`);
+  return cell;
+}
+
 describe("Aircraft Fleet Daily Update A/C IDENT colors", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -112,25 +121,56 @@ describe("Aircraft Fleet Daily Update A/C IDENT colors", () => {
     ).filter((cell) => cell.style.backgroundColor);
     expect(salmonRowCells).toEqual([salmon]);
 
-    const status = screen.getAllByText("Operational").find((element) =>
-      element.className.includes("bg-green-500")
-    );
-    expect(status).toBeTruthy();
-    expect(status?.closest("td")).not.toBe(salmon);
-    expect(status?.closest("td")?.style.backgroundColor ?? "").toBe("");
+    const statusCell = bodyCellByText("Operational");
+    expect(statusCell).toBeTruthy();
+    expect(statusCell).not.toBe(salmon);
+    expect(statusCell?.className).toContain("bg-green-500");
+    expect(statusCell?.className).toContain("text-white");
+    expect(statusCell?.style.backgroundColor ?? "").toBe("");
+    expect(statusCell?.querySelector(".rounded-full")).toBeNull();
 
     const orange = identCell("RP-C4088");
     expect(orange).toHaveStyle({ backgroundColor: "#FDA262" });
-    const alertCell = orange
-      .closest("tr")
-      ?.querySelector("td.bg-red-500");
-    expect(alertCell).not.toBeNull();
-    expect(alertCell).not.toBe(orange);
+    const redCells = Array.from(
+      orange.closest("tr")?.querySelectorAll("td.bg-red-500") ?? []
+    );
+    expect(redCells).toHaveLength(2);
+    expect(redCells).not.toContain(orange);
+    expect(redCells).toContain(bodyCellByText("AOG"));
 
-    const maintenance = screen
-      .getAllByText("Ongoing Maintenance")
-      .find((element) => element.className.includes("bg-yellow-400"));
-    expect(maintenance).toBeTruthy();
+    const maintenanceCell = bodyCellByText("Ongoing Maintenance");
+    expect(maintenanceCell?.className).toContain("bg-yellow-400");
+    expect(maintenanceCell?.className).toContain("text-gray-900");
+
+    const aogCell = bodyCellByText("AOG");
+    expect(aogCell?.className).toContain("bg-red-500");
+    expect(aogCell?.className).toContain("text-white");
+
+    expect(salmon.className).toContain("whitespace-nowrap");
+    const identHeader = screen.getByRole("columnheader", { name: "A/C IDENT" });
+    expect(identHeader).toHaveAttribute("rowspan", "2");
+    expect(identHeader.className).toContain("whitespace-nowrap");
+
+    const nextInsp = screen.getByRole("columnheader", {
+      name: "NEXT INSP. DUE",
+    });
+    expect(nextInsp).toHaveAttribute("rowspan", "2");
+    expect(nextInsp.className).toContain("whitespace-nowrap");
+    expect(nextInsp).toHaveStyle({ width: "1%", whiteSpace: "nowrap" });
+    expect(salmon).toHaveStyle({ whiteSpace: "nowrap", width: "1%" });
+
+    expect(screen.getByRole("columnheader", { name: "DUE" })).toHaveTextContent(
+      "DUE"
+    );
+    expect(screen.getByRole("columnheader", { name: "EOD" })).toHaveTextContent(
+      "EOD"
+    );
+    expect(
+      screen.getByRole("columnheader", { name: "TACH TIME" })
+    ).toHaveAttribute("colspan", "2");
+    expect(
+      screen.getAllByRole("columnheader").some((header) => header.textContent?.trim() === "")
+    ).toBe(false);
 
     const added = identCell("RP-C9999");
     expect(added).toHaveStyle({

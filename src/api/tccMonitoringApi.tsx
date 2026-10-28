@@ -30,7 +30,7 @@ export interface TCCMonitoring {
   /** 1-based persistent row order (display_order) */
   displayOrder?: number;
   /**
-   * From GET .../tcc-maintenance/paged — server-computed remaining / next due.
+   * From GET profile/{id}/maintenance-tcc/paged — server-computed remaining / next due.
    * When present, list UI prefers these over client-side formulas.
    */
   remainingYears?: number | null;
@@ -103,12 +103,25 @@ export interface PaginatedTCCResponse {
   pages: number;
 }
 
-const TCC_PATH = (aircraftId: number) =>
-  `aircraft/${aircraftId}/tcc-maintenance/`;
+/**
+ * Profile-scoped Maintenance TCC.
+ * api/v1/profile/{id}/maintenance-tcc
+ *
+ * `{id}` is the aircraft profile id from `/profile/:id/maintenance-tcc`,
+ * not the TCC row id. Row id is only appended for update and delete.
+ */
+function maintenanceTccPath(profileId: number): string {
+  const id = Number(profileId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("A valid profile ID is required.");
+  }
+  return `profile/${id}/maintenance-tcc`;
+}
 
 /**
  * TCC Maintenance CRUD field mapping (backend ↔ UI):
- *   aircraft_fk     ← Aircraft ID from route (useParams)
+ *   path {id}       ← Aircraft profile ID from /profile/:id/maintenance-tcc
+ *   aircraft_fk     ← Same profile ID (backend aircraft foreign key)
  *   category        ← Form category (POWERPLANT → "Powerplant", etc.)
  *   part_number     ← Form "Part Number" → partNo
  *   serial_number   ← Form "Serial Number" → serialNo
@@ -194,8 +207,8 @@ function normalizeItem(raw: any): TCCMonitoring {
 }
 
 /**
- * List TCC Monitoring for an aircraft (paged), optional category filter.
- * GET api/v1/aircraft/{aircraft_id}/tcc-maintenance/paged?limit=&page=&search=&category=
+ * List Maintenance TCC for a profile (paged), optional category filter.
+ * GET api/v1/profile/{id}/maintenance-tcc/paged?limit=&page=&search=&category=
  *
  * Paged items may include server fields (snake_case or camelCase):
  * remaining_years, remaining_days, remaining_tach, remaining_aftt,
@@ -203,7 +216,7 @@ function normalizeItem(raw: any): TCCMonitoring {
  * preferred in the list table over client-side calculations.
  */
 export const getAircraftTccMonitoring = async (
-  aircraftId: number,
+  profileId: number,
   page = 1,
   limit = DEFAULT_API_PAGE_SIZE,
   search = "",
@@ -224,7 +237,7 @@ export const getAircraftTccMonitoring = async (
     params.append("category", value);
   }
 
-  const endpoint = `${TCC_PATH(aircraftId)}paged?${params.toString()}`;
+  const endpoint = `${maintenanceTccPath(profileId)}/paged?${params.toString()}`;
   let res: any;
   try {
     res = await apiClient.get(endpoint, {
@@ -265,12 +278,12 @@ export const getAircraftTccMonitoring = async (
 };
 
 /**
- * Create TCC entry (tcc_maintenance).
- * POST api/v1/aircraft/{aircraft_id}/tcc-maintenance/
- * Payload: aircraft_fk, category, part_number, serial_number, description, component_limit_years, component_limit_hours, component_method_of_compliance
+ * Create TCC entry.
+ * POST api/v1/profile/{id}/maintenance-tcc
+ * Payload: aircraft_fk (profile id), category, part_number, serial_number, description, component_limit_years, component_limit_hours, component_method_of_compliance
  */
 export const createAircraftTccMonitoring = async (
-  aircraftId: number,
+  profileId: number,
   data: TCCMonitoringCreate
 ): Promise<TCCMonitoring> => {
   const num = (v: string | undefined) => {
@@ -291,7 +304,7 @@ export const createAircraftTccMonitoring = async (
     ? categoryMap[categoryValue.toUpperCase()] ?? categoryValue
     : null;
   const payload: any = {
-    aircraft_fk: aircraftId,
+    aircraft_fk: profileId,
     category,
     part_number: str(data.partNo) ?? null,
     serial_number: str(data.serialNo) ?? null,
@@ -322,7 +335,7 @@ export const createAircraftTccMonitoring = async (
     if (seqNum !== null) payload.sequence_number = seqNum;
   }
 
-  const res = await apiClient.post(TCC_PATH(aircraftId), payload, {
+  const res = await apiClient.post(maintenanceTccPath(profileId), payload, {
     headers: { "Content-Type": "application/json", Accept: "application/json" },
   });
   const raw = res.data?.data ?? res.data;
@@ -334,11 +347,13 @@ export const createAircraftTccMonitoring = async (
 };
 
 /**
- * Update TCC entry. PUT api/v1/aircraft/{aircraft_id}/tcc-maintenance/{id}/
+ * Update TCC entry.
+ * PUT api/v1/profile/{id}/maintenance-tcc/{tccId}
+ * `{id}` is the profile id. `{tccId}` is the TCC row id.
  * Payload includes: atl_ref, last_done_date, last_done_tach, last_done_aftt, last_done_method_of_compliance (Edit fields).
  */
 export const updateAircraftTccMonitoring = async (
-  aircraftId: number,
+  profileId: number,
   id: number,
   data: TCCMonitoringUpdate
 ): Promise<TCCMonitoring> => {
@@ -398,9 +413,16 @@ export const updateAircraftTccMonitoring = async (
     payload.last_done_method_of_compliance = str(
       data.lastDoneMethodOfCompliance
     );
-  const res = await apiClient.put(`${TCC_PATH(aircraftId)}${id}/`, payload, {
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-  });
+  const res = await apiClient.put(
+    `${maintenanceTccPath(profileId)}/${id}`,
+    payload,
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    }
+  );
   const raw = res.data?.data ?? res.data;
   if (raw != null) return normalizeItem(raw);
   return normalizeItem({ id, ...payload });
@@ -408,13 +430,13 @@ export const updateAircraftTccMonitoring = async (
 
 /**
  * Delete TCC entry.
- * DELETE api/v1/aircraft/{aircraft_id}/tcc-maintenance/{id}/
+ * DELETE api/v1/profile/{id}/maintenance-tcc/{tccId}
  */
 export const deleteAircraftTccMonitoring = async (
-  aircraftId: number,
+  profileId: number,
   id: number
 ): Promise<void> => {
-  await apiClient.delete(`${TCC_PATH(aircraftId)}${id}/`);
+  await apiClient.delete(`${maintenanceTccPath(profileId)}/${id}`);
 };
 
 /**
@@ -439,16 +461,16 @@ export const reorderAircraftTccMonitoring = async (
 const TCC_PAGE_LIMIT = 100;
 
 /**
- * Fetch every active TCC row for an aircraft in display_order (unpaginated collection).
+ * Fetch every active TCC row for a profile in display_order (unpaginated collection).
  * Used for arrangement-mode drag-and-drop so global display_order stays unique.
  */
 export const getAllAircraftTccMonitoring = async (
-  aircraftId: number,
+  profileId: number,
   search = "",
   category?: string
 ): Promise<PaginatedTCCResponse> => {
   const first = await getAircraftTccMonitoring(
-    aircraftId,
+    profileId,
     1,
     TCC_PAGE_LIMIT,
     search,
@@ -462,7 +484,7 @@ export const getAllAircraftTccMonitoring = async (
   );
   for (let page = 2; page <= pages; page++) {
     const next = await getAircraftTccMonitoring(
-      aircraftId,
+      profileId,
       page,
       TCC_PAGE_LIMIT,
       search,

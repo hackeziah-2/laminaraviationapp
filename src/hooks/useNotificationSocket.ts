@@ -21,18 +21,23 @@ export function useNotificationSocket(
     const disconnect = connectNotificationSocket(token, {
       onOpen: () => onSocketHealthy?.(true),
       onNewNotification: (payload) => {
-        queryClient.setQueryData([...unreadCountQueryKey, recipientKey], {
+        queryClient.setQueryData([...unreadCountQueryKey, recipientKey], (current) => ({
+          ...(typeof current === "object" && current ? current : {}),
           unread_count: payload.data.unread_count,
-        });
+        }));
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         toast(payload.data.title, {
           description: formatNotificationMessage(payload.data.message),
         });
       },
-      onUnreadCountUpdated: (unreadCount) => {
-        queryClient.setQueryData([...unreadCountQueryKey, recipientKey], {
-          unread_count: unreadCount,
-        });
+      onUnreadCountUpdated: (counts) => {
+        queryClient.setQueryData([...unreadCountQueryKey, recipientKey], (current) => ({
+          ...(typeof current === "object" && current ? current : {}),
+          unread_count: counts.unread_count,
+          ...(typeof counts.total === "number" ? { total: counts.total } : {}),
+          ...(typeof counts.read_count === "number" ? { read_count: counts.read_count } : {}),
+        }));
+        void queryClient.invalidateQueries({ queryKey: ["notifications"] });
       },
       onError: () => onSocketHealthy?.(false),
       onClose: () => onSocketHealthy?.(false),
