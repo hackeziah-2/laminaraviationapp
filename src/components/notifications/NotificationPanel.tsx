@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Check, ChevronLeft, ChevronRight, Trash2, X } from "lucide-react";
+import { Bell, Check, ChevronLeft, ChevronRight, Mail, MailOpen, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { NotificationCard } from "./NotificationCard";
 import { NotificationEmptyState } from "./NotificationEmptyState";
 import { NotificationTabs } from "./NotificationTabs";
 import { useNotificationMutations, useNotificationsQuery } from "../../hooks/useNotifications";
+import { useUnreadCount } from "../../hooks/useUnreadCount";
 import type { Notification, NotificationListStatus } from "../../types/notification";
 import { getNotificationRoute } from "../../services/notificationApi";
 import {
@@ -28,9 +30,22 @@ function getPortalContainer(): HTMLElement {
   return document.getElementById("notifications-root") ?? document.body;
 }
 
+function notificationStatus(status: string | undefined) {
+  return status?.trim().toUpperCase() ?? "";
+}
+
+type InboxCounts = {
+  all: number;
+  unread: number;
+  read: number;
+};
+
 export function NotificationPanel({ isOpen, onClose, token }: Props) {
   const [tab, setTab] = useState<NotificationListStatus>("all");
   const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [counts, setCounts] = useState<InboxCounts>({ all: 0, unread: 0, read: 0 });
   const navigate = useNavigate();
   const { sidebarCollapsed } = useOptionalAppLayout();
   const isLgUp = useIsLgUp();
@@ -46,20 +61,64 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
   );
 
   const { data, isLoading } = useNotificationsQuery(token, tab, page, 20);
-  const { markRead, markAllRead, clearAll, archiveOne } = useNotificationMutations(token);
-  const unreadCount = data?.unread_count ?? 0;
-  const tabCounts: Record<NotificationListStatus, number> = {
-    all: data?.total ?? 0,
-    unread: unreadCount,
-    read: Math.max(0, (data?.total ?? 0) - unreadCount),
-  };
+  const unreadQuery = useUnreadCount(token);
+  const { markRead, markUnread, markAllRead, clearAll, deleteOne } = useNotificationMutations(token);
+  const selected = data?.items.find((item) => item.id === selectedId) ?? null;
+  const selectedStatus = notificationStatus(selected?.status);
+  const isUpdating =
+    markRead.isPending ||
+    markUnread.isPending ||
+    markAllRead.isPending ||
+    clearAll.isPending ||
+    deleteOne.isPending;
+  const tabCounts: Record<NotificationListStatus, number> = counts;
+
+  useEffect(() => {
+    if (!data) return;
+    const unread = unreadQuery.data?.unread_count ?? data.unread_count ?? 0;
+    setCounts((current) => {
+      const all =
+        typeof unreadQuery.data?.total === "number"
+          ? unreadQuery.data.total
+          : typeof data.inbox_total === "number"
+            ? data.inbox_total
+            : tab === "all"
+              ? data.total
+              : current.all;
+      const read =
+        typeof unreadQuery.data?.read_count === "number"
+          ? unreadQuery.data.read_count
+          : typeof data.read_count === "number"
+            ? data.read_count
+            : Math.max(0, all - unread);
+      if (current.all === all && current.unread === unread && current.read === read) {
+        return current;
+      }
+      return { all, unread, read };
+    });
+  }, [data, tab, unreadQuery.data]);
 
   useEffect(() => {
     if (!isOpen) {
       setTab("all");
       setPage(1);
+      setSelectedId(null);
+      setConfirmClear(false);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!data) return;
+    const lastPage = Math.max(1, data.total_pages || 1);
+    if (page > lastPage) setPage(lastPage);
+  }, [data, page]);
+
+  useEffect(() => {
+    if (selectedId == null || !data) return;
+    if (!data.items.some((item) => item.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [data, selectedId]);
 
   useEffect(() => {
     setPage(1);
@@ -70,15 +129,14 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
     onClose,
   });
 
-  const handleClickNotification = async (notification: Notification) => {
+  const handleOpenNotification = (notification: Notification) => {
     const route = getNotificationRoute(notification);
-    if (route) {
-      navigate(route);
-      onClose();
+    if (!route) {
+      toast.error("This notification has no page to open.");
+      return;
     }
-    if (notification.status === "UNREAD") {
-      await markRead.mutateAsync(notification.id);
-    }
+    navigate(route);
+    onClose();
   };
 
   if (!isOpen || typeof document === "undefined") return null;
@@ -115,7 +173,9 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
                   Notifications
                 </h2>
                 <p className="truncate text-xs text-gray-500">
-                  {unreadCount} unread{unreadCount === 1 ? "" : "s"}
+                  {isUpdating
+                    ? "Updating..."
+                    : `${counts.unread} unread${counts.unread === 1 ? "" : "s"}`}
                 </p>
               </div>
             </div>
@@ -146,9 +206,16 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
                   <li key={notification.id} className="w-full min-w-0">
                     <NotificationCard
                       notification={notification}
-                      onClick={() => void handleClickNotification(notification)}
-                      onArchive={() => archiveOne.mutate(notification.id)}
-                      archivePending={archiveOne.isPending}
+                      selected={notification.id === selectedId}
+                      onClick={() => {
+                        setConfirmClear(false);
+                        setSelectedId(notification.id);
+                      }}
+                      onOpen={() => handleOpenNotification(notification)}
+                      onDelete={() => deleteOne.mutate(notification.id)}
+                      deletePending={
+                        deleteOne.isPending && deleteOne.variables === notification.id
+                      }
                     />
                   </li>
                 ))}
@@ -160,26 +227,89 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
         <footer
           className={`${headerClass} shrink-0 border-t border-gray-200 bg-white py-4 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]`}
         >
-          <div className="flex w-full min-w-0 gap-2">
+          <p className="mb-2 truncate text-xs text-gray-600">
+            {selected ? `Selected: ${selected.title}` : "Select a notification to change its status."}
+          </p>
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => markAllRead.mutate()}
-              disabled={markAllRead.isPending}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => {
+                if (!selected) return;
+                setConfirmClear(false);
+                markRead.mutate(selected.id);
+              }}
+              disabled={!selected || selectedStatus !== "UNREAD" || markRead.isPending}
+              className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <MailOpen className="h-4 w-4 shrink-0" />
+              <span className="truncate">Mark as read</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selected) return;
+                setConfirmClear(false);
+                markUnread.mutate(selected.id);
+              }}
+              disabled={!selected || selectedStatus !== "READ" || markUnread.isPending}
+              className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Mail className="h-4 w-4 shrink-0" />
+              <span className="truncate">Mark as unread</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmClear(false);
+                markAllRead.mutate();
+              }}
+              disabled={markAllRead.isPending || counts.unread === 0}
+              className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Check className="h-4 w-4 shrink-0" />
-              <span className="truncate">Mark all read</span>
+              <span className="truncate">Mark all as read</span>
             </button>
             <button
               type="button"
-              onClick={() => clearAll.mutate()}
-              disabled={clearAll.isPending}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => {
+                if (!confirmClear) {
+                  setConfirmClear(true);
+                  return;
+                }
+                setSelectedId(null);
+                setPage(1);
+                clearAll.mutate(undefined, {
+                  onSuccess: () => setConfirmClear(false),
+                });
+              }}
+              disabled={clearAll.isPending || counts.all === 0}
+              className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                confirmClear
+                  ? "border-red-600 bg-red-600 text-white hover:bg-red-700"
+                  : "border-red-200 text-red-700 hover:bg-red-50"
+              }`}
             >
               <Trash2 className="h-4 w-4 shrink-0" />
-              <span className="truncate">Clear all</span>
+              <span className="truncate">{confirmClear ? "Delete all" : "Clear all"}</span>
             </button>
           </div>
+          {confirmClear && (
+            <div className="mt-2 flex items-start justify-between gap-2">
+              <p className="text-xs leading-snug text-red-700">
+                Clear all permanently deletes every notification in your inbox.
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="shrink-0 text-xs font-medium text-gray-600 underline"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          <p className="mt-2 text-[11px] leading-snug text-gray-500">
+            Mark all as read keeps notifications in your inbox. Clear all permanently deletes them.
+          </p>
 
           {(data?.total_pages ?? 1) > 1 && (
             <div className="mt-2.5 flex min-w-0 items-center justify-between gap-2 text-xs text-gray-600">

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationCard } from "./NotificationCard";
 import type { Notification } from "../../types/notification";
@@ -40,7 +40,7 @@ describe("NotificationCard", () => {
             "Fleet Daily Update Updated With An Extremely Long Title That Should Not Overflow",
         })}
         onClick={vi.fn()}
-        onArchive={vi.fn()}
+        onDelete={vi.fn()}
       />
     );
 
@@ -62,7 +62,7 @@ describe("NotificationCard", () => {
       <NotificationCard
         notification={buildNotification()}
         onClick={vi.fn()}
-        onArchive={vi.fn()}
+        onDelete={vi.fn()}
       />
     );
 
@@ -73,7 +73,7 @@ describe("NotificationCard", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/RP-C9380/)).not.toBeInTheDocument();
     expect(screen.getByText("6 min ago").className).toContain("shrink-0");
-    expect(screen.getByText("Archive").className).toContain("shrink-0");
+    expect(screen.getByText("Delete").className).toContain("shrink-0");
   });
 
   it("renders twenty-plus aircraft notifications in compact form without layout overflow", () => {
@@ -87,7 +87,7 @@ describe("NotificationCard", () => {
       <NotificationCard
         notification={buildNotification({ message })}
         onClick={vi.fn()}
-        onArchive={vi.fn()}
+        onDelete={vi.fn()}
       />
     );
 
@@ -102,5 +102,28 @@ describe("NotificationCard", () => {
     const contentArea = card.querySelector(".min-w-0.flex-1");
     expect(contentArea?.className).toContain("overflow-hidden");
     expect(card.className).toContain("overflow-hidden");
+  });
+
+  it("selects the card and opens from a separate control", () => {
+    const onClick = vi.fn();
+    const onOpen = vi.fn();
+    const { container } = render(
+      <NotificationCard
+        notification={buildNotification({ status: "UNREAD" })}
+        selected
+        onClick={onClick}
+        onOpen={onOpen}
+        onDelete={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Fleet Daily Update Updated"));
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open notification" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect((container.firstChild as HTMLElement).getAttribute("data-selected")).toBe("true");
   });
 });

@@ -524,15 +524,23 @@ export interface GetPersonnelAuthorizationsOptions {
   /** When set, sent as `item_type` on personnel-compliance/paged. */
   itemType?: PersonnelComplianceItemType | "";
   /**
-   * When set, sent as `name` on personnel-compliance/paged (person name search).
+   * When set, sent as `name` on the active matrix paged endpoint.
+   * Matches name, authorization number, or license (case-insensitive, partial).
    */
   name?: string;
   /**
    * Order by EXPIRY_DATE on personnel-compliance/paged:
    * - asc → `sort=expiry_date`
    * - desc → `sort=-expiry_date`
+   * Ignored when `sortBy` is set.
    */
   sortExpiryDate?: "asc" | "desc";
+  /**
+   * Active list sort. `authorization_no` orders by the authorization number (auth stamp).
+   */
+  sortBy?: "expiry_date" | "authorization_no";
+  /** Direction for `sortBy`. Defaults to ascending. */
+  sortDirection?: "asc" | "desc";
 }
 
 /** Matrix 2 list does not use `item_type` (wide row per person). */
@@ -545,6 +553,22 @@ function sortParamFromExpiryOrder(sortExpiry?: "asc" | "desc"): string {
   if (sortExpiry === "asc") return "expiry_date";
   if (sortExpiry === "desc") return "-expiry_date";
   return "";
+}
+
+function sortParamFromListOptions(options?: {
+  sortBy?: "expiry_date" | "authorization_no";
+  sortDirection?: "asc" | "desc";
+  sortExpiryDate?: "asc" | "desc";
+}): string {
+  if (options?.sortBy === "authorization_no") {
+    return options.sortDirection === "desc"
+      ? "-authorization_no"
+      : "authorization_no";
+  }
+  if (options?.sortBy === "expiry_date") {
+    return options.sortDirection === "desc" ? "-expiry_date" : "expiry_date";
+  }
+  return sortParamFromExpiryOrder(options?.sortExpiryDate);
 }
 
 async function fetchPersonnelCompliancePagedAll(
@@ -623,7 +647,7 @@ export async function getPersonnelAuthorizationsPaged(
       options?.name != null && String(options.name).trim() !== ""
         ? String(options.name).trim()
         : undefined,
-    sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
+    sortParam: sortParamFromListOptions(options),
   });
 }
 
@@ -642,7 +666,7 @@ export async function getPersonnelAuthorizationsMatrix2Paged(
       options?.name != null && String(options.name).trim() !== ""
         ? String(options.name).trim()
         : undefined,
-    sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
+    sortParam: sortParamFromListOptions(options),
   });
 }
 
@@ -710,7 +734,7 @@ export async function getPersonnelAuthorizations(
     {
       itemTypeFilter: itemTypeFilter || undefined,
       nameFilter,
-      sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
+      sortParam: sortParamFromListOptions(options),
     },
     "personnel-compliance/paged"
   );
@@ -731,7 +755,7 @@ export async function getPersonnelAuthorizationsMatrix2(
     COMPLIANCE_MATRIX_2,
     {
       nameFilter,
-      sortParam: sortParamFromExpiryOrder(options?.sortExpiryDate),
+      sortParam: sortParamFromListOptions(options),
     },
     "personnel-compliance-matrix-2/paged"
   );

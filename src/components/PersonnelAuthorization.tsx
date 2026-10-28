@@ -9,7 +9,6 @@ import {
   Trash2,
   Loader2,
   ChevronDown,
-  ChevronUp,
   Search,
 } from "lucide-react";
 import Swal from "../utils/swalDefaults";
@@ -81,6 +80,48 @@ function PersonnelDetailRow({
 }
 
 const AUTH_SEARCH_DEBOUNCE_MS = 350;
+
+type PersonnelListSortColumn = "expiry_date" | "authorization_no";
+
+function PersonnelSortButton({
+  label,
+  column,
+  activeColumn,
+  direction,
+  disabled,
+  onSort,
+}: {
+  label: string;
+  column: PersonnelListSortColumn;
+  activeColumn: PersonnelListSortColumn;
+  direction: "asc" | "desc";
+  disabled: boolean;
+  onSort: (column: PersonnelListSortColumn) => void;
+}) {
+  const active = activeColumn === column;
+  const columnLabel =
+    column === "authorization_no" ? "authorization number" : "expiry date";
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(column)}
+      disabled={disabled}
+      className="inline-flex items-center gap-1 font-inherit font-medium uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
+      aria-label={
+        active
+          ? `Sort by ${columnLabel}, ${
+              direction === "asc" ? "ascending" : "descending"
+            }. Click to reverse.`
+          : `Sort by ${columnLabel}. Click to sort ascending.`
+      }
+    >
+      {label}
+      <span className="text-blue-600" aria-hidden>
+        {active && direction === "asc" ? "↑" : "↓"}
+      </span>
+    </button>
+  );
+}
 
 const SCOPE_ID_FIELD: Record<
   AuthorizationScopeType,
@@ -205,11 +246,11 @@ function ItemTypeBadge({ raw }: { raw: string | undefined }) {
 
 /** First five columns: sticky left offsets + min-widths (shared Matrix 1 & 2). */
 const PERSONNEL_STICKY_TH: readonly [string, string, string, string, string] = [
-  "sticky left-0 z-30 min-w-[6.75rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
-  "sticky left-[6.75rem] z-30 min-w-[9rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
-  "sticky left-[15.75rem] z-30 min-w-[6.75rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
-  "sticky left-[22.5rem] z-30 min-w-[8rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
-  "sticky left-[30.5rem] z-30 min-w-[7.5rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider",
+  "sticky left-0 z-30 min-w-[6.75rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider",
+  "sticky left-[6.75rem] z-30 min-w-[9rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider",
+  "sticky left-[15.75rem] z-30 min-w-[6.75rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider",
+  "sticky left-[22.5rem] z-30 min-w-[8rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider",
+  "sticky left-[30.5rem] z-30 min-w-[7.5rem] border-r border-gray-200 bg-gray-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider",
 ];
 
 const PERSONNEL_STICKY_TD_BASE: readonly [
@@ -289,8 +330,10 @@ export function PersonnelAuthorization() {
   const [listGroupBy, setListGroupBy] = useState<"matrix1" | "matrix2">(
     "matrix2"
   );
-  /** Paged list: sort=expiry_date | sort=-expiry_date */
-  const [expiryDateSort, setExpiryDateSort] = useState<"asc" | "desc">("asc");
+  /** Paged list sort. Authorization number uses the auth stamp value. */
+  const [sortColumn, setSortColumn] =
+    useState<PersonnelListSortColumn>("expiry_date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   /** Paged list: `name` query param */
   const [nameSearch, setNameSearch] = useState("");
   const [debouncedNameSearch, setDebouncedNameSearch] = useState("");
@@ -380,7 +423,8 @@ export function PersonnelAuthorization() {
       }
       try {
         const listOptions = {
-          sortExpiryDate: expiryDateSort,
+          sortBy: sortColumn,
+          sortDirection,
           name: debouncedNameSearch.trim() || undefined,
         };
         const res =
@@ -419,7 +463,8 @@ export function PersonnelAuthorization() {
     [
       listGroupBy,
       itemTypeFilter,
-      expiryDateSort,
+      sortColumn,
+      sortDirection,
       debouncedNameSearch,
       currentPage,
       itemsPerPage,
@@ -428,13 +473,23 @@ export function PersonnelAuthorization() {
     ]
   );
 
+  const toggleColumnSort = (column: PersonnelListSortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+    setCurrentPage(1);
+  };
+
   const personnelPage = personnel;
 
   const viewingItemType = viewingPersonnel
     ? itemTypeFromApi(viewingPersonnel.itemType)
     : ("" as const);
 
-  const personnelFilterKey = `${listGroupBy}|${itemTypeFilter}|${expiryDateSort}|${debouncedNameSearch}|${itemsPerPage}`;
+  const personnelFilterKey = `${listGroupBy}|${itemTypeFilter}|${sortColumn}|${sortDirection}|${debouncedNameSearch}|${itemsPerPage}`;
   const prevPersonnelFilterKeyRef = useRef(personnelFilterKey);
 
   useEffect(() => {
@@ -728,11 +783,13 @@ export function PersonnelAuthorization() {
         matrix === "matrix1"
           ? await getPersonnelAuthorizations({
               itemType: itemTypeFilter || undefined,
-              sortExpiryDate: expiryDateSort,
+              sortBy: sortColumn,
+              sortDirection,
               name: nameOpt,
             })
           : await getPersonnelAuthorizationsMatrix2({
-              sortExpiryDate: expiryDateSort,
+              sortBy: sortColumn,
+              sortDirection,
               name: nameOpt,
             });
 
@@ -1075,7 +1132,7 @@ export function PersonnelAuthorization() {
         <span className="text-sm"></span>
       </div>
 
-      {/* Name search — debounced `name` on Matrix 1 …/personnel-compliance/paged or Matrix 2 …/personnel-compliance-matrix-2/paged */}
+      {/* Debounced search on the active matrix paged API: name, authorization number, or license. */}
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1">
@@ -1085,12 +1142,12 @@ export function PersonnelAuthorization() {
             </label>
             <input
               type="search"
-              placeholder="Search by Name (First Name, Last Name)"
+              placeholder="Search by name, authorization no., or license…"
               value={nameSearch}
               onChange={(e) => setNameSearch(e.target.value)}
               disabled={listLoading}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 disabled:opacity-60"
-              aria-label="Search personnel by name (sent to the active matrix paged API)"
+              aria-label="Search by name, authorization no., or license"
               autoComplete="off"
             />
           </div>
@@ -1159,50 +1216,40 @@ export function PersonnelAuthorization() {
             {listGroupBy === "matrix1" ? (
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className={PERSONNEL_STICKY_TH[0]}>AUTH NO</th>
+                  <th className={PERSONNEL_STICKY_TH[0]}>
+                    <PersonnelSortButton
+                      label="AUTH NO"
+                      column="authorization_no"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      disabled={listLoading}
+                      onSort={toggleColumnSort}
+                    />
+                  </th>
                   <th className={PERSONNEL_STICKY_TH[1]}>NAME</th>
                   <th className={PERSONNEL_STICKY_TH[2]}>POSITION</th>
                   <th className={PERSONNEL_STICKY_TH[3]}>LIC NO / TYPE</th>
                   <th className={PERSONNEL_STICKY_TH[4]}>AUTH INITIAL DOI</th>
-                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider">
                     AUTH ISSUE DATE
                   </th>
-                  <th className="px-3 py-3 text-left align-middle text-[10px] font-medium text-gray-600 tracking-wide">
+                  <th className="px-3 py-3 text-left align-middle text-xs font-medium text-gray-600 tracking-wide">
                     ITEM TYPE
                   </th>
-                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider">
                     AUTHORIZATION_SCOPE
                   </th>
-                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExpiryDateSort((prev) =>
-                          prev === "asc" ? "desc" : "asc"
-                        );
-                        setCurrentPage(1);
-                      }}
+                  <th className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider">
+                    <PersonnelSortButton
+                      label="EXPIRY_DATE"
+                      column="expiry_date"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
                       disabled={listLoading}
-                      className="inline-flex items-center gap-1 font-inherit uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
-                      aria-label={`Sort by expiry date, ${
-                        expiryDateSort === "asc" ? "ascending" : "descending"
-                      }. Click to reverse.`}
-                    >
-                      EXPIRY_DATE
-                      {expiryDateSort === "asc" ? (
-                        <ChevronUp
-                          className="w-3.5 h-3.5 shrink-0"
-                          aria-hidden
-                        />
-                      ) : (
-                        <ChevronDown
-                          className="w-3.5 h-3.5 shrink-0"
-                          aria-hidden
-                        />
-                      )}
-                    </button>
+                      onSort={toggleColumnSort}
+                    />
                   </th>
-                  <th className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider">
                     ACTIONS
                   </th>
                 </tr>
@@ -1211,7 +1258,14 @@ export function PersonnelAuthorization() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th rowSpan={2} className={PERSONNEL_STICKY_TH[0]}>
-                    AUTHORIZATION NO
+                    <PersonnelSortButton
+                      label="AUTHORIZATION NO"
+                      column="authorization_no"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      disabled={listLoading}
+                      onSort={toggleColumnSort}
+                    />
                   </th>
                   <th rowSpan={2} className={PERSONNEL_STICKY_TH[1]}>
                     NAME
@@ -1227,93 +1281,74 @@ export function PersonnelAuthorization() {
                   </th>
                   <th
                     rowSpan={2}
-                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                    className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
                     AUTH ISSUE DATE
                   </th>
                   <th
                     rowSpan={2}
-                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                    className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setExpiryDateSort((prev) =>
-                          prev === "asc" ? "desc" : "asc"
-                        );
-                        setCurrentPage(1);
-                      }}
+                    <PersonnelSortButton
+                      label="AUTH EXPIRY DATE"
+                      column="expiry_date"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
                       disabled={listLoading}
-                      className="inline-flex items-center gap-1 font-inherit uppercase tracking-wider text-gray-600 hover:text-gray-900 disabled:opacity-60"
-                      aria-label={`Sort by expiry date, ${
-                        expiryDateSort === "asc" ? "ascending" : "descending"
-                      }. Click to reverse.`}
-                    >
-                      AUTH EXPIRY DATE
-                      {expiryDateSort === "asc" ? (
-                        <ChevronUp
-                          className="w-3.5 h-3.5 shrink-0"
-                          aria-hidden
-                        />
-                      ) : (
-                        <ChevronDown
-                          className="w-3.5 h-3.5 shrink-0"
-                          aria-hidden
-                        />
-                      )}
-                    </button>
+                      onSort={toggleColumnSort}
+                    />
                   </th>
                   <th
                     colSpan={4}
-                    className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
+                    className="px-3 py-2 text-center align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
                   >
                     AUTHORIZATION SCOPE
                   </th>
                   <th
                     rowSpan={2}
-                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                    className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
                     OTHERS EXPIRY DATE
                   </th>
                   <th
                     rowSpan={2}
-                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                    className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
                     CAAP LIC EXPIRY
                   </th>
                   <th
                     rowSpan={2}
-                    className="px-3 py-3 text-left align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50"
+                    className="px-3 py-3 text-left align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50"
                   >
                     HF TRAINING EXPIRY
                   </th>
                   <th
                     colSpan={3}
-                    className="px-3 py-2 text-center align-middle text-[10px] text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
+                    className="px-3 py-2 text-center align-middle text-xs text-gray-600 uppercase tracking-wider bg-gray-50 border-b border-gray-200"
                   >
                     TYPE TRAINING EXPIRY
                   </th>
                 </tr>
                 <tr>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     CESSNA 150, 152, 172
                   </th>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     BARON 95-C55
                   </th>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     PIPER PA-34
                   </th>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     OTHERS
                   </th>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     CESSNA 150, 152, 172
                   </th>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     BARON 95-C55
                   </th>
-                  <th className="px-2 py-2 text-center align-middle text-[9px] font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-2 text-center align-middle text-xs font-medium text-gray-600 uppercase tracking-wide bg-gray-50 border-b border-gray-200">
                     PIPER PA-34
                   </th>
                 </tr>
@@ -2433,11 +2468,11 @@ export function PersonnelAuthorization() {
       {showNewScopeModal &&
         createPortal(
           <div
-            className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
             data-nested-overlay="true"
           >
             <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+              className="absolute inset-0 bg-black/50 backdrop-blur-[4px]"
               aria-hidden
               onClick={closeNewScopeModal}
             />
@@ -2445,7 +2480,7 @@ export function PersonnelAuthorization() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="new-scope-title"
-              className="relative z-[81] bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
+              className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">

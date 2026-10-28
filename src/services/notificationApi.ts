@@ -2,6 +2,7 @@ import type {
   Notification,
   NotificationListStatus,
   NotificationMetadata,
+  NotificationMutationResponse,
   NotificationPagedResponse,
   UnreadCountResponse,
   WebSocketNotificationEvent,
@@ -19,6 +20,13 @@ function authHeaders(token: string) {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
+}
+
+function withRecipientAccount(token: string, path: string) {
+  const recipientAccount = getRecipientAccountFromToken(token);
+  if (!recipientAccount) return `${API_BASE}${path}`;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${API_BASE}${path}${separator}recipient_account=${recipientAccount}`;
 }
 
 function getRecipientAccountFromToken(token: string): number | null {
@@ -47,8 +55,30 @@ async function handleJsonResponse<T>(
     }
     throw new Error("Unauthorized");
   }
-  if (!res.ok) throw new Error(message);
+  if (!res.ok) throw new Error(await readErrorDetail(res, message));
   return (await res.json()) as T;
+}
+
+async function readErrorDetail(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+    if (Array.isArray(body.detail)) {
+      const parts = body.detail
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (item && typeof item === "object" && "msg" in item) {
+            return String((item as { msg: unknown }).msg);
+          }
+          return "";
+        })
+        .filter(Boolean);
+      if (parts.length) return parts.join(" ");
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
 }
 
 export async function fetchNotifications(
@@ -62,17 +92,13 @@ export async function fetchNotifications(
   const status = params.status ?? "all";
   const page = params.page ?? 1;
   const limit = params.limit ?? 20;
-  const recipientAccount = getRecipientAccountFromToken(token);
   const query = new URLSearchParams({
     status,
     page: String(page),
     limit: String(limit),
   });
-  if (recipientAccount) {
-    query.set("recipient_account", String(recipientAccount));
-  }
-  const url = `${API_BASE}/notifications?${query.toString()}`;
-  const res = await fetch(url, { headers: authHeaders(token) });
+  const url = withRecipientAccount(token, `/notifications?${query.toString()}`);
+  const res = await fetch(url, { headers: authHeaders(token), cache: "no-store" });
   return handleJsonResponse<NotificationPagedResponse>(
     res,
     "Failed to fetch notifications"
@@ -80,15 +106,10 @@ export async function fetchNotifications(
 }
 
 export async function fetchUnreadCount(token: string) {
-  const recipientAccount = getRecipientAccountFromToken(token);
-  const query = new URLSearchParams();
-  if (recipientAccount) {
-    query.set("recipient_account", String(recipientAccount));
-  }
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  const url = `${API_BASE}/notifications/unread-count${suffix}`;
+  const url = withRecipientAccount(token, "/notifications/unread-count");
   const res = await fetch(url, {
     headers: authHeaders(token),
+    cache: "no-store",
   });
   return handleJsonResponse<UnreadCountResponse>(
     res,
@@ -97,42 +118,70 @@ export async function fetchUnreadCount(token: string) {
 }
 
 export async function markNotificationRead(token: string, id: number) {
-  const res = await fetch(`${API_BASE}/notifications/${id}/read`, {
+  const res = await fetch(withRecipientAccount(token, `/notifications/${id}/read`), {
     method: "PATCH",
     headers: authHeaders(token),
+    cache: "no-store",
   });
-  return handleJsonResponse<Notification>(
+  return handleJsonResponse<Notification & NotificationMutationResponse>(
     res,
     "Failed to mark notification as read"
   );
 }
 
-export async function markAllNotificationsRead(token: string) {
-  const res = await fetch(`${API_BASE}/notifications/read-all`, {
+export async function markNotificationUnread(token: string, id: number) {
+  const res = await fetch(withRecipientAccount(token, `/notifications/${id}/unread`), {
     method: "PATCH",
     headers: authHeaders(token),
+    cache: "no-store",
   });
-  return handleJsonResponse<{ updated_count: number }>(
+  return handleJsonResponse<Notification & NotificationMutationResponse>(
+    res,
+    "Failed to mark notification as unread"
+  );
+}
+
+export async function markAllNotificationsRead(token: string) {
+  const res = await fetch(withRecipientAccount(token, "/notifications/read-all"), {
+    method: "PATCH",
+    headers: authHeaders(token),
+    cache: "no-store",
+  });
+  return handleJsonResponse<NotificationMutationResponse>(
     res,
     "Failed to mark all as read"
   );
 }
 
 export async function clearAllNotifications(token: string) {
-  const res = await fetch(`${API_BASE}/notifications/clear-all`, {
+  const res = await fetch(withRecipientAccount(token, "/notifications/clear-all"), {
     method: "PATCH",
     headers: authHeaders(token),
+    cache: "no-store",
   });
-  return handleJsonResponse<{ archived_count: number }>(
+  return handleJsonResponse<NotificationMutationResponse>(
     res,
-    "Failed to clear notifications"
+    "Failed to delete notifications"
+  );
+}
+
+export async function deleteNotification(token: string, id: number) {
+  const res = await fetch(withRecipientAccount(token, `/notifications/${id}`), {
+    method: "DELETE",
+    headers: authHeaders(token),
+    cache: "no-store",
+  });
+  return handleJsonResponse<NotificationMutationResponse>(
+    res,
+    "Failed to delete notification"
   );
 }
 
 export async function archiveNotification(token: string, id: number) {
-  const res = await fetch(`${API_BASE}/notifications/${id}/archive`, {
+  const res = await fetch(withRecipientAccount(token, `/notifications/${id}/archive`), {
     method: "PATCH",
     headers: authHeaders(token),
+    cache: "no-store",
   });
   return handleJsonResponse<Notification>(
     res,
@@ -249,7 +298,11 @@ export function connectNotificationSocket(
     onNewNotification?: (
       event: Extract<WebSocketNotificationEvent, { event: "new_notification" }>
     ) => void;
-    onUnreadCountUpdated?: (unreadCount: number) => void;
+    onUnreadCountUpdated?: (counts: {
+      unread_count: number;
+      total?: number;
+      read_count?: number;
+    }) => void;
     onClose?: () => void;
     onError?: (error: Event) => void;
     onOpen?: () => void;
@@ -266,7 +319,7 @@ export function connectNotificationSocket(
       handlers.onNewNotification?.(payload);
     }
     if (payload.event === "unread_count_updated") {
-      handlers.onUnreadCountUpdated?.(payload.data.unread_count);
+      handlers.onUnreadCountUpdated?.(payload.data);
     }
   };
   ws.onclose = () => handlers.onClose?.();

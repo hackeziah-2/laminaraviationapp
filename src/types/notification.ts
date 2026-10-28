@@ -49,10 +49,25 @@ export interface NotificationPagedResponse {
   total: number;
   total_pages: number;
   unread_count: number;
+  /** Read notifications still in the inbox, ignoring the active tab. */
+  read_count?: number;
+  /** Non-archived notifications in this recipient's inbox, ignoring the status tab. */
+  inbox_total?: number;
 }
 
 export interface UnreadCountResponse {
   unread_count: number;
+  total?: number;
+  read_count?: number;
+}
+
+export interface NotificationMutationResponse {
+  message: string;
+  unread_count: number;
+  total: number;
+  read_count: number;
+  updated_count?: number;
+  deleted_count?: number;
 }
 
 export type WebSocketNotificationEvent =
@@ -75,5 +90,5 @@ export type WebSocketNotificationEvent =
     }
   | {
       event: "unread_count_updated";
-      data: { unread_count: number };
+      data: { unread_count: number; total?: number; read_count?: number };
     };
