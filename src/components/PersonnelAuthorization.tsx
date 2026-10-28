@@ -2468,11 +2468,11 @@ export function PersonnelAuthorization() {
       {showNewScopeModal &&
         createPortal(
           <div
-            className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
             data-nested-overlay="true"
           >
             <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+              className="absolute inset-0 bg-black/50 backdrop-blur-[4px]"
               aria-hidden
               onClick={closeNewScopeModal}
             />
@@ -2480,7 +2480,7 @@ export function PersonnelAuthorization() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="new-scope-title"
-              className="relative z-[81] bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
+              className="relative bg-white rounded-lg shadow-xl w-full max-w-sm overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
