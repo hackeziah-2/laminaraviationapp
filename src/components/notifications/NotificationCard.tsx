@@ -1,4 +1,4 @@
-import { Archive } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import type { Notification } from "../../types/notification";
 import { formatNotificationMessage } from "../../utility/notificationMessage";
 
@@ -17,16 +17,20 @@ function severityAccent(severity: Notification["severity"]) {
 
 type Props = {
   notification: Notification;
+  selected?: boolean;
   onClick: () => void;
-  onArchive: () => void;
-  archivePending?: boolean;
+  onOpen?: () => void;
+  onDelete: () => void;
+  deletePending?: boolean;
 };
 
 export function NotificationCard({
   notification,
+  selected = false,
   onClick,
-  onArchive,
-  archivePending = false,
+  onOpen,
+  onDelete,
+  deletePending = false,
 }: Props) {
   const isUnread = notification.status === "UNREAD";
   const displayMessage = formatNotificationMessage(notification.message);
@@ -34,16 +38,19 @@ export function NotificationCard({
 
   return (
     <div
-      role="button"
       tabIndex={0}
+      data-selected={selected ? "true" : "false"}
       onClick={onClick}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onClick();
         }
       }}
-      className={`notification-card box-border flex w-full max-w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border border-gray-200 bg-white px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50/80 ${
+      className={`notification-card box-border flex w-full max-w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border bg-white px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50/80 ${
+        selected ? "border-blue-500 ring-2 ring-blue-500" : "border-gray-200"
+      } ${
         isUnread ? `border-l-[3px] ${accent} bg-blue-50/30` : "border-l-[3px] border-l-transparent"
       }`}
     >
@@ -75,17 +82,30 @@ export function NotificationCard({
           <span className="shrink-0 whitespace-nowrap text-xs text-gray-500">
             {notification.time_ago}
           </span>
+          {onOpen && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen();
+              }}
+              className="inline-flex shrink-0 items-center rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Open notification"
+            >
+              Open
+            </button>
+          )}
           <button
             type="button"
-            disabled={archivePending}
+            disabled={deletePending}
             onClick={(event) => {
               event.stopPropagation();
-              onArchive();
+              onDelete();
             }}
             className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Archive className="h-3.5 w-3.5 shrink-0" />
-            Archive
+            <Trash2 className="h-3.5 w-3.5 shrink-0" />
+            Delete
           </button>
         </div>
       </div>

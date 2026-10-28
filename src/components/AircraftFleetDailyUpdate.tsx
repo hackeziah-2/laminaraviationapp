@@ -16,6 +16,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  type CSSProperties,
   type KeyboardEvent,
 } from "react";
 import { Link } from "react-router-dom";
@@ -75,7 +76,7 @@ import {
   toAircraftReorderPayload,
 } from "../utils/displayOrderReorder";
 
-/** Map status text to badge/row color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
+/** Map status text to cell color: Operational / legacy Running = green, Ongoing Maintenance = yellow, AOG = red */
 function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
   if (!status) return "green";
   const s = status.trim().toUpperCase();
@@ -83,6 +84,46 @@ function statusToColor(status: string | undefined): "green" | "yellow" | "red" {
   if (s === "ONGOING MAINTENANCE" || s === "ONGOINGMAINTENANCE")
     return "yellow";
   return "green"; // Operational, legacy Running, or default
+}
+
+/** Full STATUS cell fill with text that stays readable on that fill. */
+const STATUS_CELL_CLASS: Record<"green" | "yellow" | "red", string> = {
+  green: "bg-green-500 text-white",
+  yellow: "bg-yellow-400 text-gray-900",
+  red: "bg-red-500 text-white",
+};
+
+function statusCellClass(status: string | undefined): string {
+  return STATUS_CELL_CLASS[statusToColor(status)];
+}
+
+const STATUS_CELL_PRINT: CSSProperties = {
+  printColorAdjust: "exact",
+  WebkitPrintColorAdjust: "exact",
+};
+
+/** Headers that have no subheading cover both header rows. */
+const FLEET_TH_SPAN =
+  "px-4 py-3 text-center text-xs text-gray-900 bg-gray-100 border-r border-b border-gray-300";
+
+/**
+ * Keep the column as wide as its text.
+ * Width is inline because the compiled stylesheet has no shrink-to-fit utility.
+ */
+const FLEET_FIT_STYLE: CSSProperties = {
+  width: "1%",
+  whiteSpace: "nowrap",
+};
+
+function statusSelectChevron(status: string | undefined): CSSProperties {
+  const stroke =
+    statusToColor(status) === "yellow" ? "%23111827" : "%23ffffff";
+  return {
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='${stroke}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+    backgroundPosition: "right 8px center",
+    backgroundRepeat: "no-repeat",
+    backgroundColor: "transparent",
+  };
 }
 
 function splitMultilineField(value: string | undefined): string[] {
@@ -718,24 +759,6 @@ export function AircraftFleetDailyUpdate() {
     currentPage,
   ]);
 
-  const getStatusBadge = (status: string, color?: string) => {
-    const colorClasses: Record<string, string> = {
-      green: "bg-green-500 text-white",
-      yellow: "bg-yellow-400 text-gray-900",
-      red: "bg-red-500 text-white",
-    };
-    const c = color || statusToColor(status);
-    return (
-      <span
-        className={`px-3 py-1 rounded-full text-xs font-medium ${
-          colorClasses[c] || colorClasses.green
-        }`}
-      >
-        {status || "-"}
-      </span>
-    );
-  };
-
   useOverlayEscape({
     enabled: showRemarkModal,
     onClose: () => {
@@ -890,17 +913,24 @@ export function AircraftFleetDailyUpdate() {
                 .filter((id) => id > 0)}
               strategy={verticalListSortingStrategy}
             >
-          <table className="w-full">
+          <table style={{ width: "max-content", minWidth: "100%" }}>
             <thead>
-              <tr className="bg-gray-100 border-b border-gray-300">
-                <th className="px-2 py-3 text-center text-gray-900 text-xs border-r border-gray-300 w-10">
+              <tr className="bg-gray-100">
+                <th
+                  rowSpan={2}
+                  className={`${FLEET_TH_SPAN} w-10 whitespace-nowrap`}
+                >
                   Arrange
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
+                <th
+                  rowSpan={2}
+                  className={`${FLEET_TH_SPAN} whitespace-nowrap`}
+                  style={FLEET_FIT_STYLE}
+                >
                   <button
                     type="button"
                     onClick={toggleRegistrationSort}
-                    className="inline-flex items-center justify-center gap-1 font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+                    className="inline-flex items-center justify-center gap-1 whitespace-nowrap font-semibold text-gray-900 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
                     title="Sort by registration"
                   >
                     A/C IDENT
@@ -914,26 +944,34 @@ export function AircraftFleetDailyUpdate() {
                     ) : null}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
+                <th
+                  rowSpan={2}
+                  className={`${FLEET_TH_SPAN} whitespace-nowrap`}
+                  style={FLEET_FIT_STYLE}
+                >
                   STATUS
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
+                <th
+                  rowSpan={2}
+                  className="px-2 py-3 text-center text-xs text-gray-900 bg-gray-100 border-r border-b border-gray-300 whitespace-nowrap"
+                  style={FLEET_FIT_STYLE}
+                >
                   NEXT INSP. DUE
                 </th>
                 <th
                   colSpan={2}
-                  className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300"
+                  className="px-3 py-2 text-center text-xs text-gray-900 bg-gray-100 border-r border-b border-gray-300"
                 >
                   TACH TIME
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
+                <th rowSpan={2} className={FLEET_TH_SPAN}>
                   REMAINING
                   <br />
                   TIME BEFORE
                   <br />
                   NEXT INSP (HRS)
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
+                <th rowSpan={2} className={FLEET_TH_SPAN}>
                   REMAINING
                   <br />
                   TIME BEFORE
@@ -942,7 +980,7 @@ export function AircraftFleetDailyUpdate() {
                   <br />
                   OVERHAUL (HRS)
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs border-r border-gray-300">
+                <th rowSpan={2} className={FLEET_TH_SPAN}>
                   REMAINING
                   <br />
                   TIME BEFORE
@@ -951,25 +989,21 @@ export function AircraftFleetDailyUpdate() {
                   <br />
                   OVERHAUL (HRS)
                 </th>
-                <th className="px-4 py-3 text-center text-gray-900 text-xs">
+                <th
+                  rowSpan={2}
+                  className="px-4 py-3 text-center text-xs text-gray-900 bg-gray-100 border-b border-gray-300"
+                  style={{ minWidth: "220px" }}
+                >
                   REMARKS
                 </th>
               </tr>
-              <tr className="bg-gray-100 border-b border-gray-300">
-                <th className="border-r border-gray-300"></th>
-                <th className="border-r border-gray-300"></th>
-                <th className="border-r border-gray-300"></th>
-                <th className="border-r border-gray-300"></th>
-                <th className="px-4 py-2 text-center text-gray-700 text-xs border-r border-gray-300">
+              <tr className="bg-gray-100">
+                <th className="px-2 py-1 text-center text-gray-700 text-xs border-r border-b border-gray-300 whitespace-nowrap">
                   DUE
                 </th>
-                <th className="px-4 py-2 text-center text-gray-700 text-xs border-r border-gray-300">
+                <th className="px-2 py-1 text-center text-gray-700 text-xs border-r border-b border-gray-300 whitespace-nowrap">
                   EOD
                 </th>
-                <th className="border-r border-gray-300"></th>
-                <th className="border-r border-gray-300"></th>
-                <th className="border-r border-gray-300"></th>
-                <th></th>
               </tr>
             </thead>
                 <tbody>
@@ -1001,6 +1035,21 @@ export function AircraftFleetDailyUpdate() {
                       const remarksText = fleetDailyRemarksDisplay(
                         aircraft.remarks
                       );
+                      const rowKey = getRowKey(aircraft);
+                      const statusValue = bulkEditMode
+                        ? bulkDrafts[rowKey]?.status ??
+                          normalizeStatusForEdit(aircraft)
+                        : aircraft.status ?? aircraft.workStatus ?? "";
+                      const statusClass = statusCellClass(statusValue);
+                      const identCellStyle: CSSProperties = identStyle
+                        ? {
+                            ...FLEET_FIT_STYLE,
+                            backgroundColor: identStyle.backgroundColor,
+                            color: identStyle.color,
+                            printColorAdjust: "exact",
+                            WebkitPrintColorAdjust: "exact",
+                          }
+                        : FLEET_FIT_STYLE;
                       return (
                         <SortableTableRow
                           key={
@@ -1022,20 +1071,10 @@ export function AircraftFleetDailyUpdate() {
                                 {dragHandle}
                               </td>
                               <td
-                                className={`px-4 py-3 text-sm border-r border-gray-300${
+                                className={`px-4 py-3 text-sm border-r border-gray-300 whitespace-nowrap${
                                   identStyle ? " font-bold" : " text-gray-900"
                                 }`}
-                                style={
-                                  identStyle
-                                    ? {
-                                        backgroundColor:
-                                          identStyle.backgroundColor,
-                                        color: identStyle.color,
-                                        printColorAdjust: "exact",
-                                        WebkitPrintColorAdjust: "exact",
-                                      }
-                                    : undefined
-                                }
+                                style={identCellStyle}
                               >
                                 {showIdent ? (
                                   <Link
@@ -1044,8 +1083,8 @@ export function AircraftFleetDailyUpdate() {
                                     )}`}
                                     className={
                                       identStyle
-                                        ? "underline underline-offset-2 cursor-pointer font-bold hover:opacity-80"
-                                        : "text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
+                                        ? "whitespace-nowrap underline underline-offset-2 cursor-pointer font-bold hover:opacity-80"
+                                        : "whitespace-nowrap text-blue-600 underline hover:text-blue-800 cursor-pointer font-medium"
                                     }
                                     style={
                                       identStyle
@@ -1059,38 +1098,51 @@ export function AircraftFleetDailyUpdate() {
                                   "-"
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-sm border-r border-gray-300">
+                              <td
+                                className={`px-3 py-3 text-sm text-center border-r border-gray-300 font-medium whitespace-nowrap ${statusClass}`}
+                                style={{ ...FLEET_FIT_STYLE, ...STATUS_CELL_PRINT }}
+                              >
                                 {bulkEditMode ? (
                                   <select
                                     value={
-                                      bulkDrafts[getRowKey(aircraft)]?.status ??
+                                      statusValue ||
                                       normalizeStatusForEdit(aircraft)
                                     }
                                     onChange={(e) =>
                                       updateBulkDraft(
-                                        getRowKey(aircraft),
+                                        rowKey,
                                         "status",
                                         e.target.value
                                       )
                                     }
                                     disabled={savingBulk}
-                                    className="w-full min-w-[140px] px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                                    className="w-full appearance-none px-2 py-1 pr-6 text-center text-sm font-medium"
+                                    style={{
+                                      minWidth: "11rem",
+                                      ...statusSelectChevron(
+                                        statusValue ||
+                                          normalizeStatusForEdit(aircraft)
+                                      ),
+                                    }}
                                   >
                                     {STATUS_OPTIONS.map((opt) => (
-                                      <option key={opt.value} value={opt.value}>
+                                      <option
+                                        key={opt.value}
+                                        value={opt.value}
+                                        className="bg-white text-gray-900"
+                                      >
                                         {opt.label}
                                       </option>
                                     ))}
                                   </select>
                                 ) : (
-                                  getStatusBadge(
-                                    aircraft.status ??
-                                      aircraft.workStatus ??
-                                      "-"
-                                  )
+                                  statusValue || "-"
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
+                              <td
+                                className="px-2 py-3 text-sm text-gray-900 text-center border-r border-gray-300 whitespace-nowrap"
+                                style={FLEET_FIT_STYLE}
+                              >
                                 {(() => {
                                   const lines = nextInspDueDisplayLines(
                                     aircraft.nextInspDue ??
@@ -1173,7 +1225,10 @@ export function AircraftFleetDailyUpdate() {
                               <td className="px-4 py-3 text-sm text-gray-900 text-center border-r border-gray-300">
                                 {aircraft.remainingPropeller ?? "-"}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700" style={{ verticalAlign: "top" }}>
+                              <td
+                                className="px-4 py-3 text-sm text-gray-700"
+                                style={{ verticalAlign: "top", minWidth: "220px" }}
+                              >
                                 {bulkEditMode ? (
                                   <AutoResizeTextarea
                                     value={

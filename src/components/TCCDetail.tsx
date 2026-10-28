@@ -108,7 +108,7 @@ export interface ComponentItem {
   atlId?: number;
   /** 1-based persistent row order */
   displayOrder?: number;
-  /** From GET .../tcc-maintenance/paged — server-computed; overrides client formulas when set */
+  /** From GET profile/{id}/maintenance-tcc/paged — server-computed; overrides client formulas when set */
   remainingYears?: number | null;
   remainingDays?: number | null;
   remainingTach?: number | null;
