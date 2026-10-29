@@ -56,6 +56,11 @@ import {
   fleetDailyRemarksValue,
 } from "../utils/fleetDailyRemarks";
 import {
+  REMAINING_NEXT_INSP_LEGEND,
+  remainingNextInspCellClass,
+  remainingNextInspTone,
+} from "../utils/fleetDailyRemainingColor";
+import {
   normalizeAircraftIdent,
   resolveAircraftIdentStyles,
 } from "../utils/aircraftIdentColors";
@@ -869,7 +874,7 @@ export function AircraftFleetDailyUpdate() {
           </div>
 
           {/* Filters Row */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-600">Filter by Status</span>
               <select
@@ -888,6 +893,20 @@ export function AircraftFleetDailyUpdate() {
                 <option value="AOG">AOG</option>
               </select>
             </div>
+          </div>
+          <div
+            className="flex flex-wrap items-center gap-2"
+            role="group"
+            aria-label="Remaining time color legend"
+          >
+            {REMAINING_NEXT_INSP_LEGEND.map((item) => (
+              <span
+                key={item.tone}
+                className={`inline-flex items-center rounded border border-gray-300 px-2 py-1 text-xs ${remainingNextInspCellClass(item.tone)}`}
+              >
+                {item.label}
+              </span>
+            ))}
           </div>
         </div>
 
@@ -1041,6 +1060,12 @@ export function AircraftFleetDailyUpdate() {
                           normalizeStatusForEdit(aircraft)
                         : aircraft.status ?? aircraft.workStatus ?? "";
                       const statusClass = statusCellClass(statusValue);
+                      const remainingTone = remainingNextInspTone(
+                        aircraft.remainingNextInsp,
+                        aircraft.nextInspDue ?? aircraft.nextInspectionDue
+                      );
+                      const remainingClass =
+                        remainingNextInspCellClass(remainingTone);
                       const identCellStyle: CSSProperties = identStyle
                         ? {
                             ...FLEET_FIT_STYLE,
@@ -1211,11 +1236,12 @@ export function AircraftFleetDailyUpdate() {
                                 })()}
                               </td>
                               <td
-                                className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${
-                                  aircraft.criticalValue === "remainingNextInsp"
-                                    ? "bg-red-500 text-white"
-                                    : "text-gray-900"
-                                }`}
+                                className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${remainingClass}`}
+                                style={
+                                  remainingTone === "default"
+                                    ? undefined
+                                    : STATUS_CELL_PRINT
+                                }
                               >
                                 {aircraft.remainingNextInsp ?? "-"}
                               </td>
