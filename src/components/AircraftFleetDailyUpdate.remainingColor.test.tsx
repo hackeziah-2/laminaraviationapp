@@ -134,48 +134,54 @@ describe("Aircraft Fleet Daily Update remaining inspection color", () => {
     ).toBeInTheDocument();
 
     const due = bodyCell("0.9");
-    expect(due.className).toContain("bg-red-500");
-    expect(due.className).toContain("text-white");
-    expect(bodyCell("300").className).not.toContain("bg-red-500");
-    expect(bodyCell("400").className).not.toContain("bg-red-500");
+    expect(due).toHaveStyle({ backgroundColor: "#FF0000", color: "#ffffff" });
+    expect(due.className).not.toContain("bg-red-500");
+    expect(bodyCell("300").style.backgroundColor).toBe("");
+    expect(bodyCell("400").style.backgroundColor).toBe("");
     expect(bodyCell("Operational").className).toContain("bg-green-500");
-    expect(bodyCell("RP-C090").className).not.toContain("bg-red-500");
+    expect(bodyCell("Operational").style.backgroundColor).toBe("");
+    expect(bodyCell("RP-C090").style.backgroundColor).not.toBe("#FF0000");
 
     const yellow = bodyCell("8.1");
-    expect(yellow.className).toContain("bg-yellow-400");
-    expect(yellow.className).toContain("text-gray-900");
-    expect(bodyCell("301").className).not.toContain("bg-yellow-400");
-    expect(bodyCell("401").className).not.toContain("bg-yellow-400");
+    expect(yellow).toHaveStyle({
+      backgroundColor: "#FFFF00",
+      color: "#111827",
+    });
+    expect(bodyCell("301").style.backgroundColor).toBe("");
+    expect(bodyCell("401").style.backgroundColor).toBe("");
 
     const orange = bodyCell("4");
-    expect(orange.className).toContain("bg-orange-600");
-    expect(orange.className).toContain("text-white");
-    expect(orange.className).not.toContain("bg-red-500");
+    expect(orange).toHaveStyle({
+      backgroundColor: "#FF9900",
+      color: "#111827",
+    });
     expect(bodyCell("AOG").className).toContain("bg-red-500");
-    expect(bodyCell("302").className).not.toContain("bg-orange-600");
-    expect(bodyCell("402").className).not.toContain("bg-orange-600");
+    expect(bodyCell("AOG").style.backgroundColor).toBe("");
+    expect(bodyCell("302").style.backgroundColor).toBe("");
+    expect(bodyCell("402").style.backgroundColor).toBe("");
 
     const open = bodyCell("20.6");
     expect(open.className).toContain("text-gray-900");
-    expect(open.className).not.toContain("bg-yellow-400");
-    expect(open.className).not.toContain("bg-orange-600");
-    expect(open.className).not.toContain("bg-red-500");
+    expect(open.style.backgroundColor).toBe("");
     expect(bodyCell("Ongoing Maintenance").className).toContain("bg-yellow-400");
-    expect(bodyCell("303").className).toContain("text-gray-900");
-    expect(bodyCell("303").className).not.toContain("bg-");
-    expect(bodyCell("403").className).not.toContain("bg-");
+    expect(bodyCell("Ongoing Maintenance").style.backgroundColor).toBe("");
+    expect(bodyCell("303").style.backgroundColor).toBe("");
+    expect(bodyCell("403").style.backgroundColor).toBe("");
 
-    expect(bodyCell("15").className).not.toContain("bg-");
-    expect(bodyCell("12").className).not.toContain("bg-");
+    expect(bodyCell("15").style.backgroundColor).toBe("");
+    expect(bodyCell("12").style.backgroundColor).toBe("");
 
-    expect(screen.getByRole("group", { name: "Remaining time color legend" })).toHaveTextContent(
-      "Due (≤1 hr remaining)"
-    );
-    expect(screen.getByText("> 1% to ≤ 10% remaining")).toHaveClass(
-      "bg-orange-600"
-    );
-    expect(screen.getByText("> 10% to ≤ 20% remaining")).toHaveClass(
-      "bg-yellow-400"
-    );
+    expect(
+      screen.getByRole("group", { name: "Remaining time color legend" })
+    ).toHaveTextContent("Due (≤1 hr remaining)");
+    expect(screen.getByText("Up to 10% remaining")).toHaveStyle({
+      backgroundColor: "#FF9900",
+    });
+    expect(screen.getByText("> 10% to ≤ 20% remaining")).toHaveStyle({
+      backgroundColor: "#FFFF00",
+    });
+    expect(screen.getByText("Due (≤1 hr remaining)")).toHaveStyle({
+      backgroundColor: "#FF0000",
+    });
   });
 });

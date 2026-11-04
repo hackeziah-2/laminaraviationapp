@@ -58,6 +58,7 @@ import {
 import {
   REMAINING_NEXT_INSP_LEGEND,
   remainingNextInspCellClass,
+  remainingNextInspCellStyle,
   remainingNextInspTone,
 } from "../utils/fleetDailyRemainingColor";
 import {
@@ -902,7 +903,8 @@ export function AircraftFleetDailyUpdate() {
             {REMAINING_NEXT_INSP_LEGEND.map((item) => (
               <span
                 key={item.tone}
-                className={`inline-flex items-center rounded border border-gray-300 px-2 py-1 text-xs ${remainingNextInspCellClass(item.tone)}`}
+                className="inline-flex items-center rounded border border-gray-300 px-2 py-1 text-xs"
+                style={remainingNextInspCellStyle(item.tone)}
               >
                 {item.label}
               </span>
@@ -1066,6 +1068,8 @@ export function AircraftFleetDailyUpdate() {
                       );
                       const remainingClass =
                         remainingNextInspCellClass(remainingTone);
+                      const remainingStyle =
+                        remainingNextInspCellStyle(remainingTone);
                       const identCellStyle: CSSProperties = identStyle
                         ? {
                             ...FLEET_FIT_STYLE,
@@ -1237,11 +1241,7 @@ export function AircraftFleetDailyUpdate() {
                               </td>
                               <td
                                 className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${remainingClass}`}
-                                style={
-                                  remainingTone === "default"
-                                    ? undefined
-                                    : STATUS_CELL_PRINT
-                                }
+                                style={remainingStyle}
                               >
                                 {aircraft.remainingNextInsp ?? "-"}
                               </td>
