@@ -31,6 +31,7 @@ import {
 } from "@dnd-kit/sortable";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
+  fleetDailyUpdateStatusValue,
   getFleetDailyUpdatePaged,
   getAllFleetDailyUpdatesOrdered,
   updateFleetDailyUpdateRemark,
@@ -202,13 +203,9 @@ function getRowKey(item: FleetDailyUpdateItem): string {
 }
 
 function normalizeStatusForEdit(item: FleetDailyUpdateItem): string {
-  const currentStatus = item.status ?? item.workStatus ?? "";
-  const legacy =
-    currentStatus.trim().toLowerCase() === "running"
-      ? "Operational"
-      : currentStatus;
-  return STATUS_OPTIONS.some((o) => o.value === legacy)
-    ? legacy
+  const currentStatus = fleetDailyUpdateStatusValue(item);
+  return STATUS_OPTIONS.some((o) => o.value === currentStatus)
+    ? currentStatus
     : STATUS_OPTIONS[0]?.value ?? "Operational";
 }
 
@@ -705,16 +702,7 @@ export function AircraftFleetDailyUpdate() {
   const openRemarkModal = useCallback((item: FleetDailyUpdateItem) => {
     setEditingItem(item);
     setRemarkDraft(fleetDailyRemarksValue(item.remarks ?? ""));
-    const currentStatus = item.status ?? item.workStatus ?? "";
-    const legacy =
-      currentStatus.trim().toLowerCase() === "running"
-        ? "Operational"
-        : currentStatus;
-    setStatusDraft(
-      STATUS_OPTIONS.some((o) => o.value === legacy)
-        ? legacy
-        : STATUS_OPTIONS[0]?.value ?? "Operational"
-    );
+    setStatusDraft(normalizeStatusForEdit(item));
     setShowRemarkModal(true);
   }, []);
 
@@ -1060,7 +1048,7 @@ export function AircraftFleetDailyUpdate() {
                       const statusValue = bulkEditMode
                         ? bulkDrafts[rowKey]?.status ??
                           normalizeStatusForEdit(aircraft)
-                        : aircraft.status ?? aircraft.workStatus ?? "";
+                        : fleetDailyUpdateStatusValue(aircraft);
                       const statusClass = statusCellClass(statusValue);
                       const remainingTone = remainingNextInspTone(
                         aircraft.remainingNextInsp,
