@@ -134,9 +134,14 @@ describe("Aircraft Fleet Daily Update A/C IDENT colors", () => {
     const redCells = Array.from(
       orange.closest("tr")?.querySelectorAll("td.bg-red-500") ?? []
     );
-    expect(redCells).toHaveLength(2);
+    expect(redCells).toHaveLength(1);
     expect(redCells).not.toContain(orange);
     expect(redCells).toContain(bodyCellByText("AOG"));
+    const dueCell = Array.from(
+      orange.closest("tr")?.querySelectorAll("td") ?? []
+    ).find((cell) => cell.textContent?.trim() === "1");
+    expect(dueCell).toHaveStyle({ backgroundColor: "#FF0000" });
+    expect(dueCell).not.toBe(orange);
 
     const maintenanceCell = bodyCellByText("Ongoing Maintenance");
     expect(maintenanceCell?.className).toContain("bg-yellow-400");

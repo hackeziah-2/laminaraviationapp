@@ -31,9 +31,15 @@ import {
   createAircraftLdndMonitoring,
   updateAircraftLdndMonitoring,
   deleteAircraftLdndMonitoring,
+  lookupPreviousNextDueTachHours,
   type LDNDMonitoring,
   type LDNDLatest,
 } from "../api/ldndMonitoringApi";
+import {
+  ldndUnitForSave,
+  resolveLdndUnit,
+  type LdndUnitValue,
+} from "../utils/ldndEntryForm";
 import {
   getAircraftAdMonitoring,
   getAllAircraftAdMonitoring,
@@ -423,7 +429,7 @@ export function Maintenance() {
   );
   const [newEntry, setNewEntry] = useState({
     type: "",
-    unit: "HRS" as "HRS" | "CYCLES",
+    unit: "HRS" as LdndUnitValue,
     lastDoneTachDue: "",
     lastDoneTachDone: "",
     nextDueTachHours: "",
@@ -462,6 +468,11 @@ export function Maintenance() {
   const [embeddedDataKey, setEmbeddedDataKey] = useState(0);
   const importFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImportKindRef = useRef<MaintenanceImportKind | null>(null);
+  const ldndUnitTouchedRef = useRef(false);
+  const lastDoneTachDueTouchedRef = useRef(false);
+  const lastDoneLookupRef = useRef(0);
+  const [lastDoneLookupLoading, setLastDoneLookupLoading] = useState(false);
+  const [lastDoneLookupError, setLastDoneLookupError] = useState(false);
 
   // AD API state
   const [adItems, setAdItems] = useState<ADMonitoring[]>([]);
@@ -662,10 +673,19 @@ export function Maintenance() {
     setLdndFormErrors({});
     if (ldndSaving) return;
 
+    lastDoneLookupRef.current += 1;
+    setLastDoneLookupLoading(false);
     const isUpdate = Boolean(editingLdndEntry);
+    const unit = ldndUnitForSave(
+      resolveLdndUnit({
+        inspectionType: type,
+        unit: newEntry.unit,
+        unitTouched: ldndUnitTouchedRef.current,
+      })
+    );
     const payload = {
       type,
-      unit: newEntry.unit,
+      unit,
       lastDoneTachDue:
         newEntry.lastDoneTachDue === ""
           ? null
@@ -698,6 +718,8 @@ export function Maintenance() {
           );
           setShowAddModal(false);
           setEditingLdndEntry(null);
+          ldndUnitTouchedRef.current = false;
+          lastDoneTachDueTouchedRef.current = false;
           setNewEntry({
             type: "",
             unit: "HRS",
@@ -713,6 +735,8 @@ export function Maintenance() {
           await createAircraftLdndMonitoring(aircraftId, payload);
           setShowAddModal(false);
           setEditingLdndEntry(null);
+          ldndUnitTouchedRef.current = false;
+          lastDoneTachDueTouchedRef.current = false;
           setNewEntry({
             type: "",
             unit: "HRS",
@@ -1128,12 +1152,18 @@ export function Maintenance() {
   );
 
   const openEditLdnd = (item: LDNDMonitoring) => {
+    const savedLastDone =
+      item.lastDoneTachDue != null ? String(item.lastDoneTachDue) : "";
+    ldndUnitTouchedRef.current = true;
+    lastDoneTachDueTouchedRef.current = true;
+    lastDoneLookupRef.current += 1;
+    setLastDoneLookupLoading(false);
+    setLastDoneLookupError(false);
     setEditingLdndEntry(item);
     setNewEntry({
       type: item.inspectionType || item.type,
-      unit: (item.unit === "CYCLES" ? "CYCLES" : "HRS") as "HRS" | "CYCLES",
-      lastDoneTachDue:
-        item.lastDoneTachDue != null ? String(item.lastDoneTachDue) : "",
+      unit: item.unit === "CYCLES" || item.unit === "HRS" ? item.unit : "",
+      lastDoneTachDue: savedLastDone,
       lastDoneTachDone:
         item.lastDoneTachDone != null ? String(item.lastDoneTachDone) : "",
       nextDueTachHours:
@@ -1145,28 +1175,19 @@ export function Maintenance() {
     setShowAddModal(true);
   };
 
-  /** Create-only: pre-fill Last Done Tach Due from latest monitoring next_due_tach_hours */
-  const openAddLdndEntry = async () => {
+  /** Last Done Tach Due is filled from the latest matching record after the inspection type is entered. */
+  const openAddLdndEntry = () => {
+    ldndUnitTouchedRef.current = false;
+    lastDoneTachDueTouchedRef.current = false;
+    lastDoneLookupRef.current += 1;
+    setLastDoneLookupLoading(false);
+    setLastDoneLookupError(false);
     setEditingLdndEntry(null);
     setLdndFormErrors({});
-
-    let lastDoneTachDue = "";
-    if (aircraftId) {
-      try {
-        const latest = await getAircraftLdndMonitoringLatest(aircraftId);
-        setLdndLatest(latest);
-        if (latest?.nextDueTachHours != null) {
-          lastDoneTachDue = String(latest.nextDueTachHours);
-        }
-      } catch (err) {
-        console.error("LDND latest fetch for add entry:", err);
-      }
-    }
-
     setNewEntry({
       type: "",
       unit: "HRS",
-      lastDoneTachDue,
+      lastDoneTachDue: "",
       lastDoneTachDone: "",
       nextDueTachHours: "",
       performedDateStart: "",
@@ -1174,6 +1195,53 @@ export function Maintenance() {
     });
     setShowAddModal(true);
   };
+
+  useEffect(() => {
+    if (!showAddModal || editingLdndEntry || lastDoneTachDueTouchedRef.current) {
+      return;
+    }
+    const type = newEntry.type.replace(/\r\n?/g, "\n").trim();
+    if (!aircraftId || !type) {
+      setLastDoneLookupLoading(false);
+      setLastDoneLookupError(false);
+      setNewEntry((prev) =>
+        prev.lastDoneTachDue === "" ? prev : { ...prev, lastDoneTachDue: "" }
+      );
+      return;
+    }
+    const requestId = ++lastDoneLookupRef.current;
+    const timer = window.setTimeout(() => {
+      if (requestId !== lastDoneLookupRef.current) return;
+      if (lastDoneTachDueTouchedRef.current) return;
+      setLastDoneLookupLoading(true);
+      setLastDoneLookupError(false);
+      void lookupPreviousNextDueTachHours(aircraftId, type)
+        .then((value) => {
+          if (requestId !== lastDoneLookupRef.current) return;
+          setLastDoneLookupLoading(false);
+          if (lastDoneTachDueTouchedRef.current) return;
+          setLastDoneLookupError(false);
+          const next = value == null ? "" : String(value);
+          setNewEntry((prev) =>
+            prev.lastDoneTachDue === next
+              ? prev
+              : { ...prev, lastDoneTachDue: next }
+          );
+        })
+        .catch(() => {
+          if (requestId !== lastDoneLookupRef.current) return;
+          setLastDoneLookupLoading(false);
+          if (lastDoneTachDueTouchedRef.current) return;
+          setLastDoneLookupError(true);
+          setNewEntry((prev) =>
+            prev.lastDoneTachDue === ""
+              ? prev
+              : { ...prev, lastDoneTachDue: "" }
+          );
+        });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [showAddModal, editingLdndEntry, newEntry.type, aircraftId]);
 
   const handleADCreateOrUpdate = async () => {
     const adNumber = String(newADEntry.adNumber).trim();
@@ -1944,7 +2012,7 @@ export function Maintenance() {
                             </div>
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
-                            {item.unit}
+                            {item.unit || "—"}
                           </td>
                           <td className="px-3 py-2 text-gray-900 text-sm border-l border-gray-300">
                             {item.lastDoneTachDue ?? "—"}
@@ -2325,7 +2393,16 @@ export function Maintenance() {
                     <textarea
                       value={newEntry.type}
                       onChange={(e) => {
-                        setNewEntry({ ...newEntry, type: e.target.value });
+                        const type = e.target.value;
+                        setNewEntry((prev) => ({
+                          ...prev,
+                          type,
+                          unit: resolveLdndUnit({
+                            inspectionType: type,
+                            unit: prev.unit,
+                            unitTouched: ldndUnitTouchedRef.current,
+                          }),
+                        }));
                         if (ldndFormErrors.type)
                           setLdndFormErrors((prev) => ({ ...prev, type: "" }));
                       }}
@@ -2363,12 +2440,16 @@ export function Maintenance() {
                       </label>
                       <select
                         value={newEntry.unit}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          ldndUnitTouchedRef.current = true;
+                          const value = e.target.value;
+                          const unit: LdndUnitValue =
+                            value === "HRS" || value === "CYCLES" ? value : "";
                           setNewEntry({
                             ...newEntry,
-                            unit: e.target.value as "HRS" | "CYCLES",
-                          })
-                        }
+                            unit,
+                          });
+                        }}
                         onKeyDown={handleLdndEnterKey}
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white appearance-none cursor-pointer"
                         style={{
@@ -2379,6 +2460,7 @@ export function Maintenance() {
                           paddingRight: "2.5rem",
                         }}
                       >
+                        <option value="">None</option>
                         <option value="HRS">HRS</option>
                         <option value="CYCLES">CYCLES</option>
                       </select>
@@ -2391,16 +2473,33 @@ export function Maintenance() {
                         type="number"
                         step="0.1"
                         value={newEntry.lastDoneTachDue}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          lastDoneTachDueTouchedRef.current = true;
+                          lastDoneLookupRef.current += 1;
+                          setLastDoneLookupLoading(false);
+                          setLastDoneLookupError(false);
                           setNewEntry({
                             ...newEntry,
                             lastDoneTachDue: e.target.value,
-                          })
-                        }
+                          });
+                        }}
                         onKeyDown={handleLdndEnterKey}
                         placeholder="Optional"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
                       />
+                      {!editingLdndEntry && lastDoneLookupLoading && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Loading previous due…
+                        </p>
+                      )}
+                      {!editingLdndEntry &&
+                        lastDoneLookupError &&
+                        !lastDoneLookupLoading && (
+                          <p className="mt-1 text-xs text-gray-500">
+                            Previous due could not be loaded. You can enter
+                            this value manually.
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs mb-1.5">

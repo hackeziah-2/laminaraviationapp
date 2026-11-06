@@ -12,9 +12,20 @@ import {
 } from "lucide-react";
 import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getAircraftById, updateAircraft } from "../api/aircraftApi";
+import {
+  fleetDailyUpdateStatusValue,
+  getAircraftFleetDailyUpdate,
+  updateFleetDailyUpdateRemark,
+  type FleetDailyUpdateItem,
+} from "../api/fleetDailyUpdateApi";
+import {
+  OPERATIONAL_STATUS_OPTIONS,
+  fleetDailyUpdateMatchesAircraft,
+  operationalStatusToSave,
+} from "../utils/operationalStatusSync";
 import apiClient from "../api/index";
 import { Spinner } from "./ui/spinner";
 import { NatureOfFlightDescriptions } from "./NatureOfFlightDescriptions";
@@ -72,6 +83,14 @@ export function AircraftDetail() {
   const [engineARCFileName, setEngineARCFileName] = useState<string>("");
   const [propellerARCFileName, setPropellerARCFileName] = useState<string>("");
   const [editErrors, setEditErrors] = useState<Record<string, string>>({});
+  const [fleetDailyUpdate, setFleetDailyUpdate] =
+    useState<FleetDailyUpdateItem | null>(null);
+  const [operationalStatusDraft, setOperationalStatusDraft] = useState("");
+  const [operationalStatusLoaded, setOperationalStatusLoaded] = useState(false);
+  const [operationalStatusLoadError, setOperationalStatusLoadError] =
+    useState(false);
+  const isEditModeRef = useRef(false);
+  isEditModeRef.current = isEditMode;
 
   const handleEngineARCFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -162,9 +181,42 @@ export function AircraftDetail() {
       );
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    setOperationalStatusLoaded(false);
+    setOperationalStatusLoadError(false);
+    getAircraftFleetDailyUpdate(Number(id))
+      .then((item) => {
+        if (cancelled) return;
+        const matches =
+          item != null &&
+          fleetDailyUpdateMatchesAircraft(item, Number(id));
+        const current = matches ? item : null;
+        setFleetDailyUpdate(current);
+        if (!isEditModeRef.current) {
+          setOperationalStatusDraft(fleetDailyUpdateStatusValue(current));
+        }
+        setOperationalStatusLoadError(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFleetDailyUpdate(null);
+        if (!isEditModeRef.current) setOperationalStatusDraft("");
+        setOperationalStatusLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setOperationalStatusLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
   const handleEditClick = () => {
     if (!aircraft) return;
     setEditedAircraft({ ...aircraft }); // clone to avoid mutating original
+    setOperationalStatusDraft(fleetDailyUpdateStatusValue(fleetDailyUpdate));
     setIsEditMode(true);
   };
 
@@ -198,6 +250,22 @@ export function AircraftDetail() {
       return;
     }
     setEditErrors({});
+
+    const hasDailyUpdate = fleetDailyUpdateMatchesAircraft(
+      fleetDailyUpdate,
+      Number(id)
+    );
+    const operationalPlan = operationalStatusToSave({
+      hasDailyUpdate,
+      savedStatus: hasDailyUpdate
+        ? fleetDailyUpdateStatusValue(fleetDailyUpdate)
+        : null,
+      draftStatus: operationalStatusDraft,
+    });
+    if (operationalPlan.error) {
+      setEditErrors({ operationalStatus: operationalPlan.error });
+      return;
+    }
 
     const updatedData = {
       registration: editAircraft?.registration,
@@ -257,11 +325,44 @@ export function AircraftDetail() {
     }
 
     await confirmSaveEntry(true, async () => {
+      let savedDaily: FleetDailyUpdateItem | null = null;
+      if (operationalPlan.status && fleetDailyUpdate) {
+        savedDaily = await updateFleetDailyUpdateRemark(fleetDailyUpdate, {
+          status: operationalPlan.status,
+        });
+        if (
+          !savedDaily ||
+          !fleetDailyUpdateMatchesAircraft(
+            {
+              ...savedDaily,
+              id: savedDaily.id ?? fleetDailyUpdate.id,
+              aircraftId: savedDaily.aircraftId ?? Number(id),
+            },
+            Number(id)
+          )
+        ) {
+          throw new Error(
+            "Operational status was not saved for this aircraft."
+          );
+        }
+      }
+
       const response = await updateAircraft(Number(id), formData);
       const updatedAircraft: Aircraft = withEnginePropNumericDefaults(
         response as Aircraft
       );
 
+      if (savedDaily && operationalPlan.status) {
+        setFleetDailyUpdate({
+          ...savedDaily,
+          id: savedDaily.id ?? fleetDailyUpdate?.id,
+          aircraftId: savedDaily.aircraftId ?? Number(id),
+          status: fleetDailyUpdateStatusValue(savedDaily) || operationalPlan.status,
+        });
+        setOperationalStatusDraft(
+          fleetDailyUpdateStatusValue(savedDaily) || operationalPlan.status
+        );
+      }
       setEditedAircraft(updatedAircraft);
       setAircraft(updatedAircraft);
       setIsEditMode(false);
@@ -296,6 +397,8 @@ export function AircraftDetail() {
   };
 
   const handleCancel = () => {
+    setOperationalStatusDraft(fleetDailyUpdateStatusValue(fleetDailyUpdate));
+    setEditErrors({});
     setIsEditMode(false);
   };
 
@@ -447,18 +550,24 @@ export function AircraftDetail() {
     );
   }
 
-  const getStatusColor = (status: string) => {
+  const getOperationalStatusColor = (status: string) => {
     switch (status) {
-      case "Active":
+      case "Operational":
         return "bg-green-50 text-green-700 border border-green-200";
-      case "Maintenance":
-        return "bg-yellow-50 text-yellow-700 border border-yellow-200";
-      case "Inactive":
-        return "bg-blue-50 text-blue-700 border border-blue-200";
+      case "Ongoing Maintenance":
+        return "bg-yellow-50 text-yellow-800 border border-yellow-200";
+      case "AOG":
+        return "bg-red-50 text-red-700 border border-red-200";
       default:
         return "bg-gray-50 text-gray-700 border border-gray-200";
     }
   };
+
+  const displayedOperationalStatus = fleetDailyUpdateStatusValue(fleetDailyUpdate);
+  const canEditOperationalStatus =
+    operationalStatusLoaded &&
+    !operationalStatusLoadError &&
+    fleetDailyUpdateMatchesAircraft(fleetDailyUpdate, Number(id));
 
   return (
     <>
@@ -476,13 +585,15 @@ export function AircraftDetail() {
               <h2 className="text-gray-900 text-lg sm:text-xl">
                 Aircraft Details
               </h2>
-              <span
-                className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getStatusColor(
-                  aircraft.status
-                )}`}
-              >
-                {aircraft.status}
-              </span>
+              {displayedOperationalStatus && (
+                <span
+                  className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getOperationalStatusColor(
+                    displayedOperationalStatus
+                  )}`}
+                >
+                  {displayedOperationalStatus}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -628,19 +739,52 @@ export function AircraftDetail() {
                 <div>
                   <p className="text-xs text-gray-500 mb-1.5">Status</p>
                   {isEditMode ? (
-                    <select
-                      value={editAircraft?.status ?? ""}
-                      onChange={(e) =>
-                        handleInputChange("status", e.target.value)
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                      <option value="Maintenance">Maintenance</option>
-                    </select>
+                    <>
+                      <select
+                        value={
+                          canEditOperationalStatus ? operationalStatusDraft : ""
+                        }
+                        disabled={!canEditOperationalStatus}
+                        onChange={(e) => {
+                          setOperationalStatusDraft(e.target.value);
+                          if (editErrors.operationalStatus) {
+                            setEditErrors((prev) => ({
+                              ...prev,
+                              operationalStatus: "",
+                            }));
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+                      >
+                        {!canEditOperationalStatus && (
+                          <option value="">Not available</option>
+                        )}
+                        {OPERATIONAL_STATUS_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      {!canEditOperationalStatus && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          {operationalStatusLoadError
+                            ? "Operational status could not be loaded. Other aircraft details can still be saved."
+                            : "Create a Fleet Daily Update before changing operational status."}
+                        </p>
+                      )}
+                      {editErrors.operationalStatus && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {editErrors.operationalStatus}
+                        </p>
+                      )}
+                    </>
                   ) : (
-                    <p className="text-gray-900">{aircraft.status || "N/A"}</p>
+                    <p className="text-gray-900">
+                      {displayedOperationalStatus ||
+                        (operationalStatusLoaded
+                          ? "No Fleet Daily Update"
+                          : "—")}
+                    </p>
                   )}
                 </div>
                 <div>

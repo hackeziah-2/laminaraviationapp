@@ -11,6 +11,13 @@ function normalizeFleetDailyStatus(value: unknown): string {
   return s;
 }
 
+/** Same status text the Aircraft Fleet Daily Update table shows for a row. */
+export function fleetDailyUpdateStatusValue(
+  item: { status?: string | null; workStatus?: string | null } | null | undefined
+): string {
+  return normalizeFleetDailyStatus(item?.status ?? item?.workStatus ?? "");
+}
+
 /**
  * Fleet Daily Update item (one row in the list).
  * API may return snake_case; we normalize to camelCase.
@@ -151,19 +158,68 @@ function normalizeItem(raw: any): FleetDailyUpdateItem {
   };
 }
 
+function listItemsFromResponse(data: any): any[] {
+  const payload =
+    data?.data &&
+    !Array.isArray(data.data) &&
+    (data.data.items || data.data.results)
+      ? data.data
+      : data;
+  const raw = Array.isArray(payload)
+    ? payload
+    : payload?.items ?? payload?.results ?? payload?.data ?? [];
+  return Array.isArray(raw) ? raw : [];
+}
+
+/**
+ * The Daily Update row for this aircraft, using the same list the Daily Update page reads.
+ * GET api/v1/fleet-daily-update/?aircraft_fk=
+ */
+async function getFleetDailyUpdateFromList(
+  aircraftId: number
+): Promise<FleetDailyUpdateItem | null> {
+  const params = new URLSearchParams();
+  appendPagedQueryParams(params, 1, 50);
+  params.set("aircraft_fk", String(aircraftId));
+  const res = await apiClient.get(`fleet-daily-update/?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  const items = listItemsFromResponse(res.data).map((item) => normalizeItem(item));
+  return (
+    items.find((item) => {
+      const owner = Number(item.aircraftId ?? item.aircraft?.id);
+      return owner === aircraftId;
+    }) ?? null
+  );
+}
+
 /**
  * Get fleet daily update for a single aircraft.
- * GET api/v1/aircraft/{aircraft_id}/fleet-daily-update/
+ * Prefers the Daily Update list row so Operational Status matches that table.
+ * GET api/v1/aircraft/{aircraft_id}/fleet-daily-update/ is the fallback.
  */
 export async function getAircraftFleetDailyUpdate(
   aircraftId: number
 ): Promise<FleetDailyUpdateItem | null> {
-  const res = await apiClient.get(`aircraft/${aircraftId}/fleet-daily-update/`, {
-    headers: { Accept: "application/json" },
-  });
-  const raw = res.data?.data ?? res.data;
-  if (raw == null) return null;
-  return normalizeItem(raw);
+  try {
+    const fromList = await getFleetDailyUpdateFromList(aircraftId);
+    if (fromList) return fromList;
+  } catch (err: any) {
+    if (err?.response?.status !== 404 && err?.response?.status !== 405) {
+      throw err;
+    }
+  }
+  try {
+    const res = await apiClient.get(`aircraft/${aircraftId}/fleet-daily-update/`, {
+      headers: { Accept: "application/json" },
+    });
+    const raw = res.data?.data ?? res.data;
+    if (raw == null || Array.isArray(raw)) return null;
+    return normalizeItem(raw);
+  } catch (err: any) {
+    if (err?.response?.status === 404) return null;
+    throw err;
+  }
 }
 
 /**

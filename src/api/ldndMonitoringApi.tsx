@@ -1,13 +1,17 @@
 import apiClient from "./index";
 import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 import { appendPagedQueryParams } from "../utils/pagedQuery";
+import { type LdndUnitValue } from "../utils/ldndEntryForm";
 
-/** Matches backend: inspection_type, unit (HRS|CYCLES), last_done_tach_due, last_done_tach_done, next_due_tach_hours, performed_date_start */
+/** Blank is allowed. Annual inspections are stored without HRS or CYCLES. */
+export type LDNDUnit = LdndUnitValue;
+
+/** Matches backend: inspection_type, unit (HRS|CYCLES|blank), last_done_tach_due, last_done_tach_done, next_due_tach_hours, performed_date_start */
 export interface LDNDMonitoring {
   id: number;
   inspectionType: string;
   type: string;
-  unit: "HRS" | "CYCLES";
+  unit: LDNDUnit;
   lastDoneTachDue: number | null;
   lastDoneTachDone: number | null;
   nextDueTachHours: number | null;
@@ -18,7 +22,7 @@ export interface LDNDMonitoring {
 export interface LDNDMonitoringCreate {
   inspectionType?: string;
   type?: string;
-  unit: "HRS" | "CYCLES";
+  unit?: LDNDUnit | null;
   lastDoneTachDue?: number | string | null;
   lastDoneTachDone?: number | string | null;
   nextDueTachHours?: number | string | null;
@@ -29,7 +33,7 @@ export interface LDNDMonitoringCreate {
 export interface LDNDMonitoringUpdate {
   inspectionType?: string;
   type?: string;
-  unit?: "HRS" | "CYCLES";
+  unit?: LDNDUnit | null;
   lastDoneTachDue?: number | string | null;
   lastDoneTachDone?: number | string | null;
   nextDueTachHours?: number | string | null;
@@ -79,10 +83,20 @@ function toDisplayValue(v: any): string | null {
   return String(v);
 }
 
+function normalizeUnit(value: unknown): LDNDUnit {
+  const unit = String(value ?? "").trim().toUpperCase();
+  if (unit === "HRS" || unit === "CYCLES") return unit;
+  return "";
+}
+
+function unitForPayload(unit: LDNDUnit | null | undefined): "HRS" | "CYCLES" | null {
+  return unit === "HRS" || unit === "CYCLES" ? unit : null;
+}
+
 function normalizeItem(raw: any): LDNDMonitoring {
   const r = raw ?? {};
   const type = r.inspection_type ?? r.inspectionType ?? r.type ?? "";
-  const unit = (r.unit === "CYCLES" ? "CYCLES" : "HRS") as "HRS" | "CYCLES";
+  const unit = normalizeUnit(r.unit);
   return {
     id: r.id ?? r.pk,
     inspectionType: type,
@@ -138,11 +152,16 @@ export const getAircraftLdndMonitoring = async (
   aircraftId: number,
   page = 1,
   limit = DEFAULT_API_PAGE_SIZE,
-  search = ""
+  search = "",
+  options?: { inspectionType?: string; sort?: string }
 ): Promise<PaginatedLDNDResponse> => {
   const params = new URLSearchParams();
   appendPagedQueryParams(params, page, limit);
   if (search.trim()) params.append("search", search.trim());
+  if (options?.inspectionType?.trim()) {
+    params.set("inspection_type", options.inspectionType.trim());
+  }
+  if (options?.sort?.trim()) params.set("sort", options.sort.trim());
 
   const endpointPaged = `${LDND_PATH(aircraftId)}paged?${params.toString()}`;
   const endpointList = `${LDND_PATH(aircraftId)}?${params.toString()}`;
@@ -200,11 +219,42 @@ export const getAircraftLdndMonitoring = async (
   return { items, total, page, pages };
 };
 
+/**
+ * GET /api/v1/aircraft/{aircraft_id}/ldnd-monitoring/previous-next-due
+ * Next Due Tach Hours from the latest same-aircraft, same-item record.
+ * The endpoint orders by Performed Date End. excludeId skips the row being edited.
+ */
+export async function lookupPreviousNextDueTachHours(
+  aircraftId: number,
+  inspectionType: string,
+  excludeId?: number
+): Promise<number | null> {
+  const type = inspectionType.replace(/\r\n?/g, "\n").trim();
+  if (!aircraftId || !type) return null;
+  const params = new URLSearchParams();
+  params.set("inspection_type", type);
+  if (excludeId != null && Number.isFinite(excludeId)) {
+    params.set("exclude_id", String(excludeId));
+  }
+  const res = await apiClient.get(
+    `aircraft/${aircraftId}/ldnd-monitoring/previous-next-due?${params.toString()}`,
+    {
+      headers: { Accept: "application/json" },
+      skipGlobalErrorLog: true,
+    }
+  );
+  const raw = res?.data?.data ?? res?.data ?? {};
+  const value = raw?.next_due_tach_hours ?? raw?.nextDueTachHours;
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 export const createAircraftLdndMonitoring = async (
   aircraftId: number,
   data: LDNDMonitoringCreate
 ): Promise<LDNDMonitoring> => {
-  const unit = data.unit === "CYCLES" ? "CYCLES" : "HRS";
+  const unit = unitForPayload(data.unit);
   const payload = {
     aircraft_fk: aircraftId,
     inspection_type: String(data.inspectionType ?? data.type ?? "").trim(),
@@ -234,7 +284,7 @@ export const createAircraftLdndMonitoring = async (
       id: (res.data as any)?.id ?? 0,
       inspectionType: String(payload.inspection_type),
       type: String(payload.inspection_type),
-      unit,
+      unit: unit ?? "",
       lastDoneTachDue: payload.last_done_tach_due,
       lastDoneTachDone: payload.last_done_tach_done,
       nextDueTachHours: payload.next_due_tach_hours,
@@ -250,11 +300,11 @@ export const updateAircraftLdndMonitoring = async (
   id: number,
   data: LDNDMonitoringUpdate
 ): Promise<LDNDMonitoring> => {
-  const unit = (data.unit === "CYCLES" ? "CYCLES" : "HRS") as "HRS" | "CYCLES";
+  const unit = unitForPayload(data.unit);
   const payload: Record<string, unknown> = {
     aircraft_fk: aircraftId,
     inspection_type: String(data.inspectionType ?? data.type ?? "").trim(),
-    unit: data.unit ?? "HRS",
+    unit,
     last_done_tach_due:
       data.lastDoneTachDue != null && data.lastDoneTachDue !== ""
         ? Number(data.lastDoneTachDue)
@@ -279,7 +329,7 @@ export const updateAircraftLdndMonitoring = async (
     id,
     inspectionType: String(payload.inspection_type),
     type: String(payload.inspection_type),
-    unit,
+    unit: unit ?? "",
     lastDoneTachDue: payload.last_done_tach_due as number | null,
     lastDoneTachDone: payload.last_done_tach_done as number | null,
     nextDueTachHours: payload.next_due_tach_hours as number | null,

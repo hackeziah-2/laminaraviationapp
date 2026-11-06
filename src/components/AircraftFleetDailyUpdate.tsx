@@ -31,6 +31,7 @@ import {
 } from "@dnd-kit/sortable";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import {
+  fleetDailyUpdateStatusValue,
   getFleetDailyUpdatePaged,
   getAllFleetDailyUpdatesOrdered,
   updateFleetDailyUpdateRemark,
@@ -58,6 +59,7 @@ import {
 import {
   REMAINING_NEXT_INSP_LEGEND,
   remainingNextInspCellClass,
+  remainingNextInspCellStyle,
   remainingNextInspTone,
 } from "../utils/fleetDailyRemainingColor";
 import {
@@ -201,13 +203,9 @@ function getRowKey(item: FleetDailyUpdateItem): string {
 }
 
 function normalizeStatusForEdit(item: FleetDailyUpdateItem): string {
-  const currentStatus = item.status ?? item.workStatus ?? "";
-  const legacy =
-    currentStatus.trim().toLowerCase() === "running"
-      ? "Operational"
-      : currentStatus;
-  return STATUS_OPTIONS.some((o) => o.value === legacy)
-    ? legacy
+  const currentStatus = fleetDailyUpdateStatusValue(item);
+  return STATUS_OPTIONS.some((o) => o.value === currentStatus)
+    ? currentStatus
     : STATUS_OPTIONS[0]?.value ?? "Operational";
 }
 
@@ -704,16 +702,7 @@ export function AircraftFleetDailyUpdate() {
   const openRemarkModal = useCallback((item: FleetDailyUpdateItem) => {
     setEditingItem(item);
     setRemarkDraft(fleetDailyRemarksValue(item.remarks ?? ""));
-    const currentStatus = item.status ?? item.workStatus ?? "";
-    const legacy =
-      currentStatus.trim().toLowerCase() === "running"
-        ? "Operational"
-        : currentStatus;
-    setStatusDraft(
-      STATUS_OPTIONS.some((o) => o.value === legacy)
-        ? legacy
-        : STATUS_OPTIONS[0]?.value ?? "Operational"
-    );
+    setStatusDraft(normalizeStatusForEdit(item));
     setShowRemarkModal(true);
   }, []);
 
@@ -902,7 +891,8 @@ export function AircraftFleetDailyUpdate() {
             {REMAINING_NEXT_INSP_LEGEND.map((item) => (
               <span
                 key={item.tone}
-                className={`inline-flex items-center rounded border border-gray-300 px-2 py-1 text-xs ${remainingNextInspCellClass(item.tone)}`}
+                className="inline-flex items-center rounded border border-gray-300 px-2 py-1 text-xs"
+                style={remainingNextInspCellStyle(item.tone)}
               >
                 {item.label}
               </span>
@@ -1058,7 +1048,7 @@ export function AircraftFleetDailyUpdate() {
                       const statusValue = bulkEditMode
                         ? bulkDrafts[rowKey]?.status ??
                           normalizeStatusForEdit(aircraft)
-                        : aircraft.status ?? aircraft.workStatus ?? "";
+                        : fleetDailyUpdateStatusValue(aircraft);
                       const statusClass = statusCellClass(statusValue);
                       const remainingTone = remainingNextInspTone(
                         aircraft.remainingNextInsp,
@@ -1066,6 +1056,8 @@ export function AircraftFleetDailyUpdate() {
                       );
                       const remainingClass =
                         remainingNextInspCellClass(remainingTone);
+                      const remainingStyle =
+                        remainingNextInspCellStyle(remainingTone);
                       const identCellStyle: CSSProperties = identStyle
                         ? {
                             ...FLEET_FIT_STYLE,
@@ -1237,11 +1229,7 @@ export function AircraftFleetDailyUpdate() {
                               </td>
                               <td
                                 className={`px-4 py-3 text-sm text-center border-r border-gray-300 ${remainingClass}`}
-                                style={
-                                  remainingTone === "default"
-                                    ? undefined
-                                    : STATUS_CELL_PRINT
-                                }
+                                style={remainingStyle}
                               >
                                 {aircraft.remainingNextInsp ?? "-"}
                               </td>
