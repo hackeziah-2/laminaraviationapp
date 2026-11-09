@@ -704,10 +704,7 @@ function AtlTimesheetGroupHeaders() {
       >
         Airframe
       </th>
-      <th
-        colSpan={4}
-        className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-engine`}
-      >
+      <th colSpan={4} className={`${ATL_TIMESHEET_GROUP_CLASS} atl-th-engine`}>
         Engine
       </th>
       <th
@@ -754,19 +751,25 @@ function AtlTimesheetSubHeaders() {
   return (
     <>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-run`}>Run Time</th>
-      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-aftt atl-th-group-end`}>
+      <th
+        className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-af-aftt atl-th-group-end`}
+      >
         AFTT
       </th>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-run`}>Run Time</th>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tsn`}>TSN</th>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tso`}>TSO</th>
-      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tbo atl-th-group-end`}>
+      <th
+        className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-en-tbo atl-th-group-end`}
+      >
         TBO
       </th>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-run`}>Run Time</th>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tsn`}>TSN</th>
       <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tso`}>TSO</th>
-      <th className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tbo atl-th-group-end`}>
+      <th
+        className={`${ATL_TIMESHEET_SUB_CLASS} atl-ts-pr-tbo atl-th-group-end`}
+      >
         TBO
       </th>
     </>
@@ -779,7 +782,9 @@ function AtlTimesheetCells({ record }: { record: AircraftTechnicalLog }) {
       <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-run`}>
         <b>{formatValue(record.airframeRunTime)}</b>
       </td>
-      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-aftt atl-td-group-end`}>
+      <td
+        className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-af-aftt atl-td-group-end`}
+      >
         <b>{formatValue(record.airframeAftt)}</b>
       </td>
       <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-run`}>
@@ -791,7 +796,9 @@ function AtlTimesheetCells({ record }: { record: AircraftTechnicalLog }) {
       <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tso`}>
         <b>{formatValue(record.engineTso)}</b>
       </td>
-      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tbo atl-td-group-end`}>
+      <td
+        className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-en-tbo atl-td-group-end`}
+      >
         <b>{formatValue(record.engineTbo)}</b>
       </td>
       <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-run`}>
@@ -803,7 +810,9 @@ function AtlTimesheetCells({ record }: { record: AircraftTechnicalLog }) {
       <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tso`}>
         <b>{formatValue(record.propellerTso)}</b>
       </td>
-      <td className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tbo atl-td-group-end`}>
+      <td
+        className={`${ATL_TIMESHEET_TD_CLASS} atl-ts-pr-tbo atl-td-group-end`}
+      >
         <b>{formatValue(record.propellerTbo)}</b>
       </td>
     </>
@@ -2401,7 +2410,7 @@ export function Operation() {
         <div className="min-w-0 space-y-4 sm:space-y-6">
           {/* Fleet Time Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
-            <div>
+            <div style={{ display: "none" }}>
               <h3 className="text-gray-900 text-base sm:text-lg">
                 Fleet Time Monitoring:{" "}
                 <b>{aircraft?.registration || "Loading..."}</b>
@@ -3454,7 +3463,8 @@ export function Operation() {
                                                 documentType: "ATL",
                                                 sequenceNo: record.sequenceNo,
                                                 aircraftName:
-                                                  record.aircraft?.registration ||
+                                                  record.aircraft
+                                                    ?.registration ||
                                                   aircraft?.registration,
                                                 sourceFilename: whiteAtlFile,
                                               })
@@ -3506,7 +3516,8 @@ export function Operation() {
                                                 documentType: "DFP",
                                                 sequenceNo: record.sequenceNo,
                                                 aircraftName:
-                                                  record.aircraft?.registration ||
+                                                  record.aircraft
+                                                    ?.registration ||
                                                   aircraft?.registration,
                                                 sourceFilename: dfpFile,
                                               })

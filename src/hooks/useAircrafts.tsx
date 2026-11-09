@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { getAircraftAll, getAircrafts } from "../api/aircraftApi";
+import { fleetDailyUpdateStatusValue } from "../api/fleetDailyUpdateApi";
 import { DEFAULT_API_PAGE_SIZE } from "../constants/pagination";
 
 export interface AircraftRow {
@@ -21,6 +22,7 @@ export interface AircraftRow {
   propellerSerialNumber: string;
   propellerARC: string;
   created_at: string;
+  operationalStatus: string;
   /** 1-based persistent fleet arrangement */
   displayOrder?: number;
 }
@@ -40,6 +42,9 @@ function normalizeAircraftRow(raw: unknown): AircraftRow | null {
     msn: String(o.msn ?? ""),
     base: String(o.base ?? ""),
     status: (o.status as AircraftRow["status"]) ?? "Active",
+    operationalStatus: fleetDailyUpdateStatusValue({
+      status: String(o.operational_status ?? o.operationalStatus ?? ""),
+    }),
     displayOrder: Number.isFinite(displayOrderNum)
       ? displayOrderNum
       : undefined,

@@ -32,10 +32,7 @@ import Swal from "../utils/swalDefaults";
 import { confirmSaveEntry } from "../utils/confirmSaveEntry";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  DndContext,
-  closestCenter,
-} from "@dnd-kit/core";
+import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -162,14 +159,21 @@ export function AircraftFleetProfile() {
     );
   };
 
-  const { aircrafts, setAircrafts, loading, error, totalItems, totalPage, refresh } =
-    useAircrafts(
-      currentPage,
-      itemsPerPage,
-      searchDebounced,
-      filterStatus,
-      sortParam
-    );
+  const {
+    aircrafts,
+    setAircrafts,
+    loading,
+    error,
+    totalItems,
+    totalPage,
+    refresh,
+  } = useAircrafts(
+    currentPage,
+    itemsPerPage,
+    searchDebounced,
+    filterStatus,
+    sortParam
+  );
 
   // Same as TCC: drag only when search/filters/sorts are clear (default display_order).
   const arrangementMode = useMemo(
@@ -391,10 +395,14 @@ export function AircraftFleetProfile() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case "Operational":
       case "Active":
         return "bg-emerald-500/10 text-emerald-700 border border-emerald-200";
+      case "Ongoing Maintenance":
       case "Maintenance":
         return "bg-amber-500/10 text-amber-700 border border-amber-200";
+      case "AOG":
+        return "bg-red-500/10 text-red-700 border border-red-200";
       case "Inactive":
         return "bg-blue-500/10 text-blue-700 border border-blue-200";
       default:
@@ -509,8 +517,7 @@ export function AircraftFleetProfile() {
           ? parseFloat(form.airframeAftt)
           : null,
       engineTsn:
-        form.engineTsn === "" ||
-        form.engineTsn.trim().toUpperCase() === "UNK"
+        form.engineTsn === "" || form.engineTsn.trim().toUpperCase() === "UNK"
           ? null
           : Number.isFinite(parseFloat(form.engineTsn))
           ? parseFloat(form.engineTsn)
@@ -735,9 +742,9 @@ export function AircraftFleetProfile() {
               className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 bg-white text-gray-900 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2212%22%20viewBox%3D%220%200%2012%2012%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M10.293%203.293L6%207.586%201.707%203.293A1%201%200%2000.293%204.707l5%205a1%201%200%20001.414%200l5-5a1%201%200%2010-1.414-1.414z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:12px] bg-[right_0.5rem_center] bg-no-repeat pr-8"
             >
               <option value="all">All Aircraft</option>
-              <option value="active">Active </option>
-              <option value="inactive">Inactive </option>
-              <option value="maintenance">Maintenance</option>
+              <option value="Operational">Operational</option>
+              <option value="Ongoing Maintenance">Ongoing Maintenance</option>
+              <option value="AOG">AOG</option>
             </select>
           </div>
         </div>
@@ -759,215 +766,220 @@ export function AircraftFleetProfile() {
                   items={aircrafts.map((ac) => ac.id)}
                   strategy={verticalListSortingStrategy}
                 >
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-2 py-3 w-10 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      Arrange
-                    </th>
-                    <th
-                      onClick={(e) => toggleSort("registration", e.shiftKey)}
-                      className="cursor-pointer select-none px-6 py-3"
-                    >
-                      <div className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                        <b>AC REG</b>
-                        {renderSortIcon("registration")}
-                      </div>
-                    </th>
-
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      Model
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      MSN
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      Base Location
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {Array.isArray(aircrafts) && aircrafts.length > 0 ? (
-                    aircrafts.map((ac) => (
-                      <SortableTableRow
-                        key={ac?.id ?? Math.random()}
-                        id={ac.id}
-                        disabled={aircraftDndDisabled}
-                        dragLabel={`Move aircraft ${ac.registration || ac.id}`}
-                        disabledReason={dragDisabledReason}
-                        className="hover:bg-gray-50 transition-colors"
-                      >
-                        {({ dragHandle }) => (
-                          <>
-                        <td className="px-2 py-3.5 border-r border-gray-100 align-middle">
-                          {dragHandle}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {ac?.registration ?? "-"}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {ac?.model ?? "-"}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-600">
-                          {ac?.msn ?? "-"}
-                        </td>
-                        <td className="px-6 py-3.5 text-gray-900">
-                          {ac?.base ?? "-"}
-                        </td>
-
-                        <td className="px-6 py-3.5">
-                          <span
-                            className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getStatusColor(
-                              ac?.status ?? ""
-                            )}`}
-                          >
-                            {ac?.status ?? "-"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3.5">
-                          <div className="flex items-center gap-1.5">
-                            {canAccess("profile") && (
-                              <button
-                                onClick={() => {
-                                  if (ac?.id != null)
-                                    handleViewAircraft(ac.id, "detail");
-                                }}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors text-sm"
-                                title="Details"
-                              >
-                                <Eye className="w-4 h-4" />
-                                <span className="hidden sm:inline">
-                                  Details
-                                </span>
-                              </button>
-                            )}
-
-                            {(canAccess("operation") ||
-                              canAccess("maintenance") ||
-                              canAccess("logbook")) && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors text-sm"
-                                    title="Options"
-                                  >
-                                    <MoreVertical className="w-4 h-4" />
-                                    <span className="hidden sm:inline">
-                                      Options
-                                    </span>
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="end"
-                                  sideOffset={6}
-                                  className="min-w-[14rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
-                                >
-                                  {canAccess("operation") && (
-                                    <DropdownMenuGroup>
-                                      <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
-                                        Monitoring
-                                      </DropdownMenuLabel>
-                                      <DropdownMenuItem
-                                        onSelect={() => {
-                                          if (ac?.id != null)
-                                            handleViewAircraft(
-                                              ac.id,
-                                              "operation"
-                                            );
-                                        }}
-                                        className="gap-2 text-sm text-gray-700"
-                                      >
-                                        <BarChart3 className="w-4 h-4 text-blue-600" />
-                                        Fleet Time Monitoring
-                                      </DropdownMenuItem>
-                                    </DropdownMenuGroup>
-                                  )}
-                                  {canAccess("operation") &&
-                                    (canAccess("maintenance") ||
-                                      canAccess("logbook")) && (
-                                      <DropdownMenuSeparator />
-                                    )}
-                                  {canAccess("maintenance") && (
-                                    <DropdownMenuGroup>
-                                      <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
-                                        Tools
-                                      </DropdownMenuLabel>
-                                      <DropdownMenuItem
-                                        onSelect={() => {
-                                          if (ac?.id != null)
-                                            handleViewAircraft(
-                                              ac.id,
-                                              "maintenance"
-                                            );
-                                        }}
-                                        className="gap-2 text-sm text-gray-700"
-                                      >
-                                        <Wrench className="w-4 h-4 text-orange-500" />
-                                        Maintenance
-                                      </DropdownMenuItem>
-                                    </DropdownMenuGroup>
-                                  )}
-                                  {canAccess("maintenance") &&
-                                    canAccess("logbook") && (
-                                      <DropdownMenuSeparator />
-                                    )}
-                                  {canAccess("logbook") && (
-                                    <DropdownMenuGroup>
-                                      <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
-                                        Records
-                                      </DropdownMenuLabel>
-                                      <DropdownMenuItem
-                                        onSelect={() => {
-                                          if (ac?.id != null)
-                                            handleViewAircraft(
-                                              ac.id,
-                                              "logbook"
-                                            );
-                                        }}
-                                        className="gap-2 text-sm text-gray-700"
-                                      >
-                                        <ClipboardList className="w-4 h-4 text-emerald-600" />
-                                        Maintenance Logbook
-                                      </DropdownMenuItem>
-                                    </DropdownMenuGroup>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
-                            {canDelete("profile") && (
-                              <button
-                                onClick={() => {
-                                  if (ac?.id != null) handleDeleteAircraft(ac);
-                                }}
-                                className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-2 py-3 w-10 text-left text-xs text-gray-600 uppercase tracking-wider">
+                          Arrange
+                        </th>
+                        <th
+                          onClick={(e) =>
+                            toggleSort("registration", e.shiftKey)
+                          }
+                          className="cursor-pointer select-none px-6 py-3"
+                        >
+                          <div className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                            <b>AC REG</b>
+                            {renderSortIcon("registration")}
                           </div>
-                        </td>
-                          </>
-                        )}
-                      </SortableTableRow>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={7}
-                        className="px-6 py-12 text-center text-gray-500"
-                      >
-                        No aircraft found matching your search criteria
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                        </th>
+
+                        <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                          Model
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                          MSN
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                          Base Location
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {Array.isArray(aircrafts) && aircrafts.length > 0 ? (
+                        aircrafts.map((ac) => (
+                          <SortableTableRow
+                            key={ac?.id ?? Math.random()}
+                            id={ac.id}
+                            disabled={aircraftDndDisabled}
+                            dragLabel={`Move aircraft ${
+                              ac.registration || ac.id
+                            }`}
+                            disabledReason={dragDisabledReason}
+                            className="hover:bg-gray-50 transition-colors"
+                          >
+                            {({ dragHandle }) => (
+                              <>
+                                <td className="px-2 py-3.5 border-r border-gray-100 align-middle">
+                                  {dragHandle}
+                                </td>
+                                <td className="px-6 py-3.5 text-gray-900">
+                                  {ac?.registration ?? "-"}
+                                </td>
+                                <td className="px-6 py-3.5 text-gray-900">
+                                  {ac?.model ?? "-"}
+                                </td>
+                                <td className="px-6 py-3.5 text-gray-600">
+                                  {ac?.msn ?? "-"}
+                                </td>
+                                <td className="px-6 py-3.5 text-gray-900">
+                                  {ac?.base ?? "-"}
+                                </td>
+
+                                <td className="px-6 py-3.5">
+                                  <span
+                                    className={`inline-flex px-2.5 py-0.5 rounded text-xs ${getStatusColor(
+                                      ac?.operationalStatus ?? ""
+                                    )}`}
+                                  >
+                                    {ac?.operationalStatus || "-"}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-3.5">
+                                  <div className="flex items-center gap-1.5">
+                                    {canAccess("profile") && (
+                                      <button
+                                        onClick={() => {
+                                          if (ac?.id != null)
+                                            handleViewAircraft(ac.id, "detail");
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors text-sm"
+                                        title="Details"
+                                      >
+                                        <Eye className="w-4 h-4" />
+                                        <span className="hidden sm:inline">
+                                          Details
+                                        </span>
+                                      </button>
+                                    )}
+
+                                    {(canAccess("operation") ||
+                                      canAccess("maintenance") ||
+                                      canAccess("logbook")) && (
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors text-sm"
+                                            title="Options"
+                                          >
+                                            <MoreVertical className="w-4 h-4" />
+                                            <span className="hidden sm:inline">
+                                              Options
+                                            </span>
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent
+                                          align="end"
+                                          sideOffset={6}
+                                          className="min-w-[14rem] border border-gray-200 bg-white p-1 text-gray-900 shadow-xl"
+                                        >
+                                          {canAccess("operation") && (
+                                            <DropdownMenuGroup>
+                                              <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                                                Monitoring
+                                              </DropdownMenuLabel>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
+                                                  if (ac?.id != null)
+                                                    handleViewAircraft(
+                                                      ac.id,
+                                                      "operation"
+                                                    );
+                                                }}
+                                                className="gap-2 text-sm text-gray-700"
+                                              >
+                                                <BarChart3 className="w-4 h-4 text-blue-600" />
+                                                Fleet Time Monitoring
+                                              </DropdownMenuItem>
+                                            </DropdownMenuGroup>
+                                          )}
+                                          {canAccess("operation") &&
+                                            (canAccess("maintenance") ||
+                                              canAccess("logbook")) && (
+                                              <DropdownMenuSeparator />
+                                            )}
+                                          {canAccess("maintenance") && (
+                                            <DropdownMenuGroup>
+                                              <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                                                Tools
+                                              </DropdownMenuLabel>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
+                                                  if (ac?.id != null)
+                                                    handleViewAircraft(
+                                                      ac.id,
+                                                      "maintenance"
+                                                    );
+                                                }}
+                                                className="gap-2 text-sm text-gray-700"
+                                              >
+                                                <Wrench className="w-4 h-4 text-orange-500" />
+                                                Maintenance
+                                              </DropdownMenuItem>
+                                            </DropdownMenuGroup>
+                                          )}
+                                          {canAccess("maintenance") &&
+                                            canAccess("logbook") && (
+                                              <DropdownMenuSeparator />
+                                            )}
+                                          {canAccess("logbook") && (
+                                            <DropdownMenuGroup>
+                                              <DropdownMenuLabel className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-400">
+                                                Records
+                                              </DropdownMenuLabel>
+                                              <DropdownMenuItem
+                                                onSelect={() => {
+                                                  if (ac?.id != null)
+                                                    handleViewAircraft(
+                                                      ac.id,
+                                                      "logbook"
+                                                    );
+                                                }}
+                                                className="gap-2 text-sm text-gray-700"
+                                              >
+                                                <ClipboardList className="w-4 h-4 text-emerald-600" />
+                                                Maintenance Logbook
+                                              </DropdownMenuItem>
+                                            </DropdownMenuGroup>
+                                          )}
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                    )}
+                                    {canDelete("profile") && (
+                                      <button
+                                        onClick={() => {
+                                          if (ac?.id != null)
+                                            handleDeleteAircraft(ac);
+                                        }}
+                                        className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </>
+                            )}
+                          </SortableTableRow>
+                        ))
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan={7}
+                            className="px-6 py-12 text-center text-gray-500"
+                          >
+                            No aircraft found matching your search criteria
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </SortableContext>
               </DndContext>
             </div>
