@@ -7,7 +7,11 @@ import {
 } from "../utility/utils";
 import { appendPagedQueryParams } from "../utils/pagedQuery";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
-import { assertAtlNatureRequiredFields } from "../utility/atlNatureRequiredFields";
+import {
+  assertAtlNatureRequiredFields,
+  ATL_EXPLICIT_NONE_ASSIGNEE,
+  isAtlExplicitNoneAssignee,
+} from "../utility/atlNatureRequiredFields";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -466,6 +470,18 @@ export function pilotAcceptanceNameFieldsForApi(
 }
 
 /**
+ * Value passed into create/update validation.
+ * Explicit None stays "None" so PRF can accept it. Empty stays null (untouched).
+ * Normalization to null happens only after validation.
+ */
+export function atlAssigneeForValidation(
+  value: string | number | null | undefined
+): number | typeof ATL_EXPLICIT_NONE_ASSIGNEE | null {
+  if (isAtlExplicitNoneAssignee(value)) return ATL_EXPLICIT_NONE_ASSIGNEE;
+  return parseAtlAssigneeIdForApi(value);
+}
+
+/**
  * Rewrite Pilot Acceptance Name keys already present on create/update.
  * Empty sentinels become null. Partial updates without those keys are unchanged.
  * Leaves Pilot Acceptance date/time untouched.
@@ -500,6 +516,33 @@ export function normalizeAtlPilotAcceptanceNameForApi(
     if ("pilotFk" in payload) payload.pilotFk = id;
   }
   return payload;
+}
+
+/** After validation: explicit None / blank RTS name persists as null. */
+function normalizeAtlRtsSignedByForApi(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const hasSnake = "rts_signed_by" in payload;
+  const hasCamel = "rtsSignedBy" in payload;
+  if (!hasSnake && !hasCamel) return payload;
+  const source = (hasSnake ? payload.rts_signed_by : payload.rtsSignedBy) as
+    | string
+    | number
+    | null
+    | undefined;
+  const id = parseAtlAssigneeIdForApi(source);
+  if (hasSnake) payload.rts_signed_by = id;
+  if (hasCamel) payload.rtsSignedBy = id;
+  return payload;
+}
+
+/** Persist signature names as null after required-field validation has seen explicit None. */
+export function normalizeAtlSignatureAssigneesForApi(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  return normalizeAtlRtsSignedByForApi(
+    normalizeAtlPilotAcceptanceNameForApi(payload)
+  );
 }
 
 /**
@@ -986,13 +1029,13 @@ export const createAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const payload = normalizeAtlPilotAcceptanceNameForApi(
-      await mergeAtlFilePathsIntoPayload(
-        data as Record<string, unknown>,
-        files
-      )
+    const merged = await mergeAtlFilePathsIntoPayload(
+      data as Record<string, unknown>,
+      files
     );
-    assertAtlNatureRequiredFields(payload, "create");
+    // Validate while explicit None is still distinct from an untouched null.
+    assertAtlNatureRequiredFields(merged, "create");
+    const payload = normalizeAtlSignatureAssigneesForApi(merged);
     const response = await apiClient.post("aircraft-technical-log/", payload);
     const raw = response.data?.data ?? response.data;
     return toCamelDeep(raw) as AircraftTechnicalLog;
@@ -1012,15 +1055,14 @@ export const updateAircraftTechnicalLog = async (
   options?: AircraftTechnicalLogWriteOptions
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const payload = normalizeAtlPilotAcceptanceNameForApi(
-      await mergeAtlFilePathsIntoPayload(
-        data as Record<string, unknown>,
-        files
-      )
+    const merged = await mergeAtlFilePathsIntoPayload(
+      data as Record<string, unknown>,
+      files
     );
     if (!options?.skipNatureRequiredValidation) {
-      assertAtlNatureRequiredFields(payload, "update");
+      assertAtlNatureRequiredFields(merged, "update");
     }
+    const payload = normalizeAtlSignatureAssigneesForApi(merged);
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       payload

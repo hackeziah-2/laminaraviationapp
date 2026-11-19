@@ -3,6 +3,16 @@ import { toNatureOfFlightType } from "../api/natureOfFlightDescriptionsApi";
 export const ATL_REQUIRED_FIELD_MESSAGE = "This field is required.";
 export const ATL_DATE_REQUIRED_MESSAGE = "Date is required.";
 
+/** Explicit Blank/None choice. Distinct from an untouched empty assignee. */
+export const ATL_EXPLICIT_NONE_ASSIGNEE = "None";
+
+export function isAtlExplicitNoneAssignee(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.trim().toLowerCase() === ATL_EXPLICIT_NONE_ASSIGNEE.toLowerCase()
+  );
+}
+
 export type AtlNatureRequiredFieldKey =
   | "tachometerEnd"
   | "hobbsMeterEnd"
@@ -58,17 +68,6 @@ export function isAtlRequiredFieldBlank(value: unknown): boolean {
   if (typeof value === "boolean") return false;
   const s = String(value).trim();
   return s === "";
-}
-
-function isMissingAssignee(value: unknown): boolean {
-  if (isAtlRequiredFieldBlank(value)) return true;
-  const s = String(value).trim();
-  if (/^(none|null|undefined|no selected name)$/i.test(s)) return true;
-  const n = Number.parseInt(s, 10);
-  if (String(n) === s || /^-?\d+$/.test(s)) {
-    return !Number.isFinite(n) || n <= 0;
-  }
-  return false;
 }
 
 function pickField(
@@ -127,6 +126,24 @@ export function natureRequiresPrfDetails(
   return PRF_NATURES.has(nature);
 }
 
+/**
+ * PRF signature names are required, but an explicit None selection counts.
+ * Null, blank, and other empty sentinels are untouched and still fail.
+ */
+function isPrfAssigneeMissing(value: unknown): boolean {
+  if (isAtlExplicitNoneAssignee(value)) return false;
+  if (value == null) return true;
+  if (typeof value === "number") return !Number.isFinite(value) || value <= 0;
+  const s = String(value).trim();
+  if (s === "") return true;
+  if (/^(null|undefined|no selected name)$/i.test(s)) return true;
+  const n = Number.parseInt(s, 10);
+  if (String(n) === s || /^-?\d+$/.test(s)) {
+    return !Number.isFinite(n) || n <= 0;
+  }
+  return false;
+}
+
 function requireField(
   errors: Partial<Record<AtlNatureRequiredFieldKey, string>>,
   payload: Record<string, unknown>,
@@ -157,12 +174,9 @@ export function collectAtlNatureRequiredFieldErrors(
 
   if (PRF_NATURES.has(nature)) {
     requireField(errors, payload, "offBlocksTime", isAtlRequiredFieldBlank);
-    requireField(errors, payload, "rtsSignedBy", isMissingAssignee);
-    requireField(errors, payload, "rtsDate", isAtlRequiredFieldBlank);
-    requireField(errors, payload, "rtsTime", isAtlRequiredFieldBlank);
-    requireField(errors, payload, "pilotFk", isMissingAssignee);
-    requireField(errors, payload, "pilotAcceptDate", isAtlRequiredFieldBlank);
-    requireField(errors, payload, "pilotAcceptTime", isAtlRequiredFieldBlank);
+    // Name is required. Explicit None is a choice; an untouched blank is not.
+    requireField(errors, payload, "rtsSignedBy", isPrfAssigneeMissing);
+    requireField(errors, payload, "pilotFk", isPrfAssigneeMissing);
   }
 
   // Entry date (Off-Blocks / origin) is required for every nature of flight.

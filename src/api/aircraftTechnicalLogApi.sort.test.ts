@@ -14,6 +14,8 @@ import {
   normalizeAtlPagedSortParam,
   normalizeAtlPilotAcceptanceNameForApi,
   parseAtlAssigneeIdForApi,
+  atlAssigneeForValidation,
+  normalizeAtlSignatureAssigneesForApi,
   pilotAcceptanceNameFieldsForApi,
 } from "./aircraftTechnicalLogApi";
 import { formatAtlFuelLeftRightForDisplay } from "../utility/utils";
@@ -192,6 +194,34 @@ describe("pilotAcceptanceNameFieldsForApi", () => {
     expect(pilotAcceptanceNameFieldsForApi("42")).toEqual({
       pilotFk: 42,
       pilotAcceptedBy: 42,
+    });
+  });
+});
+
+describe("atlAssigneeForValidation", () => {
+  it("keeps explicit None distinct from an untouched blank", () => {
+    expect(atlAssigneeForValidation("None")).toBe("None");
+    expect(atlAssigneeForValidation(" none ")).toBe("None");
+    expect(atlAssigneeForValidation("")).toBeNull();
+    expect(atlAssigneeForValidation(null)).toBeNull();
+    expect(atlAssigneeForValidation("42")).toBe(42);
+  });
+});
+
+describe("normalizeAtlSignatureAssigneesForApi", () => {
+  it("persists explicit None as null after validation", () => {
+    expect(
+      normalizeAtlSignatureAssigneesForApi({
+        rts_signed_by: "None",
+        pilot_fk: "None",
+        pilot_accepted_by: "None",
+        origin_date: "2026-09-22",
+      })
+    ).toEqual({
+      rts_signed_by: null,
+      pilot_fk: null,
+      pilot_accepted_by: null,
+      origin_date: "2026-09-22",
     });
   });
 });

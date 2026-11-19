@@ -2410,11 +2410,12 @@ export function Operation() {
         <div className="min-w-0 space-y-4 sm:space-y-6">
           {/* Fleet Time Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0">
+            <h3 className="text-gray-900 text-base sm:text-lg">
+              Fleet Time Monitoring:{" "}
+              <b>{aircraft?.registration || "Loading..."}</b>
+            </h3>
+
             <div style={{ display: "none" }}>
-              <h3 className="text-gray-900 text-base sm:text-lg">
-                Fleet Time Monitoring:{" "}
-                <b>{aircraft?.registration || "Loading..."}</b>
-              </h3>
               <p className="text-gray-500 text-sm mt-1">
                 Model:{" "}
                 {aircraft
