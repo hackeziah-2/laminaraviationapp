@@ -7,7 +7,11 @@ import {
 } from "../utility/utils";
 import { appendPagedQueryParams } from "../utils/pagedQuery";
 import { FILE_UPLOAD_MODULES, resolveUploadedFilePath } from "./fileUploadApi";
-import { assertAtlNatureRequiredFields } from "../utility/atlNatureRequiredFields";
+import {
+  assertAtlNatureRequiredFields,
+  ATL_EXPLICIT_NONE_ASSIGNEE,
+  isAtlExplicitNoneAssignee,
+} from "../utility/atlNatureRequiredFields";
 
 // Component Parts Record Interfaces
 export interface ComponentPartsRecord {
@@ -466,6 +470,18 @@ export function pilotAcceptanceNameFieldsForApi(
 }
 
 /**
+ * Value passed into create/update validation.
+ * Explicit None stays "None" so PRF can accept it. Empty stays null (untouched).
+ * Normalization to null happens only after validation.
+ */
+export function atlAssigneeForValidation(
+  value: string | number | null | undefined
+): number | typeof ATL_EXPLICIT_NONE_ASSIGNEE | null {
+  if (isAtlExplicitNoneAssignee(value)) return ATL_EXPLICIT_NONE_ASSIGNEE;
+  return parseAtlAssigneeIdForApi(value);
+}
+
+/**
  * Rewrite Pilot Acceptance Name keys already present on create/update.
  * Empty sentinels become null. Partial updates without those keys are unchanged.
  * Leaves Pilot Acceptance date/time untouched.
@@ -500,6 +516,33 @@ export function normalizeAtlPilotAcceptanceNameForApi(
     if ("pilotFk" in payload) payload.pilotFk = id;
   }
   return payload;
+}
+
+/** After validation: explicit None / blank RTS name persists as null. */
+function normalizeAtlRtsSignedByForApi(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  const hasSnake = "rts_signed_by" in payload;
+  const hasCamel = "rtsSignedBy" in payload;
+  if (!hasSnake && !hasCamel) return payload;
+  const source = (hasSnake ? payload.rts_signed_by : payload.rtsSignedBy) as
+    | string
+    | number
+    | null
+    | undefined;
+  const id = parseAtlAssigneeIdForApi(source);
+  if (hasSnake) payload.rts_signed_by = id;
+  if (hasCamel) payload.rtsSignedBy = id;
+  return payload;
+}
+
+/** Persist signature names as null after required-field validation has seen explicit None. */
+export function normalizeAtlSignatureAssigneesForApi(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  return normalizeAtlRtsSignedByForApi(
+    normalizeAtlPilotAcceptanceNameForApi(payload)
+  );
 }
 
 /**
@@ -624,6 +667,18 @@ export function normalizeAtlPagedSortParam(sort: string): string {
   return trimmed;
 }
 
+/** Repeat nature_of_flight so the paged list can filter to those natures. */
+export function appendNatureOfFlightFilterParams(
+  params: URLSearchParams,
+  natures?: readonly string[]
+): void {
+  if (!natures) return;
+  for (const nature of natures) {
+    const value = nature.trim();
+    if (value) params.append("nature_of_flight", value);
+  }
+}
+
 /**
  * `atl_batch=all` includes every row for the aircraft (assigned batch and NULL batch).
  * A positive id restricts the list to that batch.
@@ -652,7 +707,8 @@ const fetchAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number | "all"
+  atlBatchFk?: number | "all",
+  natures?: readonly string[]
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
@@ -681,6 +737,8 @@ const fetchAircraftTechnicalLogs = async (
     if (workStatus != null && workStatus.trim() !== "") {
       params.append("work_status", workStatus.trim());
     }
+
+    appendNatureOfFlightFilterParams(params, natures);
 
     const response = await apiClient.get(`${endpoint}?${params.toString()}`);
 
@@ -743,7 +801,8 @@ export const getAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number | "all"
+  atlBatchFk?: number | "all",
+  natures?: readonly string[]
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/paged",
@@ -753,7 +812,8 @@ export const getAircraftTechnicalLogs = async (
     aircraftFk,
     sort,
     workStatus,
-    atlBatchFk
+    atlBatchFk,
+    natures
   );
 
 /**
@@ -770,7 +830,8 @@ export const getManagedAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number | "all"
+  atlBatchFk?: number | "all",
+  natures?: readonly string[]
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/manage/paged",
@@ -780,7 +841,8 @@ export const getManagedAircraftTechnicalLogs = async (
     aircraftFk,
     sort,
     workStatus,
-    atlBatchFk
+    atlBatchFk,
+    natures
   );
 
 /**
@@ -986,13 +1048,13 @@ export const createAircraftTechnicalLog = async (
   files?: AircraftTechnicalLogFiles
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const payload = normalizeAtlPilotAcceptanceNameForApi(
-      await mergeAtlFilePathsIntoPayload(
-        data as Record<string, unknown>,
-        files
-      )
+    const merged = await mergeAtlFilePathsIntoPayload(
+      data as Record<string, unknown>,
+      files
     );
-    assertAtlNatureRequiredFields(payload, "create");
+    // Validate while explicit None is still distinct from an untouched null.
+    assertAtlNatureRequiredFields(merged, "create");
+    const payload = normalizeAtlSignatureAssigneesForApi(merged);
     const response = await apiClient.post("aircraft-technical-log/", payload);
     const raw = response.data?.data ?? response.data;
     return toCamelDeep(raw) as AircraftTechnicalLog;
@@ -1012,15 +1074,14 @@ export const updateAircraftTechnicalLog = async (
   options?: AircraftTechnicalLogWriteOptions
 ): Promise<AircraftTechnicalLog> => {
   try {
-    const payload = normalizeAtlPilotAcceptanceNameForApi(
-      await mergeAtlFilePathsIntoPayload(
-        data as Record<string, unknown>,
-        files
-      )
+    const merged = await mergeAtlFilePathsIntoPayload(
+      data as Record<string, unknown>,
+      files
     );
     if (!options?.skipNatureRequiredValidation) {
-      assertAtlNatureRequiredFields(payload, "update");
+      assertAtlNatureRequiredFields(merged, "update");
     }
+    const payload = normalizeAtlSignatureAssigneesForApi(merged);
     const response = await apiClient.put(
       `aircraft-technical-log/${logId}`,
       payload

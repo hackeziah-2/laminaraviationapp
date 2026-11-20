@@ -2468,16 +2468,16 @@ export function MaintenanceLogbook() {
                             NOMENCLATURE
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED P/N
+                            PARTS REMOVED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED S/N
+                            PARTS REMOVED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED P/N
+                            PARTS INSTALLED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED S/N
+                            PARTS INSTALLED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
@@ -2685,16 +2685,16 @@ export function MaintenanceLogbook() {
                             NOMENCLATURE
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED P/N
+                            PARTS REMOVED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED S/N
+                            PARTS REMOVED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED P/N
+                            PARTS INSTALLED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED S/N
+                            PARTS INSTALLED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
@@ -2922,16 +2922,16 @@ export function MaintenanceLogbook() {
                             NOMENCLATURE
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED P/N
+                            PARTS REMOVED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED S/N
+                            PARTS REMOVED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED P/N
+                            PARTS INSTALLED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED S/N
+                            PARTS INSTALLED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
@@ -3935,16 +3935,16 @@ export function MaintenanceLogbook() {
                                 NOMENCLATURE
                               </th>
                               <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                                REMOVED P/N
+                                PARTS REMOVED — P/N
                               </th>
                               <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                                REMOVED S/N
+                                PARTS REMOVED — S/N
                               </th>
                               <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                                INSTALLED P/N
+                                PARTS INSTALLED — P/N
                               </th>
                               <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                                INSTALLED S/N
+                                PARTS INSTALLED — S/N
                               </th>
                               <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                                 ATA CHAPTER

@@ -55,7 +55,7 @@ import {
   hasTsnValue,
   parseAtlAssigneeIdForApi,
   isAtlEmptyAssigneeValue,
-  pilotAcceptanceNameFieldsForApi,
+  atlAssigneeForValidation,
   type AtlBatch,
 } from "../api/aircraftTechnicalLogApi";
 import {
@@ -85,7 +85,9 @@ import {
 } from "../utility/utils";
 import { getNatureOfFlightDescriptionByNature } from "../api/natureOfFlightDescriptionsApi";
 import {
+  ATL_EXPLICIT_NONE_ASSIGNEE,
   collectAtlNatureRequiredFieldErrors,
+  isAtlExplicitNoneAssignee,
   natureRequiresPrfDetails,
   natureRequiresTachHobbsEnd,
 } from "../utility/atlNatureRequiredFields";
@@ -386,8 +388,14 @@ function atlAssigneeIdToFormValue(
 /** Closed-select display when no person is assigned — blank, never None/null/"No Selected Name". */
 const ATL_ASSIGNEE_NONE_LABEL = "";
 
-/** Dropdown option to clear Pilot Acceptance Name; closed field stays blank. */
-const PILOT_ACCEPTANCE_CLEAR_OPTION_LABEL = "";
+/** Closed field and dropdown row stay blank. The stored choice is still explicit None. */
+const ATL_SIGNATURE_NONE_LABEL = "";
+
+function isSignatureNoneSelected(
+  accountId: string | undefined | null
+): boolean {
+  return isAtlExplicitNoneAssignee(accountId);
+}
 
 function isAtlAssigneeNoneSelected(
   accountId: string | undefined | null,
@@ -4164,9 +4172,13 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  /** Select blank → clear assignee; API sends null for pilotAcceptedBy. */
+  /** Explicit None. Distinct from the untouched empty value. */
   const handlePilotSelectNone = () => {
-    setFormData((prev) => ({ ...prev, pilotFk: "", pilotName: "" }));
+    setFormData((prev) => ({
+      ...prev,
+      pilotFk: ATL_EXPLICIT_NONE_ASSIGNEE,
+      pilotName: "",
+    }));
     setPilotSearchTerm("");
     setIsPilotDropdownOpen(false);
     if (validationErrors.pilotFk) {
@@ -4176,6 +4188,9 @@ export function AddTechnicalLogbookEntryModal({
 
   // Get selected pilot display value (blank when unassigned)
   const getSelectedPilot = () => {
+    if (isSignatureNoneSelected(formData.pilotFk)) {
+      return ATL_SIGNATURE_NONE_LABEL;
+    }
     if (isAtlAssigneeNoneSelected(formData.pilotFk, formData.pilotName)) {
       return ATL_ASSIGNEE_NONE_LABEL;
     }
@@ -4210,9 +4225,13 @@ export function AddTechnicalLogbookEntryModal({
     }
   };
 
-  /** Select blank → clear assignee; API sends null for rtsSignedBy. */
+  /** Explicit None. Distinct from the untouched empty value. */
   const handleRtsSelectNone = () => {
-    setFormData((prev) => ({ ...prev, rtsSignedBy: "", rtsName: "" }));
+    setFormData((prev) => ({
+      ...prev,
+      rtsSignedBy: ATL_EXPLICIT_NONE_ASSIGNEE,
+      rtsName: "",
+    }));
     setRtsSearchTerm("");
     setIsRtsDropdownOpen(false);
     if (validationErrors.rtsSignedBy) {
@@ -4222,6 +4241,9 @@ export function AddTechnicalLogbookEntryModal({
 
   // Get selected RTS display value (blank when unassigned)
   const getSelectedRts = () => {
+    if (isSignatureNoneSelected(formData.rtsSignedBy)) {
+      return ATL_SIGNATURE_NONE_LABEL;
+    }
     if (isAtlAssigneeNoneSelected(formData.rtsSignedBy, formData.rtsName)) {
       return ATL_ASSIGNEE_NONE_LABEL;
     }
@@ -4326,7 +4348,7 @@ export function AddTechnicalLogbookEntryModal({
   const pilotNav = useAtlNameDropdownKeyboard({
     isOpen: isPilotDropdownOpen,
     optionIds: pilotOptionIds,
-    selectedId: isAtlAssigneeNoneSelected(formData.pilotFk, formData.pilotName)
+    selectedId: isSignatureNoneSelected(formData.pilotFk)
       ? ATL_NAME_DROPDOWN_NONE_ID
       : formData.pilotFk,
     onClose: () => setIsPilotDropdownOpen(false),
@@ -4352,10 +4374,7 @@ export function AddTechnicalLogbookEntryModal({
   const rtsNav = useAtlNameDropdownKeyboard({
     isOpen: isRtsDropdownOpen,
     optionIds: rtsOptionIds,
-    selectedId: isAtlAssigneeNoneSelected(
-      formData.rtsSignedBy,
-      formData.rtsName
-    )
+    selectedId: isSignatureNoneSelected(formData.rtsSignedBy)
       ? ATL_NAME_DROPDOWN_NONE_ID
       : formData.rtsSignedBy,
     onClose: () => setIsRtsDropdownOpen(false),
@@ -5321,8 +5340,14 @@ export function AddTechnicalLogbookEntryModal({
             formData.maintenanceEntry
           ),
           actionsTaken: atlActionsTakenForApi(formData.actionsTaken),
-          // Pilot Acceptance Name: form selection only (null when None/cleared)
-          ...pilotAcceptanceNameFieldsForApi(formData.pilotFk),
+          // Keep explicit None distinct from an untouched blank until validation.
+          ...(() => {
+            const pilotAssignee = atlAssigneeForValidation(formData.pilotFk);
+            return {
+              pilotFk: pilotAssignee,
+              pilotAcceptedBy: pilotAssignee,
+            };
+          })(),
           // Remarks / Actions Taken Name: null when unassigned (same as pilotAcceptedBy)
           remarkPerson: parseAtlAssigneeIdForApi(formData.remarksPerson),
           // DB column is actiontaken_person → camel key must be actiontakenPerson for snakeAllKeys
@@ -5335,7 +5360,7 @@ export function AddTechnicalLogbookEntryModal({
           pilotAcceptTime: formData.pilotAcceptTime
             ? convertTimeToAPIFormat(formData.pilotAcceptTime)
             : undefined,
-          rtsSignedBy: parseAtlAssigneeIdForApi(formData.rtsSignedBy),
+          rtsSignedBy: atlAssigneeForValidation(formData.rtsSignedBy),
           rtsDate: formData.rtsDate || undefined,
           rtsTime: formData.rtsTime
             ? convertTimeToAPIFormat(formData.rtsTime)
@@ -7756,16 +7781,16 @@ export function AddTechnicalLogbookEntryModal({
                             NOMENCLATURE
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED P/N
+                            PARTS REMOVED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            REMOVED S/N
+                            PARTS REMOVED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED P/N
+                            PARTS INSTALLED — P/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
-                            INSTALLED S/N
+                            PARTS INSTALLED — S/N
                           </th>
                           <th className="border border-gray-300 px-2 py-2 text-center text-xs font-semibold text-white">
                             ATA CHAPTER
@@ -7988,6 +8013,9 @@ export function AddTechnicalLogbookEntryModal({
                                 setIsRtsDropdownOpen(true);
                                 // Seed search with current assignee name (not the unassigned label)
                                 if (
+                                  !isSignatureNoneSelected(
+                                    formData.rtsSignedBy
+                                  ) &&
                                   !isAtlAssigneeNoneSelected(
                                     formData.rtsSignedBy,
                                     formData.rtsName
@@ -8065,9 +8093,8 @@ export function AddTechnicalLogbookEntryModal({
                                       highlighted={
                                         rtsNav.highlightedIndex === 0
                                       }
-                                      selected={isAtlAssigneeNoneSelected(
-                                        formData.rtsSignedBy,
-                                        formData.rtsName
+                                      selected={isSignatureNoneSelected(
+                                        formData.rtsSignedBy
                                       )}
                                       onSelect={handleRtsSelectNone}
                                       onHighlight={() =>
@@ -8075,7 +8102,7 @@ export function AddTechnicalLogbookEntryModal({
                                       }
                                       optionRef={rtsNav.getOptionRef(0)}
                                     >
-                                      {ATL_ASSIGNEE_NONE_LABEL || "\u00a0"}
+                                      {ATL_SIGNATURE_NONE_LABEL || "\u00a0"}
                                     </AtlNameDropdownOption>
                                   )}
                                   {filteredRtsAccounts.length === 0 &&
@@ -8145,9 +8172,6 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Date
-                          {requirePrfDetails ? (
-                            <span className="text-red-600"> *</span>
-                          ) : null}
                         </label>
                         <DateInput
                           value={formData.rtsDate}
@@ -8180,9 +8204,6 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Time (Zulu)
-                          {requirePrfDetails ? (
-                            <span className="text-red-600"> *</span>
-                          ) : null}
                         </label>
                         <input
                           type="text"
@@ -8258,6 +8279,7 @@ export function AddTechnicalLogbookEntryModal({
                                 setIsPilotDropdownOpen(true);
                                 // Seed search with current assignee name (not the unassigned label)
                                 if (
+                                  !isSignatureNoneSelected(formData.pilotFk) &&
                                   !isAtlAssigneeNoneSelected(
                                     formData.pilotFk,
                                     formData.pilotName
@@ -8335,9 +8357,8 @@ export function AddTechnicalLogbookEntryModal({
                                       highlighted={
                                         pilotNav.highlightedIndex === 0
                                       }
-                                      selected={isAtlAssigneeNoneSelected(
-                                        formData.pilotFk,
-                                        formData.pilotName
+                                      selected={isSignatureNoneSelected(
+                                        formData.pilotFk
                                       )}
                                       onSelect={handlePilotSelectNone}
                                       onHighlight={() =>
@@ -8345,7 +8366,7 @@ export function AddTechnicalLogbookEntryModal({
                                       }
                                       optionRef={pilotNav.getOptionRef(0)}
                                     >
-                                      {PILOT_ACCEPTANCE_CLEAR_OPTION_LABEL}
+                                      {ATL_SIGNATURE_NONE_LABEL || "\u00a0"}
                                     </AtlNameDropdownOption>
                                   )}
                                   {filteredPilotAccounts.length === 0 &&
@@ -8415,9 +8436,6 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Date
-                          {requirePrfDetails ? (
-                            <span className="text-red-600"> *</span>
-                          ) : null}
                         </label>
                         <DateInput
                           value={formData.pilotAcceptDate}
@@ -8450,9 +8468,6 @@ export function AddTechnicalLogbookEntryModal({
                       <div>
                         <label className="block text-gray-700 text-sm mb-1">
                           Time (Zulu)
-                          {requirePrfDetails ? (
-                            <span className="text-red-600"> *</span>
-                          ) : null}
                         </label>
                         <input
                           type="text"

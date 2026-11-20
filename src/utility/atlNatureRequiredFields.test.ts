@@ -50,16 +50,16 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
     ).toEqual({});
   });
 
-  it("requires PRF off-blocks and RTS/pilot acceptance details", () => {
+  it("requires PRF signature names and does not accept an untouched blank", () => {
     expect(
       collectAtlNatureRequiredFieldErrors({
         natureOfFlight: "PRF",
         originDate: "",
         originTime: null,
-        rtsSignedBy: 0,
+        rtsSignedBy: "",
         rtsDate: undefined,
         rtsTime: "",
-        pilotFk: "",
+        pilotFk: null,
         pilotAcceptDate: "  ",
         pilotAcceptTime: null,
       })
@@ -67,11 +67,53 @@ describe("collectAtlNatureRequiredFieldErrors", () => {
       offBlocksDate: ATL_DATE_REQUIRED_MESSAGE,
       offBlocksTime: ATL_REQUIRED_FIELD_MESSAGE,
       rtsSignedBy: ATL_REQUIRED_FIELD_MESSAGE,
-      rtsDate: ATL_REQUIRED_FIELD_MESSAGE,
-      rtsTime: ATL_REQUIRED_FIELD_MESSAGE,
       pilotFk: ATL_REQUIRED_FIELD_MESSAGE,
-      pilotAcceptDate: ATL_REQUIRED_FIELD_MESSAGE,
-      pilotAcceptTime: ATL_REQUIRED_FIELD_MESSAGE,
+    });
+  });
+
+  it("accepts explicit None for PRF signatures when Off-Blocks is filled", () => {
+    expect(
+      collectAtlNatureRequiredFieldErrors({
+        natureOfFlight: "PRF",
+        originDate: "2026-09-22",
+        originTime: "10:30",
+        rtsSignedBy: "None",
+        rtsDate: "",
+        rtsTime: null,
+        pilot_accepted_by: " none ",
+        pilotAcceptDate: "",
+        pilotAcceptTime: "  ",
+      })
+    ).toEqual({});
+    expect(
+      collectAtlNatureRequiredFieldErrors(
+        {
+          natureOfFlight: "PRF",
+          originDate: "2026-09-22",
+          originTime: "10:30",
+          rts_signed_by: "None",
+          pilotFk: "None",
+        },
+        "update"
+      )
+    ).toEqual({});
+  });
+
+  it("rejects an untouched PRF signature on update", () => {
+    expect(
+      collectAtlNatureRequiredFieldErrors(
+        {
+          natureOfFlight: "PRF",
+          originDate: "2026-09-22",
+          originTime: "10:30",
+          rts_signed_by: null,
+          pilotFk: "",
+        },
+        "update"
+      )
+    ).toEqual({
+      rtsSignedBy: ATL_REQUIRED_FIELD_MESSAGE,
+      pilotFk: ATL_REQUIRED_FIELD_MESSAGE,
     });
   });
 
@@ -161,6 +203,33 @@ describe("assertAtlNatureRequiredFields", () => {
         "create"
       )
     ).toThrow(/required/i);
+  });
+
+  it("blocks a PRF save when a signature name was left untouched", () => {
+    expect(() =>
+      assertAtlNatureRequiredFields(
+        {
+          nature_of_flight: "PRF",
+          origin_date: "2026-09-22",
+          origin_time: "10:30",
+          rts_signed_by: null,
+          pilot_accepted_by: "",
+        },
+        "create"
+      )
+    ).toThrow(/required/i);
+    expect(() =>
+      assertAtlNatureRequiredFields(
+        {
+          nature_of_flight: "PRF",
+          origin_date: "2026-09-22",
+          origin_time: "10:30",
+          rts_signed_by: "None",
+          pilot_fk: "None",
+        },
+        "update"
+      )
+    ).not.toThrow();
   });
 });
 
