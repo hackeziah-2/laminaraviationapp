@@ -71,7 +71,6 @@ import {
   DEFAULT_API_PAGE_SIZE,
 } from "../constants/pagination";
 import { collectAllPagedItems } from "../utils/pagedQuery";
-import { isReliabilityMonitoringNature } from "../utils/reliabilityMonitoringNature";
 import { Checkbox } from "./ui/checkbox";
 import { Aircraft } from "../types/Aircraft";
 import {
@@ -114,6 +113,7 @@ import {
 } from "../utility/atlEditRbac";
 import { getMe } from "../api/authApi";
 import { useUserPermissions } from "../hooks/useUserPermissions";
+import { useAtlStickyHeaderOffsets } from "../hooks/useAtlStickyHeaderOffsets";
 import { usePreserveListView } from "../hooks/usePreserveListView";
 import { usePagedRecordNavigation } from "../hooks/usePagedRecordNavigation";
 import { useOverlayEscape } from "../hooks/useOverlayEscape";
@@ -140,6 +140,12 @@ const STICKY_SEQ_CELL_CLASS =
 
 function atlListRowClassName(baseClass: string, selected: boolean): string {
   return selected ? `${baseClass} atl-row-selected` : baseClass;
+}
+
+function atlListEmptyMessage(searchQuery: string): string {
+  return searchQuery
+    ? `No records found matching "${searchQuery}"`
+    : "No records available";
 }
 
 /** Row clicks toggle selection. Buttons and links keep their own actions. */
@@ -173,22 +179,17 @@ const ATL_TH_SUB_CLASS =
 /** Component Record group labels (row 2). */
 const ATL_TH_CR_GROUP_CLASS =
   "atl-th-cr-group px-2 py-1.5 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
-/** Component Record P/N S/N labels (row 3). */
-const ATL_TH_CR_SUB_CLASS =
-  "atl-th-cr-sub px-2 py-1.5 text-center text-xs font-medium text-gray-900 border-r border-gray-300 bg-gray-200 whitespace-nowrap";
 
 /** Shared Component Record column widths (thead + tbody + colgroup). */
 const ATL_CR_PN_SN_COL_CLASS =
-  "atl-col-cr-pn-sn min-w-[100px] w-[100px] max-w-[100px]";
-const ATL_CR_PN_SN_PAIR_COL_CLASS =
-  "atl-col-cr-pn-sn-pair min-w-[200px] w-[200px] max-w-[200px]";
+  "atl-col-cr-pn-sn min-w-[132px] w-[132px] max-w-[132px]";
 const ATL_CR_NOM_COL_CLASS =
   "atl-col-cr-nom min-w-[160px] w-[160px] max-w-[160px]";
 const ATL_CR_ATA_COL_CLASS =
   "atl-col-cr-ata min-w-[120px] w-[120px] max-w-[120px]";
 const ATL_CR_REMARKS_COL_CLASS =
   "atl-col-cr-remarks min-w-[160px] w-[160px] max-w-[160px]";
-const ATL_CR_GROUP_MIN_WIDTH_CLASS = "min-w-[840px]";
+const ATL_CR_GROUP_MIN_WIDTH_CLASS = "min-w-[968px]";
 
 const ATL_TD_CR_BASE_CLASS =
   "atl-td-cr px-3 py-3 text-gray-900 text-sm border-r border-b border-gray-300 bg-white align-top overflow-hidden";
@@ -325,7 +326,46 @@ function AtlCrStackedValues({ values }: { values: unknown[] }) {
   );
 }
 
-/** Always renders 7 Component Record <td>s so they share the thead column grid. */
+const ATL_CR_PART_HEADERS = [
+  "PARTS REMOVED  P/N",
+  "PARTS REMOVED  S/N",
+  "PARTS INSTALLED  P/N",
+  "PARTS INSTALLED  S/N",
+] as const;
+
+function AtlCrPartHeaderCells() {
+  return (
+    <>
+      {ATL_CR_PART_HEADERS.map((label) => (
+        <th
+          key={label}
+          className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+          style={{ whiteSpace: "normal" }}
+        >
+          {label}
+        </th>
+      ))}
+    </>
+  );
+}
+
+function AtlCrPartHeaderFillers() {
+  return (
+    <>
+      {ATL_CR_PART_HEADERS.map((label) => (
+        <th
+          key={label}
+          className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
+          aria-hidden="true"
+        >
+          {"\u00a0"}
+        </th>
+      ))}
+    </>
+  );
+}
+
+/** Four separate Component Record part columns, one header label each. */
 function AtlComponentRecordCells({ record }: { record: AircraftTechnicalLog }) {
   const parts: Array<AtlComponentPartRow | undefined> =
     record.componentParts && record.componentParts.length > 0
@@ -1190,6 +1230,11 @@ export function Operation() {
     scrollSelector: "[data-atl-fleet-scroll]",
   });
 
+  useAtlStickyHeaderOffsets(
+    fleetTableScrollRef,
+    `${groupBy}|${loading}|${fleetTimeRecords.length}`
+  );
+
   useEffect(() => {
     if (Number.isFinite(aircraftId) && aircraftId > 0) {
       setSelectedAircraftId(aircraftId);
@@ -1289,7 +1334,7 @@ export function Operation() {
     }
   }, [showAtlBatchFilter]);
 
-  const listQueryKey = `${selectedSequenceNo}|${workStatusFilter}|${itemsPerPage}|${
+  const listQueryKey = `${effectiveAircraftId}|${selectedSequenceNo}|${workStatusFilter}|${itemsPerPage}|${
     selectedAtlBatchFk ?? ""
   }|${sequenceSort}`;
 
@@ -1361,44 +1406,46 @@ export function Operation() {
     listQueryKey,
   ]);
 
-  const paginatedRecords = useMemo(() => {
-    if (groupBy !== "reliabilityMonitoring") return fleetTimeRecords;
-    return fleetTimeRecords.filter((record) =>
-      isReliabilityMonitoringNature(record.natureOfFlight)
+  const paginatedRecords = fleetTimeRecords;
+
+  const fetchListNavigationPage = async (page: number) => {
+    const sortParam = sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
+    const response = await getAircraftTechnicalLogs(
+      page,
+      itemsPerPage,
+      selectedSequenceNo,
+      effectiveAircraftId,
+      sortParam,
+      workStatusFilter || undefined,
+      selectedAtlBatchFk
     );
-  }, [groupBy, fleetTimeRecords]);
+    return {
+      items: Array.isArray(response.items) ? response.items : [],
+      pages: response.pages,
+      total: response.total,
+    };
+  };
+
+  const applyListNavigationPage = (
+    page: number,
+    result: { items: AircraftTechnicalLog[]; pages?: number; total?: number }
+  ) => {
+    skipNextPagedFetchRef.current = true;
+    setFleetTimeRecords(result.items);
+    setCurrentPage(page);
+    if (result.pages != null) setTotalPages(result.pages);
+    if (result.total != null) setTotalRecords(result.total);
+  };
 
   const viewEntryNav = usePagedRecordNavigation<AircraftTechnicalLog>({
     isOpen: showViewModal,
-    records: fleetTimeRecords,
+    records: paginatedRecords,
     currentId: selectedEntry?.id,
     currentPage,
     totalPages,
     holdBusyUntilIdle: true,
-    fetchPage: async (page) => {
-      const sortParam = sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
-      const response = await getAircraftTechnicalLogs(
-        page,
-        itemsPerPage,
-        selectedSequenceNo,
-        effectiveAircraftId,
-        sortParam,
-        workStatusFilter || undefined,
-        selectedAtlBatchFk
-      );
-      return {
-        items: Array.isArray(response.items) ? response.items : [],
-        pages: response.pages,
-        total: response.total,
-      };
-    },
-    applyPage: (page, result) => {
-      skipNextPagedFetchRef.current = true;
-      setFleetTimeRecords(result.items);
-      setCurrentPage(page);
-      if (result.pages != null) setTotalPages(result.pages);
-      if (result.total != null) setTotalRecords(result.total);
-    },
+    fetchPage: fetchListNavigationPage,
+    applyPage: applyListNavigationPage,
     onSelect: (record) => {
       setSelectedEntry(record);
       setShowViewModal(true);
@@ -1407,35 +1454,13 @@ export function Operation() {
 
   const editEntryNav = usePagedRecordNavigation<AircraftTechnicalLog>({
     isOpen: showEditModal,
-    records: fleetTimeRecords,
+    records: paginatedRecords,
     currentId: selectedEntry?.id,
     currentPage,
     totalPages,
     holdBusyUntilIdle: true,
-    fetchPage: async (page) => {
-      const sortParam = sequenceSort === "asc" ? "sequence_no" : "-sequence_no";
-      const response = await getAircraftTechnicalLogs(
-        page,
-        itemsPerPage,
-        selectedSequenceNo,
-        effectiveAircraftId,
-        sortParam,
-        workStatusFilter || undefined,
-        selectedAtlBatchFk
-      );
-      return {
-        items: Array.isArray(response.items) ? response.items : [],
-        pages: response.pages,
-        total: response.total,
-      };
-    },
-    applyPage: (page, result) => {
-      skipNextPagedFetchRef.current = true;
-      setFleetTimeRecords(result.items);
-      setCurrentPage(page);
-      if (result.pages != null) setTotalPages(result.pages);
-      if (result.total != null) setTotalRecords(result.total);
-    },
+    fetchPage: fetchListNavigationPage,
+    applyPage: applyListNavigationPage,
     onSelect: (record) => {
       setSelectedEntry(record);
       setShowEditModal(true);
@@ -2070,12 +2095,7 @@ export function Operation() {
         )
       );
 
-      const itemsForFile =
-        groupBy === "reliabilityMonitoring"
-          ? exportedItems.filter((record) =>
-              isReliabilityMonitoringNature(record.natureOfFlight)
-            )
-          : exportedItems;
+      const itemsForFile = exportedItems;
 
       if (!itemsForFile.length) {
         closeExportProgress();
@@ -2795,39 +2815,7 @@ export function Operation() {
                   <button
                     onClick={() => {
                       setCurrentPage(1);
-                      // Trigger refetch
-                      const fetchRecords = async () => {
-                        if (!effectiveAircraftId) return;
-                        setLoading(true);
-                        setError(null);
-                        try {
-                          const sortParam =
-                            sequenceSort === "asc"
-                              ? "sequence_no"
-                              : "-sequence_no";
-                          const response = await getAircraftTechnicalLogs(
-                            currentPage,
-                            itemsPerPage,
-                            selectedSequenceNo,
-                            effectiveAircraftId,
-                            sortParam,
-                            workStatusFilter || undefined,
-                            selectedAtlBatchFk
-                          );
-                          setFleetTimeRecords(
-                            Array.isArray(response.items) ? response.items : []
-                          );
-                          setTotalRecords(response.total);
-                          setTotalPages(response.pages);
-                        } catch (err: any) {
-                          console.error("Error fetching ATL records:", err);
-                          setError("Failed to load fleet time records");
-                          setFleetTimeRecords([]);
-                        } finally {
-                          setTimeout(() => setLoading(false), 360);
-                        }
-                      };
-                      fetchRecords();
+                      setRefreshKey((key) => key + 1);
                     }}
                     className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                   >
@@ -3111,18 +3099,7 @@ export function Operation() {
                           >
                             {"\u00a0"}
                           </th>
-                          <th
-                            colSpan={2}
-                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
-                          >
-                            PARTS REMOVED
-                          </th>
-                          <th
-                            colSpan={2}
-                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
-                          >
-                            PARTS INSTALLED
-                          </th>
+                          <AtlCrPartHeaderCells />
                           <th
                             className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
                           >
@@ -3181,26 +3158,7 @@ export function Operation() {
                               ATL_TIMESHEET_LEAF_COUNT
                             }
                           />
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            P/N
-                          </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            S/N
-                          </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            P/N
-                          </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            S/N
-                          </th>
+                          <AtlCrPartHeaderFillers />
                           <th
                             className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
                             aria-hidden="true"
@@ -3228,12 +3186,14 @@ export function Operation() {
                         {paginatedRecords.length === 0 ? (
                           <tr>
                             <td
-                              colSpan={51}
+                              colSpan={
+                                ATL_CR_HEADER_COLS_BEFORE +
+                                ATL_CR_LEAF_COL_COUNT +
+                                ATL_CR_HEADER_COLS_AFTER
+                              }
                               className="px-6 py-12 text-center text-gray-500"
                             >
-                              {searchQuery
-                                ? `No records found matching "${searchQuery}"`
-                                : "No records available"}
+                              {atlListEmptyMessage(searchQuery)}
                             </td>
                           </tr>
                         ) : (
@@ -3633,7 +3593,7 @@ export function Operation() {
                               colSpan={13}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
-                              No records
+                              {atlListEmptyMessage(searchQuery)}
                             </td>
                           </tr>
                         ) : (
@@ -3810,7 +3770,7 @@ export function Operation() {
                               colSpan={16}
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
-                              No records
+                              {atlListEmptyMessage(searchQuery)}
                             </td>
                           </tr>
                         ) : (
@@ -3985,18 +3945,7 @@ export function Operation() {
                           >
                             {"\u00a0"}
                           </th>
-                          <th
-                            colSpan={2}
-                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
-                          >
-                            PARTS REMOVED
-                          </th>
-                          <th
-                            colSpan={2}
-                            className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_PN_SN_PAIR_COL_CLASS}`}
-                          >
-                            PARTS INSTALLED
-                          </th>
+                          <AtlCrPartHeaderCells />
                           <th
                             className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
                           >
@@ -4032,26 +3981,7 @@ export function Operation() {
                           >
                             {"\u00a0"}
                           </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            P/N
-                          </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            S/N
-                          </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            P/N
-                          </th>
-                          <th
-                            className={`${ATL_TH_CR_SUB_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-                          >
-                            S/N
-                          </th>
+                          <AtlCrPartHeaderFillers />
                           <th
                             className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
                             aria-hidden="true"
@@ -4082,7 +4012,7 @@ export function Operation() {
                               }
                               className="px-5 py-8 text-center text-gray-500 text-sm"
                             >
-                              No records
+                              {atlListEmptyMessage(searchQuery)}
                             </td>
                           </tr>
                         ) : (

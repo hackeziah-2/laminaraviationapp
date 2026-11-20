@@ -667,6 +667,18 @@ export function normalizeAtlPagedSortParam(sort: string): string {
   return trimmed;
 }
 
+/** Repeat nature_of_flight so the paged list can filter to those natures. */
+export function appendNatureOfFlightFilterParams(
+  params: URLSearchParams,
+  natures?: readonly string[]
+): void {
+  if (!natures) return;
+  for (const nature of natures) {
+    const value = nature.trim();
+    if (value) params.append("nature_of_flight", value);
+  }
+}
+
 /**
  * `atl_batch=all` includes every row for the aircraft (assigned batch and NULL batch).
  * A positive id restricts the list to that batch.
@@ -695,7 +707,8 @@ const fetchAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number | "all"
+  atlBatchFk?: number | "all",
+  natures?: readonly string[]
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> => {
   try {
     const params = new URLSearchParams();
@@ -724,6 +737,8 @@ const fetchAircraftTechnicalLogs = async (
     if (workStatus != null && workStatus.trim() !== "") {
       params.append("work_status", workStatus.trim());
     }
+
+    appendNatureOfFlightFilterParams(params, natures);
 
     const response = await apiClient.get(`${endpoint}?${params.toString()}`);
 
@@ -786,7 +801,8 @@ export const getAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number | "all"
+  atlBatchFk?: number | "all",
+  natures?: readonly string[]
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/paged",
@@ -796,7 +812,8 @@ export const getAircraftTechnicalLogs = async (
     aircraftFk,
     sort,
     workStatus,
-    atlBatchFk
+    atlBatchFk,
+    natures
   );
 
 /**
@@ -813,7 +830,8 @@ export const getManagedAircraftTechnicalLogs = async (
   aircraftFk?: number,
   sort = "",
   workStatus?: string,
-  atlBatchFk?: number | "all"
+  atlBatchFk?: number | "all",
+  natures?: readonly string[]
 ): Promise<PaginatedResponse<AircraftTechnicalLog>> =>
   fetchAircraftTechnicalLogs(
     "aircraft-technical-log/manage/paged",
@@ -823,7 +841,8 @@ export const getManagedAircraftTechnicalLogs = async (
     aircraftFk,
     sort,
     workStatus,
-    atlBatchFk
+    atlBatchFk,
+    natures
   );
 
 /**

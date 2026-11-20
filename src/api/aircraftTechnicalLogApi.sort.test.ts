@@ -7,6 +7,7 @@ vi.mock("./index", () => ({
 import apiClient from "./index";
 import {
   appendAtlBatchFilterParams,
+  appendNatureOfFlightFilterParams,
   displayTSN,
   formatAtlListCell,
   getAircraftTechnicalLogs,
@@ -81,6 +82,30 @@ describe("getAircraftTechnicalLogs", () => {
 
     expect(apiClient.get).toHaveBeenCalledWith(
       "aircraft-technical-log/paged?page=2&page_size=50&limit=50&aircraft_id=12&aircraft_fk=12&sort=-sequence_no"
+    );
+  });
+
+  it("sends Reliability Monitoring natures as repeated nature_of_flight params", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { items: [], total: 0, page: 1, pages: 1 },
+    });
+
+    await getAircraftTechnicalLogs(
+      1,
+      50,
+      "",
+      12,
+      "-sequence_no",
+      undefined,
+      undefined,
+      ["ME", "TR_WITH_PIREM"]
+    );
+
+    const params = new URLSearchParams();
+    appendNatureOfFlightFilterParams(params, ["ME", "TR_WITH_PIREM"]);
+    expect(params.getAll("nature_of_flight")).toEqual(["ME", "TR_WITH_PIREM"]);
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "aircraft-technical-log/paged?page=1&page_size=50&limit=50&aircraft_id=12&aircraft_fk=12&sort=-sequence_no&nature_of_flight=ME&nature_of_flight=TR_WITH_PIREM"
     );
   });
 });

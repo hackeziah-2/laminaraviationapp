@@ -8,6 +8,7 @@ import {
   appendPagedQueryParams,
   collectAllPagedItems,
   extractPagedItems,
+  paginateClientRecords,
   parsePagedMeta,
   parsePagedResponse,
   pagedQueryRecord,
@@ -119,6 +120,29 @@ describe("extractPagedItems / parsePagedResponse", () => {
       total: 2,
       page: 1,
       page_size: 50,
+      pages: 1,
+    });
+  });
+});
+
+describe("paginateClientRecords", () => {
+  const records = ["a", "b", "c", "d", "e"];
+
+  it("returns the requested page of a filtered list", () => {
+    expect(paginateClientRecords(records, 2, 2)).toEqual({
+      items: ["c", "d"],
+      total: 5,
+      page: 2,
+      pages: 3,
+    });
+  });
+
+  it("clamps a page past the end and treats an empty list as one blank page", () => {
+    expect(paginateClientRecords(records, 9, 2).page).toBe(3);
+    expect(paginateClientRecords([], 4, 50)).toEqual({
+      items: [],
+      total: 0,
+      page: 1,
       pages: 1,
     });
   });
