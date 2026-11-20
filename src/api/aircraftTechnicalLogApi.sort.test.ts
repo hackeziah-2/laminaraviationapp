@@ -7,6 +7,7 @@ vi.mock("./index", () => ({
 import apiClient from "./index";
 import {
   appendAtlBatchFilterParams,
+  appendNatureOfFlightFilterParams,
   displayTSN,
   formatAtlListCell,
   getAircraftTechnicalLogs,
@@ -14,6 +15,8 @@ import {
   normalizeAtlPagedSortParam,
   normalizeAtlPilotAcceptanceNameForApi,
   parseAtlAssigneeIdForApi,
+  atlAssigneeForValidation,
+  normalizeAtlSignatureAssigneesForApi,
   pilotAcceptanceNameFieldsForApi,
 } from "./aircraftTechnicalLogApi";
 import { formatAtlFuelLeftRightForDisplay } from "../utility/utils";
@@ -79,6 +82,30 @@ describe("getAircraftTechnicalLogs", () => {
 
     expect(apiClient.get).toHaveBeenCalledWith(
       "aircraft-technical-log/paged?page=2&page_size=50&limit=50&aircraft_id=12&aircraft_fk=12&sort=-sequence_no"
+    );
+  });
+
+  it("sends Reliability Monitoring natures as repeated nature_of_flight params", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: { items: [], total: 0, page: 1, pages: 1 },
+    });
+
+    await getAircraftTechnicalLogs(
+      1,
+      50,
+      "",
+      12,
+      "-sequence_no",
+      undefined,
+      undefined,
+      ["ME", "TR_WITH_PIREM"]
+    );
+
+    const params = new URLSearchParams();
+    appendNatureOfFlightFilterParams(params, ["ME", "TR_WITH_PIREM"]);
+    expect(params.getAll("nature_of_flight")).toEqual(["ME", "TR_WITH_PIREM"]);
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "aircraft-technical-log/paged?page=1&page_size=50&limit=50&aircraft_id=12&aircraft_fk=12&sort=-sequence_no&nature_of_flight=ME&nature_of_flight=TR_WITH_PIREM"
     );
   });
 });
@@ -192,6 +219,34 @@ describe("pilotAcceptanceNameFieldsForApi", () => {
     expect(pilotAcceptanceNameFieldsForApi("42")).toEqual({
       pilotFk: 42,
       pilotAcceptedBy: 42,
+    });
+  });
+});
+
+describe("atlAssigneeForValidation", () => {
+  it("keeps explicit None distinct from an untouched blank", () => {
+    expect(atlAssigneeForValidation("None")).toBe("None");
+    expect(atlAssigneeForValidation(" none ")).toBe("None");
+    expect(atlAssigneeForValidation("")).toBeNull();
+    expect(atlAssigneeForValidation(null)).toBeNull();
+    expect(atlAssigneeForValidation("42")).toBe(42);
+  });
+});
+
+describe("normalizeAtlSignatureAssigneesForApi", () => {
+  it("persists explicit None as null after validation", () => {
+    expect(
+      normalizeAtlSignatureAssigneesForApi({
+        rts_signed_by: "None",
+        pilot_fk: "None",
+        pilot_accepted_by: "None",
+        origin_date: "2026-09-22",
+      })
+    ).toEqual({
+      rts_signed_by: null,
+      pilot_fk: null,
+      pilot_accepted_by: null,
+      origin_date: "2026-09-22",
     });
   });
 });

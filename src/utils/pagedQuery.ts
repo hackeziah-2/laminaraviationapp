@@ -132,6 +132,27 @@ export function parsePagedResponse<T>(
   };
 }
 
+/** Slice an already-filtered list into the page the table is showing. */
+export function paginateClientRecords<T>(
+  records: readonly T[],
+  page: number,
+  pageSize: number
+): { items: T[]; total: number; page: number; pages: number } {
+  const size =
+    Number.isFinite(pageSize) && pageSize > 0 ? Math.trunc(pageSize) : 1;
+  const total = records.length;
+  const pages = total === 0 ? 1 : Math.max(1, Math.ceil(total / size));
+  const requested = Number.isFinite(page) ? Math.trunc(page) : 1;
+  const safePage = Math.min(Math.max(1, requested), pages);
+  const start = (safePage - 1) * size;
+  return {
+    items: records.slice(start, start + size),
+    total,
+    page: safePage,
+    pages,
+  };
+}
+
 /** Walk every page at the API maximum size (500) so exports still receive all matches. */
 export async function collectAllPagedItems<T>(
   fetchPage: (
