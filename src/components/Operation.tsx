@@ -198,9 +198,6 @@ const ATL_TD_CR_LEFT_CLASS = `${ATL_TD_CR_BASE_CLASS} text-left`;
 
 /** Leaf columns before / after Component Record in the all-columns thead. */
 const ATL_CR_HEADER_COLS_BEFORE = 36;
-/** All Columns leaves before the Airframe / Engine / Propeller timesheet. */
-const ATL_COLS_BEFORE_TIMESHEET = 16;
-const ATL_TIMESHEET_LEAF_COUNT = 10;
 const ATL_CR_HEADER_COLS_AFTER = 8;
 const ATL_CR_LEAF_COL_COUNT = 7;
 /** Leaf columns before Component Record in Reliability Monitoring. */
@@ -343,22 +340,6 @@ function AtlCrPartHeaderCells() {
           style={{ whiteSpace: "normal" }}
         >
           {label}
-        </th>
-      ))}
-    </>
-  );
-}
-
-function AtlCrPartHeaderFillers() {
-  return (
-    <>
-      {ATL_CR_PART_HEADERS.map((label) => (
-        <th
-          key={label}
-          className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_PN_SN_COL_CLASS}`}
-          aria-hidden="true"
-        >
-          {"\u00a0"}
         </th>
       ))}
     </>
@@ -753,36 +734,6 @@ function AtlTimesheetGroupHeaders() {
       >
         Propeller
       </th>
-    </>
-  );
-}
-
-/** Row-3 spacers under the timesheet, same color as the column so the fill does not break. */
-const ATL_TIMESHEET_FILL_CLASSES = [
-  "atl-ts-af-run",
-  "atl-ts-af-aftt atl-th-group-end",
-  "atl-ts-en-run",
-  "atl-ts-en-tsn",
-  "atl-ts-en-tso",
-  "atl-ts-en-tbo atl-th-group-end",
-  "atl-ts-pr-run",
-  "atl-ts-pr-tsn",
-  "atl-ts-pr-tso",
-  "atl-ts-pr-tbo atl-th-group-end",
-] as const;
-
-function AtlTimesheetHeaderFillCells() {
-  return (
-    <>
-      {ATL_TIMESHEET_FILL_CLASSES.map((columnClass) => (
-        <th
-          key={columnClass}
-          className={`${ATL_TH_STICKY_FILL_CLASS} ${columnClass}`}
-          aria-hidden="true"
-        >
-          {"\u00a0"}
-        </th>
-      ))}
     </>
   );
 }
@@ -3145,42 +3096,6 @@ export function Operation() {
                             DFP
                           </th>
                         </tr>
-                        <tr>
-                          <AtlStickyHeaderFillCells
-                            count={ATL_COLS_BEFORE_TIMESHEET}
-                            stickySeqFirst
-                          />
-                          <AtlTimesheetHeaderFillCells />
-                          <AtlStickyHeaderFillCells
-                            count={
-                              ATL_CR_HEADER_COLS_BEFORE -
-                              ATL_COLS_BEFORE_TIMESHEET -
-                              ATL_TIMESHEET_LEAF_COUNT
-                            }
-                          />
-                          <AtlCrPartHeaderFillers />
-                          <th
-                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <th
-                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <th
-                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <AtlStickyHeaderFillCells
-                            count={ATL_CR_HEADER_COLS_AFTER}
-                          />
-                        </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
                         {paginatedRecords.length === 0 ? (
@@ -3960,45 +3875,6 @@ export function Operation() {
                             className={`${ATL_TH_CR_GROUP_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
                           >
                             PART REMARKS
-                          </th>
-                        </tr>
-                        <tr className="bg-gray-100">
-                          <AtlStickyHeaderFillCells
-                            count={ATL_RM_HEADER_COLS_BEFORE - 2}
-                            stickySeqFirst
-                          />
-                          <th
-                            className={ATL_TH_STICKY_FILL_CLASS}
-                            style={ATL_REMARKS_COL_SIZE}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <th
-                            className={ATL_TH_STICKY_FILL_CLASS}
-                            style={ATL_ACTION_TAKEN_COL_SIZE}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <AtlCrPartHeaderFillers />
-                          <th
-                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_NOM_COL_CLASS}`}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <th
-                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_ATA_COL_CLASS}`}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
-                          </th>
-                          <th
-                            className={`${ATL_TH_STICKY_FILL_CLASS} ${ATL_CR_REMARKS_COL_CLASS}`}
-                            aria-hidden="true"
-                          >
-                            {"\u00a0"}
                           </th>
                         </tr>
                       </thead>
