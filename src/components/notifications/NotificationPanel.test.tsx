@@ -159,8 +159,16 @@ describe("NotificationPanel inbox actions", () => {
     expect(
       screen.getByText("Clear all permanently deletes every notification in your inbox.")
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(clearAllNotifications).not.toHaveBeenCalled();
+    expect(screen.getByText("Unread alert")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => {
       expect(clearAllNotifications).toHaveBeenCalledWith("token");
     });
@@ -183,6 +191,26 @@ describe("NotificationPanel inbox actions", () => {
     expect(clearAllNotifications).not.toHaveBeenCalled();
     expect(markAllNotificationsRead).not.toHaveBeenCalled();
     expect(toast.success).toHaveBeenCalledWith("Notification deleted.");
+  });
+
+  it("keeps the inbox and shows an error when clear all fails", async () => {
+    vi.mocked(clearAllNotifications).mockRejectedValueOnce(
+      new Error("Failed to delete notifications")
+    );
+    renderPanel();
+    expect(await screen.findByText("Unread alert")).toBeInTheDocument();
+    expect(screen.getByText("Read alert")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith("Failed to delete notifications");
+    });
+    expect(screen.getByText("Unread alert")).toBeInTheDocument();
+    expect(screen.getByText("Read alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All (2)" })).toBeInTheDocument();
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("shows an error and keeps the notification when marking it read fails", async () => {

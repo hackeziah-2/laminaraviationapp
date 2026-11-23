@@ -2,19 +2,6 @@ import { Trash2 } from "lucide-react";
 import type { Notification } from "../../types/notification";
 import { formatNotificationMessage } from "../../utility/notificationMessage";
 
-function severityAccent(severity: Notification["severity"]) {
-  switch (severity) {
-    case "SUCCESS":
-      return "border-l-emerald-500";
-    case "WARNING":
-      return "border-l-amber-500";
-    case "CRITICAL":
-      return "border-l-red-500";
-    default:
-      return "border-l-blue-500";
-  }
-}
-
 type Props = {
   notification: Notification;
   selected?: boolean;
@@ -34,12 +21,13 @@ export function NotificationCard({
 }: Props) {
   const isUnread = notification.status === "UNREAD";
   const displayMessage = formatNotificationMessage(notification.message);
-  const accent = severityAccent(notification.severity);
 
   return (
     <div
       tabIndex={0}
       data-selected={selected ? "true" : "false"}
+      data-read-state={isUnread ? "unread" : "read"}
+      data-severity={notification.severity}
       onClick={onClick}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -48,11 +36,7 @@ export function NotificationCard({
           onClick();
         }
       }}
-      className={`notification-card box-border flex w-full max-w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border bg-white px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50/80 ${
-        selected ? "border-blue-500 ring-2 ring-blue-500" : "border-gray-200"
-      } ${
-        isUnread ? `border-l-[3px] ${accent} bg-blue-50/30` : "border-l-[3px] border-l-transparent"
-      }`}
+      className="notification-card box-border flex w-full max-w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border px-4 py-3 text-left"
     >
       <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[11px] font-semibold text-gray-700">
         {notification.sender_initials || "LM"}
@@ -66,9 +50,7 @@ export function NotificationCard({
 
       <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
         <p
-          className={`notification-title truncate text-sm ${
-            isUnread ? "font-semibold text-gray-900" : "font-medium text-gray-800"
-          }`}
+          className="notification-title truncate text-sm"
           title={notification.title}
         >
           {notification.title}

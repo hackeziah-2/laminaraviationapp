@@ -4256,3 +4256,137 @@ input[data-slot="date-input"] {
   }
 }
 
+/* Notification cards — read vs unread, using the existing blue/gray/navy tokens. */
+.notification-card {
+  border-color: var(--color-gray-200);
+  border-left-width: 3px;
+  border-left-color: var(--color-gray-200);
+  background-color: #fff;
+  color: var(--color-gray-700);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.notification-card[data-read-state="read"] {
+  background-color: var(--color-gray-50);
+}
+
+.notification-card[data-read-state="read"] .notification-title {
+  font-weight: 500;
+  color: var(--color-gray-600);
+}
+
+.notification-card[data-read-state="read"] .notification-message {
+  color: var(--color-gray-500);
+}
+
+.notification-card[data-read-state="unread"] {
+  border-color: var(--color-blue-200);
+  border-left-color: #022c75;
+  background-color: var(--color-blue-50);
+}
+
+.notification-card[data-read-state="unread"][data-severity="SUCCESS"] {
+  border-left-color: var(--color-emerald-500);
+}
+
+.notification-card[data-read-state="unread"][data-severity="WARNING"] {
+  border-left-color: var(--color-amber-500);
+}
+
+.notification-card[data-read-state="unread"][data-severity="CRITICAL"] {
+  border-left-color: var(--color-red-600);
+}
+
+.notification-card[data-read-state="unread"] .notification-title {
+  font-weight: 600;
+  color: var(--color-gray-900);
+}
+
+.notification-card[data-read-state="unread"] .notification-message {
+  color: var(--color-gray-700);
+}
+
+.notification-card:hover {
+  border-color: var(--color-gray-300);
+  background-color: #fff;
+}
+
+.notification-card[data-read-state="unread"]:hover {
+  border-color: var(--color-blue-300);
+  background-color: var(--color-blue-100);
+}
+
+.notification-card[data-selected="true"] {
+  border-color: #022c75;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-blue-500) 28%, transparent);
+}
+
+.notification-card:focus-visible {
+  outline: 2px solid #022c75;
+  outline-offset: 2px;
+}
+
+.notification-confirm-action,
+.notification-confirm-cancel {
+  min-height: 2.25rem;
+}
+
+.notification-confirm-action {
+  border: 1px solid var(--color-red-600);
+  background-color: var(--color-red-600);
+  color: #fff;
+}
+
+.notification-confirm-action:hover:not(:disabled) {
+  background-color: var(--color-red-700);
+  border-color: var(--color-red-700);
+}
+
+.notification-confirm-action:focus-visible,
+.notification-confirm-cancel:focus-visible {
+  outline: 2px solid #022c75;
+  outline-offset: 2px;
+}
+
+.notification-confirm-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.notification-confirm-cancel {
+  border: 1px solid var(--color-gray-300);
+  background-color: #fff;
+  color: var(--color-gray-700);
+}
+
+.notification-confirm-cancel:hover {
+  background-color: var(--color-gray-50);
+}
+
+.shrink-0 {
+  flex-shrink: 0;
+}
+
+.notification-panel {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+.notification-panel-footer {
+  flex-shrink: 0;
+}
+
+.notification-confirm-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background-color: #fff;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-close-button] {
+  left: auto;
+  right: 0;
+  top: 0;
+  transform: translate(35%, -35%);
+}
+

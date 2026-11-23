@@ -1,3 +1,5 @@
+import type { Notification } from "../types/notification";
+
 const AIRCRAFT_REGISTRATION_PATTERN = /\b[A-Z]{2}-[A-Z]\d{4}\b/g;
 
 function extractAircraftRegistrations(message: string): string[] {
@@ -35,6 +37,33 @@ export function formatNotificationMessage(
   }
 
   return `${prefix} updated for ${visible} and ${remaining} more aircraft.`;
+}
+
+function atlSequenceNumber(notification: Notification): string {
+  const metadata = notification.metadata ?? notification.notification_metadata ?? null;
+  const sequence =
+    notification.sequence_no ??
+    metadata?.sequence_no ??
+    (metadata?.sequenceNo as string | number | undefined);
+  if (sequence == null) return "";
+  return String(sequence).trim();
+}
+
+function isAtlNotification(notification: Notification): boolean {
+  const moduleName = notification.module_name?.trim().toLowerCase();
+  return (
+    moduleName === "atl" ||
+    moduleName === "alt" ||
+    moduleName === "logbook" ||
+    notification.reference_type === "ATL"
+  );
+}
+
+/** Short label for the selected notification. ATL rows use the sequence number. */
+export function formatSelectedNotificationLabel(notification: Notification): string {
+  if (!isAtlNotification(notification)) return notification.title;
+  const sequence = atlSequenceNumber(notification);
+  return sequence ? `ATL #${sequence}` : notification.title;
 }
 
 export function formatNotificationMessageCountOnly(message: string): string {

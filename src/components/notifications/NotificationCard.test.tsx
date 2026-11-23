@@ -125,5 +125,26 @@ describe("NotificationCard", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(1);
     expect((container.firstChild as HTMLElement).getAttribute("data-selected")).toBe("true");
+    expect((container.firstChild as HTMLElement).getAttribute("data-read-state")).toBe("unread");
+  });
+
+  it("marks a read card separately from an unread card", () => {
+    const { container, rerender } = render(
+      <NotificationCard
+        notification={buildNotification({ status: "READ" })}
+        onClick={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+    expect((container.firstChild as HTMLElement).getAttribute("data-read-state")).toBe("read");
+
+    rerender(
+      <NotificationCard
+        notification={buildNotification({ status: "UNREAD" })}
+        onClick={vi.fn()}
+        onDelete={vi.fn()}
+      />
+    );
+    expect((container.firstChild as HTMLElement).getAttribute("data-read-state")).toBe("unread");
   });
 });
