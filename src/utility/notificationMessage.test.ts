@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { Notification } from "../types/notification";
 import {
   formatNotificationMessage,
   formatNotificationMessageCountOnly,
+  formatSelectedNotificationLabel,
 } from "./notificationMessage";
 
 const TEN_AIRCRAFT_MESSAGE =
@@ -42,6 +44,54 @@ describe("formatNotificationMessage", () => {
   it("returns the original message when no aircraft registrations are found", () => {
     const message = "System maintenance completed successfully.";
     expect(formatNotificationMessage(message)).toBe(message);
+  });
+});
+
+function selectedNotification(overrides: Partial<Notification> = {}): Notification {
+  return {
+    id: 1,
+    uuid: "uuid-1",
+    sender_initials: "KL",
+    title: "ATL Status Updated: REJECTED_MAINTENANCE",
+    message: "Status changed",
+    module_name: "ATL",
+    type: "APPROVAL",
+    severity: "WARNING",
+    status: "UNREAD",
+    reference_id: 15,
+    reference_type: "ATL",
+    metadata: { sequence_no: "19177" },
+    created_at: "2026-11-23T00:00:00Z",
+    read_at: null,
+    archived_at: null,
+    time_ago: "1 min ago",
+    ...overrides,
+  };
+}
+
+describe("formatSelectedNotificationLabel", () => {
+  it("uses the ATL sequence number instead of the full title", () => {
+    expect(formatSelectedNotificationLabel(selectedNotification())).toBe("ATL #19177");
+  });
+
+  it("reads the sequence number from the notification field", () => {
+    expect(
+      formatSelectedNotificationLabel(
+        selectedNotification({ metadata: null, sequence_no: 18670 })
+      )
+    ).toBe("ATL #18670");
+  });
+
+  it("keeps the title for notifications that are not ATL", () => {
+    expect(
+      formatSelectedNotificationLabel(
+        selectedNotification({
+          title: "Fleet Daily Update Updated",
+          module_name: "daily-update",
+          reference_type: "FLEET_DAILY_UPDATE_BULK",
+        })
+      )
+    ).toBe("Fleet Daily Update Updated");
   });
 });
 

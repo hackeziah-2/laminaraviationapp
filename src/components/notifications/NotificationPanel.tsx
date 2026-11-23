@@ -10,6 +10,7 @@ import { useNotificationMutations, useNotificationsQuery } from "../../hooks/use
 import { useUnreadCount } from "../../hooks/useUnreadCount";
 import type { Notification, NotificationListStatus } from "../../types/notification";
 import { getNotificationRoute } from "../../services/notificationApi";
+import { formatSelectedNotificationLabel } from "../../utility/notificationMessage";
 import {
   getNotificationDrawerStyle,
   getNotificationOverlayStyle,
@@ -153,7 +154,7 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
       />
 
       <aside
-        className="notification-panel fixed top-0 z-[61] flex h-screen min-h-0 flex-col overflow-hidden border-l border-gray-200 bg-white shadow-[-4px_0_12px_rgba(0,0,0,0.12)] transition-[width,max-width] duration-300"
+        className="notification-panel fixed top-0 z-[65] flex h-screen min-h-0 flex-col overflow-hidden border-l border-gray-200 bg-white shadow-[-4px_0_12px_rgba(0,0,0,0.12)] transition-[width,max-width] duration-300"
         style={drawerStyle}
         role="dialog"
         aria-modal="true"
@@ -225,85 +226,87 @@ export function NotificationPanel({ isOpen, onClose, token }: Props) {
         </div>
 
         <footer
-          className={`${headerClass} shrink-0 border-t border-gray-200 bg-white py-4 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]`}
+          className={`${headerClass} notification-panel-footer shrink-0 border-t border-gray-200 bg-white py-4 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]`}
         >
           <p className="mb-2 truncate text-xs text-gray-600">
-            {selected ? `Selected: ${selected.title}` : "Select a notification to change its status."}
+            {selected
+              ? `Selected: ${formatSelectedNotificationLabel(selected)}`
+              : "Select a notification to change its status."}
           </p>
-          <div className="grid w-full min-w-0 grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (!selected) return;
-                setConfirmClear(false);
-                markRead.mutate(selected.id);
-              }}
-              disabled={!selected || selectedStatus !== "UNREAD" || markRead.isPending}
-              className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <MailOpen className="h-4 w-4 shrink-0" />
-              <span className="truncate">Mark as read</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!selected) return;
-                setConfirmClear(false);
-                markUnread.mutate(selected.id);
-              }}
-              disabled={!selected || selectedStatus !== "READ" || markUnread.isPending}
-              className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Mail className="h-4 w-4 shrink-0" />
-              <span className="truncate">Mark as unread</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setConfirmClear(false);
-                markAllRead.mutate();
-              }}
-              disabled={markAllRead.isPending || counts.unread === 0}
-              className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Check className="h-4 w-4 shrink-0" />
-              <span className="truncate">Mark all as read</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirmClear) {
-                  setConfirmClear(true);
-                  return;
-                }
-                setSelectedId(null);
-                setPage(1);
-                clearAll.mutate(undefined, {
-                  onSuccess: () => setConfirmClear(false),
-                });
-              }}
-              disabled={clearAll.isPending || counts.all === 0}
-              className={`flex min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                confirmClear
-                  ? "border-red-600 bg-red-600 text-white hover:bg-red-700"
-                  : "border-red-200 text-red-700 hover:bg-red-50"
-              }`}
-            >
-              <Trash2 className="h-4 w-4 shrink-0" />
-              <span className="truncate">{confirmClear ? "Delete all" : "Clear all"}</span>
-            </button>
-          </div>
-          {confirmClear && (
-            <div className="mt-2 flex items-start justify-between gap-2">
+          {confirmClear ? (
+            <div className="notification-confirm-bar">
               <p className="text-xs leading-snug text-red-700">
                 Clear all permanently deletes every notification in your inbox.
               </p>
+              <div className="mt-2 grid w-full min-w-0 grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmClear(false)}
+                  className="notification-confirm-cancel rounded-lg px-2 py-2 text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearAll.mutate(undefined, {
+                      onSuccess: () => {
+                        setConfirmClear(false);
+                        setSelectedId(null);
+                        setPage(1);
+                      },
+                    });
+                  }}
+                  disabled={clearAll.isPending}
+                  className="notification-confirm-action rounded-lg px-2 py-2 text-sm font-medium"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid w-full min-w-0 grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmClear(false)}
-                className="shrink-0 text-xs font-medium text-gray-600 underline"
+                onClick={() => {
+                  if (!selected) return;
+                  markRead.mutate(selected.id);
+                }}
+                disabled={!selected || selectedStatus !== "UNREAD" || markRead.isPending}
+                className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Cancel
+                <MailOpen className="h-4 w-4 shrink-0" />
+                <span className="truncate">Mark as read</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selected) return;
+                  markUnread.mutate(selected.id);
+                }}
+                disabled={!selected || selectedStatus !== "READ" || markUnread.isPending}
+                className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Mail className="h-4 w-4 shrink-0" />
+                <span className="truncate">Mark as unread</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => markAllRead.mutate()}
+                disabled={markAllRead.isPending || counts.unread === 0}
+                className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-2 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Check className="h-4 w-4 shrink-0" />
+                <span className="truncate">Mark all as read</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                disabled={clearAll.isPending || counts.all === 0}
+                className="flex min-w-0 items-center justify-center gap-1.5 rounded-lg border border-red-200 px-2 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+                <span className="truncate">Clear all</span>
               </button>
             </div>
           )}
